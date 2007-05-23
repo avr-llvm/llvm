@@ -24,8 +24,15 @@
 #include "llvm/Support/MemoryBuffer.h"
 using namespace llvm;
 
-BitcodeReader::~BitcodeReader() {
+void BitcodeReader::FreeState() {
   delete Buffer;
+  Buffer = 0;
+  std::vector<PATypeHolder>().swap(TypeList);
+  ValueList.clear();
+  std::vector<const ParamAttrsList*>().swap(ParamAttrs);
+  std::vector<BasicBlock*>().swap(FunctionBBs);
+  std::vector<Function*>().swap(FunctionsWithBodies);
+  DeferredFunctionInfo.clear();
 }
 
 //===----------------------------------------------------------------------===//
@@ -985,10 +992,10 @@ bool BitcodeReader::ParseModule(const std::string &ModuleID) {
         GlobalInits.push_back(std::make_pair(NewGV, InitID-1));
       break;
     }
-    // FUNCTION:  [type, callingconv, isproto, linkage, alignment, section,
-    //             visibility]
+    // FUNCTION:  [type, callingconv, isproto, linkage, paramattr,
+    //             alignment, section, visibility]
     case bitc::MODULE_CODE_FUNCTION: {
-      if (Record.size() < 7)
+      if (Record.size() < 8)
         return Error("Invalid MODULE_CODE_FUNCTION record");
       const Type *Ty = getTypeByID(Record[0]);
       if (!isa<PointerType>(Ty))
@@ -1004,13 +1011,17 @@ bool BitcodeReader::ParseModule(const std::string &ModuleID) {
       Func->setCallingConv(Record[1]);
       bool isProto = Record[2];
       Func->setLinkage(GetDecodedLinkage(Record[3]));
-      Func->setAlignment((1 << Record[4]) >> 1);
-      if (Record[5]) {
-        if (Record[5]-1 >= SectionTable.size())
+      
+      assert(Func->getFunctionType()->getParamAttrs() == 
+             getParamAttrs(Record[4]));
+      
+      Func->setAlignment((1 << Record[5]) >> 1);
+      if (Record[6]) {
+        if (Record[6]-1 >= SectionTable.size())
           return Error("Invalid section ID");
-        Func->setSection(SectionTable[Record[5]-1]);
+        Func->setSection(SectionTable[Record[6]-1]);
       }
-      Func->setVisibility(GetDecodedVisibility(Record[6]));
+      Func->setVisibility(GetDecodedVisibility(Record[7]));
       
       ValueList.push_back(Func);
       
@@ -1095,42 +1106,6 @@ bool BitcodeReader::ParseBitcode() {
   }
   
   return false;
-}
-
-
-bool BitcodeReader::materializeFunction(Function *F, std::string *ErrInfo) {
-  // If it already is material, ignore the request.
-  if (!F->hasNotBeenReadFromBytecode()) return false;
-
-  DenseMap<Function*, std::pair<uint64_t, unsigned> >::iterator DFII = 
-    DeferredFunctionInfo.find(F);
-  assert(DFII != DeferredFunctionInfo.end() && "Deferred function not found!");
-  
-  // Move the bit stream to the saved position of the deferred function body and
-  // restore the real linkage type for the function.
-  Stream.JumpToBit(DFII->second.first);
-  F->setLinkage((GlobalValue::LinkageTypes)DFII->second.second);
-  DeferredFunctionInfo.erase(DFII);
-  
-  if (ParseFunctionBody(F)) {
-    if (ErrInfo) *ErrInfo = ErrorString;
-    return true;
-  }
-  
-  return false;
-}
-
-Module *BitcodeReader::materializeModule(std::string *ErrInfo) {
-  DenseMap<Function*, std::pair<uint64_t, unsigned> >::iterator I = 
-    DeferredFunctionInfo.begin();
-  while (!DeferredFunctionInfo.empty()) {
-    Function *F = (*I++).first;
-    assert(F->hasNotBeenReadFromBytecode() &&
-           "Deserialized function found in map!");
-    if (materializeFunction(F, ErrInfo))
-      return 0;
-  }
-  return TheModule;
 }
 
 
@@ -1364,12 +1339,12 @@ bool BitcodeReader::ParseFunctionBody(Function *F) {
     }
       
     case bitc::FUNC_CODE_INST_INVOKE: { // INVOKE: [cc,fnty, op0,op1,op2, ...]
-      if (Record.size() < 3) return Error("Invalid INVOKE record");
-      unsigned CCInfo = Record[0];
-      BasicBlock *NormalBB = getBasicBlock(Record[1]);
-      BasicBlock *UnwindBB = getBasicBlock(Record[2]);
+      if (Record.size() < 4) return Error("Invalid INVOKE record");
+      unsigned CCInfo = Record[1];
+      BasicBlock *NormalBB = getBasicBlock(Record[2]);
+      BasicBlock *UnwindBB = getBasicBlock(Record[3]);
       
-      unsigned OpNum = 3;
+      unsigned OpNum = 4;
       Value *Callee;
       if (getValueTypePair(Record, OpNum, NextValueNo, Callee))
         return Error("Invalid INVOKE record");
@@ -1383,6 +1358,8 @@ bool BitcodeReader::ParseFunctionBody(Function *F) {
           Record.size() < OpNum+FTy->getNumParams())
         return Error("Invalid INVOKE record");
       
+      assert(FTy->getParamAttrs() == getParamAttrs(Record[0]));
+
       SmallVector<Value*, 16> Ops;
       for (unsigned i = 0, e = FTy->getNumParams(); i != e; ++i, ++OpNum) {
         Ops.push_back(getFnValueByID(Record[OpNum], FTy->getParamType(i)));
@@ -1484,11 +1461,12 @@ bool BitcodeReader::ParseFunctionBody(Function *F) {
       break;
     }
     case bitc::FUNC_CODE_INST_CALL: { // CALL: [cc, fnty, fnid, arg0, arg1...]
-      if (Record.size() < 1)
+      if (Record.size() < 2)
         return Error("Invalid CALL record");
-      unsigned CCInfo = Record[0];
       
-      unsigned OpNum = 1;
+      unsigned CCInfo = Record[1];
+      
+      unsigned OpNum = 2;
       Value *Callee;
       if (getValueTypePair(Record, OpNum, NextValueNo, Callee))
         return Error("Invalid CALL record");
@@ -1498,6 +1476,8 @@ bool BitcodeReader::ParseFunctionBody(Function *F) {
       if (OpTy) FTy = dyn_cast<FunctionType>(OpTy->getElementType());
       if (!FTy || Record.size() < FTy->getNumParams()+OpNum)
         return Error("Invalid CALL record");
+      
+      assert(FTy->getParamAttrs() == getParamAttrs(Record[0]));
       
       SmallVector<Value*, 16> Args;
       // Read the fixed params.
@@ -1577,6 +1557,69 @@ bool BitcodeReader::ParseFunctionBody(Function *F) {
   return false;
 }
 
+//===----------------------------------------------------------------------===//
+// ModuleProvider implementation
+//===----------------------------------------------------------------------===//
+
+
+bool BitcodeReader::materializeFunction(Function *F, std::string *ErrInfo) {
+  // If it already is material, ignore the request.
+  if (!F->hasNotBeenReadFromBytecode()) return false;
+  
+  DenseMap<Function*, std::pair<uint64_t, unsigned> >::iterator DFII = 
+    DeferredFunctionInfo.find(F);
+  assert(DFII != DeferredFunctionInfo.end() && "Deferred function not found!");
+  
+  // Move the bit stream to the saved position of the deferred function body and
+  // restore the real linkage type for the function.
+  Stream.JumpToBit(DFII->second.first);
+  F->setLinkage((GlobalValue::LinkageTypes)DFII->second.second);
+  
+  if (ParseFunctionBody(F)) {
+    if (ErrInfo) *ErrInfo = ErrorString;
+    return true;
+  }
+  
+  return false;
+}
+
+void BitcodeReader::dematerializeFunction(Function *F) {
+  // If this function isn't materialized, or if it is a proto, this is a noop.
+  if (F->hasNotBeenReadFromBytecode() || F->isDeclaration())
+    return;
+  
+  assert(DeferredFunctionInfo.count(F) && "No info to read function later?");
+  
+  // Just forget the function body, we can remat it later.
+  F->deleteBody();
+  F->setLinkage(GlobalValue::GhostLinkage);
+}
+
+
+Module *BitcodeReader::materializeModule(std::string *ErrInfo) {
+  for (DenseMap<Function*, std::pair<uint64_t, unsigned> >::iterator I = 
+       DeferredFunctionInfo.begin(), E = DeferredFunctionInfo.end(); I != E;
+       ++I) {
+    Function *F = I->first;
+    if (F->hasNotBeenReadFromBytecode() &&
+        materializeFunction(F, ErrInfo))
+      return 0;
+  }
+  return TheModule;
+}
+
+
+/// This method is provided by the parent ModuleProvde class and overriden
+/// here. It simply releases the module from its provided and frees up our
+/// state.
+/// @brief Release our hold on the generated module
+Module *BitcodeReader::releaseModule(std::string *ErrInfo) {
+  // Since we're losing control of this Module, we must hand it back complete
+  Module *M = ModuleProvider::releaseModule(ErrInfo);
+  FreeState();
+  return M;
+}
+
 
 //===----------------------------------------------------------------------===//
 // External interface
@@ -1606,12 +1649,18 @@ Module *llvm::ParseBitcodeFile(MemoryBuffer *Buffer, std::string *ErrMsg){
   R = static_cast<BitcodeReader*>(getBitcodeModuleProvider(Buffer, ErrMsg));
   if (!R) return 0;
   
-  // Read the whole module, get a pointer to it, tell ModuleProvider not to
-  // delete it when its dtor is run.
-  Module *M = R->releaseModule(ErrMsg);
-  
-  // Don't let the BitcodeReader dtor delete 'Buffer'.
+  // Read in the entire module.
+  Module *M = R->materializeModule(ErrMsg);
+
+  // Don't let the BitcodeReader dtor delete 'Buffer', regardless of whether
+  // there was an error.
   R->releaseMemoryBuffer();
+  
+  // If there was no error, tell ModuleProvider not to delete it when its dtor
+  // is run.
+  if (M)
+    M = R->releaseModule(ErrMsg);
+  
   delete R;
   return M;
 }

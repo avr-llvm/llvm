@@ -2675,7 +2675,8 @@ X86TargetLowering::LowerVECTOR_SHUFFLE(SDOperand Op, SelectionDAG &DAG) {
       return Op;
     }
 
-    if (X86::isSHUFPMask(PermMask.Val))
+    if (X86::isSHUFPMask(PermMask.Val) &&
+        MVT::getSizeInBits(VT) != 64)    // Don't do this for MMX.
       return Op;
 
     // Handle v8i16 shuffle high / low shuffle node pair.
@@ -2712,7 +2713,9 @@ X86TargetLowering::LowerVECTOR_SHUFFLE(SDOperand Op, SelectionDAG &DAG) {
     }
   }
 
-  if (NumElems == 4) {
+  if (NumElems == 4 && 
+      // Don't do this for MMX.
+      MVT::getSizeInBits(VT) != 64) {
     MVT::ValueType MaskVT = PermMask.getValueType();
     MVT::ValueType MaskEVT = MVT::getVectorBaseType(MaskVT);
     SmallVector<std::pair<int, int>, 8> Locs;
@@ -4725,18 +4728,19 @@ isOperandValidForConstraint(SDOperand Op, char Constraint, SelectionDAG &DAG) {
   case 'I':
     if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(Op)) {
       if (C->getValue() <= 31)
-        return Op;
+        return DAG.getTargetConstant(C->getValue(), Op.getValueType());
     }
     return SDOperand(0,0);
   case 'N':
     if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(Op)) {
       if (C->getValue() <= 255)
-        return Op;
+        return DAG.getTargetConstant(C->getValue(), Op.getValueType());
     }
     return SDOperand(0,0);
   case 'i': {
     // Literal immediates are always ok.
-    if (isa<ConstantSDNode>(Op)) return Op;
+    if (ConstantSDNode *CST = dyn_cast<ConstantSDNode>(Op))
+      return DAG.getTargetConstant(CST->getValue(), Op.getValueType());
 
     // If we are in non-pic codegen mode, we allow the address of a global (with
     // an optional displacement) to be used with 'i'.
