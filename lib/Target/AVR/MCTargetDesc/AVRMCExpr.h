@@ -52,7 +52,12 @@ public:
   /// @}
 public: // MCTargetExpr
   void PrintImpl(raw_ostream &OS) const;
-  bool EvaluateAsRelocatableImpl(MCValue &Res, const MCAsmLayout *Layout) const;
+  bool EvaluateAsRelocatableImpl(MCValue &Res,
+                                 const MCAsmLayout *Layout,
+                                 const MCFixup *Fixup) const override;
+  
+  void visitUsedExpr(MCStreamer& streamer) const override;
+  
   void AddValueSymbols(MCAssembler *) const;
   const MCSection *FindAssociatedSection() const
   {

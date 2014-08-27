@@ -14,6 +14,7 @@
 #include "AVRInstrInfo.h"
 #include "AVR.h"
 #include "AVRMachineFunctionInfo.h"
+#include "AVRTargetMachine.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -309,9 +310,9 @@ bool AVRInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
       }
 
       // If the block has any instructions after a JMP, delete them.
-      while (llvm::next(I) != MBB.end())
+      while (std::next(I) != MBB.end())
       {
-        llvm::next(I)->eraseFromParent();
+        std::next(I)->eraseFromParent();
       }
 
       Cond.clear();
@@ -499,7 +500,6 @@ unsigned AVRInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const
   case AVR::LDSRdK:
   case AVR::STSKRr:
     return 4;
-  case TargetOpcode::PROLOG_LABEL:
   case TargetOpcode::EH_LABEL:
   case TargetOpcode::IMPLICIT_DEF:
   case TargetOpcode::KILL:
@@ -508,9 +508,10 @@ unsigned AVRInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const
   case TargetOpcode::INLINEASM:
     {
       const MachineFunction *MF = MI->getParent()->getParent();
-      const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
+      const AVRTargetMachine& TM = (const AVRTargetMachine&)MF->getTarget();
+      const TargetInstrInfo &TII = *TM.getInstrInfo();
       return TII.getInlineAsmLength(MI->getOperand(0).getSymbolName(),
-                                    *MF->getTarget().getMCAsmInfo());
+                                    *TM.getMCAsmInfo());
     }
   }
 }

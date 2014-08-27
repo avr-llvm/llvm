@@ -28,6 +28,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/IR/Mangler.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
 
 using namespace llvm;
 
@@ -50,11 +51,11 @@ public:
 
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
                        unsigned AsmVariant, const char *ExtraCode,
-                       raw_ostream &O) LLVM_OVERRIDE;
+                       raw_ostream &O) override;
 
   bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNum,
                              unsigned AsmVariant, const char *ExtraCode,
-                             raw_ostream &O) LLVM_OVERRIDE;
+                             raw_ostream &O) override;
 
 public: // AsmPrinter
   void EmitInstruction(const MachineInstr *MI);
@@ -116,7 +117,7 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
       unsigned OpFlags = MI->getOperand(OpNum-1).getImm();
       unsigned NumOpRegs = InlineAsm::getNumOperandRegisters(OpFlags);
 
-      const TargetRegisterInfo *TRI = MF->getTarget().getRegisterInfo();
+      const TargetRegisterInfo *TRI = MF->getSubtarget().getRegisterInfo();
 
       unsigned BytesPerReg = TRI->getMinimalPhysRegClass(Reg)->getSize();
 

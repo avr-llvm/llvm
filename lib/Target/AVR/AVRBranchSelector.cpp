@@ -19,6 +19,7 @@
 
 #include "AVR.h"
 #include "AVRInstrInfo.h"
+#include "AVRTargetMachine.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -72,8 +73,10 @@ static bool isCondBranch(int Opcode)
 
 bool AVRBSel::runOnMachineFunction(MachineFunction &Fn)
 {
+  const AVRTargetMachine& TM = static_cast<const AVRTargetMachine&>(Fn.getTarget());
+  
   const AVRInstrInfo *TII =
-    static_cast<const AVRInstrInfo *>(Fn.getTarget().getInstrInfo());
+    static_cast<const AVRInstrInfo *>(TM.getInstrInfo());
 
   // Give the blocks of the function a dense, in-order, numbering.
   Fn.RenumberBlocks();
@@ -201,7 +204,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn)
           // Skip the check when this instruction is the first inside the BB.
           if (I != MBB.begin())
           {
-            MachineInstr *PI = &*llvm::prior(I);
+            MachineInstr *PI = &*std::prev(I);
             if (isCondBranch(PI->getOpcode()) && PI->getOperand(0).isImm()
                 && PI->getOperand(0).getImm() == 2)
             {

@@ -15,6 +15,7 @@
 
 #include "AVR.h"
 #include "AVRInstrInfo.h"
+#include "AVRTargetMachine.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Target/TargetRegisterInfo.h"
@@ -1256,7 +1257,7 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
       MI.getOperand(0).setReg(AVR::R0);
       MI.getOperand(3).setIsDead();
 
-      BuildMI(MBB, llvm::next(MBBI), MI.getDebugLoc(), TII->get(AVR::MOVRdRr))
+      BuildMI(MBB, std::next(MBBI), MI.getDebugLoc(), TII->get(AVR::MOVRdRr))
         .addReg(DstReg, RegState::Define | getDeadRegState(DstIsDead))
         .addReg(AVR::R0, RegState::Kill);
 
@@ -1347,7 +1348,7 @@ bool AVRExpandPseudo::expandMBB(MachineBasicBlock &MBB)
   MachineBasicBlock::iterator MBBI = MBB.begin(), E = MBB.end();
   while (MBBI != E)
   {
-    MachineBasicBlock::iterator NMBBI = llvm::next(MBBI);
+    MachineBasicBlock::iterator NMBBI = std::next(MBBI);
     Modified |= expandMI(MBB, MBBI);
     MBBI = NMBBI;
   }
@@ -1358,9 +1359,9 @@ bool AVRExpandPseudo::expandMBB(MachineBasicBlock &MBB)
 bool AVRExpandPseudo::runOnMachineFunction(MachineFunction &MF)
 {
   bool Modified = false;
-  const TargetMachine &TM = MF.getTarget();
+  const AVRTargetMachine &TM = (const AVRTargetMachine&)MF.getTarget();
   TRI = TM.getRegisterInfo();
-  TII = MF.getTarget().getInstrInfo();
+  TII = TM.getInstrInfo();
 
   for (MachineFunction::iterator MFI = MF.begin(), E = MF.end(); MFI != E;
        ++MFI)

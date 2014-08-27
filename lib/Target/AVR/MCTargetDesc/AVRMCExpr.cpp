@@ -38,9 +38,14 @@ void AVRMCExpr::PrintImpl(raw_ostream &OS) const
 
 bool
 AVRMCExpr::EvaluateAsRelocatableImpl(MCValue &Res,
-                                     const MCAsmLayout *Layout) const
+                                     const MCAsmLayout *Layout,
+                                     const MCFixup *Fixup) const
 {
   return false;
+}
+
+void AVRMCExpr::visitUsedExpr(MCStreamer &Streamer) const {
+  Streamer.visitUsedExpr(*getSubExpr());
 }
 
 static void addValueSymbols_(const MCExpr *Value, MCAssembler *Asm)

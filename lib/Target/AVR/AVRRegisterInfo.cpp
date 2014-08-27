@@ -14,6 +14,7 @@
 #include "AVRRegisterInfo.h"
 #include "AVR.h"
 #include "AVRInstrInfo.h"
+#include "AVRTargetMachine.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -47,7 +48,8 @@ const uint32_t *AVRRegisterInfo::getCallPreservedMask(CallingConv::ID CC) const
 BitVector AVRRegisterInfo::getReservedRegs(const MachineFunction &MF) const
 {
   BitVector Reserved(getNumRegs());
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
+  const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
+  const TargetFrameLowering *TFI = TM.getFrameLowering();
 
   Reserved.set(AVR::R0);
   Reserved.set(AVR::R1);
@@ -126,9 +128,10 @@ void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   DebugLoc dl = MI.getDebugLoc();
   MachineBasicBlock &MBB = *MI.getParent();
   const MachineFunction &MF = *MBB.getParent();
-  const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
+  const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
+  const TargetInstrInfo &TII = *TM.getInstrInfo();
   const MachineFrameInfo *MFI = MF.getFrameInfo();
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
+  const TargetFrameLowering *TFI = TM.getFrameLowering();
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
   int Offset = MFI->getObjectOffset(FrameIndex);
 
@@ -160,7 +163,7 @@ void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     // to:
     //  movw    r31:r30, r29:r28
     //  adiw    r31:r30, 45
-    foldFrameOffset(*llvm::next(II), Offset, DstReg);
+    foldFrameOffset(*std::next(II), Offset, DstReg);
 
     // Select the best opcode based on DstReg and the offset size.
     switch (DstReg)
@@ -186,7 +189,7 @@ void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     }
 
     MachineInstr *New =
-      BuildMI(MBB, llvm::next(II), dl, TII.get(Opcode), DstReg)
+      BuildMI(MBB, std::next(II), dl, TII.get(Opcode), DstReg)
         .addReg(DstReg, RegState::Kill)
         .addImm(Offset);
     New->getOperand(3).setIsDead();
@@ -224,13 +227,13 @@ void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     New->getOperand(3).setIsDead();
 
     // Restore SREG.
-    BuildMI(MBB, llvm::next(II), dl, TII.get(AVR::OUTARr))
+    BuildMI(MBB, std::next(II), dl, TII.get(AVR::OUTARr))
       .addImm(0x3f)
       .addReg(AVR::R0, RegState::Kill);
 
     // No need to set SREG as dead here otherwise if the next instruction is a
     // cond branch it will be using a dead register.
-    New = BuildMI(MBB, llvm::next(II), dl, TII.get(SubOpc), AVR::R29R28)
+    New = BuildMI(MBB, std::next(II), dl, TII.get(SubOpc), AVR::R29R28)
             .addReg(AVR::R29R28, RegState::Kill)
             .addImm(Offset - 63 + 1);
 

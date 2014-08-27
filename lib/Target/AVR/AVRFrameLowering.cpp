@@ -15,6 +15,7 @@
 #include "AVR.h"
 #include "AVRInstrInfo.h"
 #include "AVRMachineFunctionInfo.h"
+#include "AVRTargetMachine.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -55,8 +56,9 @@ void AVRFrameLowering::emitPrologue(MachineFunction &MF) const
   MachineBasicBlock::iterator MBBI = MBB.begin();
   CallingConv::ID CallConv = MF.getFunction()->getCallingConv();
   DebugLoc dl = (MBBI != MBB.end()) ? MBBI->getDebugLoc() : DebugLoc();
+  const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
   const AVRInstrInfo &TII =
-    *static_cast<const AVRInstrInfo *>(MF.getTarget().getInstrInfo());
+    *static_cast<const AVRInstrInfo *>(TM.getInstrInfo());
 
   // Interrupt handlers re-enable interrupts in function entry.
   if (CallConv == CallingConv::AVR_INTR)
@@ -105,7 +107,7 @@ void AVRFrameLowering::emitPrologue(MachineFunction &MF) const
     .setMIFlag(MachineInstr::FrameSetup);
 
   // Mark the FramePtr as live-in in every block except the entry.
-  for (MachineFunction::iterator I = llvm::next(MF.begin()), E = MF.end();
+  for (MachineFunction::iterator I = std::next(MF.begin()), E = MF.end();
        I != E; ++I)
   {
     I->addLiveIn(AVR::R29R28);
@@ -153,8 +155,9 @@ void AVRFrameLowering::emitEpilogue(MachineFunction &MF,
   const MachineFrameInfo *MFI = MF.getFrameInfo();
   const AVRMachineFunctionInfo *AFI = MF.getInfo<AVRMachineFunctionInfo>();
   unsigned FrameSize = MFI->getStackSize() - AFI->getCalleeSavedFrameSize();
+  const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
   const AVRInstrInfo &TII =
-    *static_cast<const AVRInstrInfo *>(MF.getTarget().getInstrInfo());
+    *static_cast<const AVRInstrInfo *>(TM.getInstrInfo());
 
   // Emit special epilogue code to restore R1, R0 and SREG in interrupt/signal
   // handlers at the very end of the function, just before reti.
@@ -179,7 +182,7 @@ void AVRFrameLowering::emitEpilogue(MachineFunction &MF,
   // Skip the callee-saved pop instructions.
   while (MBBI != MBB.begin())
   {
-    MachineBasicBlock::iterator PI = llvm::prior(MBBI);
+    MachineBasicBlock::iterator PI = std::prev(MBBI);
     int Opc = PI->getOpcode();
 
     if (((Opc != AVR::POPRd) && (Opc != AVR::POPWRd)) && !(PI->isTerminator()))
@@ -246,7 +249,8 @@ spillCalleeSavedRegisters(MachineBasicBlock &MBB,
   unsigned CalleeFrameSize = 0;
   DebugLoc DL = MBB.findDebugLoc(MI);
   MachineFunction &MF = *MBB.getParent();
-  const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
+  const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
+  const TargetInstrInfo &TII = *TM.getInstrInfo();
   AVRMachineFunctionInfo *AVRFI = MF.getInfo<AVRMachineFunctionInfo>();
 
   for (unsigned i = CSI.size(); i != 0; --i)
@@ -290,7 +294,8 @@ restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   DebugLoc DL = MBB.findDebugLoc(MI);
   const MachineFunction &MF = *MBB.getParent();
-  const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
+  const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
+  const TargetInstrInfo &TII = *TM.getInstrInfo();
 
   for (unsigned i = 0, e = CSI.size(); i != e; ++i)
   {
@@ -317,7 +322,7 @@ static void fixStackStores(MachineBasicBlock &MBB,
   for (MachineBasicBlock::iterator I = MI, E = MBB.end();
        I != E && !I->isCall(); )
   {
-    MachineBasicBlock::iterator NextMI = llvm::next(I);
+    MachineBasicBlock::iterator NextMI = std::next(I);
     MachineInstr &MI = *I;
     int Opcode = I->getOpcode();
 
@@ -341,8 +346,9 @@ static void fixStackStores(MachineBasicBlock &MBB,
       // instructions are reversed from what we need. Perform the expansion now.
       if (Opcode == AVR::STDWSPQRr)
       {
+        const AVRTargetMachine& TM = (const AVRTargetMachine&)MBB.getParent()->getTarget();
         const TargetRegisterInfo *TRI =
-          MBB.getParent()->getTarget().getRegisterInfo();
+          TM.getRegisterInfo();
 
         BuildMI(MBB, I, MI.getDebugLoc(), TII.get(AVR::PUSHRr))
           .addReg(TRI->getSubReg(SrcReg, AVR::sub_hi),
@@ -379,9 +385,10 @@ void AVRFrameLowering::
 eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator MI) const
 {
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
+  const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
+  const TargetFrameLowering *TFI = TM.getFrameLowering();
   const AVRInstrInfo &TII =
-    *static_cast<const AVRInstrInfo *>(MF.getTarget().getInstrInfo());
+    *static_cast<const AVRInstrInfo *>(TM.getInstrInfo());
 
   // There is nothing to insert when the call frame memory is allocated during
   // function entry. Delete the call frame pseudo and replace all pseudo stores
@@ -564,7 +571,8 @@ namespace
         return false;
       }
 
-      const TargetInstrInfo *TII = MF.getTarget().getInstrInfo();
+      const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
+      const TargetInstrInfo *TII = TM.getInstrInfo();
       MachineBasicBlock &EntryMBB = MF.front();
       MachineBasicBlock::iterator MBBI = EntryMBB.begin();
       DebugLoc DL = EntryMBB.findDebugLoc(MBBI);

@@ -497,7 +497,7 @@ SDValue AVRTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const
   SDVTList VTs = DAG.getVTList(Op.getValueType(), MVT::Glue);
   SDValue Ops[] = { TrueV, FalseV, TargetCC, Cmp };
 
-  return DAG.getNode(AVRISD::SELECT_CC, dl, VTs, Ops, array_lengthof(Ops));
+  return DAG.getNode(AVRISD::SELECT_CC, dl, VTs, Ops);
 }
 
 SDValue AVRTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const
@@ -515,7 +515,7 @@ SDValue AVRTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const
   SDVTList VTs = DAG.getVTList(Op.getValueType(), MVT::Glue);
   SDValue Ops[] = { TrueV, FalseV, TargetCC, Cmp };
 
-  return DAG.getNode(AVRISD::SELECT_CC, dl, VTs, Ops, array_lengthof(Ops));
+  return DAG.getNode(AVRISD::SELECT_CC, dl, VTs, Ops);
 }
 
 SDValue AVRTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const
@@ -635,7 +635,7 @@ bool AVRTargetLowering::getPreIndexedAddressParts(SDNode *N, SDValue &Base,
     VT = LD->getMemoryVT();
     Op = LD->getBasePtr().getNode();
     if (LD->getExtensionType() != ISD::NON_EXTLOAD) return false;
-    if (cast<PointerType>(LD->getSrcValue()->getType())->getAddressSpace() == 1)
+    if (cast<PointerType>(LD->getMemOperand()->getValue()->getType())->getAddressSpace() == 1)
     {
       return false;
     }
@@ -644,7 +644,7 @@ bool AVRTargetLowering::getPreIndexedAddressParts(SDNode *N, SDValue &Base,
   {
     VT = ST->getMemoryVT();
     Op = ST->getBasePtr().getNode();
-    if (cast<PointerType>(ST->getSrcValue()->getType())->getAddressSpace() == 1)
+    if (cast<PointerType>(ST->getMemOperand()->getValue()->getType())->getAddressSpace() == 1)
     {
       return false;
     }
@@ -702,7 +702,7 @@ bool AVRTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
   else if (const StoreSDNode *ST = dyn_cast<StoreSDNode>(N))
   {
     VT = ST->getMemoryVT();
-    if (cast<PointerType>(ST->getSrcValue()->getType())->getAddressSpace() == 1)
+    if (cast<PointerType>(ST->getMemOperand()->getValue()->getType())->getAddressSpace() == 1)
     {
       return false;
     }
@@ -890,7 +890,7 @@ LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
   // Assign locations to all of the incoming arguments.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-                 getTargetMachine(), ArgLocs, *DAG.getContext());
+                 ArgLocs, *DAG.getContext());
 
   analyzeArguments(MF.getFunction(), TD, 0, &Ins, ArgLocs, CCInfo, false,
                    isVarArg);
@@ -1009,7 +1009,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // Analyze operands of the call, assigning locations to each operand.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-                 getTargetMachine(), ArgLocs, *DAG.getContext());
+                 ArgLocs, *DAG.getContext());
 
   // If the callee is a GlobalAddress/ExternalSymbol node (quite common, every
   // direct call is) turn it into a TargetGlobalAddress/TargetExternalSymbol
@@ -1133,7 +1133,8 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   }
 
   // Add a register mask operand representing the call-preserved registers.
-  const TargetRegisterInfo *TRI = getTargetMachine().getRegisterInfo();
+  const AVRTargetMachine& TM = (const AVRTargetMachine&)getTargetMachine();
+  const TargetRegisterInfo *TRI = TM.getRegisterInfo();
   const uint32_t *Mask = TRI->getCallPreservedMask(CallConv);
   assert(Mask && "Missing call preserved mask for calling convention");
   Ops.push_back(DAG.getRegisterMask(Mask));
@@ -1143,7 +1144,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     Ops.push_back(InFlag);
   }
 
-  Chain = DAG.getNode(AVRISD::CALL, dl, NodeTys, &Ops[0], Ops.size());
+  Chain = DAG.getNode(AVRISD::CALL, dl, NodeTys, Ops);
   InFlag = Chain.getValue(1);
 
   // Create the CALLSEQ_END node.
@@ -1174,7 +1175,7 @@ AVRTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
   // Assign locations to each value returned by this call.
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-                 getTargetMachine(), RVLocs, *DAG.getContext());
+                 RVLocs, *DAG.getContext());
 
   CCInfo.AnalyzeCallResult(Ins, RetCC_AVR);
 
@@ -1213,7 +1214,7 @@ AVRTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
 
   // CCState - Info about the registers and stack slot.
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-                 getTargetMachine(), RVLocs, *DAG.getContext());
+                 RVLocs, *DAG.getContext());
 
   // Analize return values.
   CCInfo.AnalyzeReturn(Outs, RetCC_AVR);
@@ -1264,7 +1265,7 @@ AVRTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
     RetOps.push_back(Flag);
   }
 
-  return DAG.getNode(RetOpc, dl, MVT::Other, &RetOps[0], RetOps.size());
+  return DAG.getNode(RetOpc, dl, MVT::Other, RetOps);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1278,7 +1279,8 @@ AVRTargetLowering::EmitShiftInstr(MachineInstr *MI, MachineBasicBlock *BB) const
   const TargetRegisterClass *RC;
   MachineFunction *F = BB->getParent();
   MachineRegisterInfo &RI = F->getRegInfo();
-  const TargetInstrInfo &TII = *getTargetMachine().getInstrInfo();
+  const AVRTargetMachine& TM = (const AVRTargetMachine&)getTargetMachine();
+  const TargetInstrInfo &TII = *TM.getInstrInfo();
   DebugLoc dl = MI->getDebugLoc();
 
   switch (MI->getOpcode())
@@ -1325,7 +1327,7 @@ AVRTargetLowering::EmitShiftInstr(MachineInstr *MI, MachineBasicBlock *BB) const
   // Update machine-CFG edges by transferring all successors of the current
   // block to the block containing instructions after shift.
   RemBB->splice(RemBB->begin(), BB,
-                llvm::next(MachineBasicBlock::iterator(MI)),
+                std::next(MachineBasicBlock::iterator(MI)),
                 BB->end());
   RemBB->transferSuccessorsAndUpdatePHIs(BB);
 
@@ -1428,7 +1430,7 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   // Update machine-CFG edges by transferring all successors of the current
   // block to the new block which will contain the Phi node for the select.
   copy1MBB->splice(copy1MBB->begin(), BB,
-                   llvm::next(MachineBasicBlock::iterator(MI)),
+                   std::next(MachineBasicBlock::iterator(MI)),
                    BB->end());
   copy1MBB->transferSuccessorsAndUpdatePHIs(BB);
   // Next, add the true and fallthrough blocks as its successors.

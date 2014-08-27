@@ -208,7 +208,8 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
 
   //MachineFunction& MF = CurDAG->getMachineFunction();
   MachineRegisterInfo &RI = MF->getRegInfo();
-  const TargetLowering* TL = MF->getTarget().getTargetLowering();
+  const AVRTargetMachine& TM = (const AVRTargetMachine&)MF->getTarget();
+  const TargetLowering* TL = TM.getTargetLowering();
 
   const RegisterSDNode *RegNode = dyn_cast<RegisterSDNode>(Op);
 
@@ -397,7 +398,7 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
   case ISD::LOAD:
     {
       const LoadSDNode *LD = cast<LoadSDNode>(N);
-      const Value *SV = LD->getSrcValue();
+      const Value *SV = LD->getMemOperand()->getValue();
       if (SV && cast<PointerType>(SV->getType())->getAddressSpace() == 1)
       {
         // This is a flash memory load, move the pointer into R31R30 and emit
