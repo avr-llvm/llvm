@@ -509,7 +509,7 @@ unsigned AVRInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const
     {
       const MachineFunction *MF = MI->getParent()->getParent();
       const AVRTargetMachine& TM = (const AVRTargetMachine&)MF->getTarget();
-      const TargetInstrInfo &TII = *TM.getInstrInfo();
+      const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
       return TII.getInlineAsmLength(MI->getOperand(0).getSymbolName(),
                                     *TM.getMCAsmInfo());
     }

@@ -58,7 +58,7 @@ void AVRFrameLowering::emitPrologue(MachineFunction &MF) const
   DebugLoc dl = (MBBI != MBB.end()) ? MBBI->getDebugLoc() : DebugLoc();
   const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
   const AVRInstrInfo &TII =
-    *static_cast<const AVRInstrInfo *>(TM.getInstrInfo());
+    *static_cast<const AVRInstrInfo *>(TM.getSubtargetImpl()->getInstrInfo());
 
   // Interrupt handlers re-enable interrupts in function entry.
   if (CallConv == CallingConv::AVR_INTR)
@@ -157,7 +157,7 @@ void AVRFrameLowering::emitEpilogue(MachineFunction &MF,
   unsigned FrameSize = MFI->getStackSize() - AFI->getCalleeSavedFrameSize();
   const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
   const AVRInstrInfo &TII =
-    *static_cast<const AVRInstrInfo *>(TM.getInstrInfo());
+    *static_cast<const AVRInstrInfo *>(TM.getSubtargetImpl()->getInstrInfo());
 
   // Emit special epilogue code to restore R1, R0 and SREG in interrupt/signal
   // handlers at the very end of the function, just before reti.
@@ -250,7 +250,7 @@ spillCalleeSavedRegisters(MachineBasicBlock &MBB,
   DebugLoc DL = MBB.findDebugLoc(MI);
   MachineFunction &MF = *MBB.getParent();
   const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
-  const TargetInstrInfo &TII = *TM.getInstrInfo();
+  const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
   AVRMachineFunctionInfo *AVRFI = MF.getInfo<AVRMachineFunctionInfo>();
 
   for (unsigned i = CSI.size(); i != 0; --i)
@@ -295,7 +295,7 @@ restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
   DebugLoc DL = MBB.findDebugLoc(MI);
   const MachineFunction &MF = *MBB.getParent();
   const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
-  const TargetInstrInfo &TII = *TM.getInstrInfo();
+  const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
 
   for (unsigned i = 0, e = CSI.size(); i != e; ++i)
   {
@@ -348,7 +348,7 @@ static void fixStackStores(MachineBasicBlock &MBB,
       {
         const AVRTargetMachine& TM = (const AVRTargetMachine&)MBB.getParent()->getTarget();
         const TargetRegisterInfo *TRI =
-          TM.getRegisterInfo();
+          TM.getSubtargetImpl()->getRegisterInfo();
 
         BuildMI(MBB, I, MI.getDebugLoc(), TII.get(AVR::PUSHRr))
           .addReg(TRI->getSubReg(SrcReg, AVR::sub_hi),
@@ -386,9 +386,9 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator MI) const
 {
   const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
-  const TargetFrameLowering *TFI = TM.getFrameLowering();
+  const TargetFrameLowering *TFI = TM.getSubtargetImpl()->getFrameLowering();
   const AVRInstrInfo &TII =
-    *static_cast<const AVRInstrInfo *>(TM.getInstrInfo());
+    *static_cast<const AVRInstrInfo *>(TM.getSubtargetImpl()->getInstrInfo());
 
   // There is nothing to insert when the call frame memory is allocated during
   // function entry. Delete the call frame pseudo and replace all pseudo stores
@@ -572,7 +572,7 @@ namespace
       }
 
       const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
-      const TargetInstrInfo *TII = TM.getInstrInfo();
+      const TargetInstrInfo *TII = TM.getSubtargetImpl()->getInstrInfo();
       MachineBasicBlock &EntryMBB = MF.front();
       MachineBasicBlock::iterator MBBI = EntryMBB.begin();
       DebugLoc DL = EntryMBB.findDebugLoc(MBBI);

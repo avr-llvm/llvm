@@ -1134,7 +1134,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   // Add a register mask operand representing the call-preserved registers.
   const AVRTargetMachine& TM = (const AVRTargetMachine&)getTargetMachine();
-  const TargetRegisterInfo *TRI = TM.getRegisterInfo();
+  const TargetRegisterInfo *TRI = TM.getSubtargetImpl()->getRegisterInfo();
   const uint32_t *Mask = TRI->getCallPreservedMask(CallConv);
   assert(Mask && "Missing call preserved mask for calling convention");
   Ops.push_back(DAG.getRegisterMask(Mask));
@@ -1280,7 +1280,7 @@ AVRTargetLowering::EmitShiftInstr(MachineInstr *MI, MachineBasicBlock *BB) const
   MachineFunction *F = BB->getParent();
   MachineRegisterInfo &RI = F->getRegInfo();
   const AVRTargetMachine& TM = (const AVRTargetMachine&)getTargetMachine();
-  const TargetInstrInfo &TII = *TM.getInstrInfo();
+  const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
   DebugLoc dl = MI->getDebugLoc();
 
   switch (MI->getOpcode())
@@ -1403,7 +1403,7 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   assert((Opc == AVR::Select16 || Opc == AVR::Select8)
          && "Unexpected instr type to insert");
 
-  const AVRInstrInfo &TII = *TM.getInstrInfo();
+  const AVRInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
   DebugLoc dl = MI->getDebugLoc();
 
   // To "insert" a SELECT instruction, we actually have to insert the diamond

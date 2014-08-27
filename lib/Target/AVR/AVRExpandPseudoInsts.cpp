@@ -1360,8 +1360,8 @@ bool AVRExpandPseudo::runOnMachineFunction(MachineFunction &MF)
 {
   bool Modified = false;
   const AVRTargetMachine &TM = (const AVRTargetMachine&)MF.getTarget();
-  TRI = TM.getRegisterInfo();
-  TII = TM.getInstrInfo();
+  TRI = TM.getSubtargetImpl()->getRegisterInfo();
+  TII = TM.getSubtargetImpl()->getInstrInfo();
 
   for (MachineFunction::iterator MFI = MF.begin(), E = MF.end(); MFI != E;
        ++MFI)

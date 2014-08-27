@@ -209,7 +209,7 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
   //MachineFunction& MF = CurDAG->getMachineFunction();
   MachineRegisterInfo &RI = MF->getRegInfo();
   const AVRTargetMachine& TM = (const AVRTargetMachine&)MF->getTarget();
-  const TargetLowering* TL = TM.getTargetLowering();
+  const TargetLowering* TL = TM.getSubtargetImpl()->getTargetLowering();
 
   const RegisterSDNode *RegNode = dyn_cast<RegisterSDNode>(Op);
 

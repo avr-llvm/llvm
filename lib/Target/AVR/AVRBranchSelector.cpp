@@ -72,11 +72,9 @@ static bool isCondBranch(int Opcode)
 }
 
 bool AVRBSel::runOnMachineFunction(MachineFunction &Fn)
-{
-  const AVRTargetMachine& TM = static_cast<const AVRTargetMachine&>(Fn.getTarget());
-  
+{ 
   const AVRInstrInfo *TII =
-    static_cast<const AVRInstrInfo *>(TM.getInstrInfo());
+    static_cast<const AVRInstrInfo *>(Fn.getTarget().getSubtargetImpl()->getInstrInfo());
 
   // Give the blocks of the function a dense, in-order, numbering.
   Fn.RenumberBlocks();

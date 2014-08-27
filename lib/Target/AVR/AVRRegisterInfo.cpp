@@ -49,7 +49,7 @@ BitVector AVRRegisterInfo::getReservedRegs(const MachineFunction &MF) const
 {
   BitVector Reserved(getNumRegs());
   const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
-  const TargetFrameLowering *TFI = TM.getFrameLowering();
+  const TargetFrameLowering *TFI = TM.getSubtargetImpl()->getFrameLowering();
 
   Reserved.set(AVR::R0);
   Reserved.set(AVR::R1);
@@ -129,9 +129,9 @@ void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   MachineBasicBlock &MBB = *MI.getParent();
   const MachineFunction &MF = *MBB.getParent();
   const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
-  const TargetInstrInfo &TII = *TM.getInstrInfo();
+  const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
   const MachineFrameInfo *MFI = MF.getFrameInfo();
-  const TargetFrameLowering *TFI = TM.getFrameLowering();
+  const TargetFrameLowering *TFI = TM.getSubtargetImpl()->getFrameLowering();
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
   int Offset = MFI->getObjectOffset(FrameIndex);
 
