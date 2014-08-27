@@ -25,12 +25,7 @@ AVRTargetMachine::AVRTargetMachine(const Target &T, StringRef TT, StringRef CPU,
                                    Reloc::Model RM, CodeModel::Model CM,
                                    CodeGenOpt::Level OL) :
   LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
-  SubTarget(TT, CPU, FS),
-  DL("e-p:16:8:8-i8:8:8-i16:8:8-i32:8:8-i64:8:8-f32:8:8-f64:8:8-n8"),
-  InstrInfo(),
-  FrameLowering(),
-  TLInfo(*this),
-  TSInfo(*this)
+  SubTarget(TT, CPU, FS, *this)
 {
   initAsmInfo();
 }
@@ -69,36 +64,6 @@ extern "C" void LLVMInitializeAVRTarget() {
 const AVRSubtarget *AVRTargetMachine::getSubtargetImpl() const
 {
   return &SubTarget;
-}
-
-const AVRInstrInfo *AVRTargetMachine::getInstrInfo() const
-{
-  return &InstrInfo;
-}
-
-const TargetFrameLowering *AVRTargetMachine::getFrameLowering() const
-{
-  return &FrameLowering;
-}
-
-const AVRTargetLowering *AVRTargetMachine::getTargetLowering() const
-{
-  return &TLInfo;
-}
-
-const AVRSelectionDAGInfo *AVRTargetMachine::getSelectionDAGInfo() const
-{
-  return &TSInfo;
-}
-
-const DataLayout *AVRTargetMachine::getDataLayout() const
-{
-  return &DL;
-}
-
-const AVRRegisterInfo *AVRTargetMachine::getRegisterInfo() const
-{
-  return &InstrInfo.getRegisterInfo();
 }
 
 //===----------------------------------------------------------------------===//

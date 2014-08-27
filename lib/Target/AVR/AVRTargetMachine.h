@@ -28,27 +28,22 @@ namespace llvm
 class AVRTargetMachine : public LLVMTargetMachine
 {
 public:
+
   AVRTargetMachine(const Target &T, StringRef TT, StringRef CPU, StringRef FS,
                    const TargetOptions &Options, Reloc::Model RM,
                    CodeModel::Model CM, CodeGenOpt::Level OL);
 public: // TargetMachine
-  const AVRSubtarget *getSubtargetImpl() const;
-  const AVRInstrInfo *getInstrInfo() const;
-  const TargetFrameLowering *getFrameLowering() const;
-  const AVRTargetLowering *getTargetLowering() const;
-  const AVRSelectionDAGInfo *getSelectionDAGInfo() const;
-  const DataLayout *getDataLayout() const;
-  const AVRRegisterInfo *getRegisterInfo() const;
+
+  const AVRSubtarget *getSubtargetImpl() const override;
+
 public:
+
   // Pass Pipeline Configuration.
   TargetPassConfig *createPassConfig(PassManagerBase &PM);
+
 private:
   AVRSubtarget SubTarget;
-  const DataLayout DL;
-  AVRInstrInfo InstrInfo;
-  AVRFrameLowering FrameLowering;
-  AVRTargetLowering TLInfo;
-  AVRSelectionDAGInfo TSInfo;
+
 };
 
 } // end namespace llvm
