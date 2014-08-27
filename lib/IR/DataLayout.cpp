@@ -777,14 +777,16 @@ unsigned DataLayout::getPreferredAlignment(const GlobalVariable *GV) const {
     Alignment = std::max(GVAlignment, getABITypeAlignment(ElemType));
   }
 
-  if (GV->hasInitializer() && GVAlignment == 0) {
-    if (Alignment < 16) {
-      // If the global is not external, see if it is large.  If so, give it a
-      // larger alignment.
-      if (getTypeSizeInBits(ElemType) > 128)
-        Alignment = 16;    // 16-byte alignment.
-    }
-  }
+  // AVR Specific: disable over aligning global variables since this wastes
+  // too much memory and we do not gain any sort of performance for doing it.
+  // if (GV->hasInitializer() && GVAlignment == 0) {
+  //  if (Alignment < 16) {
+  //    // If the global is not external, see if it is large.  If so, give it a
+  //    // larger alignment.
+  //    if (getTypeSizeInBits(ElemType) > 128)
+  //      Alignment = 16;    // 16-byte alignment.
+  //  }
+  // }
   return Alignment;
 }
 

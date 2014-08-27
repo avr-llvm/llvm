@@ -50,6 +50,7 @@ public:
     armeb,      // ARM (big endian): armeb
     aarch64,    // AArch64 (little endian): aarch64
     aarch64_be, // AArch64 (big endian): aarch64_be
+    avr,        // AVR: avr
     hexagon,    // Hexagon: hexagon
     mips,       // MIPS: mips, mipsallegrex
     mipsel,     // MIPSEL: mipsel, mipsallegrexel
@@ -96,6 +97,7 @@ public:
     UnknownVendor,
 
     Apple,
+    Atmel,
     PC,
     SCEI,
     BGP,

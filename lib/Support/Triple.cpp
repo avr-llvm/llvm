@@ -23,6 +23,7 @@ const char *Triple::getArchTypeName(ArchType Kind) {
   case aarch64_be:  return "aarch64_be";
   case arm:         return "arm";
   case armeb:       return "armeb";
+  case avr:         return "avr";
   case hexagon:     return "hexagon";
   case mips:        return "mips";
   case mipsel:      return "mipsel";
@@ -66,6 +67,8 @@ const char *Triple::getArchTypePrefix(ArchType Kind) {
   case armeb:
   case thumb:
   case thumbeb:     return "arm";
+  
+  case avr:         return "avr";
 
   case ppc64:
   case ppc64le:
@@ -106,6 +109,7 @@ const char *Triple::getVendorTypeName(VendorType Kind) {
   case UnknownVendor: return "unknown";
 
   case Apple: return "apple";
+  case Atmel: return "atmel";
   case PC: return "pc";
   case SCEI: return "scei";
   case BGP: return "bgp";
@@ -177,6 +181,7 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
     .Case("arm64", aarch64) // "arm64" is an alias for "aarch64"
     .Case("arm", arm)
     .Case("armeb", armeb)
+    .Case("avr", avr)
     .Case("mips", mips)
     .Case("mipsel", mipsel)
     .Case("mips64", mips64)
@@ -220,6 +225,7 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .Case("aarch64_be", Triple::aarch64_be)
     .Case("arm64", Triple::aarch64)
     .Cases("arm", "xscale", Triple::arm)
+    .Case("avr", Triple::avr)
     // FIXME: It would be good to replace these with explicit names for all the
     // various suffixes supported.
     .StartsWith("armv", Triple::arm)
@@ -254,6 +260,7 @@ static Triple::ArchType parseArch(StringRef ArchName) {
 static Triple::VendorType parseVendor(StringRef VendorName) {
   return StringSwitch<Triple::VendorType>(VendorName)
     .Case("apple", Triple::Apple)
+    .Case("atmel", Triple::Atmel)
     .Case("pc", Triple::PC)
     .Case("scei", Triple::SCEI)
     .Case("bgp", Triple::BGP)
@@ -779,6 +786,7 @@ static unsigned getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
   case llvm::Triple::UnknownArch:
     return 0;
 
+  case llvm::Triple::avr:
   case llvm::Triple::msp430:
     return 16;
 
@@ -836,6 +844,7 @@ Triple Triple::get32BitArchVariant() const {
   case Triple::UnknownArch:
   case Triple::aarch64:
   case Triple::aarch64_be:
+  case Triple::avr:
   case Triple::msp430:
   case Triple::systemz:
   case Triple::ppc64le:
@@ -881,6 +890,7 @@ Triple Triple::get64BitArchVariant() const {
   case Triple::amdil:
   case Triple::arm:
   case Triple::armeb:
+  case Triple::avr:
   case Triple::hexagon:
   case Triple::kalimba:
   case Triple::le32:
