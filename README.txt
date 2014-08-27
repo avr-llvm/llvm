@@ -15,3 +15,10 @@ documentation setup.
 
 If you're writing a package for LLVM, see docs/Packaging.rst for our
 suggestions.
+
+AVR Backend
+===========
+I found an old fork of an LLVM AVR backend (https://github.com/sushihangover/llvm-avr)
+of an old fork of an LLVM AVR backend (http://sourceforge.net/projects/avr-llvm/). I have
+updated the code so that it works with the current master branch of LLVM. It currently can
+output AVR assembly (*.s) files.
