@@ -269,15 +269,15 @@ static const GlobalObject *getBaseObject(const GlobalValue &GV) {
 static ld_plugin_status claim_file_hook(const ld_plugin_input_file *file,
                                         int *claimed) {
   LLVMContext Context;
-  std::unique_ptr<MemoryBuffer> buffer;
+  MemoryBufferRef BufferRef;
+  std::unique_ptr<MemoryBuffer> Buffer;
   if (get_view) {
     const void *view;
     if (get_view(file->handle, &view) != LDPS_OK) {
       message(LDPL_ERROR, "Failed to get a view of %s", file->name);
       return LDPS_ERR;
     }
-    buffer.reset(MemoryBuffer::getMemBuffer(
-        StringRef((char *)view, file->filesize), "", false));
+    BufferRef = MemoryBufferRef(StringRef((char *)view, file->filesize), "");
   } else {
     int64_t offset = 0;
     // Gold has found what might be IR part-way inside of a file, such as
@@ -292,12 +292,12 @@ static ld_plugin_status claim_file_hook(const ld_plugin_input_file *file,
       message(LDPL_ERROR, EC.message().c_str());
       return LDPS_ERR;
     }
-    buffer = std::move(BufferOrErr.get());
+    Buffer = std::move(BufferOrErr.get());
+    BufferRef = Buffer->getMemBufferRef();
   }
 
   ErrorOr<object::IRObjectFile *> ObjOrErr =
-      object::IRObjectFile::createIRObjectFile(buffer->getMemBufferRef(),
-                                               Context);
+      object::IRObjectFile::createIRObjectFile(BufferRef, Context);
   std::error_code EC = ObjOrErr.getError();
   if (EC == BitcodeError::InvalidBitcodeSignature)
     return LDPS_OK;
@@ -546,8 +546,8 @@ getModuleForFile(LLVMContext &Context, claimed_file &F, raw_fd_ostream *ApiFile,
   if (get_view(F.handle, &View) != LDPS_OK)
     message(LDPL_FATAL, "Failed to get a view of file");
 
-  std::unique_ptr<MemoryBuffer> Buffer(MemoryBuffer::getMemBuffer(
-      StringRef((char *)View, File.filesize), "", false));
+  std::unique_ptr<MemoryBuffer> Buffer = MemoryBuffer::getMemBuffer(
+      StringRef((char *)View, File.filesize), "", false);
 
   if (release_input_file(F.handle) != LDPS_OK)
     message(LDPL_FATAL, "Failed to release file information");

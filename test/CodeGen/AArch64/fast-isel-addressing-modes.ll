@@ -1,5 +1,5 @@
-; RUN: llc -mtriple=aarch64-apple-darwin                             -verify-machineinstrs < %s | FileCheck %s --check-prefix=CHECK --check-prefix=SDAG
-; RUN: llc -mtriple=aarch64-apple-darwin -fast-isel -fast-isel-abort -verify-machineinstrs < %s | FileCheck %s --check-prefix=CHECK --check-prefix=FAST
+; RUN: llc -mtriple=aarch64-apple-darwin                      -verify-machineinstrs < %s | FileCheck %s --check-prefix=CHECK --check-prefix=SDAG
+; RUN: llc -mtriple=aarch64-apple-darwin -O0 -fast-isel-abort -verify-machineinstrs < %s | FileCheck %s --check-prefix=CHECK --check-prefix=FAST
 
 ; Load / Store Base Register only
 define zeroext i1 @load_breg_i1(i1* %a) {
@@ -53,8 +53,15 @@ define double @load_breg_f64(double* %a) {
 
 define void @store_breg_i1(i1* %a) {
 ; CHECK-LABEL: store_breg_i1
-; CHECK:       strb {{wzr|w[0-9]+}}, [x0]
+; CHECK:       strb wzr, [x0]
   store i1 0, i1* %a
+  ret void
+}
+
+define void @store_breg_i1_2(i1* %a) {
+; CHECK-LABEL: store_breg_i1_2
+; CHECK:       strb {{w[0-9]+}}, [x0]
+  store i1 true, i1* %a
   ret void
 }
 
@@ -88,16 +95,26 @@ define void @store_breg_i64(i64* %a) {
 
 define void @store_breg_f32(float* %a) {
 ; CHECK-LABEL: store_breg_f32
-; CHECK:       str {{wzr|s[0-9]+}}, [x0]
+; CHECK:       str wzr, [x0]
   store float 0.0, float* %a
   ret void
 }
 
 define void @store_breg_f64(double* %a) {
 ; CHECK-LABEL: store_breg_f64
-; CHECK:       str {{xzr|d[0-9]+}}, [x0]
+; CHECK:       str xzr, [x0]
   store double 0.0, double* %a
   ret void
+}
+
+; Load Immediate
+define i32 @load_immoff_1() {
+; CHECK-LABEL: load_immoff_1
+; CHECK:       orr {{w|x}}[[REG:[0-9]+]], {{wzr|xzr}}, #0x80
+; CHECK:       ldr {{w[0-9]+}}, {{\[}}x[[REG]]{{\]}}
+  %1 = inttoptr i64 128 to i32*
+  %2 = load i32* %1
+  ret i32 %2
 }
 
 ; Load / Store Base Register + Immediate Offset
@@ -311,6 +328,17 @@ define i64 @load_breg_offreg_immoff_2(i64 %a, i64 %b) {
   ret i64 %4
 }
 
+; Load Scaled Register Offset
+define i32 @load_shift_offreg_1(i64 %a) {
+; CHECK-LABEL: load_shift_offreg_1
+; CHECK:       lsl [[REG:x[0-9]+]], x0, #2
+; CHECK:       ldr {{w[0-9]+}}, {{\[}}[[REG]]{{\]}}
+  %1 = shl i64 %a, 2
+  %2 = inttoptr i64 %1 to i32*
+  %3 = load i32* %2
+  ret i32 %3
+}
+
 ; Load Base Register + Scaled Register Offset
 define i32 @load_breg_shift_offreg_1(i64 %a, i64 %b) {
 ; CHECK-LABEL: load_breg_shift_offreg_1
@@ -426,7 +454,7 @@ define i32 @load_breg_sext_shift_offreg_2(i32 %a, i64 %b) {
 ; Load Scaled Register Offset + Immediate Offset + Sign/Zero extension
 define i64 @load_sext_shift_offreg_imm1(i32 %a) {
 ; CHECK-LABEL: load_sext_shift_offreg_imm1
-; CHECK:       sbfiz [[REG:x[0-9]+]], x0, #3, #32
+; CHECK:       sbfiz [[REG:x[0-9]+]], {{x[0-9]+}}, #3, #32
 ; CHECK-NEXT:  ldr {{x[0-9]+}}, {{\[}}[[REG]], #8{{\]}}
   %1 = sext i32 %a to i64
   %2 = shl i64 %1, 3
