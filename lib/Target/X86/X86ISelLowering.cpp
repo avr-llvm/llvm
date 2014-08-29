@@ -10653,59 +10653,6 @@ X86TargetLowering::LowerEXTRACT_VECTOR_ELT(SDValue Op,
   return SDValue();
 }
 
-static SDValue LowerINSERT_VECTOR_ELT_SSE4(SDValue Op, SelectionDAG &DAG) {
-  MVT VT = Op.getSimpleValueType();
-  MVT EltVT = VT.getVectorElementType();
-  SDLoc dl(Op);
-
-  SDValue N0 = Op.getOperand(0);
-  SDValue N1 = Op.getOperand(1);
-  SDValue N2 = Op.getOperand(2);
-
-  if (!VT.is128BitVector())
-    return SDValue();
-
-  if ((EltVT.getSizeInBits() == 8 || EltVT.getSizeInBits() == 16) &&
-      isa<ConstantSDNode>(N2)) {
-    unsigned Opc;
-    if (VT == MVT::v8i16) {
-      Opc = X86ISD::PINSRW;
-    } else {
-      assert(VT == MVT::v16i8);
-      Opc = X86ISD::PINSRB;
-    }
-
-    // Transform it so it match pinsr{b,w} which expects a GR32 as its second
-    // argument.
-    if (N1.getValueType() != MVT::i32)
-      N1 = DAG.getNode(ISD::ANY_EXTEND, dl, MVT::i32, N1);
-    if (N2.getValueType() != MVT::i32)
-      N2 = DAG.getIntPtrConstant(cast<ConstantSDNode>(N2)->getZExtValue());
-    return DAG.getNode(Opc, dl, VT, N0, N1, N2);
-  }
-
-  if (EltVT == MVT::f32 && isa<ConstantSDNode>(N2)) {
-    // Bits [7:6] of the constant are the source select.  This will always be
-    //  zero here.  The DAG Combiner may combine an extract_elt index into these
-    //  bits.  For example (insert (extract, 3), 2) could be matched by putting
-    //  the '3' into bits [7:6] of X86ISD::INSERTPS.
-    // Bits [5:4] of the constant are the destination select.  This is the
-    //  value of the incoming immediate.
-    // Bits [3:0] of the constant are the zero mask.  The DAG Combiner may
-    //   combine either bitwise AND or insert of float 0.0 to set these bits.
-    N2 = DAG.getIntPtrConstant(cast<ConstantSDNode>(N2)->getZExtValue() << 4);
-    // Create this as a scalar to vector..
-    N1 = DAG.getNode(ISD::SCALAR_TO_VECTOR, dl, MVT::v4f32, N1);
-    return DAG.getNode(X86ISD::INSERTPS, dl, VT, N0, N1, N2);
-  }
-
-  if ((EltVT == MVT::i32 || EltVT == MVT::i64) && isa<ConstantSDNode>(N2)) {
-    // PINSR* works with constant index.
-    return Op;
-  }
-  return SDValue();
-}
-
 /// Insert one bit to mask vector, like v16i1 or v8i1.
 /// AVX-512 feature.
 SDValue 
@@ -10740,11 +10687,12 @@ X86TargetLowering::InsertBitToMaskVector(SDValue Op, SelectionDAG &DAG) const {
                     DAG.getConstant(MaxSift - IdxVal, MVT::i8));
   return DAG.getNode(ISD::OR, dl, VecVT, Vec, EltInVec);
 }
-SDValue
-X86TargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const {
+
+SDValue X86TargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
+                                                  SelectionDAG &DAG) const {
   MVT VT = Op.getSimpleValueType();
   MVT EltVT = VT.getVectorElementType();
-  
+
   if (EltVT == MVT::i1)
     return InsertBitToMaskVector(Op, DAG);
 
@@ -10752,20 +10700,20 @@ X86TargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const {
   SDValue N0 = Op.getOperand(0);
   SDValue N1 = Op.getOperand(1);
   SDValue N2 = Op.getOperand(2);
+  if (!isa<ConstantSDNode>(N2))
+    return SDValue();
+  auto *N2C = cast<ConstantSDNode>(N2);
+  unsigned IdxVal = N2C->getZExtValue();
 
-  // If this is a 256-bit vector result, first extract the 128-bit vector,
-  // insert the element into the extracted half and then place it back.
+  // If the vector is wider than 128 bits, extract the 128-bit subvector, insert
+  // into that, and then insert the subvector back into the result.
   if (VT.is256BitVector() || VT.is512BitVector()) {
-    if (!isa<ConstantSDNode>(N2))
-      return SDValue();
-
     // Get the desired 128-bit vector half.
-    unsigned IdxVal = cast<ConstantSDNode>(N2)->getZExtValue();
     SDValue V = Extract128BitVector(N0, IdxVal, DAG, dl);
 
     // Insert the element into the desired half.
-    unsigned NumEltsIn128 = 128/EltVT.getSizeInBits();
-    unsigned IdxIn128 = IdxVal - (IdxVal/NumEltsIn128) * NumEltsIn128;
+    unsigned NumEltsIn128 = 128 / EltVT.getSizeInBits();
+    unsigned IdxIn128 = IdxVal - (IdxVal / NumEltsIn128) * NumEltsIn128;
 
     V = DAG.getNode(ISD::INSERT_VECTOR_ELT, dl, V.getValueType(), V, N1,
                     DAG.getConstant(IdxIn128, MVT::i32));
@@ -10773,20 +10721,60 @@ X86TargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const {
     // Insert the changed part back to the 256-bit vector
     return Insert128BitVector(N0, V, IdxVal, DAG, dl);
   }
+  assert(VT.is128BitVector() && "Only 128-bit vector types should be left!");
 
-  if (Subtarget->hasSSE41())
-    return LowerINSERT_VECTOR_ELT_SSE4(Op, DAG);
+  if (Subtarget->hasSSE41()) {
+    if (EltVT.getSizeInBits() == 8 || EltVT.getSizeInBits() == 16) {
+      unsigned Opc;
+      if (VT == MVT::v8i16) {
+        Opc = X86ISD::PINSRW;
+      } else {
+        assert(VT == MVT::v16i8);
+        Opc = X86ISD::PINSRB;
+      }
+
+      // Transform it so it match pinsr{b,w} which expects a GR32 as its second
+      // argument.
+      if (N1.getValueType() != MVT::i32)
+        N1 = DAG.getNode(ISD::ANY_EXTEND, dl, MVT::i32, N1);
+      if (N2.getValueType() != MVT::i32)
+        N2 = DAG.getIntPtrConstant(IdxVal);
+      return DAG.getNode(Opc, dl, VT, N0, N1, N2);
+    }
+
+    if (EltVT == MVT::f32) {
+      // Bits [7:6] of the constant are the source select.  This will always be
+      //  zero here.  The DAG Combiner may combine an extract_elt index into
+      //  these
+      //  bits.  For example (insert (extract, 3), 2) could be matched by
+      //  putting
+      //  the '3' into bits [7:6] of X86ISD::INSERTPS.
+      // Bits [5:4] of the constant are the destination select.  This is the
+      //  value of the incoming immediate.
+      // Bits [3:0] of the constant are the zero mask.  The DAG Combiner may
+      //   combine either bitwise AND or insert of float 0.0 to set these bits.
+      N2 = DAG.getIntPtrConstant(IdxVal << 4);
+      // Create this as a scalar to vector..
+      N1 = DAG.getNode(ISD::SCALAR_TO_VECTOR, dl, MVT::v4f32, N1);
+      return DAG.getNode(X86ISD::INSERTPS, dl, VT, N0, N1, N2);
+    }
+
+    if (EltVT == MVT::i32 || EltVT == MVT::i64) {
+      // PINSR* works with constant index.
+      return Op;
+    }
+  }
 
   if (EltVT == MVT::i8)
     return SDValue();
 
-  if (EltVT.getSizeInBits() == 16 && isa<ConstantSDNode>(N2)) {
+  if (EltVT.getSizeInBits() == 16) {
     // Transform it so it match pinsrw which expects a 16-bit value in a GR32
     // as its second argument.
     if (N1.getValueType() != MVT::i32)
       N1 = DAG.getNode(ISD::ANY_EXTEND, dl, MVT::i32, N1);
     if (N2.getValueType() != MVT::i32)
-      N2 = DAG.getIntPtrConstant(cast<ConstantSDNode>(N2)->getZExtValue());
+      N2 = DAG.getIntPtrConstant(IdxVal);
     return DAG.getNode(X86ISD::PINSRW, dl, VT, N0, N1, N2);
   }
   return SDValue();
@@ -16458,6 +16446,11 @@ static SDValue LowerXALUO(SDValue Op, SelectionDAG &DAG) {
   return DAG.getNode(ISD::MERGE_VALUES, DL, N->getVTList(), Sum, SetCC);
 }
 
+// Sign extension of the low part of vector elements. This may be used either
+// when sign extend instructions are not available or if the vector element
+// sizes already match the sign-extended size. If the vector elements are in
+// their pre-extended size and sign extend instructions are available, that will
+// be handled by LowerSIGN_EXTEND.
 SDValue X86TargetLowering::LowerSIGN_EXTEND_INREG(SDValue Op,
                                                   SelectionDAG &DAG) const {
   SDLoc dl(Op);
@@ -16503,32 +16496,13 @@ SDValue X86TargetLowering::LowerSIGN_EXTEND_INREG(SDValue Op,
     case MVT::v4i32:
     case MVT::v8i16: {
       SDValue Op0 = Op.getOperand(0);
-      SDValue Op00 = Op0.getOperand(0);
-      SDValue Tmp1;
-      // Hopefully, this VECTOR_SHUFFLE is just a VZEXT.
-      if (Op0.getOpcode() == ISD::BITCAST &&
-          Op00.getOpcode() == ISD::VECTOR_SHUFFLE) {
-        // (sext (vzext x)) -> (vsext x)
-        Tmp1 = LowerVectorIntExtend(Op00, Subtarget, DAG);
-        if (Tmp1.getNode()) {
-          EVT ExtraEltVT = ExtraVT.getVectorElementType();
-          // This folding is only valid when the in-reg type is a vector of i8,
-          // i16, or i32.
-          if (ExtraEltVT == MVT::i8 || ExtraEltVT == MVT::i16 ||
-              ExtraEltVT == MVT::i32) {
-            SDValue Tmp1Op0 = Tmp1.getOperand(0);
-            assert(Tmp1Op0.getOpcode() == X86ISD::VZEXT &&
-                   "This optimization is invalid without a VZEXT.");
-            return DAG.getNode(X86ISD::VSEXT, dl, VT, Tmp1Op0.getOperand(0));
-          }
-          Op0 = Tmp1;
-        }
-      }
 
-      // If the above didn't work, then just use Shift-Left + Shift-Right.
-      Tmp1 = getTargetVShiftByConstNode(X86ISD::VSHLI, dl, VT, Op0, BitsDiff,
-                                        DAG);
-      return getTargetVShiftByConstNode(X86ISD::VSRAI, dl, VT, Tmp1, BitsDiff,
+      // This is a sign extension of some low part of vector elements without
+      // changing the size of the vector elements themselves:
+      // Shift-Left + Shift-Right-Algebraic.
+      SDValue Shl = getTargetVShiftByConstNode(X86ISD::VSHLI, dl, VT, Op0,
+                                               BitsDiff, DAG);
+      return getTargetVShiftByConstNode(X86ISD::VSRAI, dl, VT, Shl, BitsDiff,
                                         DAG);
     }
   }

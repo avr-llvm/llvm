@@ -131,7 +131,7 @@ void FastISel::flushLocalValueMap() {
   recomputeInsertPt();
 }
 
-bool FastISel::hasTrivialKill(const Value *V) const {
+bool FastISel::hasTrivialKill(const Value *V) {
   // Don't consider constants or arguments to have trivial kills.
   const Instruction *I = dyn_cast<Instruction>(V);
   if (!I)
@@ -142,6 +142,13 @@ bool FastISel::hasTrivialKill(const Value *V) const {
     if (Cast->isNoopCast(DL.getIntPtrType(Cast->getContext())) &&
         !hasTrivialKill(Cast->getOperand(0)))
       return false;
+
+  // Even the value might have only one use in the LLVM IR, it is possible that
+  // FastISel might fold the use into another instruction and now there is more
+  // than one use at the Machine Instruction level.
+  unsigned Reg = lookUpRegForValue(V);
+  if (Reg && !MRI.use_empty(Reg))
+    return false;
 
   // GEPs with all zero indices are trivially coalesced by fast-isel.
   if (const GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(I))
@@ -1363,6 +1370,9 @@ FastISel::SelectInstruction(const Instruction *I) {
     removeDeadCode(FuncInfo.InsertPt, SavedInsertPt);
 
   DbgLoc = DebugLoc();
+  // Undo phi node updates, because they will be added again by SelectionDAG.
+  if (isa<TerminatorInst>(I))
+    FuncInfo.PHINodesToUpdate.resize(FuncInfo.OrigNumPHINodesToUpdate);
   return false;
 }
 
@@ -1997,7 +2007,7 @@ bool FastISel::HandlePHINodesInSuccessorBlocks(const BasicBlock *LLVMBB) {
   const TerminatorInst *TI = LLVMBB->getTerminator();
 
   SmallPtrSet<MachineBasicBlock *, 4> SuccsHandled;
-  unsigned OrigNumPHINodesToUpdate = FuncInfo.PHINodesToUpdate.size();
+  FuncInfo.OrigNumPHINodesToUpdate = FuncInfo.PHINodesToUpdate.size();
 
   // Check successor nodes' PHI nodes that expect a constant to be available
   // from this block.
@@ -2033,7 +2043,7 @@ bool FastISel::HandlePHINodesInSuccessorBlocks(const BasicBlock *LLVMBB) {
         if (VT == MVT::i1 || VT == MVT::i8 || VT == MVT::i16)
           VT = TLI.getTypeToTransformTo(LLVMBB->getContext(), VT);
         else {
-          FuncInfo.PHINodesToUpdate.resize(OrigNumPHINodesToUpdate);
+          FuncInfo.PHINodesToUpdate.resize(FuncInfo.OrigNumPHINodesToUpdate);
           return false;
         }
       }
@@ -2047,8 +2057,8 @@ bool FastISel::HandlePHINodesInSuccessorBlocks(const BasicBlock *LLVMBB) {
         DbgLoc = Inst->getDebugLoc();
 
       unsigned Reg = getRegForValue(PHIOp);
-      if (Reg == 0) {
-        FuncInfo.PHINodesToUpdate.resize(OrigNumPHINodesToUpdate);
+      if (!Reg) {
+        FuncInfo.PHINodesToUpdate.resize(FuncInfo.OrigNumPHINodesToUpdate);
         return false;
       }
       FuncInfo.PHINodesToUpdate.push_back(std::make_pair(MBBI++, Reg));
