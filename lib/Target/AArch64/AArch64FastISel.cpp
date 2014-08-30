@@ -2182,15 +2182,16 @@ bool AArch64FastISel::FastLowerCall(CallLoweringInfo &CLI) {
   // Issue the call.
   MachineInstrBuilder MIB;
   if (CM == CodeModel::Small) {
-    unsigned CallOpc = Addr.getReg() ? AArch64::BLR : AArch64::BL;
-    MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(CallOpc));
+    const MCInstrDesc &II = TII.get(Addr.getReg() ? AArch64::BLR : AArch64::BL);
+    MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II);
     if (SymName)
       MIB.addExternalSymbol(SymName, 0);
     else if (Addr.getGlobalValue())
       MIB.addGlobalAddress(Addr.getGlobalValue(), 0, 0);
-    else if (Addr.getReg())
-      MIB.addReg(Addr.getReg());
-    else
+    else if (Addr.getReg()) {
+      unsigned Reg = constrainOperandRegClass(II, Addr.getReg(), 0);
+      MIB.addReg(Reg);
+    } else
       return false;
   } else {
     unsigned CallReg = 0;
@@ -2214,8 +2215,9 @@ bool AArch64FastISel::FastLowerCall(CallLoweringInfo &CLI) {
     if (!CallReg)
       return false;
 
-    MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
-                  TII.get(AArch64::BLR)).addReg(CallReg);
+    const MCInstrDesc &II = TII.get(AArch64::BLR);
+    CallReg = constrainOperandRegClass(II, CallReg, 0);
+    MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II).addReg(CallReg);
   }
 
   // Add implicit physical register uses to the call.
@@ -2694,8 +2696,11 @@ bool AArch64FastISel::SelectTrunc(const Instruction *I) {
   bool SrcIsKill = hasTrivialKill(Op);
 
   // If we're truncating from i64 to a smaller non-legal type then generate an
-  // AND.  Otherwise, we know the high bits are undefined and a truncate doesn't
-  // generate any code.
+  // AND. Otherwise, we know the high bits are undefined and a truncate only
+  // generate a COPY. We cannot mark the source register also as result
+  // register, because this can incorrectly transfer the kill flag onto the
+  // source register.
+  unsigned ResultReg;
   if (SrcVT == MVT::i64) {
     uint64_t Mask = 0;
     switch (DestVT.SimpleTy) {
@@ -2716,12 +2721,16 @@ bool AArch64FastISel::SelectTrunc(const Instruction *I) {
     unsigned Reg32 = FastEmitInst_extractsubreg(MVT::i32, SrcReg, SrcIsKill,
                                                 AArch64::sub_32);
     // Create the AND instruction which performs the actual truncation.
-    unsigned ANDReg = emitAND_ri(MVT::i32, Reg32, /*IsKill=*/true, Mask);
-    assert(ANDReg && "Unexpected AND instruction emission failure.");
-    SrcReg = ANDReg;
+    ResultReg = emitAND_ri(MVT::i32, Reg32, /*IsKill=*/true, Mask);
+    assert(ResultReg && "Unexpected AND instruction emission failure.");
+  } else {
+    ResultReg = createResultReg(&AArch64::GPR32RegClass);
+    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
+            TII.get(TargetOpcode::COPY), ResultReg)
+        .addReg(SrcReg, getKillRegState(SrcIsKill));
   }
 
-  UpdateValueMap(I, SrcReg);
+  UpdateValueMap(I, ResultReg);
   return true;
 }
 

@@ -3341,7 +3341,7 @@ bool LLParser::ParseFunctionHeader(Function *&Fn, bool isDefine) {
   if (isDefine)
     return false;
 
-  // Check the a declaration has no block address forward references.
+  // Check the declaration has no block address forward references.
   ValID ID;
   if (FunctionName.empty()) {
     ID.Kind = ValID::t_GlobalID;
