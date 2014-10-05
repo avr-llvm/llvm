@@ -1085,29 +1085,33 @@ Instruction *InstCombiner::FoldICmpCstShrCst(ICmpInst &I, Value *Op, Value *A,
     return getICmp(I.ICMP_EQ, A, ConstantInt::getNullValue(A->getType()));
   }
 
+  bool IsNegative = false;
   if (IsAShr) {
     if (AP1.isNegative() != AP2.isNegative()) {
       // Arithmetic shift will never change the sign.
       return getConstant(false);
     }
-    // Both the constants are negative, take their positive to calculate
-    // log.
+    // Both the constants are negative, take their positive to calculate log.
     if (AP1.isNegative()) {
-      AP1 = -AP1;
-      AP2 = -AP2;
+      if (AP1.slt(AP2))
+        // Right-shifting won't increase the magnitude.
+        return getConstant(false);
+      IsNegative = true;
     }
   }
 
-  if (AP1.ugt(AP2)) {
+  if (!IsNegative && AP1.ugt(AP2))
     // Right-shifting will not increase the value.
     return getConstant(false);
-  }
 
   // Get the distance between the highest bit that's set.
-  int Shift = AP2.logBase2() - AP1.logBase2();
+  int Shift;
+  if (IsNegative)
+    Shift = (-AP2).logBase2() - (-AP1).logBase2();
+  else
+    Shift = AP2.logBase2() - AP1.logBase2();
 
-  // Use lshr here, since we've canonicalized to +ve numbers.
-  if (AP1 == AP2.lshr(Shift))
+  if (IsAShr ? AP1 == AP2.ashr(Shift) : AP1 == AP2.lshr(Shift))
     return getICmp(I.ICMP_EQ, A, ConstantInt::get(A->getType(), Shift));
 
   // Shifting const2 will never be equal to const1.
@@ -1129,7 +1133,7 @@ Instruction *InstCombiner::visitICmpInstWithInstAndIntCst(ICmpInst &ICI,
       unsigned DstBits = LHSI->getType()->getPrimitiveSizeInBits(),
              SrcBits = LHSI->getOperand(0)->getType()->getPrimitiveSizeInBits();
       APInt KnownZero(SrcBits, 0), KnownOne(SrcBits, 0);
-      computeKnownBits(LHSI->getOperand(0), KnownZero, KnownOne);
+      computeKnownBits(LHSI->getOperand(0), KnownZero, KnownOne, 0, &ICI);
 
       // If all the high bits are known, we can do this xform.
       if ((KnownZero|KnownOne).countLeadingOnes() >= SrcBits-DstBits) {
@@ -2033,8 +2037,8 @@ static Instruction *ProcessUGT_ADDCST_ADD(ICmpInst &I, Value *A, Value *B,
   // sign-extended; check for that condition. For example, if CI2 is 2^31 and
   // the operands of the add are 64 bits wide, we need at least 33 sign bits.
   unsigned NeededSignBits = CI1->getBitWidth() - NewWidth + 1;
-  if (IC.ComputeNumSignBits(A) < NeededSignBits ||
-      IC.ComputeNumSignBits(B) < NeededSignBits)
+  if (IC.ComputeNumSignBits(A, 0, &I) < NeededSignBits ||
+      IC.ComputeNumSignBits(B, 0, &I) < NeededSignBits)
     return nullptr;
 
   // In order to replace the original add with a narrower
@@ -2442,7 +2446,7 @@ Instruction *InstCombiner::visitICmpInst(ICmpInst &I) {
     Changed = true;
   }
 
-  if (Value *V = SimplifyICmpInst(I.getPredicate(), Op0, Op1, DL))
+  if (Value *V = SimplifyICmpInst(I.getPredicate(), Op0, Op1, DL, TLI, DT, AT))
     return ReplaceInstUsesWith(I, V);
 
   // comparing -val or val with non-zero is the same as just comparing val
@@ -3222,7 +3226,9 @@ Instruction *InstCombiner::visitICmpInst(ICmpInst &I) {
     // and       (A & ~B) != 0 --> (A & B) == 0
     // if A is a power of 2.
     if (match(Op0, m_And(m_Value(A), m_Not(m_Value(B)))) &&
-        match(Op1, m_Zero()) && isKnownToBeAPowerOfTwo(A) && I.isEquality())
+        match(Op1, m_Zero()) && isKnownToBeAPowerOfTwo(A, false,
+                                                       0, AT, &I, DT) &&
+                                I.isEquality())
       return new ICmpInst(I.getInversePredicate(),
                           Builder->CreateAnd(A, B),
                           Op1);
@@ -3612,7 +3618,7 @@ Instruction *InstCombiner::visitFCmpInst(FCmpInst &I) {
 
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
 
-  if (Value *V = SimplifyFCmpInst(I.getPredicate(), Op0, Op1, DL))
+  if (Value *V = SimplifyFCmpInst(I.getPredicate(), Op0, Op1, DL, TLI, DT, AT))
     return ReplaceInstUsesWith(I, V);
 
   // Simplify 'fcmp pred X, X'

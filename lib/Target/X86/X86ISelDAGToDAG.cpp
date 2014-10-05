@@ -24,6 +24,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Type.h"
@@ -297,6 +298,13 @@ namespace {
     /// to the target-specific type.
     const X86InstrInfo *getInstrInfo() const {
       return getTargetMachine().getSubtargetImpl()->getInstrInfo();
+    }
+
+    /// \brief Address-mode matching performs shift-of-and to and-of-shift
+    /// reassociation in order to expose more scaled addressing
+    /// opportunities.
+    bool ComplexPatternFuncMutatesDAG() const override {
+      return true;
     }
   };
 }
@@ -774,9 +782,10 @@ static void InsertDAGNode(SelectionDAG &DAG, SDValue Pos, SDValue N) {
   }
 }
 
-// Transform "(X >> (8-C1)) & C2" to "(X >> 8) & 0xff)" if safe. This
-// allows us to convert the shift and and into an h-register extract and
-// a scaled index. Returns false if the simplification is performed.
+// Transform "(X >> (8-C1)) & (0xff << C1)" to "((X >> 8) & 0xff) << C1" if
+// safe. This allows us to convert the shift and and into an h-register
+// extract and a scaled index. Returns false if the simplification is
+// performed.
 static bool FoldMaskAndShiftToExtract(SelectionDAG &DAG, SDValue N,
                                       uint64_t Mask,
                                       SDValue Shift, SDValue X,

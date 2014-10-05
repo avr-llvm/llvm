@@ -56,6 +56,28 @@ static bool isUsedOutsideOfDefiningBlock(const Instruction *I) {
   return false;
 }
 
+static ISD::NodeType getPreferredExtendForValue(const Value *V) {
+  // For the users of the source value being used for compare instruction, if
+  // the number of signed predicate is greater than unsigned predicate, we
+  // prefer to use SIGN_EXTEND.
+  //
+  // With this optimization, we would be able to reduce some redundant sign or
+  // zero extension instruction, and eventually more machine CSE opportunities
+  // can be exposed.
+  ISD::NodeType ExtendKind = ISD::ANY_EXTEND;
+  unsigned NumOfSigned = 0, NumOfUnsigned = 0;
+  for (const User *U : V->users()) {
+    if (const auto *CI = dyn_cast<CmpInst>(U)) {
+      NumOfSigned += CI->isSigned();
+      NumOfUnsigned += CI->isUnsigned();
+    }
+  }
+  if (NumOfSigned > NumOfUnsigned)
+    ExtendKind = ISD::SIGN_EXTEND;
+
+  return ExtendKind;
+}
+
 void FunctionLoweringInfo::set(const Function &fn, MachineFunction &mf,
                                SelectionDAG *DAG) {
   const TargetLowering *TLI = TM.getSubtargetImpl()->getTargetLowering();
@@ -75,34 +97,26 @@ void FunctionLoweringInfo::set(const Function &fn, MachineFunction &mf,
   // instruction values that are used outside of the block that defines
   // them.
   Function::const_iterator BB = Fn->begin(), EB = Fn->end();
-  for (BasicBlock::const_iterator I = BB->begin(), E = BB->end(); I != E; ++I)
-    if (const AllocaInst *AI = dyn_cast<AllocaInst>(I)) {
-      // Don't fold inalloca allocas or other dynamic allocas into the initial
-      // stack frame allocation, even if they are in the entry block.
-      if (!AI->isStaticAlloca())
-        continue;
-
-      if (const ConstantInt *CUI = dyn_cast<ConstantInt>(AI->getArraySize())) {
-        Type *Ty = AI->getAllocatedType();
-        uint64_t TySize = TLI->getDataLayout()->getTypeAllocSize(Ty);
-        unsigned Align =
-          std::max((unsigned)TLI->getDataLayout()->getPrefTypeAlignment(Ty),
-                   AI->getAlignment());
-
-        TySize *= CUI->getZExtValue();   // Get total allocated size.
-        if (TySize == 0) TySize = 1; // Don't create zero-sized stack objects.
-
-        StaticAllocaMap[AI] =
-          MF->getFrameInfo()->CreateStackObject(TySize, Align, false, AI);
-      }
-    }
-
   for (; BB != EB; ++BB)
     for (BasicBlock::const_iterator I = BB->begin(), E = BB->end();
          I != E; ++I) {
-      // Look for dynamic allocas.
       if (const AllocaInst *AI = dyn_cast<AllocaInst>(I)) {
-        if (!AI->isStaticAlloca()) {
+        // Static allocas can be folded into the initial stack frame adjustment.
+        if (AI->isStaticAlloca()) {
+          const ConstantInt *CUI = cast<ConstantInt>(AI->getArraySize());
+          Type *Ty = AI->getAllocatedType();
+          uint64_t TySize = TLI->getDataLayout()->getTypeAllocSize(Ty);
+          unsigned Align =
+            std::max((unsigned)TLI->getDataLayout()->getPrefTypeAlignment(Ty),
+                     AI->getAlignment());
+
+          TySize *= CUI->getZExtValue();   // Get total allocated size.
+          if (TySize == 0) TySize = 1; // Don't create zero-sized stack objects.
+
+          StaticAllocaMap[AI] =
+            MF->getFrameInfo()->CreateStackObject(TySize, Align, false, AI);
+
+        } else {
           unsigned Align = std::max(
               (unsigned)TLI->getDataLayout()->getPrefTypeAlignment(
                 AI->getAllocatedType()),
@@ -183,13 +197,16 @@ void FunctionLoweringInfo::set(const Function &fn, MachineFunction &mf,
                 StaticAllocaMap.find(AI);
               if (SI != StaticAllocaMap.end()) { // Check for VLAs.
                 int FI = SI->second;
-                MMI.setVariableDbgInfo(DI->getVariable(),
+                MMI.setVariableDbgInfo(DI->getVariable(), DI->getExpression(),
                                        FI, DI->getDebugLoc());
               }
             }
           }
         }
       }
+
+      // Decide the preferred extend type for a value.
+      PreferredExtendType[I] = getPreferredExtendForValue(I);
     }
 
   // Create an initial MachineBasicBlock for each LLVM BasicBlock in F.  This
@@ -258,6 +275,7 @@ void FunctionLoweringInfo::clear() {
   ArgDbgValues.clear();
   ByValArgFrameIndexMap.clear();
   RegFixups.clear();
+  PreferredExtendType.clear();
 }
 
 /// CreateReg - Allocate a single virtual register for the given type.

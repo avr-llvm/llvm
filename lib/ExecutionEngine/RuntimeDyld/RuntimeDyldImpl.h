@@ -249,11 +249,11 @@ protected:
     return true;
   }
 
-  uint64_t getSectionLoadAddress(unsigned SectionID) {
+  uint64_t getSectionLoadAddress(unsigned SectionID) const {
     return Sections[SectionID].LoadAddress;
   }
 
-  uint8_t *getSectionAddress(unsigned SectionID) {
+  uint8_t *getSectionAddress(unsigned SectionID) const {
     return (uint8_t *)Sections[SectionID].Address;
   }
 
@@ -373,9 +373,10 @@ public:
     this->Checker = Checker;
   }
 
-  ObjectImage *loadObject(ObjectImage *InputObject);
+  std::unique_ptr<ObjectImage>
+  loadObject(std::unique_ptr<ObjectImage> InputObject);
 
-  uint8_t* getSymbolAddress(StringRef Name) {
+  uint8_t* getSymbolAddress(StringRef Name) const {
     // FIXME: Just look up as a function for now. Overly simple of course.
     // Work in progress.
     SymbolTableMap::const_iterator pos = GlobalSymbolTable.find(Name);
@@ -385,7 +386,7 @@ public:
     return getSectionAddress(Loc.first) + Loc.second;
   }
 
-  uint64_t getSymbolLoadAddress(StringRef Name) {
+  uint64_t getSymbolLoadAddress(StringRef Name) const {
     // FIXME: Just look up as a function for now. Overly simple of course.
     // Work in progress.
     SymbolTableMap::const_iterator pos = GlobalSymbolTable.find(Name);

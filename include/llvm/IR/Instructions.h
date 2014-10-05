@@ -241,7 +241,6 @@ public:
                                (xthread << 6));
   }
 
-  bool isAtomic() const { return getOrdering() != NotAtomic; }
   void setAtomic(AtomicOrdering Ordering,
                  SynchronizationScope SynchScope = CrossThread) {
     setOrdering(Ordering);
@@ -361,7 +360,6 @@ public:
                                (xthread << 6));
   }
 
-  bool isAtomic() const { return getOrdering() != NotAtomic; }
   void setAtomic(AtomicOrdering Ordering,
                  SynchronizationScope SynchScope = CrossThread) {
     setOrdering(Ordering);
@@ -653,7 +651,7 @@ public:
     Sub,
     /// *p = old & v
     And,
-    /// *p = ~old & v
+    /// *p = ~(old & v)
     Nand,
     /// *p = old | v
     Or,

@@ -18,6 +18,7 @@
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/CommandFlags.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
@@ -296,10 +297,12 @@ static ld_plugin_status claim_file_hook(const ld_plugin_input_file *file,
     BufferRef = Buffer->getMemBufferRef();
   }
 
-  ErrorOr<object::IRObjectFile *> ObjOrErr =
+  ErrorOr<std::unique_ptr<object::IRObjectFile>> ObjOrErr =
       object::IRObjectFile::createIRObjectFile(BufferRef, Context);
   std::error_code EC = ObjOrErr.getError();
-  if (EC == BitcodeError::InvalidBitcodeSignature)
+  if (EC == BitcodeError::InvalidBitcodeSignature ||
+      EC == object::object_error::invalid_file_type ||
+      EC == object::object_error::bitcode_section_not_found)
     return LDPS_OK;
 
   *claimed = 1;
@@ -309,7 +312,7 @@ static ld_plugin_status claim_file_hook(const ld_plugin_input_file *file,
             EC.message().c_str());
     return LDPS_ERR;
   }
-  std::unique_ptr<object::IRObjectFile> Obj(ObjOrErr.get());
+  std::unique_ptr<object::IRObjectFile> Obj = std::move(*ObjOrErr);
 
   Modules.resize(Modules.size() + 1);
   claimed_file &cf = Modules.back();
@@ -456,6 +459,7 @@ static void drop(GlobalValue &GV) {
                          /*Initializer*/ nullptr);
   Var->takeName(&Alias);
   Alias.replaceAllUsesWith(Var);
+  Alias.eraseFromParent();
 }
 
 static const char *getResolutionName(ld_plugin_symbol_resolution R) {
@@ -546,13 +550,20 @@ getModuleForFile(LLVMContext &Context, claimed_file &F, raw_fd_ostream *ApiFile,
   if (get_view(F.handle, &View) != LDPS_OK)
     message(LDPL_FATAL, "Failed to get a view of file");
 
-  std::unique_ptr<MemoryBuffer> Buffer = MemoryBuffer::getMemBuffer(
-      StringRef((char *)View, File.filesize), "", false);
+  llvm::ErrorOr<MemoryBufferRef> MBOrErr =
+      object::IRObjectFile::findBitcodeInMemBuffer(
+          MemoryBufferRef(StringRef((const char *)View, File.filesize), ""));
+  if (std::error_code EC = MBOrErr.getError())
+    message(LDPL_FATAL, "Could not read bitcode from file : %s",
+            EC.message().c_str());
+
+  std::unique_ptr<MemoryBuffer> Buffer =
+      MemoryBuffer::getMemBuffer(MBOrErr->getBuffer(), "", false);
 
   if (release_input_file(F.handle) != LDPS_OK)
     message(LDPL_FATAL, "Failed to release file information");
 
-  ErrorOr<Module *> MOrErr = getLazyBitcodeModule(Buffer, Context);
+  ErrorOr<Module *> MOrErr = getLazyBitcodeModule(std::move(Buffer), Context);
 
   if (std::error_code EC = MOrErr.getError())
     message(LDPL_FATAL, "Could not read bitcode from file : %s",
@@ -575,6 +586,15 @@ getModuleForFile(LLVMContext &Context, claimed_file &F, raw_fd_ostream *ApiFile,
     GlobalValue *GV = M->getNamedValue(Sym.name);
     if (!GV)
       continue; // Asm symbol.
+
+    if (Resolution != LDPR_PREVAILING_DEF_IRONLY && GV->hasCommonLinkage()) {
+      // Common linkage is special. There is no single symbol that wins the
+      // resolution. Instead we have to collect the maximum alignment and size.
+      // The IR linker does that for us if we just pass it every common GV.
+      // We still have to keep track of LDPR_PREVAILING_DEF_IRONLY so we
+      // internalize once the IR linker has done its job.
+      continue;
+    }
 
     switch (Resolution) {
     case LDPR_UNKNOWN:
@@ -684,7 +704,7 @@ static void codegen(Module &M) {
   runLTOPasses(M, *TM);
 
   PassManager CodeGenPasses;
-  CodeGenPasses.add(new DataLayoutPass(&M));
+  CodeGenPasses.add(new DataLayoutPass());
 
   SmallString<128> Filename;
   int FD;

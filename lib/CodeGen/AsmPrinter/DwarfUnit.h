@@ -216,15 +216,14 @@ public:
   /// hasContent - Return true if this compile unit has something to write out.
   bool hasContent() const { return !UnitDie.getChildren().empty(); }
 
-  /// addRange - Add an address range to the list of ranges for this unit.
-  void addRange(RangeSpan Range);
-
   /// getRanges - Get the list of ranges for this unit.
   const SmallVectorImpl<RangeSpan> &getRanges() const { return CURanges; }
   SmallVectorImpl<RangeSpan> &getRanges() { return CURanges; }
 
   /// addRangeList - Add an address range list to the list of range lists.
-  void addRangeList(RangeSpanList Ranges) { CURangeLists.push_back(Ranges); }
+  void addRangeList(RangeSpanList Ranges) {
+    CURangeLists.push_back(std::move(Ranges));
+  }
 
   /// getRangeLists - Get the vector of range lists.
   const SmallVectorImpl<RangeSpanList> &getRangeLists() const {
@@ -275,11 +274,11 @@ public:
   void addSInt(DIELoc &Die, Optional<dwarf::Form> Form, int64_t Integer);
 
   /// addString - Add a string attribute data and value.
-  void addString(DIE &Die, dwarf::Attribute Attribute, const StringRef Str);
+  void addString(DIE &Die, dwarf::Attribute Attribute, StringRef Str);
 
   /// addLocalString - Add a string attribute data and value.
   void addLocalString(DIE &Die, dwarf::Attribute Attribute,
-                      const StringRef Str);
+                      StringRef Str);
 
   /// addExpr - Add a Dwarf expression attribute data and value.
   void addExpr(DIELoc &Die, dwarf::Form Form, const MCExpr *Expr);
@@ -523,38 +522,6 @@ private:
   /// If this is a named finished type then include it in the list of types for
   /// the accelerator tables.
   void updateAcceleratorTables(DIScope Context, DIType Ty, const DIE &TyDIE);
-};
-
-class DwarfCompileUnit : public DwarfUnit {
-  /// The attribute index of DW_AT_stmt_list in the compile unit DIE, avoiding
-  /// the need to search for it in applyStmtList.
-  unsigned stmtListIndex;
-
-public:
-  DwarfCompileUnit(unsigned UID, DICompileUnit Node, AsmPrinter *A,
-                   DwarfDebug *DW, DwarfFile *DWU);
-
-  void initStmtList(MCSymbol *DwarfLineSectionSym);
-
-  /// Apply the DW_AT_stmt_list from this compile unit to the specified DIE.
-  void applyStmtList(DIE &D);
-
-  /// createGlobalVariableDIE - create global variable DIE.
-  void createGlobalVariableDIE(DIGlobalVariable GV);
-
-  /// addLabelAddress - Add a dwarf label attribute data and value using
-  /// either DW_FORM_addr or DW_FORM_GNU_addr_index.
-  void addLabelAddress(DIE &Die, dwarf::Attribute Attribute,
-                       const MCSymbol *Label);
-
-  /// addLocalLabelAddress - Add a dwarf label attribute data and value using
-  /// DW_FORM_addr only.
-  void addLocalLabelAddress(DIE &Die, dwarf::Attribute Attribute,
-                            const MCSymbol *Label);
-
-  DwarfCompileUnit &getCU() override { return *this; }
-
-  unsigned getOrCreateSourceID(StringRef FileName, StringRef DirName) override;
 };
 
 class DwarfTypeUnit : public DwarfUnit {

@@ -51,7 +51,7 @@ ARMBaseTargetMachine::ARMBaseTargetMachine(const Target &T, StringRef TT,
                                            Reloc::Model RM, CodeModel::Model CM,
                                            CodeGenOpt::Level OL, bool isLittle)
     : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
-      Subtarget(TT, CPU, FS, *this, isLittle, Options) {
+      Subtarget(TT, CPU, FS, *this, isLittle) {
 
   // Default to triple-appropriate float ABI
   if (Options.FloatABIType == FloatABI::Default)
@@ -246,11 +246,4 @@ bool ARMPassConfig::addPreEmitPass() {
   addPass(createARMConstantIslandPass());
 
   return true;
-}
-
-bool ARMBaseTargetMachine::addCodeEmitter(PassManagerBase &PM,
-                                          JITCodeEmitter &JCE) {
-  // Machine code emitter pass for ARM.
-  PM.add(createARMJITCodeEmitterPass(*this, JCE));
-  return false;
 }

@@ -139,11 +139,11 @@ class DFSanABIList {
   std::unique_ptr<SpecialCaseList> SCL;
 
  public:
-  DFSanABIList(SpecialCaseList *SCL) : SCL(SCL) {}
+  DFSanABIList(std::unique_ptr<SpecialCaseList> SCL) : SCL(std::move(SCL)) {}
 
   /// Returns whether either this function or its source file are listed in the
   /// given category.
-  bool isIn(const Function &F, const StringRef Category) const {
+  bool isIn(const Function &F, StringRef Category) const {
     return isIn(*F.getParent(), Category) ||
            SCL->inSection("fun", F.getName(), Category);
   }
@@ -152,7 +152,7 @@ class DFSanABIList {
   ///
   /// If GA aliases a function, the alias's name is matched as a function name
   /// would be.  Similarly, aliases of globals are matched like globals.
-  bool isIn(const GlobalAlias &GA, const StringRef Category) const {
+  bool isIn(const GlobalAlias &GA, StringRef Category) const {
     if (isIn(*GA.getParent(), Category))
       return true;
 
@@ -164,7 +164,7 @@ class DFSanABIList {
   }
 
   /// Returns whether this module is listed in the given category.
-  bool isIn(const Module &M, const StringRef Category) const {
+  bool isIn(const Module &M, StringRef Category) const {
     return SCL->inSection("src", M.getModuleIdentifier(), Category);
   }
 };
@@ -387,7 +387,12 @@ FunctionType *DataFlowSanitizer::getTrampolineFunctionType(FunctionType *T) {
 }
 
 FunctionType *DataFlowSanitizer::getCustomFunctionType(FunctionType *T) {
-  assert(!T->isVarArg());
+  if (T->isVarArg()) {
+    // The labels are passed after all the arguments so there is no need to
+    // adjust the function type.
+    return T;
+  }
+
   llvm::SmallVector<Type *, 4> ArgTypes;
   for (FunctionType::param_iterator i = T->param_begin(), e = T->param_end();
        i != e; ++i) {
@@ -476,7 +481,7 @@ DataFlowSanitizer::WrapperKind DataFlowSanitizer::getWrapperKind(Function *F) {
     return WK_Functional;
   if (ABIList.isIn(*F, "discard"))
     return WK_Discard;
-  if (ABIList.isIn(*F, "custom") && !F->isVarArg())
+  if (ABIList.isIn(*F, "custom"))
     return WK_Custom;
 
   return WK_Warning;
@@ -704,11 +709,6 @@ bool DataFlowSanitizer::runOnModule(Module &M) {
       } else {
         addGlobalNamePrefix(&F);
       }
-               // Hopefully, nobody will try to indirectly call a vararg
-               // function... yet.
-    } else if (FT->isVarArg()) {
-      UnwrappedFnMap[&F] = &F;
-      *i = nullptr;
     } else if (!IsZeroArgsVoidRet || getWrapperKind(&F) == WK_Custom) {
       // Build a wrapper function for F.  The wrapper simply calls F, and is
       // added to FnsToInstrument so that any instrumentation according to its
@@ -744,6 +744,11 @@ bool DataFlowSanitizer::runOnModule(Module &M) {
         i = FnsToInstrument.begin() + N;
         e = FnsToInstrument.begin() + Count;
       }
+               // Hopefully, nobody will try to indirectly call a vararg
+               // function... yet.
+    } else if (FT->isVarArg()) {
+      UnwrappedFnMap[&F] = &F;
+      *i = nullptr;
     }
   }
 
@@ -1352,6 +1357,10 @@ void DFSanVisitor::visitCallSite(CallSite CS) {
     return;
   }
 
+  assert(!(cast<FunctionType>(
+      CS.getCalledValue()->getType()->getPointerElementType())->isVarArg() &&
+           dyn_cast<InvokeInst>(CS.getInstruction())));
+
   IRBuilder<> IRB(CS.getInstruction());
 
   DenseMap<Value *, Function *>::iterator i =
@@ -1400,7 +1409,7 @@ void DFSanVisitor::visitCallSite(CallSite CS) {
         std::vector<Value *> Args;
 
         CallSite::arg_iterator i = CS.arg_begin();
-        for (unsigned n = FT->getNumParams(); n != 0; ++i, --n) {
+        for (unsigned n = CS.arg_size(); n != 0; ++i, --n) {
           Type *T = (*i)->getType();
           FunctionType *ParamFT;
           if (isa<PointerType>(T) &&
@@ -1420,7 +1429,7 @@ void DFSanVisitor::visitCallSite(CallSite CS) {
         }
 
         i = CS.arg_begin();
-        for (unsigned n = FT->getNumParams(); n != 0; ++i, --n)
+        for (unsigned n = CS.arg_size(); n != 0; ++i, --n)
           Args.push_back(DFSF.getShadow(*i));
 
         if (!FT->getReturnType()->isVoidTy()) {

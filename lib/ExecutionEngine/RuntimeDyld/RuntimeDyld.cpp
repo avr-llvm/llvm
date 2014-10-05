@@ -45,16 +45,21 @@ void RuntimeDyldImpl::deregisterEHFrames() {}
 static void dumpSectionMemory(const SectionEntry &S, StringRef State) {
   dbgs() << "----- Contents of section " << S.Name << " " << State << " -----";
 
+  if (S.Address == nullptr) {
+    dbgs() << "\n          <section not emitted>\n";
+    return;
+  }
+
   const unsigned ColsPerRow = 16;
 
   uint8_t *DataAddr = S.Address;
   uint64_t LoadAddr = S.LoadAddress;
 
-  unsigned StartPadding = LoadAddr & 7;
+  unsigned StartPadding = LoadAddr & (ColsPerRow - 1);
   unsigned BytesRemaining = S.Size;
 
   if (StartPadding) {
-    dbgs() << "\n" << format("0x%08x", LoadAddr & ~(ColsPerRow - 1)) << ":";
+    dbgs() << "\n" << format("0x%016" PRIx64, LoadAddr & ~(ColsPerRow - 1)) << ":";
     while (StartPadding--)
       dbgs() << "   ";
   }
@@ -137,10 +142,10 @@ static std::error_code getOffset(const SymbolRef &Sym, uint64_t &Result) {
   return object_error::success;
 }
 
-ObjectImage *RuntimeDyldImpl::loadObject(ObjectImage *InputObject) {
+std::unique_ptr<ObjectImage>
+RuntimeDyldImpl::loadObject(std::unique_ptr<ObjectImage> Obj) {
   MutexGuard locked(lock);
 
-  std::unique_ptr<ObjectImage> Obj(InputObject);
   if (!Obj)
     return nullptr;
 
@@ -250,7 +255,7 @@ ObjectImage *RuntimeDyldImpl::loadObject(ObjectImage *InputObject) {
   // Give the subclasses a chance to tie-up any loose ends.
   finalizeLoad(*Obj, LocalSections);
 
-  return Obj.release();
+  return Obj;
 }
 
 // A helper method for computeTotalAllocSize.
@@ -398,32 +403,30 @@ unsigned RuntimeDyldImpl::computeSectionStubBufSize(ObjectImage &Obj,
 uint64_t RuntimeDyldImpl::readBytesUnaligned(uint8_t *Src,
                                              unsigned Size) const {
   uint64_t Result = 0;
-  uint8_t *Dst = reinterpret_cast<uint8_t*>(&Result);
-
-  if (IsTargetLittleEndian == sys::IsLittleEndianHost) {
-    if (!sys::IsLittleEndianHost)
-      Dst += sizeof(Result) - Size;
-    memcpy(Dst, Src, Size);
-  } else {
-    Dst += Size - 1;
-    for (unsigned i = 0; i < Size; ++i)
-      *Dst-- = *Src++;
-  }
+  if (IsTargetLittleEndian) {
+    Src += Size - 1;
+    while (Size--)
+      Result = (Result << 8) | *Src--;
+  } else
+    while (Size--)
+      Result = (Result << 8) | *Src++;
 
   return Result;
 }
 
 void RuntimeDyldImpl::writeBytesUnaligned(uint64_t Value, uint8_t *Dst,
                                           unsigned Size) const {
-  uint8_t *Src = reinterpret_cast<uint8_t*>(&Value);
-  if (IsTargetLittleEndian == sys::IsLittleEndianHost) {
-    if (!sys::IsLittleEndianHost)
-      Src += sizeof(Value) - Size;
-    memcpy(Dst, Src, Size);
+  if (IsTargetLittleEndian) {
+    while (Size--) {
+      *Dst++ = Value & 0xFF;
+      Value >>= 8;
+    }
   } else {
-    Src += Size - 1;
-    for (unsigned i = 0; i < Size; ++i)
-      *Dst++ = *Src--;
+    Dst += Size - 1;
+    while (Size--) {
+      *Dst-- = Value & 0xFF;
+      Value >>= 8;
+    }
   }
 }
 
@@ -550,6 +553,10 @@ unsigned RuntimeDyldImpl::emitSection(ObjectImage &Obj,
   }
 
   Sections.push_back(SectionEntry(Name, Addr, DataSize, (uintptr_t)pData));
+
+  if (Checker)
+    Checker->registerSection(Obj.getImageName(), SectionID);
+
   return SectionID;
 }
 
@@ -691,6 +698,10 @@ void RuntimeDyldImpl::reassignSectionAddress(unsigned SectionID,
   // Addr is a uint64_t because we can't assume the pointer width
   // of the target is the same as that of the host. Just use a generic
   // "big enough" type.
+  DEBUG(dbgs() << "Reassigning address for section "
+               << SectionID << " (" << Sections[SectionID].Name << "): "
+               << format("0x%016" PRIx64, Sections[SectionID].LoadAddress) << " -> "
+               << format("0x%016" PRIx64, Addr) << "\n");
   Sections[SectionID].LoadAddress = Addr;
 }
 
@@ -770,7 +781,7 @@ RuntimeDyld::RuntimeDyld(RTDyldMemoryManager *mm) {
   Checker = nullptr;
 }
 
-RuntimeDyld::~RuntimeDyld() { delete Dyld; }
+RuntimeDyld::~RuntimeDyld() {}
 
 static std::unique_ptr<RuntimeDyldELF>
 createRuntimeDyldELF(RTDyldMemoryManager *MM, bool ProcessAllSections,
@@ -790,7 +801,8 @@ createRuntimeDyldMachO(Triple::ArchType Arch, RTDyldMemoryManager *MM,
   return Dyld;
 }
 
-ObjectImage *RuntimeDyld::loadObject(std::unique_ptr<ObjectFile> InputObject) {
+std::unique_ptr<ObjectImage>
+RuntimeDyld::loadObject(std::unique_ptr<ObjectFile> InputObject) {
   std::unique_ptr<ObjectImage> InputImage;
 
   ObjectFile &Obj = *InputObject;
@@ -798,35 +810,36 @@ ObjectImage *RuntimeDyld::loadObject(std::unique_ptr<ObjectFile> InputObject) {
   if (InputObject->isELF()) {
     InputImage.reset(RuntimeDyldELF::createObjectImageFromFile(std::move(InputObject)));
     if (!Dyld)
-      Dyld = createRuntimeDyldELF(MM, ProcessAllSections, Checker).release();
+      Dyld = createRuntimeDyldELF(MM, ProcessAllSections, Checker);
   } else if (InputObject->isMachO()) {
     InputImage.reset(RuntimeDyldMachO::createObjectImageFromFile(std::move(InputObject)));
     if (!Dyld)
       Dyld = createRuntimeDyldMachO(
-                           static_cast<Triple::ArchType>(InputImage->getArch()),
-                           MM, ProcessAllSections, Checker).release();
+          static_cast<Triple::ArchType>(InputImage->getArch()), MM,
+          ProcessAllSections, Checker);
   } else
     report_fatal_error("Incompatible object format!");
 
   if (!Dyld->isCompatibleFile(&Obj))
     report_fatal_error("Incompatible object format!");
 
-  Dyld->loadObject(InputImage.get());
-  return InputImage.release();
+  return Dyld->loadObject(std::move(InputImage));
 }
 
-ObjectImage *RuntimeDyld::loadObject(ObjectBuffer *InputBuffer) {
+std::unique_ptr<ObjectImage>
+RuntimeDyld::loadObject(std::unique_ptr<ObjectBuffer> InputBuffer) {
   std::unique_ptr<ObjectImage> InputImage;
   sys::fs::file_magic Type = sys::fs::identify_magic(InputBuffer->getBuffer());
+  auto *InputBufferPtr = InputBuffer.get();
 
   switch (Type) {
   case sys::fs::file_magic::elf_relocatable:
   case sys::fs::file_magic::elf_executable:
   case sys::fs::file_magic::elf_shared_object:
   case sys::fs::file_magic::elf_core:
-    InputImage.reset(RuntimeDyldELF::createObjectImage(InputBuffer));
+    InputImage = RuntimeDyldELF::createObjectImage(std::move(InputBuffer));
     if (!Dyld)
-      Dyld = createRuntimeDyldELF(MM, ProcessAllSections, Checker).release();
+      Dyld = createRuntimeDyldELF(MM, ProcessAllSections, Checker);
     break;
   case sys::fs::file_magic::macho_object:
   case sys::fs::file_magic::macho_executable:
@@ -838,11 +851,11 @@ ObjectImage *RuntimeDyld::loadObject(ObjectBuffer *InputBuffer) {
   case sys::fs::file_magic::macho_bundle:
   case sys::fs::file_magic::macho_dynamically_linked_shared_lib_stub:
   case sys::fs::file_magic::macho_dsym_companion:
-    InputImage.reset(RuntimeDyldMachO::createObjectImage(InputBuffer));
+    InputImage = RuntimeDyldMachO::createObjectImage(std::move(InputBuffer));
     if (!Dyld)
       Dyld = createRuntimeDyldMachO(
-                           static_cast<Triple::ArchType>(InputImage->getArch()),
-                           MM, ProcessAllSections, Checker).release();
+          static_cast<Triple::ArchType>(InputImage->getArch()), MM,
+          ProcessAllSections, Checker);
     break;
   case sys::fs::file_magic::unknown:
   case sys::fs::file_magic::bitcode:
@@ -855,20 +868,19 @@ ObjectImage *RuntimeDyld::loadObject(ObjectBuffer *InputBuffer) {
     report_fatal_error("Incompatible object format!");
   }
 
-  if (!Dyld->isCompatibleFormat(InputBuffer))
+  if (!Dyld->isCompatibleFormat(InputBufferPtr))
     report_fatal_error("Incompatible object format!");
 
-  Dyld->loadObject(InputImage.get());
-  return InputImage.release();
+  return Dyld->loadObject(std::move(InputImage));
 }
 
-void *RuntimeDyld::getSymbolAddress(StringRef Name) {
+void *RuntimeDyld::getSymbolAddress(StringRef Name) const {
   if (!Dyld)
     return nullptr;
   return Dyld->getSymbolAddress(Name);
 }
 
-uint64_t RuntimeDyld::getSymbolLoadAddress(StringRef Name) {
+uint64_t RuntimeDyld::getSymbolLoadAddress(StringRef Name) const {
   if (!Dyld)
     return 0;
   return Dyld->getSymbolLoadAddress(Name);

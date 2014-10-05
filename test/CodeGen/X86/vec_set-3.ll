@@ -2,8 +2,7 @@
 
 define <4 x float> @test(float %a) {
 ; CHECK-LABEL: test:
-; CHECK:         movss {{.*}}, %xmm0
-; CHECK-NEXT:    pshufd {{.*#+}} xmm0 = xmm0[1,0,1,1]
+; CHECK:         insertps $29, {{.*}}, %xmm0
 ; CHECK-NEXT:    retl
 
 entry:
@@ -28,9 +27,7 @@ entry:
 
 define <4 x float> @test3(<4 x float> %A) {
 ; CHECK-LABEL: test3:
-; CHECK:         xorps %[[X1:xmm[0-9]+]], %[[X1]]
-; CHECK-NEXT:    movss %xmm0, %[[X1]]
-; CHECK-NEXT:    pshufd {{.*#+}} xmm0 = [[X1]][1,0,1,1]
+; CHECK:         insertps {{.*#+}} xmm0 = zero,xmm0[0],zero,zero
 ; CHECK-NEXT:    retl
 
   %tmp0 = extractelement <4 x float> %A, i32 0

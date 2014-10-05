@@ -76,7 +76,7 @@ static TargetLoweringObjectFile *createTLOF(const Triple &TT) {
   return new AArch64_ELFTargetObjectFile();
 }
 
-AArch64TargetLowering::AArch64TargetLowering(TargetMachine &TM)
+AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM)
     : TargetLowering(TM, createTLOF(Triple(TM.getTargetTriple()))) {
   Subtarget = &TM.getSubtarget<AArch64Subtarget>();
 
@@ -823,6 +823,7 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case AArch64ISD::TC_RETURN:         return "AArch64ISD::TC_RETURN";
   case AArch64ISD::SITOF:             return "AArch64ISD::SITOF";
   case AArch64ISD::UITOF:             return "AArch64ISD::UITOF";
+  case AArch64ISD::NVCAST:            return "AArch64ISD::NVCAST";
   case AArch64ISD::SQSHL_I:           return "AArch64ISD::SQSHL_I";
   case AArch64ISD::UQSHL_I:           return "AArch64ISD::UQSHL_I";
   case AArch64ISD::SRSHR_I:           return "AArch64ISD::SRSHR_I";
@@ -1946,7 +1947,7 @@ SDValue AArch64TargetLowering::LowerFormalArguments(
 
       ArgValue = DAG.getExtLoad(ExtType, DL, VA.getLocVT(), Chain, FIN,
                                 MachinePointerInfo::getFixedStack(FI),
-                                MemVT, false, false, false, 0, nullptr);
+                                MemVT, false, false, false, 0);
 
       InVals.push_back(ArgValue);
     }
@@ -2711,7 +2712,8 @@ SDValue AArch64TargetLowering::LowerGlobalAddress(SDValue Op,
                                                   SelectionDAG &DAG) const {
   EVT PtrVT = getPointerTy();
   SDLoc DL(Op);
-  const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
+  const GlobalAddressSDNode *GN = cast<GlobalAddressSDNode>(Op);
+  const GlobalValue *GV = GN->getGlobal();
   unsigned char OpFlags =
       Subtarget->ClassifyGlobalReference(GV, getTargetMachine());
 
@@ -2724,6 +2726,25 @@ SDValue AArch64TargetLowering::LowerGlobalAddress(SDValue Op,
     // FIXME: Once remat is capable of dealing with instructions with register
     // operands, expand this into two nodes instead of using a wrapper node.
     return DAG.getNode(AArch64ISD::LOADgot, DL, PtrVT, GotAddr);
+  }
+
+  if ((OpFlags & AArch64II::MO_CONSTPOOL) != 0) {
+    assert(getTargetMachine().getCodeModel() == CodeModel::Small &&
+           "use of MO_CONSTPOOL only supported on small model");
+    SDValue Hi = DAG.getTargetConstantPool(GV, PtrVT, 0, 0, AArch64II::MO_PAGE);
+    SDValue ADRP = DAG.getNode(AArch64ISD::ADRP, DL, PtrVT, Hi);
+    unsigned char LoFlags = AArch64II::MO_PAGEOFF | AArch64II::MO_NC;
+    SDValue Lo = DAG.getTargetConstantPool(GV, PtrVT, 0, 0, LoFlags);
+    SDValue PoolAddr = DAG.getNode(AArch64ISD::ADDlow, DL, PtrVT, ADRP, Lo);
+    SDValue GlobalAddr = DAG.getLoad(PtrVT, DL, DAG.getEntryNode(), PoolAddr,
+                                     MachinePointerInfo::getConstantPool(),
+                                     /*isVolatile=*/ false,
+                                     /*isNonTemporal=*/ true,
+                                     /*isInvariant=*/ true, 8);
+    if (GN->getOffset() != 0)
+      return DAG.getNode(ISD::ADD, DL, PtrVT, GlobalAddr,
+                         DAG.getConstant(GN->getOffset(), PtrVT));
+    return GlobalAddr;
   }
 
   if (getTargetMachine().getCodeModel() == CodeModel::Large) {
@@ -5148,7 +5169,7 @@ SDValue AArch64TargetLowering::LowerVectorAND(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::BICi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(0, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType2(CnstVal)) {
@@ -5157,7 +5178,7 @@ SDValue AArch64TargetLowering::LowerVectorAND(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::BICi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(8, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType3(CnstVal)) {
@@ -5166,7 +5187,7 @@ SDValue AArch64TargetLowering::LowerVectorAND(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::BICi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(16, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType4(CnstVal)) {
@@ -5175,7 +5196,7 @@ SDValue AArch64TargetLowering::LowerVectorAND(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::BICi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(24, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType5(CnstVal)) {
@@ -5184,7 +5205,7 @@ SDValue AArch64TargetLowering::LowerVectorAND(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::BICi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(0, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType6(CnstVal)) {
@@ -5193,7 +5214,7 @@ SDValue AArch64TargetLowering::LowerVectorAND(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::BICi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(8, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
     }
 
@@ -5348,7 +5369,7 @@ SDValue AArch64TargetLowering::LowerVectorOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::ORRi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(0, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType2(CnstVal)) {
@@ -5357,7 +5378,7 @@ SDValue AArch64TargetLowering::LowerVectorOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::ORRi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(8, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType3(CnstVal)) {
@@ -5366,7 +5387,7 @@ SDValue AArch64TargetLowering::LowerVectorOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::ORRi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(16, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType4(CnstVal)) {
@@ -5375,7 +5396,7 @@ SDValue AArch64TargetLowering::LowerVectorOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::ORRi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(24, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType5(CnstVal)) {
@@ -5384,7 +5405,7 @@ SDValue AArch64TargetLowering::LowerVectorOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::ORRi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(0, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType6(CnstVal)) {
@@ -5393,7 +5414,7 @@ SDValue AArch64TargetLowering::LowerVectorOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::ORRi, dl, MovTy, LHS,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(8, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
     }
 
@@ -5466,13 +5487,13 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         if (VT.getSizeInBits() == 128) {
           SDValue Mov = DAG.getNode(AArch64ISD::MOVIedit, dl, MVT::v2i64,
                                     DAG.getConstant(CnstVal, MVT::i32));
-          return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+          return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
         }
 
         // Support the V64 version via subregister insertion.
         SDValue Mov = DAG.getNode(AArch64ISD::MOVIedit, dl, MVT::f64,
                                   DAG.getConstant(CnstVal, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType1(CnstVal)) {
@@ -5481,7 +5502,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MOVIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(0, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType2(CnstVal)) {
@@ -5490,7 +5511,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MOVIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(8, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType3(CnstVal)) {
@@ -5499,7 +5520,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MOVIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(16, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType4(CnstVal)) {
@@ -5508,7 +5529,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MOVIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(24, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType5(CnstVal)) {
@@ -5517,7 +5538,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MOVIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(0, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType6(CnstVal)) {
@@ -5526,7 +5547,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MOVIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(8, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType7(CnstVal)) {
@@ -5535,7 +5556,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MOVImsl, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(264, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType8(CnstVal)) {
@@ -5544,7 +5565,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MOVImsl, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(272, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType9(CnstVal)) {
@@ -5552,7 +5573,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         MVT MovTy = (VT.getSizeInBits() == 128) ? MVT::v16i8 : MVT::v8i8;
         SDValue Mov = DAG.getNode(AArch64ISD::MOVI, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       // The few faces of FMOV...
@@ -5561,7 +5582,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         MVT MovTy = (VT.getSizeInBits() == 128) ? MVT::v4f32 : MVT::v2f32;
         SDValue Mov = DAG.getNode(AArch64ISD::FMOV, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType12(CnstVal) &&
@@ -5569,7 +5590,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         CnstVal = AArch64_AM::encodeAdvSIMDModImmType12(CnstVal);
         SDValue Mov = DAG.getNode(AArch64ISD::FMOV, dl, MVT::v2f64,
                                   DAG.getConstant(CnstVal, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       // The many faces of MVNI...
@@ -5580,7 +5601,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MVNIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(0, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType2(CnstVal)) {
@@ -5589,7 +5610,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MVNIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(8, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType3(CnstVal)) {
@@ -5598,7 +5619,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MVNIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(16, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType4(CnstVal)) {
@@ -5607,7 +5628,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MVNIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(24, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType5(CnstVal)) {
@@ -5616,7 +5637,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MVNIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(0, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType6(CnstVal)) {
@@ -5625,7 +5646,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MVNIshift, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(8, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType7(CnstVal)) {
@@ -5634,7 +5655,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MVNImsl, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(264, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
 
       if (AArch64_AM::isAdvSIMDModImmType8(CnstVal)) {
@@ -5643,7 +5664,7 @@ SDValue AArch64TargetLowering::LowerBUILD_VECTOR(SDValue Op,
         SDValue Mov = DAG.getNode(AArch64ISD::MVNImsl, dl, MovTy,
                                   DAG.getConstant(CnstVal, MVT::i32),
                                   DAG.getConstant(272, MVT::i32));
-        return DAG.getNode(ISD::BITCAST, dl, VT, Mov);
+        return DAG.getNode(AArch64ISD::NVCAST, dl, VT, Mov);
       }
     }
 
@@ -7940,7 +7961,7 @@ bool checkValueWidth(SDValue V, unsigned width, ISD::LoadExtType &ExtType) {
   case ISD::Constant:
   case ISD::TargetConstant: {
     if (std::abs(cast<ConstantSDNode>(V.getNode())->getSExtValue()) <
-        1 << (width - 1))
+        1LL << (width - 1))
       return true;
     return false;
   }
@@ -8513,19 +8534,6 @@ void AArch64TargetLowering::ReplaceNodeResults(
   }
 }
 
-bool AArch64TargetLowering::shouldExpandAtomicInIR(Instruction *Inst) const {
-  // Loads and stores less than 128-bits are already atomic; ones above that
-  // are doomed anyway, so defer to the default libcall and blame the OS when
-  // things go wrong:
-  if (StoreInst *SI = dyn_cast<StoreInst>(Inst))
-    return SI->getValueOperand()->getType()->getPrimitiveSizeInBits() == 128;
-  else if (LoadInst *LI = dyn_cast<LoadInst>(Inst))
-    return LI->getType()->getPrimitiveSizeInBits() == 128;
-
-  // For the real atomic operations, we have ldxr/stxr up to 128 bits.
-  return Inst->getType()->getPrimitiveSizeInBits() <= 128;
-}
-
 bool AArch64TargetLowering::useLoadStackGuardNode() const {
   return true;
 }
@@ -8540,6 +8548,32 @@ AArch64TargetLowering::getPreferredVectorAction(EVT VT) const {
     return TypeWidenVector;
 
   return TargetLoweringBase::getPreferredVectorAction(VT);
+}
+
+// Loads and stores less than 128-bits are already atomic; ones above that
+// are doomed anyway, so defer to the default libcall and blame the OS when
+// things go wrong.
+bool AArch64TargetLowering::shouldExpandAtomicStoreInIR(StoreInst *SI) const {
+  unsigned Size = SI->getValueOperand()->getType()->getPrimitiveSizeInBits();
+  return Size == 128;
+}
+
+// Loads and stores less than 128-bits are already atomic; ones above that
+// are doomed anyway, so defer to the default libcall and blame the OS when
+// things go wrong.
+bool AArch64TargetLowering::shouldExpandAtomicLoadInIR(LoadInst *LI) const {
+  unsigned Size = LI->getType()->getPrimitiveSizeInBits();
+  return Size == 128;
+}
+
+// For the real atomic operations, we have ldxr/stxr up to 128 bits,
+bool AArch64TargetLowering::shouldExpandAtomicRMWInIR(AtomicRMWInst *AI) const {
+  unsigned Size = AI->getType()->getPrimitiveSizeInBits();
+  return Size <= 128;
+}
+
+bool AArch64TargetLowering::hasLoadLinkedStoreConditional() const {
+  return true;
 }
 
 Value *AArch64TargetLowering::emitLoadLinked(IRBuilder<> &Builder, Value *Addr,

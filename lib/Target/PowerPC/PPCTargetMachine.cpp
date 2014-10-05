@@ -37,12 +37,39 @@ extern "C" void LLVMInitializePowerPCTarget() {
   RegisterTargetMachine<PPC64TargetMachine> C(ThePPC64LETarget);
 }
 
+static std::string computeFSAdditions(StringRef FS, CodeGenOpt::Level OL, StringRef TT) {
+  std::string FullFS = FS;
+  Triple TargetTriple(TT);
+
+  // Make sure 64-bit features are available when CPUname is generic
+  if (TargetTriple.getArch() == Triple::ppc64 ||
+      TargetTriple.getArch() == Triple::ppc64le) {
+    if (!FullFS.empty())
+      FullFS = "+64bit," + FullFS;
+    else
+      FullFS = "+64bit";
+  }
+
+  if (OL >= CodeGenOpt::Default) {
+    if (!FullFS.empty())
+      FullFS = "+crbits," + FullFS;
+    else
+      FullFS = "+crbits";
+  }
+  return FullFS;
+}
+
+// The FeatureString here is a little subtle. We are modifying the feature string
+// with what are (currently) non-function specific overrides as it goes into the
+// LLVMTargetMachine constructor and then using the stored value in the
+// Subtarget constructor below it.
 PPCTargetMachine::PPCTargetMachine(const Target &T, StringRef TT, StringRef CPU,
                                    StringRef FS, const TargetOptions &Options,
                                    Reloc::Model RM, CodeModel::Model CM,
                                    CodeGenOpt::Level OL)
-    : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
-      Subtarget(TT, CPU, FS, *this, OL) {
+    : LLVMTargetMachine(T, TT, CPU, computeFSAdditions(FS, OL, TT), Options, RM,
+                        CM, OL),
+      Subtarget(TT, CPU, TargetFS, *this) {
   initAsmInfo();
 }
 
@@ -86,6 +113,7 @@ public:
     return *getPPCTargetMachine().getSubtargetImpl();
   }
 
+  void addIRPasses() override;
   bool addPreISel() override;
   bool addILPOpts() override;
   bool addInstSelector() override;
@@ -97,6 +125,11 @@ public:
 
 TargetPassConfig *PPCTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new PPCPassConfig(this, PM);
+}
+
+void PPCPassConfig::addIRPasses() {
+  addPass(createAtomicExpandPass(&getPPCTargetMachine()));
+  TargetPassConfig::addIRPasses();
 }
 
 bool PPCPassConfig::addPreISel() {
@@ -145,18 +178,6 @@ bool PPCPassConfig::addPreEmitPass() {
     addPass(createPPCEarlyReturnPass());
   // Must run branch selection immediately preceding the asm printer.
   addPass(createPPCBranchSelectionPass());
-  return false;
-}
-
-bool PPCTargetMachine::addCodeEmitter(PassManagerBase &PM,
-                                      JITCodeEmitter &JCE) {
-  // Inform the subtarget that we are in JIT mode.  FIXME: does this break macho
-  // writing?
-  Subtarget.SetJITMode();
-
-  // Machine code emitter pass for PowerPC.
-  PM.add(createPPCJITCodeEmitterPass(*this, JCE));
-
   return false;
 }
 

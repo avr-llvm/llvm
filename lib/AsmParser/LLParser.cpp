@@ -1466,7 +1466,7 @@ bool LLParser::ParseOptionalDLLStorageClass(unsigned &Res) {
 ///   ::= 'preserve_allcc'
 ///   ::= 'cc' UINT
 ///
-bool LLParser::ParseOptionalCallingConv(CallingConv::ID &CC) {
+bool LLParser::ParseOptionalCallingConv(unsigned &CC) {
   switch (Lex.getKind()) {
   default:                       CC = CallingConv::C; return false;
   case lltok::kw_ccc:            CC = CallingConv::C; break;
@@ -1493,12 +1493,8 @@ bool LLParser::ParseOptionalCallingConv(CallingConv::ID &CC) {
   case lltok::kw_preserve_mostcc:CC = CallingConv::PreserveMost; break;
   case lltok::kw_preserve_allcc: CC = CallingConv::PreserveAll; break;
   case lltok::kw_cc: {
-      unsigned ArbitraryCC;
       Lex.Lex();
-      if (ParseUInt32(ArbitraryCC))
-        return true;
-      CC = static_cast<CallingConv::ID>(ArbitraryCC);
-      return false;
+      return ParseUInt32(CC);
     }
   }
 
@@ -3135,7 +3131,7 @@ bool LLParser::ParseFunctionHeader(Function *&Fn, bool isDefine) {
   unsigned Visibility;
   unsigned DLLStorageClass;
   AttrBuilder RetAttrs;
-  CallingConv::ID CC;
+  unsigned CC;
   Type *RetType = nullptr;
   LocTy RetTypeLoc = Lex.getLoc();
   if (ParseOptionalLinkage(Linkage) ||
@@ -3807,7 +3803,7 @@ bool LLParser::ParseInvoke(Instruction *&Inst, PerFunctionState &PFS) {
   AttrBuilder RetAttrs, FnAttrs;
   std::vector<unsigned> FwdRefAttrGrps;
   LocTy NoBuiltinLoc;
-  CallingConv::ID CC;
+  unsigned CC;
   Type *RetType = nullptr;
   LocTy RetTypeLoc;
   ValID CalleeID;
@@ -4221,7 +4217,7 @@ bool LLParser::ParseCall(Instruction *&Inst, PerFunctionState &PFS,
   AttrBuilder RetAttrs, FnAttrs;
   std::vector<unsigned> FwdRefAttrGrps;
   LocTy BuiltinLoc;
-  CallingConv::ID CC;
+  unsigned CC;
   Type *RetType = nullptr;
   LocTy RetTypeLoc;
   ValID CalleeID;

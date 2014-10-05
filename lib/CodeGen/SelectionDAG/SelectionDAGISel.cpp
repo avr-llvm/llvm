@@ -421,10 +421,7 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
   LibInfo = &getAnalysis<TargetLibraryInfo>();
   GFI = Fn.hasGC() ? &getAnalysis<GCModuleInfo>().getFunctionInfo(Fn) : nullptr;
 
-  TargetSubtargetInfo &ST =
-    const_cast<TargetSubtargetInfo&>(TM.getSubtarget<TargetSubtargetInfo>());
-  ST.resetSubtargetFeatures(MF);
-  TM.resetTargetOptions(MF);
+  TM.resetTargetOptions(Fn);
 
   // Reset OptLevel to None for optnone functions.
   CodeGenOpt::Level NewOptLevel = OptLevel;
@@ -489,15 +486,14 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
                        "- add if needed");
       MachineInstr *Def = RegInfo->getVRegDef(LDI->second);
       MachineBasicBlock::iterator InsertPos = Def;
-      const MDNode *Variable =
-        MI->getOperand(MI->getNumOperands()-1).getMetadata();
+      const MDNode *Variable = MI->getDebugVariable();
+      const MDNode *Expr = MI->getDebugExpression();
       bool IsIndirect = MI->isIndirectDebugValue();
       unsigned Offset = IsIndirect ? MI->getOperand(1).getImm() : 0;
       // Def is never a terminator here, so it is ok to increment InsertPos.
       BuildMI(*EntryMBB, ++InsertPos, MI->getDebugLoc(),
-              TII.get(TargetOpcode::DBG_VALUE),
-              IsIndirect,
-              LDI->second, Offset, Variable);
+              TII.get(TargetOpcode::DBG_VALUE), IsIndirect, LDI->second, Offset,
+              Variable, Expr);
 
       // If this vreg is directly copied into an exported register then
       // that COPY instructions also need DBG_VALUE, if it is the only
@@ -516,11 +512,9 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
       }
       if (CopyUseMI) {
         MachineInstr *NewMI =
-          BuildMI(*MF, CopyUseMI->getDebugLoc(),
-                  TII.get(TargetOpcode::DBG_VALUE),
-                  IsIndirect,
-                  CopyUseMI->getOperand(0).getReg(),
-                  Offset, Variable);
+            BuildMI(*MF, CopyUseMI->getDebugLoc(),
+                    TII.get(TargetOpcode::DBG_VALUE), IsIndirect,
+                    CopyUseMI->getOperand(0).getReg(), Offset, Variable, Expr);
         MachineBasicBlock::iterator Pos = CopyUseMI;
         EntryMBB->insertAfter(Pos, NewMI);
       }
@@ -1098,7 +1092,7 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
         ++NumEntryBlocks;
 
         // Lower any arguments needed in this block if this is the entry block.
-        if (!FastIS->LowerArguments()) {
+        if (!FastIS->lowerArguments()) {
           // Fast isel failed to lower these arguments
           ++NumFastIselFailLowerArguments;
           if (EnableFastISelAbortArgs)
@@ -1136,7 +1130,7 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
         FastIS->recomputeInsertPt();
 
         // Try to select the instruction with FastISel.
-        if (FastIS->SelectInstruction(Inst)) {
+        if (FastIS->selectInstruction(Inst)) {
           --NumFastIselRemaining;
           ++NumFastIselSuccess;
           // If fast isel succeeded, skip over all the folded instructions, and
@@ -2438,6 +2432,42 @@ struct MatchScope {
   bool HasChainNodesMatched, HasGlueResultNodesMatched;
 };
 
+/// \\brief A DAG update listener to keep the matching state
+/// (i.e. RecordedNodes and MatchScope) uptodate if the target is allowed to
+/// change the DAG while matching.  X86 addressing mode matcher is an example
+/// for this.
+class MatchStateUpdater : public SelectionDAG::DAGUpdateListener
+{
+      SmallVectorImpl<std::pair<SDValue, SDNode*> > &RecordedNodes;
+      SmallVectorImpl<MatchScope> &MatchScopes;
+public:
+  MatchStateUpdater(SelectionDAG &DAG,
+                    SmallVectorImpl<std::pair<SDValue, SDNode*> > &RN,
+                    SmallVectorImpl<MatchScope> &MS) :
+    SelectionDAG::DAGUpdateListener(DAG),
+    RecordedNodes(RN), MatchScopes(MS) { }
+
+  void NodeDeleted(SDNode *N, SDNode *E) {
+    // Some early-returns here to avoid the search if we deleted the node or
+    // if the update comes from MorphNodeTo (MorphNodeTo is the last thing we
+    // do, so it's unnecessary to update matching state at that point).
+    // Neither of these can occur currently because we only install this
+    // update listener during matching a complex patterns.
+    if (!E || E->isMachineOpcode())
+      return;
+    // Performing linear search here does not matter because we almost never
+    // run this code.  You'd have to have a CSE during complex pattern
+    // matching.
+    for (auto &I : RecordedNodes)
+      if (I.first.getNode() == N)
+        I.first.setNode(E);
+
+    for (auto &I : MatchScopes)
+      for (auto &J : I.NodeStack)
+        if (J.getNode() == N)
+          J.setNode(E);
+  }
+};
 }
 
 SDNode *SelectionDAGISel::
@@ -2692,6 +2722,14 @@ SelectCodeCommon(SDNode *NodeToMatch, const unsigned char *MatcherTable,
       unsigned CPNum = MatcherTable[MatcherIndex++];
       unsigned RecNo = MatcherTable[MatcherIndex++];
       assert(RecNo < RecordedNodes.size() && "Invalid CheckComplexPat");
+
+      // If target can modify DAG during matching, keep the matching state
+      // consistent.
+      std::unique_ptr<MatchStateUpdater> MSU;
+      if (ComplexPatternFuncMutatesDAG())
+        MSU.reset(new MatchStateUpdater(*CurDAG, RecordedNodes,
+                                        MatchScopes));
+
       if (!CheckComplexPattern(NodeToMatch, RecordedNodes[RecNo].second,
                                RecordedNodes[RecNo].first, CPNum,
                                RecordedNodes))

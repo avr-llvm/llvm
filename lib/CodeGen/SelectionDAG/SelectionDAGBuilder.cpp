@@ -646,8 +646,10 @@ namespace {
     /// specified value into the registers specified by this object.  This uses
     /// Chain/Flag as the input and updates them for the output Chain/Flag.
     /// If the Flag pointer is NULL, no flag is used.
-    void getCopyToRegs(SDValue Val, SelectionDAG &DAG, SDLoc dl,
-                       SDValue &Chain, SDValue *Flag, const Value *V) const;
+    void
+    getCopyToRegs(SDValue Val, SelectionDAG &DAG, SDLoc dl, SDValue &Chain,
+                  SDValue *Flag, const Value *V,
+                  ISD::NodeType PreferredExtendType = ISD::ANY_EXTEND) const;
 
     /// AddInlineAsmOperands - Add this value to the specified inlineasm node
     /// operand list.  This adds the code marker, matching input operand index
@@ -762,9 +764,10 @@ SDValue RegsForValue::getCopyFromRegs(SelectionDAG &DAG,
 /// Chain/Flag as the input and updates them for the output Chain/Flag.
 /// If the Flag pointer is NULL, no flag is used.
 void RegsForValue::getCopyToRegs(SDValue Val, SelectionDAG &DAG, SDLoc dl,
-                                 SDValue &Chain, SDValue *Flag,
-                                 const Value *V) const {
+                                 SDValue &Chain, SDValue *Flag, const Value *V,
+                                 ISD::NodeType PreferredExtendType) const {
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
+  ISD::NodeType ExtendKind = PreferredExtendType;
 
   // Get the list of the values's legal parts.
   unsigned NumRegs = Regs.size();
@@ -773,8 +776,9 @@ void RegsForValue::getCopyToRegs(SDValue Val, SelectionDAG &DAG, SDLoc dl,
     EVT ValueVT = ValueVTs[Value];
     unsigned NumParts = TLI.getNumRegisters(*DAG.getContext(), ValueVT);
     MVT RegisterVT = RegVTs[Value];
-    ISD::NodeType ExtendKind =
-      TLI.isZExtFree(Val, RegisterVT)? ISD::ZERO_EXTEND: ISD::ANY_EXTEND;
+
+    if (ExtendKind == ISD::ANY_EXTEND && TLI.isZExtFree(Val, RegisterVT))
+      ExtendKind = ISD::ZERO_EXTEND;
 
     getCopyToParts(DAG, dl, Val.getValue(Val.getResNo() + Value),
                    &Parts[Part], NumParts, RegisterVT, V, ExtendKind);
@@ -989,15 +993,16 @@ void SelectionDAGBuilder::resolveDanglingDebugInfo(const Value *V,
     DebugLoc dl = DDI.getdl();
     unsigned DbgSDNodeOrder = DDI.getSDNodeOrder();
     MDNode *Variable = DI->getVariable();
+    MDNode *Expr = DI->getExpression();
     uint64_t Offset = DI->getOffset();
     // A dbg.value for an alloca is always indirect.
     bool IsIndirect = isa<AllocaInst>(V) || Offset != 0;
     SDDbgValue *SDV;
     if (Val.getNode()) {
-      if (!EmitFuncArgumentDbgValue(V, Variable, Offset, IsIndirect, Val)) {
-        SDV = DAG.getDbgValue(Variable, Val.getNode(),
-                              Val.getResNo(), IsIndirect,
-			      Offset, dl, DbgSDNodeOrder);
+      if (!EmitFuncArgumentDbgValue(V, Variable, Expr, Offset, IsIndirect,
+                                    Val)) {
+        SDV = DAG.getDbgValue(Variable, Expr, Val.getNode(), Val.getResNo(),
+                              IsIndirect, Offset, dl, DbgSDNodeOrder);
         DAG.AddDbgValue(SDV, Val.getNode(), false);
       }
     } else
@@ -2230,9 +2235,8 @@ bool SelectionDAGBuilder::handleSmallSwitchRange(CaseRec& CR,
 }
 
 static inline bool areJTsAllowed(const TargetLowering &TLI) {
-  return TLI.supportJumpTables() &&
-          (TLI.isOperationLegalOrCustom(ISD::BR_JT, MVT::Other) ||
-           TLI.isOperationLegalOrCustom(ISD::BRIND, MVT::Other));
+  return TLI.isOperationLegalOrCustom(ISD::BR_JT, MVT::Other) ||
+         TLI.isOperationLegalOrCustom(ISD::BRIND, MVT::Other);
 }
 
 static APInt ComputeRange(const APInt &First, const APInt &Last) {
@@ -2613,12 +2617,12 @@ bool SelectionDAGBuilder::handleBitTestsSwitchCase(CaseRec& CR,
 
   BitTestBlock BTB(lowBound, cmpRange, SV,
                    -1U, MVT::Other, (CR.CaseBB == SwitchBB),
-                   CR.CaseBB, Default, BTC);
+                   CR.CaseBB, Default, std::move(BTC));
 
   if (CR.CaseBB == SwitchBB)
     visitBitTestHeader(BTB, SwitchBB);
 
-  BitTestCases.push_back(BTB);
+  BitTestCases.push_back(std::move(BTB));
 
   return true;
 }
@@ -3303,6 +3307,12 @@ void SelectionDAGBuilder::visitInsertValue(const InsertValueInst &I) {
   unsigned NumAggValues = AggValueVTs.size();
   unsigned NumValValues = ValValueVTs.size();
   SmallVector<SDValue, 4> Values(NumAggValues);
+
+  // Ignore an insertvalue that produces an empty object
+  if (!NumAggValues) {
+    setValue(&I, DAG.getUNDEF(MVT(MVT::Other)));
+    return;
+  }
 
   SDValue Agg = getValue(Op0);
   unsigned i = 0;
@@ -4594,10 +4604,11 @@ static unsigned getTruncatedArgReg(const SDValue &N) {
 /// EmitFuncArgumentDbgValue - If the DbgValueInst is a dbg_value of a function
 /// argument, create the corresponding DBG_VALUE machine instruction for it now.
 /// At the end of instruction selection, they will be inserted to the entry BB.
-bool
-SelectionDAGBuilder::EmitFuncArgumentDbgValue(const Value *V, MDNode *Variable,
-                                              int64_t Offset, bool IsIndirect,
-                                              const SDValue &N) {
+bool SelectionDAGBuilder::EmitFuncArgumentDbgValue(const Value *V,
+                                                   MDNode *Variable,
+                                                   MDNode *Expr, int64_t Offset,
+                                                   bool IsIndirect,
+                                                   const SDValue &N) {
   const Argument *Arg = dyn_cast<Argument>(V);
   if (!Arg)
     return false;
@@ -4649,14 +4660,16 @@ SelectionDAGBuilder::EmitFuncArgumentDbgValue(const Value *V, MDNode *Variable,
     return false;
 
   if (Op->isReg())
-    FuncInfo.ArgDbgValues.push_back(BuildMI(MF, getCurDebugLoc(),
-                                            TII->get(TargetOpcode::DBG_VALUE),
-                                            IsIndirect,
-                                            Op->getReg(), Offset, Variable));
+    FuncInfo.ArgDbgValues.push_back(
+        BuildMI(MF, getCurDebugLoc(), TII->get(TargetOpcode::DBG_VALUE),
+                IsIndirect, Op->getReg(), Offset, Variable, Expr));
   else
     FuncInfo.ArgDbgValues.push_back(
-      BuildMI(MF, getCurDebugLoc(), TII->get(TargetOpcode::DBG_VALUE))
-          .addOperand(*Op).addImm(Offset).addMetadata(Variable));
+        BuildMI(MF, getCurDebugLoc(), TII->get(TargetOpcode::DBG_VALUE))
+            .addOperand(*Op)
+            .addImm(Offset)
+            .addMetadata(Variable)
+            .addMetadata(Expr));
 
   return true;
 }
@@ -4776,6 +4789,7 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
   case Intrinsic::dbg_declare: {
     const DbgDeclareInst &DI = cast<DbgDeclareInst>(I);
     MDNode *Variable = DI.getVariable();
+    MDNode *Expression = DI.getExpression();
     const Value *Address = DI.getAddress();
     DIVariable DIVar(Variable);
     assert((!DIVar || DIVar.isVariable()) &&
@@ -4811,16 +4825,16 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
         FrameIndexSDNode *FINode = dyn_cast<FrameIndexSDNode>(N.getNode());
         if (FINode)
           // Byval parameter.  We have a frame index at this point.
-          SDV = DAG.getFrameIndexDbgValue(Variable, FINode->getIndex(),
-					  0, dl, SDNodeOrder);
+          SDV = DAG.getFrameIndexDbgValue(
+              Variable, Expression, FINode->getIndex(), 0, dl, SDNodeOrder);
         else {
           // Address is an argument, so try to emit its dbg value using
           // virtual register info from the FuncInfo.ValueMap.
-          EmitFuncArgumentDbgValue(Address, Variable, 0, false, N);
+          EmitFuncArgumentDbgValue(Address, Variable, Expression, 0, false, N);
           return nullptr;
         }
       } else if (AI)
-        SDV = DAG.getDbgValue(Variable, N.getNode(), N.getResNo(),
+        SDV = DAG.getDbgValue(Variable, Expression, N.getNode(), N.getResNo(),
                               true, 0, dl, SDNodeOrder);
       else {
         // Can't do anything with other non-AI cases yet.
@@ -4833,7 +4847,8 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     } else {
       // If Address is an argument then try to emit its dbg value using
       // virtual register info from the FuncInfo.ValueMap.
-      if (!EmitFuncArgumentDbgValue(Address, Variable, 0, false, N)) {
+      if (!EmitFuncArgumentDbgValue(Address, Variable, Expression, 0, false,
+                                    N)) {
         // If variable is pinned by a alloca in dominating bb then
         // use StaticAllocaMap.
         if (const AllocaInst *AI = dyn_cast<AllocaInst>(Address)) {
@@ -4841,7 +4856,7 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
             DenseMap<const AllocaInst*, int>::iterator SI =
               FuncInfo.StaticAllocaMap.find(AI);
             if (SI != FuncInfo.StaticAllocaMap.end()) {
-              SDV = DAG.getFrameIndexDbgValue(Variable, SI->second,
+              SDV = DAG.getFrameIndexDbgValue(Variable, Expression, SI->second,
                                               0, dl, SDNodeOrder);
               DAG.AddDbgValue(SDV, nullptr, false);
               return nullptr;
@@ -4862,6 +4877,7 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
       return nullptr;
 
     MDNode *Variable = DI.getVariable();
+    MDNode *Expression = DI.getExpression();
     uint64_t Offset = DI.getOffset();
     const Value *V = DI.getValue();
     if (!V)
@@ -4869,7 +4885,8 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
 
     SDDbgValue *SDV;
     if (isa<ConstantInt>(V) || isa<ConstantFP>(V) || isa<UndefValue>(V)) {
-      SDV = DAG.getConstantDbgValue(Variable, V, Offset, dl, SDNodeOrder);
+      SDV = DAG.getConstantDbgValue(Variable, Expression, V, Offset, dl,
+                                    SDNodeOrder);
       DAG.AddDbgValue(SDV, nullptr, false);
     } else {
       // Do not use getValue() in here; we don't want to generate code at
@@ -4881,10 +4898,10 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
       if (N.getNode()) {
         // A dbg.value for an alloca is always indirect.
         bool IsIndirect = isa<AllocaInst>(V) || Offset != 0;
-        if (!EmitFuncArgumentDbgValue(V, Variable, Offset, IsIndirect, N)) {
-          SDV = DAG.getDbgValue(Variable, N.getNode(),
-                                N.getResNo(), IsIndirect,
-				Offset, dl, SDNodeOrder);
+        if (!EmitFuncArgumentDbgValue(V, Variable, Expression, Offset,
+                                      IsIndirect, N)) {
+          SDV = DAG.getDbgValue(Variable, Expression, N.getNode(), N.getResNo(),
+                                IsIndirect, Offset, dl, SDNodeOrder);
           DAG.AddDbgValue(SDV, N.getNode(), false);
         }
       } else if (!V->use_empty() ) {
@@ -7430,7 +7447,12 @@ SelectionDAGBuilder::CopyValueToVirtualRegister(const Value *V, unsigned Reg) {
   const TargetLowering *TLI = TM.getSubtargetImpl()->getTargetLowering();
   RegsForValue RFV(V->getContext(), *TLI, Reg, V->getType());
   SDValue Chain = DAG.getEntryNode();
-  RFV.getCopyToRegs(Op, DAG, getCurSDLoc(), Chain, nullptr, V);
+
+  ISD::NodeType ExtendType = (FuncInfo.PreferredExtendType.find(V) ==
+                              FuncInfo.PreferredExtendType.end())
+                                 ? ISD::ANY_EXTEND
+                                 : FuncInfo.PreferredExtendType[V];
+  RFV.getCopyToRegs(Op, DAG, getCurSDLoc(), Chain, nullptr, V, ExtendType);
   PendingExports.push_back(Chain);
 }
 
