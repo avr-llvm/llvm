@@ -190,7 +190,7 @@ VirtRegAuxInfo::calculateSpillWeightAndHint(LiveInterval &li) {
      if (strcmp(mri.getRegClass(li.reg)->getName(), "PTRDISPREGS") == 0 &&
          li.getSize() > 8) {
              totalWeight *= 10000.0F;
-             li.weight = normalizeSpillWeight(totalWeight, li.getSize());
+             li.weight = normalizeSpillWeight(totalWeight, li.getSize(), numInstr);
          } else {
              li.markNotSpillable();
      }
