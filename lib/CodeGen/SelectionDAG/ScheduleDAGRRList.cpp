@@ -30,7 +30,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetLowering.h"
-#include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include <climits>
@@ -167,13 +166,11 @@ public:
       NeedLatency(needlatency), AvailableQueue(availqueue), CurCycle(0),
       Topo(SUnits, nullptr) {
 
-    const TargetMachine &tm = mf.getTarget();
+    const TargetSubtargetInfo &STI = mf.getSubtarget();
     if (DisableSchedCycles || !NeedLatency)
       HazardRec = new ScheduleHazardRecognizer();
     else
-      HazardRec =
-          tm.getSubtargetImpl()->getInstrInfo()->CreateTargetHazardRecognizer(
-              tm.getSubtargetImpl(), this);
+      HazardRec = STI.getInstrInfo()->CreateTargetHazardRecognizer(&STI, this);
   }
 
   ~ScheduleDAGRRList() {
@@ -1193,13 +1190,19 @@ void ScheduleDAGRRList::InsertCopiesAndMoveSuccs(SUnit *SU, unsigned Reg,
 /// FIXME: Move to SelectionDAG?
 static EVT getPhysicalRegisterVT(SDNode *N, unsigned Reg,
                                  const TargetInstrInfo *TII) {
-  const MCInstrDesc &MCID = TII->get(N->getMachineOpcode());
-  assert(MCID.ImplicitDefs && "Physical reg def must be in implicit def list!");
-  unsigned NumRes = MCID.getNumDefs();
-  for (const uint16_t *ImpDef = MCID.getImplicitDefs(); *ImpDef; ++ImpDef) {
-    if (Reg == *ImpDef)
-      break;
-    ++NumRes;
+  unsigned NumRes;
+  if (N->getOpcode() == ISD::CopyFromReg) {
+    // CopyFromReg has: "chain, Val, glue" so operand 1 gives the type.
+    NumRes = 1;
+  } else {
+    const MCInstrDesc &MCID = TII->get(N->getMachineOpcode());
+    assert(MCID.ImplicitDefs && "Physical reg def must be in implicit def list!");
+    NumRes = MCID.getNumDefs();
+    for (const uint16_t *ImpDef = MCID.getImplicitDefs(); *ImpDef; ++ImpDef) {
+      if (Reg == *ImpDef)
+        break;
+      ++NumRes;
+    }
   }
   return N->getValueType(NumRes);
 }
@@ -2979,9 +2982,9 @@ void RegReductionPQBase::AddPseudoTwoAddrDeps() {
 llvm::ScheduleDAGSDNodes *
 llvm::createBURRListDAGScheduler(SelectionDAGISel *IS,
                                  CodeGenOpt::Level OptLevel) {
-  const TargetMachine &TM = IS->TM;
-  const TargetInstrInfo *TII = TM.getSubtargetImpl()->getInstrInfo();
-  const TargetRegisterInfo *TRI = TM.getSubtargetImpl()->getRegisterInfo();
+  const TargetSubtargetInfo &STI = IS->MF->getSubtarget();
+  const TargetInstrInfo *TII = STI.getInstrInfo();
+  const TargetRegisterInfo *TRI = STI.getRegisterInfo();
 
   BURegReductionPriorityQueue *PQ =
     new BURegReductionPriorityQueue(*IS->MF, false, false, TII, TRI, nullptr);
@@ -2993,9 +2996,9 @@ llvm::createBURRListDAGScheduler(SelectionDAGISel *IS,
 llvm::ScheduleDAGSDNodes *
 llvm::createSourceListDAGScheduler(SelectionDAGISel *IS,
                                    CodeGenOpt::Level OptLevel) {
-  const TargetMachine &TM = IS->TM;
-  const TargetInstrInfo *TII = TM.getSubtargetImpl()->getInstrInfo();
-  const TargetRegisterInfo *TRI = TM.getSubtargetImpl()->getRegisterInfo();
+  const TargetSubtargetInfo &STI = IS->MF->getSubtarget();
+  const TargetInstrInfo *TII = STI.getInstrInfo();
+  const TargetRegisterInfo *TRI = STI.getRegisterInfo();
 
   SrcRegReductionPriorityQueue *PQ =
     new SrcRegReductionPriorityQueue(*IS->MF, false, true, TII, TRI, nullptr);
@@ -3007,10 +3010,10 @@ llvm::createSourceListDAGScheduler(SelectionDAGISel *IS,
 llvm::ScheduleDAGSDNodes *
 llvm::createHybridListDAGScheduler(SelectionDAGISel *IS,
                                    CodeGenOpt::Level OptLevel) {
-  const TargetMachine &TM = IS->TM;
-  const TargetInstrInfo *TII = TM.getSubtargetImpl()->getInstrInfo();
-  const TargetRegisterInfo *TRI = TM.getSubtargetImpl()->getRegisterInfo();
-  const TargetLowering *TLI = IS->getTargetLowering();
+  const TargetSubtargetInfo &STI = IS->MF->getSubtarget();
+  const TargetInstrInfo *TII = STI.getInstrInfo();
+  const TargetRegisterInfo *TRI = STI.getRegisterInfo();
+  const TargetLowering *TLI = IS->TLI;
 
   HybridBURRPriorityQueue *PQ =
     new HybridBURRPriorityQueue(*IS->MF, true, false, TII, TRI, TLI);
@@ -3023,10 +3026,10 @@ llvm::createHybridListDAGScheduler(SelectionDAGISel *IS,
 llvm::ScheduleDAGSDNodes *
 llvm::createILPListDAGScheduler(SelectionDAGISel *IS,
                                 CodeGenOpt::Level OptLevel) {
-  const TargetMachine &TM = IS->TM;
-  const TargetInstrInfo *TII = TM.getSubtargetImpl()->getInstrInfo();
-  const TargetRegisterInfo *TRI = TM.getSubtargetImpl()->getRegisterInfo();
-  const TargetLowering *TLI = IS->getTargetLowering();
+  const TargetSubtargetInfo &STI = IS->MF->getSubtarget();
+  const TargetInstrInfo *TII = STI.getInstrInfo();
+  const TargetRegisterInfo *TRI = STI.getRegisterInfo();
+  const TargetLowering *TLI = IS->TLI;
 
   ILPBURRPriorityQueue *PQ =
     new ILPBURRPriorityQueue(*IS->MF, true, false, TII, TRI, TLI);

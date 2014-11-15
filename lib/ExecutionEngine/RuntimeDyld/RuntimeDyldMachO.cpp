@@ -66,11 +66,9 @@ RelocationValueRef RuntimeDyldMachO::getRelocationValueRef(
     }
   } else {
     SectionRef Sec = Obj.getRelocationSection(RelInfo);
-    bool IsCode = false;
-    Sec.isText(IsCode);
+    bool IsCode = Sec.isText();
     Value.SectionID = findOrEmitSection(ObjImg, Sec, IsCode, ObjSectionToID);
-    uint64_t Addr;
-    Sec.getAddress(Addr);
+    uint64_t Addr = Sec.getAddress();
     Value.Offset = RE.Addend - Addr;
   }
 
@@ -115,9 +113,8 @@ RuntimeDyldMachO::getSectionByAddress(const MachOObjectFile &Obj,
   section_iterator SE = Obj.section_end();
 
   for (; SI != SE; ++SI) {
-    uint64_t SAddr, SSize;
-    SI->getAddress(SAddr);
-    SI->getSize(SSize);
+    uint64_t SAddr = SI->getAddress();
+    uint64_t SSize = SI->getSize();
     if ((Addr >= SAddr) && (Addr < SAddr + SSize))
       return SI;
   }
@@ -219,17 +216,18 @@ unsigned char *RuntimeDyldMachOCRTPBase<Impl>::processFDE(unsigned char *P,
 
   DEBUG(dbgs() << "Processing FDE: Delta for text: " << DeltaForText
                << ", Delta for EH: " << DeltaForEH << "\n");
-  uint32_t Length = *((uint32_t *)P);
+  uint32_t Length = readBytesUnaligned(P, 4);
   P += 4;
   unsigned char *Ret = P + Length;
-  uint32_t Offset = *((uint32_t *)P);
+  uint32_t Offset = readBytesUnaligned(P, 4);
   if (Offset == 0) // is a CIE
     return Ret;
 
   P += 4;
-  TargetPtrT FDELocation = *((TargetPtrT*)P);
+  TargetPtrT FDELocation = readBytesUnaligned(P, sizeof(TargetPtrT));
   TargetPtrT NewLocation = FDELocation - DeltaForText;
-  *((TargetPtrT*)P) = NewLocation;
+  writeBytesUnaligned(NewLocation, P, sizeof(TargetPtrT));
+
   P += sizeof(TargetPtrT);
 
   // Skip the FDE address range
@@ -238,9 +236,9 @@ unsigned char *RuntimeDyldMachOCRTPBase<Impl>::processFDE(unsigned char *P,
   uint8_t Augmentationsize = *P;
   P += 1;
   if (Augmentationsize != 0) {
-    TargetPtrT LSDA = *((TargetPtrT *)P);
+    TargetPtrT LSDA = readBytesUnaligned(P, sizeof(TargetPtrT));
     TargetPtrT NewLSDA = LSDA - DeltaForEH;
-    *((TargetPtrT *)P) = NewLSDA;
+    writeBytesUnaligned(NewLSDA, P, sizeof(TargetPtrT));
   }
 
   return Ret;

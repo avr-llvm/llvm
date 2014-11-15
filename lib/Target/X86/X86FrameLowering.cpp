@@ -30,6 +30,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/Debug.h"
+#include <cstdlib>
 
 using namespace llvm;
 
@@ -79,6 +80,17 @@ static unsigned getADDriOpcode(unsigned IsLP64, int64_t Imm) {
       return X86::ADD32ri8;
     return X86::ADD32ri;
   }
+}
+
+static unsigned getANDriOpcode(bool IsLP64, int64_t Imm) {
+  if (IsLP64) {
+    if (isInt<8>(Imm))
+      return X86::AND64ri8;
+    return X86::AND64ri32;
+  }
+  if (isInt<8>(Imm))
+    return X86::AND32ri8;
+  return X86::AND32ri;
 }
 
 static unsigned getLEArOpcode(unsigned IsLP64) {
@@ -470,9 +482,9 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
   // standard x86_64 and NaCl use 64-bit frame/stack pointers, x32 - 32-bit.
   const bool Uses64BitFramePtr = STI.isTarget64BitLP64() || STI.isTargetNaCl64();
   bool IsWin64 = STI.isTargetWin64();
-  bool IsWinEH =
-      MF.getTarget().getMCAsmInfo()->getExceptionHandlingType() ==
-      ExceptionHandling::WinEH; // Not necessarily synonymous with IsWin64.
+  // Not necessarily synonymous with IsWin64.
+  bool IsWinEH = MF.getTarget().getMCAsmInfo()->getExceptionHandlingType() ==
+                 ExceptionHandling::ItaniumWinEH;
   bool NeedsWinEH = IsWinEH && Fn->needsUnwindTableEntry();
   bool NeedsDwarfCFI =
       !IsWinEH && (MMI.hasDebugInfo() || Fn->needsUnwindTableEntry());
@@ -656,11 +668,12 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
   // able to calculate their offsets from the frame pointer).
   if (RegInfo->needsStackRealignment(MF)) {
     assert(HasFP && "There should be a frame pointer if stack is realigned.");
+    uint64_t Val = -MaxAlign;
     MachineInstr *MI =
       BuildMI(MBB, MBBI, DL,
-              TII.get(Uses64BitFramePtr ? X86::AND64ri32 : X86::AND32ri), StackPtr)
+              TII.get(getANDriOpcode(Uses64BitFramePtr, Val)), StackPtr)
       .addReg(StackPtr)
-      .addImm(-MaxAlign)
+      .addImm(Val)
       .setMIFlag(MachineInstr::FrameSetup);
 
     // The EFLAGS implicit def is dead.
@@ -763,7 +776,7 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
       // will restore SP to (BP - SEHFrameOffset)
       for (const CalleeSavedInfo &Info : MFI->getCalleeSavedInfo()) {
         int offset = MFI->getObjectOffset(Info.getFrameIdx());
-        SEHFrameOffset = std::max(SEHFrameOffset, abs(offset));
+        SEHFrameOffset = std::max(SEHFrameOffset, std::abs(offset));
       }
       SEHFrameOffset += SEHFrameOffset % 16; // ensure alignmant
 
@@ -870,9 +883,8 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
              getX86SubSuperRegister(FramePtr, MVT::i64, false) : FramePtr;
   unsigned StackPtr = RegInfo->getStackRegister();
 
-  bool IsWinEH =
-      MF.getTarget().getMCAsmInfo()->getExceptionHandlingType() ==
-      ExceptionHandling::WinEH;
+  bool IsWinEH = MF.getTarget().getMCAsmInfo()->getExceptionHandlingType() ==
+                 ExceptionHandling::ItaniumWinEH;
   bool NeedsWinEH = IsWinEH && MF.getFunction()->needsUnwindTableEntry();
 
   switch (RetOpcode) {
@@ -1176,7 +1188,7 @@ bool X86FrameLowering::assignCalleeSavedSpillSlots(
 
     const TargetRegisterClass *RC = RegInfo->getMinimalPhysRegClass(Reg);
     // ensure alignment
-    SpillSlotOffset -= abs(SpillSlotOffset) % RC->getAlignment();
+    SpillSlotOffset -= std::abs(SpillSlotOffset) % RC->getAlignment();
     // spill into slot
     SpillSlotOffset -= RC->getSize();
     int SlotIndex =

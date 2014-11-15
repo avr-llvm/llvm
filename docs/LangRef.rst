@@ -2395,7 +2395,7 @@ allowed to assume that the '``undef``' operand could be the same as
       %C = xor %B, %B
 
       %D = undef
-      %E = icmp lt %D, 4
+      %E = icmp slt %D, 4
       %F = icmp gte %D, 4
 
     Safe:
@@ -5157,7 +5157,7 @@ Syntax:
 
 ::
 
-      <result> = load [volatile] <ty>* <pointer>[, align <alignment>][, !nontemporal !<index>][, !invariant.load !<index>]
+      <result> = load [volatile] <ty>* <pointer>[, align <alignment>][, !nontemporal !<index>][, !invariant.load !<index>][, !nonnull !<index>]
       <result> = load atomic [volatile] <ty>* <pointer> [singlethread] <ordering>, align <alignment>
       !<index> = !{ i32 1 }
 
@@ -5212,6 +5212,14 @@ instruction tells the optimizer and code generator that this load
 address points to memory which does not change value during program
 execution. The optimizer may then move this load around, for example, by
 hoisting it out of loops using loop invariant code motion.
+
+The optional ``!nonnull`` metadata must reference a single
+metadata name ``<index>`` corresponding to a metadata node with no
+entries. The existence of the ``!nonnull`` metadata on the
+instruction tells the optimizer that the value loaded is known to
+never be null.  This is analogous to the ''nonnull'' attribute
+on parameters and return values.  This metadata can only be applied 
+to loads of a pointer type.  
 
 Semantics:
 """"""""""
@@ -6876,14 +6884,21 @@ variable argument handling intrinsic functions are used.
 
 .. code-block:: llvm
 
+    ; This struct is different for every platform. For most platforms,
+    ; it is merely an i8*.
+    %struct.va_list = type { i8* }
+
+    ; For Unix x86_64 platforms, va_list is the following struct:
+    ; %struct.va_list = type { i32, i32, i8*, i8* }
+
     define i32 @test(i32 %X, ...) {
       ; Initialize variable argument processing
-      %ap = alloca i8*
-      %ap2 = bitcast i8** %ap to i8*
+      %ap = alloca %struct.va_list
+      %ap2 = bitcast %struct.va_list* %ap to i8*
       call void @llvm.va_start(i8* %ap2)
 
       ; Read a single integer argument
-      %tmp = va_arg i8** %ap, i32
+      %tmp = va_arg i8* %ap2, i32
 
       ; Demonstrate usage of llvm.va_copy and llvm.va_end
       %aq = alloca i8*
@@ -8020,9 +8035,9 @@ all types however.
 
       declare float     @llvm.fabs.f32(float  %Val)
       declare double    @llvm.fabs.f64(double %Val)
-      declare x86_fp80  @llvm.fabs.f80(x86_fp80  %Val)
+      declare x86_fp80  @llvm.fabs.f80(x86_fp80 %Val)
       declare fp128     @llvm.fabs.f128(fp128 %Val)
-      declare ppc_fp128 @llvm.fabs.ppcf128(ppc_fp128  %Val)
+      declare ppc_fp128 @llvm.fabs.ppcf128(ppc_fp128 %Val)
 
 Overview:
 """""""""
@@ -8041,6 +8056,89 @@ Semantics:
 
 This function returns the same values as the libm ``fabs`` functions
 would, and handles error conditions in the same way.
+
+'``llvm.minnum.*``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+This is an overloaded intrinsic. You can use ``llvm.minnum`` on any
+floating point or vector of floating point type. Not all targets support
+all types however.
+
+::
+
+      declare float     @llvm.minnum.f32(float %Val0, float %Val1)
+      declare double    @llvm.minnum.f64(double %Val0, double %Val1)
+      declare x86_fp80  @llvm.minnum.f80(x86_fp80 %Val0, x86_fp80 %Val1)
+      declare fp128     @llvm.minnum.f128(fp128 %Val0, fp128 %Val1)
+      declare ppc_fp128 @llvm.minnum.ppcf128(ppc_fp128 %Val0, ppc_fp128 %Val1)
+
+Overview:
+"""""""""
+
+The '``llvm.minnum.*``' intrinsics return the minimum of the two
+arguments.
+
+
+Arguments:
+""""""""""
+
+The arguments and return value are floating point numbers of the same
+type.
+
+Semantics:
+""""""""""
+
+Follows the IEEE-754 semantics for minNum, which also match for libm's
+fmin.
+
+If either operand is a NaN, returns the other non-NaN operand. Returns
+NaN only if both operands are NaN. If the operands compare equal,
+returns a value that compares equal to both operands. This means that
+fmin(+/-0.0, +/-0.0) could return either -0.0 or 0.0.
+
+'``llvm.maxnum.*``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+This is an overloaded intrinsic. You can use ``llvm.maxnum`` on any
+floating point or vector of floating point type. Not all targets support
+all types however.
+
+::
+
+      declare float     @llvm.maxnum.f32(float  %Val0, float  %Val1l)
+      declare double    @llvm.maxnum.f64(double %Val0, double %Val1)
+      declare x86_fp80  @llvm.maxnum.f80(x86_fp80  %Val0, x86_fp80  %Val1)
+      declare fp128     @llvm.maxnum.f128(fp128 %Val0, fp128 %Val1)
+      declare ppc_fp128 @llvm.maxnum.ppcf128(ppc_fp128  %Val0, ppc_fp128  %Val1)
+
+Overview:
+"""""""""
+
+The '``llvm.maxnum.*``' intrinsics return the maximum of the two
+arguments.
+
+
+Arguments:
+""""""""""
+
+The arguments and return value are floating point numbers of the same
+type.
+
+Semantics:
+""""""""""
+Follows the IEEE-754 semantics for maxNum, which also match for libm's
+fmax.
+
+If either operand is a NaN, returns the other non-NaN operand. Returns
+NaN only if both operands are NaN. If the operands compare equal,
+returns a value that compares equal to both operands. This means that
+fmax(+/-0.0, +/-0.0) could return either -0.0 or 0.0.
 
 '``llvm.copysign.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -9541,8 +9639,9 @@ Syntax:
 Overview:
 """""""""
 
-The ``llvm.donothing`` intrinsic doesn't perform any operation. It's the
-only intrinsic that can be called with an invoke instruction.
+The ``llvm.donothing`` intrinsic doesn't perform any operation. It's one of only
+two intrinsics (besides ``llvm.experimental.patchpoint``) that can be called
+with an invoke instruction.
 
 Arguments:
 """"""""""

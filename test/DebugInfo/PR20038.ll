@@ -14,15 +14,15 @@
 ; CHECK-NOT: DW_TAG
 ; CHECK:   DW_AT_name {{.*}} "C"
 ; CHECK-NOT: {{DW_TAG|NULL}}
-; CHECK: [[C_DTOR_DECL:.*]]:  DW_TAG_subprogram
+; CHECK:   DW_TAG_subprogram
 ; CHECK-NOT: DW_TAG
 ; CHECK:     DW_AT_name {{.*}} "~C"
 
-; CHECK: [[D1_ABS:.*]]: DW_TAG_subprogram
+; CHECK:  DW_TAG_subprogram
 ; CHECK-NOT: DW_TAG
 ; CHECK:   DW_AT_MIPS_linkage_name {{.*}} "_ZN1CD1Ev"
 ; CHECK-NOT: {{DW_TAG|NULL}}
-; CHECK: [[D1_THIS_ABS:.*]]:   DW_TAG_formal_parameter
+; CHECK:  DW_TAG_formal_parameter
 ; CHECK-NOT: DW_TAG
 ; CHECK:     DW_AT_name {{.*}} "this"
 
@@ -32,11 +32,11 @@
 ; CHECK-NOT: {{DW_TAG|NULL}}
 ; CHECK:   DW_TAG_inlined_subroutine
 ; CHECK-NOT: DW_TAG
-; CHECK:     DW_AT_abstract_origin {{.*}} {[[D1_ABS]]}
+; CHECK:     DW_AT_abstract_origin {{.*}} "_ZN1CD1Ev"
 ; CHECK-NOT: {{DW_TAG|NULL}}
 ; CHECK:     DW_TAG_formal_parameter
 ; CHECK-NOT: DW_TAG
-; CHECK:       DW_AT_abstract_origin {{.*}} {[[D1_THIS_ABS]]}
+; CHECK:       DW_AT_abstract_origin {{.*}} "this"
 
 ; FIXME: D2 is actually inlined into D1 but doesn't show up here, possibly due
 ; to there being no work in D2 (calling another member function from the dtor

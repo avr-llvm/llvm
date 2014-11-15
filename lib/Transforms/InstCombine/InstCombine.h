@@ -86,7 +86,7 @@ public:
     Worklist.Add(I);
 
     using namespace llvm::PatternMatch;
-    if ((match(I, m_Intrinsic<Intrinsic::assume>(m_Value()))))
+    if (match(I, m_Intrinsic<Intrinsic::assume>()))
       AT->registerAssumption(cast<CallInst>(I));
   }
 };
@@ -190,6 +190,8 @@ public:
   Instruction *FoldICmpShrCst(ICmpInst &ICI, BinaryOperator *DivI,
                               ConstantInt *DivRHS);
   Instruction *FoldICmpCstShrCst(ICmpInst &I, Value *Op, Value *A,
+                                 ConstantInt *CI1, ConstantInt *CI2);
+  Instruction *FoldICmpCstShlCst(ICmpInst &I, Value *Op, Value *A,
                                  ConstantInt *CI1, ConstantInt *CI2);
   Instruction *FoldICmpAddOpCst(Instruction &ICI, Value *X, ConstantInt *CI,
                                 ICmpInst::Predicate Pred);

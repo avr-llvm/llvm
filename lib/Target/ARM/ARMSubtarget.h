@@ -42,7 +42,7 @@ class ARMSubtarget : public ARMGenSubtargetInfo {
 protected:
   enum ARMProcFamilyEnum {
     Others, CortexA5, CortexA7, CortexA8, CortexA9, CortexA12, CortexA15,
-    CortexR5, Swift, CortexA53, CortexA57, Krait
+    CortexA17, CortexR5, Swift, CortexA53, CortexA57, Krait, 
   };
   enum ARMProcClassEnum {
     None, AClass, RClass, MClass
@@ -404,6 +404,10 @@ public:
   bool isMClass() const { return ARMProcClass == MClass; }
   bool isRClass() const { return ARMProcClass == RClass; }
   bool isAClass() const { return ARMProcClass == AClass; }
+
+  bool isV6M() const {
+    return isThumb1Only() && isMClass();
+  }
 
   bool isR9Reserved() const { return IsR9Reserved; }
 

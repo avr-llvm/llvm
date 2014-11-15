@@ -592,7 +592,6 @@ class Operand<ValueType ty> : DAGOperand {
   string PrintMethod = "printOperand";
   string EncoderMethod = "";
   string DecoderMethod = "";
-  string AsmOperandLowerMethod = ?;
   string OperandType = "OPERAND_UNKNOWN";
   dag MIOperandInfo = (ops);
 
@@ -806,7 +805,7 @@ def DBG_VALUE : Instruction {
 }
 def REG_SEQUENCE : Instruction {
   let OutOperandList = (outs unknown:$dst);
-  let InOperandList = (ins variable_ops);
+  let InOperandList = (ins unknown:$supersrc, variable_ops);
   let AsmString = "";
   let neverHasSideEffects = 1;
   let isAsCheapAsAMove = 1;

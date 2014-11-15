@@ -710,18 +710,15 @@ static void WriteModuleInfo(const Module *M, const ValueEnumerator &VE,
 static uint64_t GetOptimizationFlags(const Value *V) {
   uint64_t Flags = 0;
 
-  if (const OverflowingBinaryOperator *OBO =
-        dyn_cast<OverflowingBinaryOperator>(V)) {
+  if (const auto *OBO = dyn_cast<OverflowingBinaryOperator>(V)) {
     if (OBO->hasNoSignedWrap())
       Flags |= 1 << bitc::OBO_NO_SIGNED_WRAP;
     if (OBO->hasNoUnsignedWrap())
       Flags |= 1 << bitc::OBO_NO_UNSIGNED_WRAP;
-  } else if (const PossiblyExactOperator *PEO =
-               dyn_cast<PossiblyExactOperator>(V)) {
+  } else if (const auto *PEO = dyn_cast<PossiblyExactOperator>(V)) {
     if (PEO->isExact())
       Flags |= 1 << bitc::PEO_EXACT;
-  } else if (const FPMathOperator *FPMO =
-             dyn_cast<const FPMathOperator>(V)) {
+  } else if (const auto *FPMO = dyn_cast<FPMathOperator>(V)) {
     if (FPMO->hasUnsafeAlgebra())
       Flags |= FastMathFlags::UnsafeAlgebra;
     if (FPMO->hasNoNaNs())
@@ -759,13 +756,13 @@ static void WriteMDNode(const MDNode *N,
 static void WriteModuleMetadata(const Module *M,
                                 const ValueEnumerator &VE,
                                 BitstreamWriter &Stream) {
-  const ValueEnumerator::ValueList &Vals = VE.getMDValues();
+  const auto &Vals = VE.getMDValues();
   bool StartedMetadataBlock = false;
   unsigned MDSAbbrev = 0;
   SmallVector<uint64_t, 64> Record;
   for (unsigned i = 0, e = Vals.size(); i != e; ++i) {
 
-    if (const MDNode *N = dyn_cast<MDNode>(Vals[i].first)) {
+    if (const MDNode *N = dyn_cast<MDNode>(Vals[i])) {
       if (!N->isFunctionLocal() || !N->getFunction()) {
         if (!StartedMetadataBlock) {
           Stream.EnterSubblock(bitc::METADATA_BLOCK_ID, 3);
@@ -773,7 +770,7 @@ static void WriteModuleMetadata(const Module *M,
         }
         WriteMDNode(N, VE, Stream, Record);
       }
-    } else if (const MDString *MDS = dyn_cast<MDString>(Vals[i].first)) {
+    } else if (const MDString *MDS = dyn_cast<MDString>(Vals[i])) {
       if (!StartedMetadataBlock)  {
         Stream.EnterSubblock(bitc::METADATA_BLOCK_ID, 3);
 
@@ -851,7 +848,7 @@ static void WriteMetadataAttachment(const Function &F,
 
   // Write metadata attachments
   // METADATA_ATTACHMENT - [m x [value, [n x [id, mdnode]]]
-  SmallVector<std::pair<unsigned, MDNode*>, 4> MDs;
+  SmallVector<std::pair<unsigned, MDNode *>, 4> MDs;
 
   for (Function::const_iterator BB = F.begin(), E = F.end(); BB != E; ++BB)
     for (BasicBlock::const_iterator I = BB->begin(), E = BB->end();

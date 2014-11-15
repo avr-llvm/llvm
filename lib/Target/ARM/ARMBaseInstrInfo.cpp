@@ -594,16 +594,6 @@ template <> bool IsCPSRDead<MachineInstr>(MachineInstr *MI) {
 }
 }
 
-/// FIXME: Works around a gcc miscompilation with -fstrict-aliasing.
-LLVM_ATTRIBUTE_NOINLINE
-static unsigned getNumJTEntries(const std::vector<MachineJumpTableEntry> &JT,
-                                unsigned JTI);
-static unsigned getNumJTEntries(const std::vector<MachineJumpTableEntry> &JT,
-                                unsigned JTI) {
-  assert(JTI < JT.size());
-  return JT[JTI].MBBs.size();
-}
-
 /// GetInstSize - Return the size of the specified MachineInstr.
 ///
 unsigned ARMBaseInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
@@ -676,7 +666,7 @@ unsigned ARMBaseInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
     // bytes, we can use 16-bit entries instead. Then there won't be an
     // alignment issue.
     unsigned InstSize = (Opc == ARM::tBR_JTr || Opc == ARM::t2BR_JT) ? 2 : 4;
-    unsigned NumEntries = getNumJTEntries(JT, JTI);
+    unsigned NumEntries = JT[JTI].MBBs.size();
     if (Opc == ARM::t2TBB_JT && (NumEntries & 1))
       // Make sure the instruction that follows TBB is 2-byte aligned.
       // FIXME: Constant island pass should insert an "ALIGN" instruction
@@ -684,6 +674,8 @@ unsigned ARMBaseInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
       ++NumEntries;
     return NumEntries * EntrySize + InstSize;
   }
+  case ARM::SPACE:
+    return MI->getOperand(1).getImm();
   }
 }
 
@@ -4497,29 +4489,6 @@ breakPartialRegDependency(MachineBasicBlock::iterator MI,
   AddDefaultPred(BuildMI(*MI->getParent(), MI, MI->getDebugLoc(),
                          get(ARM::FCONSTD), DReg).addImm(96));
   MI->addRegisterKilled(DReg, TRI, true);
-}
-
-void ARMBaseInstrInfo::getUnconditionalBranch(
-    MCInst &Branch, const MCSymbolRefExpr *BranchTarget) const {
-  if (Subtarget.isThumb())
-    Branch.setOpcode(ARM::tB);
-  else if (Subtarget.isThumb2())
-    Branch.setOpcode(ARM::t2B);
-  else
-    Branch.setOpcode(ARM::Bcc);
-
-  Branch.addOperand(MCOperand::CreateExpr(BranchTarget));
-  Branch.addOperand(MCOperand::CreateImm(ARMCC::AL));
-  Branch.addOperand(MCOperand::CreateReg(0));
-}
-
-void ARMBaseInstrInfo::getTrap(MCInst &MI) const {
-  if (Subtarget.isThumb())
-    MI.setOpcode(ARM::tTRAP);
-  else if (Subtarget.useNaClTrap())
-    MI.setOpcode(ARM::TRAPNaCl);
-  else
-    MI.setOpcode(ARM::TRAP);
 }
 
 bool ARMBaseInstrInfo::hasNOP() const {

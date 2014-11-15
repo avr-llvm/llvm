@@ -460,6 +460,7 @@ enum {
   R_PPC_GOT16_HA              = 17,
   R_PPC_PLTREL24              = 18,
   R_PPC_JMP_SLOT              = 21,
+  R_PPC_LOCAL24PC             = 23,
   R_PPC_REL32                 = 26,
   R_PPC_TLS                   = 67,
   R_PPC_DTPMOD32              = 68,
@@ -876,7 +877,13 @@ enum : unsigned {
   EF_MIPS_ABI2      = 0x00000020,
   EF_MIPS_32BITMODE = 0x00000100,
   EF_MIPS_NAN2008   = 0x00000400, // Uses IEE 754-2008 NaN encoding
+
+  // ABI flags
   EF_MIPS_ABI_O32   = 0x00001000, // This file follows the first MIPS 32 bit ABI
+  EF_MIPS_ABI_O64    = 0x00002000, // O32 ABI extended for 64-bit architecture.
+  EF_MIPS_ABI_EABI32 = 0x00003000, // EABI in 32 bit mode.
+  EF_MIPS_ABI_EABI64 = 0x00004000, // EABI in 64 bit mode.
+  EF_MIPS_ABI        = 0x0000f000, // Mask for selecting EF_MIPS_ABI_ variant.
 
   //ARCH_ASE
   EF_MIPS_MICROMIPS = 0x02000000, // microMIPS

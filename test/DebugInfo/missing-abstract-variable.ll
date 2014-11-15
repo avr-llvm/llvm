@@ -37,17 +37,17 @@
 ;   x(u);
 ; }
 
-; CHECK: [[ABS_X:.*]]: DW_TAG_subprogram
+; CHECK: DW_TAG_subprogram
 ; CHECK-NOT: DW_TAG
 ; CHECK:   DW_AT_name {{.*}} "x"
 ; CHECK-NOT: {{DW_TAG|NULL}}
-; CHECK: [[ABS_B:.*]]:   DW_TAG_formal_parameter
+; CHECK:   DW_TAG_formal_parameter
 ; CHECK-NOT: DW_TAG
 ; CHECK:     DW_AT_name {{.*}} "b"
 ; CHECK-NOT: {{DW_TAG|NULL}}
 ; CHECK:       DW_TAG_lexical_block
 ; CHECK-NOT: {{DW_TAG|NULL}}
-; CHECK: [[ABS_S:.*]]:       DW_TAG_variable
+; CHECK:   DW_TAG_variable
 ; CHECK-NOT: DW_TAG
 ; CHECK:         DW_AT_name {{.*}} "s"
 
@@ -57,11 +57,11 @@
 ; CHECK-NOT: {{DW_TAG|NULL}}
 ; CHECK:   DW_TAG_inlined_subroutine
 ; CHECK-NOT: DW_TAG
-; CHECK:     DW_AT_abstract_origin {{.*}} {[[ABS_X]]}
+; CHECK:     DW_AT_abstract_origin {{.*}} "_Z1xb"
 ; CHECK-NOT: {{DW_TAG|NULL}}
 ; CHECK:     DW_TAG_formal_parameter
 ; CHECK-NOT: DW_TAG
-; CHECK:       DW_AT_abstract_origin {{.*}} {[[ABS_B]]}
+; CHECK:       DW_AT_abstract_origin {{.*}} "b"
 ; Notice 'x's local variable 's' is missing. Not necessarily a bug here,
 ; since it's been optimized entirely away and it should be described in
 ; abstract subprogram.
@@ -78,21 +78,21 @@
 ; CHECK-NOT: {{DW_TAG|NULL}}
 ; CHECK:   DW_TAG_inlined_subroutine
 ; CHECK-NOT: DW_TAG
-; CHECK:     DW_AT_abstract_origin {{.*}} {[[ABS_X]]}
+; CHECK:     DW_AT_abstract_origin {{.*}} "_Z1xb"
 ; CHECK-NOT: {{DW_TAG|NULL}}
 ; FIXME: This formal parameter goes missing at least at -O2 (& on
 ; mips/powerpc), maybe before that. Perhaps SelectionDAG is to blame (and
 ; fastisel succeeds).
 ; CHECK:     DW_TAG_formal_parameter
 ; CHECK-NOT: DW_TAG
-; CHECK:       DW_AT_abstract_origin {{.*}} {[[ABS_B]]}
+; CHECK:       DW_AT_abstract_origin {{.*}} "b"
 
 ; CHECK-NOT: {{DW_TAG|NULL}}
 ; CHECK:     DW_TAG_lexical_block
 ; CHECK-NOT: {{DW_TAG|NULL}}
 ; CHECK:       DW_TAG_variable
 ; CHECK-NOT: DW_TAG
-; CHECK:         DW_AT_abstract_origin {{.*}} {[[ABS_S]]}
+; CHECK:         DW_AT_abstract_origin {{.*}} "s"
 
 @t = external global i32
 

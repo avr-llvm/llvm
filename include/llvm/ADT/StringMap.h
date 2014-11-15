@@ -117,8 +117,9 @@ public:
 
   explicit StringMapEntry(unsigned strLen)
     : StringMapEntryBase(strLen), second() {}
-  StringMapEntry(unsigned strLen, ValueTy V)
-      : StringMapEntryBase(strLen), second(std::move(V)) {}
+  template <class InitTy>
+  StringMapEntry(unsigned strLen, InitTy &&V)
+      : StringMapEntryBase(strLen), second(std::forward<InitTy>(V)) {}
 
   StringRef getKey() const {
     return StringRef(getKeyData(), getKeyLength());
@@ -138,10 +139,9 @@ public:
 
   /// Create - Create a StringMapEntry for the specified key and default
   /// construct the value.
-  template<typename AllocatorTy, typename InitType>
-  static StringMapEntry *Create(StringRef Key,
-                                AllocatorTy &Allocator,
-                                InitType InitVal) {
+  template <typename AllocatorTy, typename InitType>
+  static StringMapEntry *Create(StringRef Key, AllocatorTy &Allocator,
+                                InitType &&InitVal) {
     unsigned KeyLength = Key.size();
 
     // Allocate a new item with space for the string at the end and a null
@@ -154,7 +154,7 @@ public:
       static_cast<StringMapEntry*>(Allocator.Allocate(AllocSize,Alignment));
 
     // Default construct the value.
-    new (NewItem) StringMapEntry(KeyLength, std::move(InitVal));
+    new (NewItem) StringMapEntry(KeyLength, std::forward<InitType>(InitVal));
 
     // Copy the string information.
     char *StrBuffer = const_cast<char*>(NewItem->getKeyData());
@@ -170,9 +170,9 @@ public:
 
   /// Create - Create a StringMapEntry with normal malloc/free.
   template<typename InitType>
-  static StringMapEntry *Create(StringRef Key, InitType InitVal) {
+  static StringMapEntry *Create(StringRef Key, InitType &&InitVal) {
     MallocAllocator A;
-    return Create(Key, A, std::move(InitVal));
+    return Create(Key, A, std::forward<InitType>(InitVal));
   }
 
   static StringMapEntry *Create(StringRef Key) {
@@ -367,8 +367,9 @@ public:
   /// exists, return it.  Otherwise, default construct a value, insert it, and
   /// return.
   template <typename InitTy>
-  MapEntryTy &GetOrCreateValue(StringRef Key, InitTy Val) {
-    return *insert(std::make_pair(Key, std::move(Val))).first;
+  MapEntryTy &GetOrCreateValue(StringRef Key, InitTy &&Val) {
+    return *insert(std::pair<StringRef, ValueTy>(
+                       Key, std::forward<InitTy>(Val))).first;
   }
 
   MapEntryTy &GetOrCreateValue(StringRef Key) {

@@ -43,7 +43,7 @@ public:
   bool runOnMachineFunction(MachineFunction &MF) override;
 
   const char *getPassName() const override {
-    return "SI Lower il Copies";
+    return "SI Lower i1 Copies";
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -56,10 +56,10 @@ public:
 } // End anonymous namespace.
 
 INITIALIZE_PASS_BEGIN(SILowerI1Copies, DEBUG_TYPE,
-                      "SI Lower il Copies", false, false)
+                      "SI Lower i1 Copies", false, false)
 INITIALIZE_PASS_DEPENDENCY(MachineDominatorTree)
 INITIALIZE_PASS_END(SILowerI1Copies, DEBUG_TYPE,
-                    "SI Lower il Copies", false, false)
+                    "SI Lower i1 Copies", false, false)
 
 char SILowerI1Copies::ID = 0;
 
@@ -106,6 +106,14 @@ bool SILowerI1Copies::runOnMachineFunction(MachineFunction &MF) {
       if (MI.getOpcode() == AMDGPU::V_XOR_I1) {
         I1Defs.push_back(MI.getOperand(0).getReg());
         MI.setDesc(TII->get(AMDGPU::V_XOR_B32_e32));
+        continue;
+      }
+
+      if (MI.getOpcode() == AMDGPU::IMPLICIT_DEF) {
+        unsigned Reg = MI.getOperand(0).getReg();
+        const TargetRegisterClass *RC = MRI.getRegClass(Reg);
+        if (RC == &AMDGPU::VReg_1RegClass)
+          MRI.setRegClass(Reg, &AMDGPU::SReg_64RegClass);
         continue;
       }
 

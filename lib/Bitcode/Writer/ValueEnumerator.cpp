@@ -321,7 +321,7 @@ ValueEnumerator::ValueEnumerator(const Module *M) {
   EnumerateValueSymbolTable(M->getValueSymbolTable());
   EnumerateNamedMetadata(M);
 
-  SmallVector<std::pair<unsigned, MDNode*>, 8> MDs;
+  SmallVector<std::pair<unsigned, MDNode *>, 8> MDs;
 
   // Enumerate types used by function bodies and argument lists.
   for (const Function &F : *M) {
@@ -495,31 +495,31 @@ void ValueEnumerator::EnumerateMDNodeOperands(const MDNode *N) {
 void ValueEnumerator::EnumerateMetadata(const Value *MD) {
   assert((isa<MDNode>(MD) || isa<MDString>(MD)) && "Invalid metadata kind");
 
-  // Enumerate the type of this value.
-  EnumerateType(MD->getType());
-
+  // Skip function-local nodes themselves, but walk their operands.
   const MDNode *N = dyn_cast<MDNode>(MD);
-
-  // In the module-level pass, skip function-local nodes themselves, but
-  // do walk their operands.
   if (N && N->isFunctionLocal() && N->getFunction()) {
     EnumerateMDNodeOperands(N);
     return;
   }
 
-  // Check to see if it's already in!
-  unsigned &MDValueID = MDValueMap[MD];
-  if (MDValueID) {
-    // Increment use count.
-    MDValues[MDValueID-1].second++;
+  // Insert a dummy ID to block the co-recursive call to
+  // EnumerateMDNodeOperands() from re-visiting MD in a cyclic graph.
+  //
+  // Return early if there's already an ID.
+  if (!MDValueMap.insert(std::make_pair(MD, 0)).second)
     return;
-  }
-  MDValues.push_back(std::make_pair(MD, 1U));
-  MDValueID = MDValues.size();
 
-  // Enumerate all non-function-local operands.
+  // Enumerate the type of this value.
+  EnumerateType(MD->getType());
+
+  // Visit operands first to minimize RAUW.
   if (N)
     EnumerateMDNodeOperands(N);
+
+  // Replace the dummy ID inserted above with the correct one.  MDValueMap may
+  // have changed by inserting operands, so we need a fresh lookup here.
+  MDValues.push_back(MD);
+  MDValueMap[MD] = MDValues.size();
 }
 
 /// EnumerateFunctionLocalMetadataa - Incorporate function-local metadata
@@ -533,12 +533,10 @@ void ValueEnumerator::EnumerateFunctionLocalMetadata(const MDNode *N) {
 
   // Check to see if it's already in!
   unsigned &MDValueID = MDValueMap[N];
-  if (MDValueID) {
-    // Increment use count.
-    MDValues[MDValueID-1].second++;
+  if (MDValueID)
     return;
-  }
-  MDValues.push_back(std::make_pair(N, 1U));
+
+  MDValues.push_back(N);
   MDValueID = MDValues.size();
 
   // To incoroporate function-local information visit all function-local
@@ -743,7 +741,7 @@ void ValueEnumerator::incorporateFunction(const Function &F) {
             FnLocalMDVector.push_back(MD);
       }
 
-      SmallVector<std::pair<unsigned, MDNode*>, 8> MDs;
+      SmallVector<std::pair<unsigned, MDNode *>, 8> MDs;
       I->getAllMetadataOtherThanDebugLoc(MDs);
       for (unsigned i = 0, e = MDs.size(); i != e; ++i) {
         MDNode *N = MDs[i].second;
@@ -766,7 +764,7 @@ void ValueEnumerator::purgeFunction() {
   for (unsigned i = NumModuleValues, e = Values.size(); i != e; ++i)
     ValueMap.erase(Values[i].first);
   for (unsigned i = NumModuleMDValues, e = MDValues.size(); i != e; ++i)
-    MDValueMap.erase(MDValues[i].first);
+    MDValueMap.erase(MDValues[i]);
   for (unsigned i = 0, e = BasicBlocks.size(); i != e; ++i)
     ValueMap.erase(BasicBlocks[i]);
 

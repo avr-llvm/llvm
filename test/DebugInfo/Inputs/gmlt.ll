@@ -14,7 +14,7 @@
 ;    describes those subprograms
 
 ; CHECK: DW_TAG_compile_unit
-; CHECK:   DW_AT_ranges [DW_FORM_sec_offset] (0x00000000)
+; CHECK:   DW_AT_ranges [DW_FORM_sec_offset] (0x00000000
 ; CHECK-NOT: {{DW_TAG|NULL}}
 
 ; Omitting the subprograms without inlined subroutines is not possible
@@ -43,7 +43,7 @@
 ; skeleton CU to address the relocation problem, then remove abstract
 ; definitions from -gmlt here.
 
-; CHECK: [[F3_ABS_DEF:.*]]:  DW_TAG_subprogram
+; CHECK: DW_TAG_subprogram
 ; CHECK-NEXT:     DW_AT_name {{.*}} "f3"
 
 ; FIXME: We don't really need DW_AT_inline, consumers can ignore this due to
@@ -63,7 +63,7 @@
 ; As mentioned above - replace DW_AT_abstract_origin with DW_AT_name to save
 ; space once we have support for string indexing in non-dwo sections
 
-; CHECK-NEXT:       DW_AT_abstract_origin {{.*}} {[[F3_ABS_DEF]]}
+; CHECK-NEXT:       DW_AT_abstract_origin {{.*}} "f3"
 ; CHECK-NEXT:       DW_AT_low_pc
 ; CHECK-NEXT:       DW_AT_high_pc
 ; CHECK-NEXT:       DW_AT_call_file
@@ -94,6 +94,8 @@
 
 ; CHECK: .debug_pubtypes contents:
 ; CHECK-NOT: Offset
+
+; CHECK: .apple{{.*}} contents:
 
 ; Function Attrs: nounwind uwtable
 define void @_Z2f1v() #0 {

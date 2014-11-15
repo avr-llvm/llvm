@@ -17,11 +17,12 @@
 
 #include "llvm/ADT/ilist.h"
 #include "llvm/ADT/ilist_node.h"
-#include "llvm/Support/Compiler.h"
+#include "llvm/Support/Debug.h"
 #include <list>
 #include <map>
 #include <set>
 
+namespace llvm {
 namespace PBQP {
 
   class GraphBase {
@@ -189,13 +190,19 @@ namespace PBQP {
 
     // ----- INTERNAL METHODS -----
 
-    NodeEntry& getNode(NodeId NId) { return Nodes[NId]; }
-    const NodeEntry& getNode(NodeId NId) const { return Nodes[NId]; }
+    NodeEntry &getNode(NodeId NId) {
+      assert(NId < Nodes.size() && "Out of bound NodeId");
+      return Nodes[NId];
+    }
+    const NodeEntry &getNode(NodeId NId) const {
+      assert(NId < Nodes.size() && "Out of bound NodeId");
+      return Nodes[NId];
+    }
 
     EdgeEntry& getEdge(EdgeId EId) { return Edges[EId]; }
     const EdgeEntry& getEdge(EdgeId EId) const { return Edges[EId]; }
 
-    NodeId addConstructedNode(const NodeEntry &N) {
+    NodeId addConstructedNode(NodeEntry N) {
       NodeId NId = 0;
       if (!FreeNodeIds.empty()) {
         NId = FreeNodeIds.back();
@@ -208,7 +215,7 @@ namespace PBQP {
       return NId;
     }
 
-    EdgeId addConstructedEdge(const EdgeEntry &E) {
+    EdgeId addConstructedEdge(EdgeEntry E) {
       assert(findEdge(E.getN1Id(), E.getN2Id()) == invalidEdgeId() &&
              "Attempt to add duplicate edge.");
       EdgeId EId = 0;
@@ -237,6 +244,12 @@ namespace PBQP {
 
     class NodeItr {
     public:
+      typedef std::forward_iterator_tag iterator_category;
+      typedef NodeId value_type;
+      typedef int difference_type;
+      typedef NodeId* pointer;
+      typedef NodeId& reference;
+
       NodeItr(NodeId CurNId, const Graph &G)
         : CurNId(CurNId), EndNId(G.Nodes.size()), FreeNodeIds(G.FreeNodeIds) {
         this->CurNId = findNextInUse(CurNId); // Move to first in-use node id
@@ -251,7 +264,7 @@ namespace PBQP {
       NodeId findNextInUse(NodeId NId) const {
         while (NId < EndNId &&
                std::find(FreeNodeIds.begin(), FreeNodeIds.end(), NId) !=
-                 FreeNodeIds.end()) {
+               FreeNodeIds.end()) {
           ++NId;
         }
         return NId;
@@ -331,7 +344,10 @@ namespace PBQP {
     };
 
     /// @brief Construct an empty PBQP graph.
-    Graph() : Solver(nullptr) { }
+    Graph() : Solver(nullptr) {}
+
+    /// @brief Construct an empty PBQP graph with the given graph metadata.
+    Graph(GraphMetadata Metadata) : Metadata(Metadata), Solver(nullptr) {}
 
     /// @brief Get a reference to the graph metadata.
     GraphMetadata& getMetadata() { return Metadata; }
@@ -371,9 +387,29 @@ namespace PBQP {
       return NId;
     }
 
+    /// @brief Add a node bypassing the cost allocator.
+    /// @param Costs Cost vector ptr for the new node (must be convertible to
+    ///        VectorPtr).
+    /// @return Node iterator for the added node.
+    ///
+    ///   This method allows for fast addition of a node whose costs don't need
+    /// to be passed through the cost allocator. The most common use case for
+    /// this is when duplicating costs from an existing node (when using a
+    /// pooling allocator). These have already been uniqued, so we can avoid
+    /// re-constructing and re-uniquing them by attaching them directly to the
+    /// new node.
+    template <typename OtherVectorPtrT>
+    NodeId addNodeBypassingCostAllocator(OtherVectorPtrT Costs) {
+      NodeId NId = addConstructedNode(NodeEntry(Costs));
+      if (Solver)
+        Solver->handleAddNode(NId);
+      return NId;
+    }
+
     /// @brief Add an edge between the given nodes with the given costs.
     /// @param N1Id First node.
     /// @param N2Id Second node.
+    /// @param Costs Cost matrix for new edge.
     /// @return Edge iterator for the added edge.
     template <typename OtherVectorT>
     EdgeId addEdge(NodeId N1Id, NodeId N2Id, OtherVectorT Costs) {
@@ -383,6 +419,31 @@ namespace PBQP {
       // Get cost matrix from the problem domain.
       MatrixPtr AllocatedCosts = CostAlloc.getMatrix(std::move(Costs));
       EdgeId EId = addConstructedEdge(EdgeEntry(N1Id, N2Id, AllocatedCosts));
+      if (Solver)
+        Solver->handleAddEdge(EId);
+      return EId;
+    }
+
+    /// @brief Add an edge bypassing the cost allocator.
+    /// @param N1Id First node.
+    /// @param N2Id Second node.
+    /// @param Costs Cost matrix for new edge.
+    /// @return Edge iterator for the added edge.
+    ///
+    ///   This method allows for fast addition of an edge whose costs don't need
+    /// to be passed through the cost allocator. The most common use case for
+    /// this is when duplicating costs from an existing edge (when using a
+    /// pooling allocator). These have already been uniqued, so we can avoid
+    /// re-constructing and re-uniquing them by attaching them directly to the
+    /// new edge.
+    template <typename OtherMatrixPtrT>
+    NodeId addEdgeBypassingCostAllocator(NodeId N1Id, NodeId N2Id,
+                                         OtherMatrixPtrT Costs) {
+      assert(getNodeCosts(N1Id).getLength() == Costs->getRows() &&
+             getNodeCosts(N2Id).getLength() == Costs->getCols() &&
+             "Matrix dimensions mismatch.");
+      // Get cost matrix from the problem domain.
+      EdgeId EId = addConstructedEdge(EdgeEntry(N1Id, N2Id, Costs));
       if (Solver)
         Solver->handleAddEdge(EId);
       return EId;
@@ -415,11 +476,23 @@ namespace PBQP {
       getNode(NId).Costs = AllocatedCosts;
     }
 
-    /// @brief Get a node's cost vector (const version).
+    /// @brief Get a VectorPtr to a node's cost vector. Rarely useful - use
+    ///        getNodeCosts where possible.
+    /// @param NId Node id.
+    /// @return VectorPtr to node cost vector.
+    ///
+    ///   This method is primarily useful for duplicating costs quickly by
+    /// bypassing the cost allocator. See addNodeBypassingCostAllocator. Prefer
+    /// getNodeCosts when dealing with node cost values.
+    const VectorPtr& getNodeCostsPtr(NodeId NId) const {
+      return getNode(NId).Costs;
+    }
+
+    /// @brief Get a node's cost vector.
     /// @param NId Node id.
     /// @return Node cost vector.
     const Vector& getNodeCosts(NodeId NId) const {
-      return *getNode(NId).Costs;
+      return *getNodeCostsPtr(NId);
     }
 
     NodeMetadata& getNodeMetadata(NodeId NId) {
@@ -445,17 +518,31 @@ namespace PBQP {
       getEdge(EId).Costs = AllocatedCosts;
     }
 
-    /// @brief Get an edge's cost matrix (const version).
+    /// @brief Get a MatrixPtr to a node's cost matrix. Rarely useful - use
+    ///        getEdgeCosts where possible.
     /// @param EId Edge id.
-    /// @return Edge cost matrix.
-    const Matrix& getEdgeCosts(EdgeId EId) const { return *getEdge(EId).Costs; }
-
-    EdgeMetadata& getEdgeMetadata(EdgeId NId) {
-      return getEdge(NId).Metadata;
+    /// @return MatrixPtr to edge cost matrix.
+    ///
+    ///   This method is primarily useful for duplicating costs quickly by
+    /// bypassing the cost allocator. See addNodeBypassingCostAllocator. Prefer
+    /// getEdgeCosts when dealing with edge cost values.
+    const MatrixPtr& getEdgeCostsPtr(EdgeId EId) const {
+      return getEdge(EId).Costs;
     }
 
-    const EdgeMetadata& getEdgeMetadata(EdgeId NId) const {
-      return getEdge(NId).Metadata;
+    /// @brief Get an edge's cost matrix.
+    /// @param EId Edge id.
+    /// @return Edge cost matrix.
+    const Matrix& getEdgeCosts(EdgeId EId) const {
+      return *getEdge(EId).Costs;
+    }
+
+    EdgeMetadata& getEdgeMetadata(EdgeId EId) {
+      return getEdge(EId).Metadata;
+    }
+
+    const EdgeMetadata& getEdgeMetadata(EdgeId EId) const {
+      return getEdge(EId).Metadata;
     }
 
     /// @brief Get the first node connected to this edge.
@@ -507,7 +594,7 @@ namespace PBQP {
       NodeEntry &N = getNode(NId);
       // TODO: Can this be for-each'd?
       for (AdjEdgeItr AEItr = N.adjEdgesBegin(),
-                      AEEnd = N.adjEdgesEnd();
+             AEEnd = N.adjEdgesEnd();
            AEItr != AEEnd;) {
         EdgeId EId = *AEItr;
         ++AEItr;
@@ -588,7 +675,7 @@ namespace PBQP {
 
     /// @brief Dump a graph to an output stream.
     template <typename OStream>
-    void dump(OStream &OS) {
+    void dumpToStream(OStream &OS) {
       OS << nodeIds().size() << " " << edgeIds().size() << "\n";
 
       for (auto NId : nodeIds()) {
@@ -621,6 +708,11 @@ namespace PBQP {
       }
     }
 
+    /// @brief Dump this graph to dbgs().
+    void dump() {
+      dumpToStream(dbgs());
+    }
+
     /// @brief Print a representation of this graph in DOT format.
     /// @param OS Output stream to print on.
     template <typename OStream>
@@ -645,6 +737,7 @@ namespace PBQP {
     }
   };
 
-}
+}  // namespace PBQP
+}  // namespace llvm
 
 #endif // LLVM_CODEGEN_PBQP_GRAPH_HPP

@@ -264,6 +264,7 @@ void ScalarBitSetTraits<ELFYAML::ELF_EF>::bitset(IO &IO,
     BCase(EF_MIPS_CPIC)
     BCase(EF_MIPS_ABI2)
     BCase(EF_MIPS_32BITMODE)
+    BCase(EF_MIPS_NAN2008)
     BCase(EF_MIPS_ABI_O32)
     BCase(EF_MIPS_MICROMIPS)
     BCase(EF_MIPS_ARCH_ASE_M16)
@@ -392,6 +393,25 @@ void ScalarEnumerationTraits<ELFYAML::ELF_STV>::enumeration(
   ECase(STV_HIDDEN)
   ECase(STV_PROTECTED)
 #undef ECase
+}
+
+void ScalarBitSetTraits<ELFYAML::ELF_STO>::bitset(IO &IO,
+                                                  ELFYAML::ELF_STO &Value) {
+  const auto *Object = static_cast<ELFYAML::Object *>(IO.getContext());
+  assert(Object && "The IO context is not initialized");
+#define BCase(X) IO.bitSetCase(Value, #X, ELF::X);
+  switch (Object->Header.Machine) {
+  case ELF::EM_MIPS:
+    BCase(STO_MIPS_OPTIONAL)
+    BCase(STO_MIPS_PLT)
+    BCase(STO_MIPS_PIC)
+    BCase(STO_MIPS_MICROMIPS)
+    break;
+  default:
+    break; // Nothing to do
+  }
+#undef BCase
+#undef BCaseMask
 }
 
 void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
@@ -652,6 +672,92 @@ void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
     ECase(R_386_IRELATIVE)
     ECase(R_386_NUM)
     break;
+  case ELF::EM_AARCH64:
+    ECase(R_AARCH64_NONE)
+    ECase(R_AARCH64_ABS64)
+    ECase(R_AARCH64_ABS32)
+    ECase(R_AARCH64_ABS16)
+    ECase(R_AARCH64_PREL64)
+    ECase(R_AARCH64_PREL32)
+    ECase(R_AARCH64_PREL16)
+    ECase(R_AARCH64_MOVW_UABS_G0)
+    ECase(R_AARCH64_MOVW_UABS_G0_NC)
+    ECase(R_AARCH64_MOVW_UABS_G1)
+    ECase(R_AARCH64_MOVW_UABS_G1_NC)
+    ECase(R_AARCH64_MOVW_UABS_G2)
+    ECase(R_AARCH64_MOVW_UABS_G2_NC)
+    ECase(R_AARCH64_MOVW_UABS_G3)
+    ECase(R_AARCH64_MOVW_SABS_G0)
+    ECase(R_AARCH64_MOVW_SABS_G1)
+    ECase(R_AARCH64_MOVW_SABS_G2)
+    ECase(R_AARCH64_LD_PREL_LO19)
+    ECase(R_AARCH64_ADR_PREL_LO21)
+    ECase(R_AARCH64_ADR_PREL_PG_HI21)
+    ECase(R_AARCH64_ADD_ABS_LO12_NC)
+    ECase(R_AARCH64_LDST8_ABS_LO12_NC)
+    ECase(R_AARCH64_TSTBR14)
+    ECase(R_AARCH64_CONDBR19)
+    ECase(R_AARCH64_JUMP26)
+    ECase(R_AARCH64_CALL26)
+    ECase(R_AARCH64_LDST16_ABS_LO12_NC)
+    ECase(R_AARCH64_LDST32_ABS_LO12_NC)
+    ECase(R_AARCH64_LDST64_ABS_LO12_NC)
+    ECase(R_AARCH64_LDST128_ABS_LO12_NC)
+    ECase(R_AARCH64_GOTREL64)
+    ECase(R_AARCH64_GOTREL32)
+    ECase(R_AARCH64_ADR_GOT_PAGE)
+    ECase(R_AARCH64_LD64_GOT_LO12_NC)
+    ECase(R_AARCH64_TLSLD_MOVW_DTPREL_G2)
+    ECase(R_AARCH64_TLSLD_MOVW_DTPREL_G1)
+    ECase(R_AARCH64_TLSLD_MOVW_DTPREL_G1_NC)
+    ECase(R_AARCH64_TLSLD_MOVW_DTPREL_G0)
+    ECase(R_AARCH64_TLSLD_MOVW_DTPREL_G0_NC)
+    ECase(R_AARCH64_TLSLD_ADD_DTPREL_HI12)
+    ECase(R_AARCH64_TLSLD_ADD_DTPREL_LO12)
+    ECase(R_AARCH64_TLSLD_ADD_DTPREL_LO12_NC)
+    ECase(R_AARCH64_TLSLD_LDST8_DTPREL_LO12)
+    ECase(R_AARCH64_TLSLD_LDST8_DTPREL_LO12_NC)
+    ECase(R_AARCH64_TLSLD_LDST16_DTPREL_LO12)
+    ECase(R_AARCH64_TLSLD_LDST16_DTPREL_LO12_NC)
+    ECase(R_AARCH64_TLSLD_LDST32_DTPREL_LO12)
+    ECase(R_AARCH64_TLSLD_LDST32_DTPREL_LO12_NC)
+    ECase(R_AARCH64_TLSLD_LDST64_DTPREL_LO12)
+    ECase(R_AARCH64_TLSLD_LDST64_DTPREL_LO12_NC)
+    ECase(R_AARCH64_TLSIE_MOVW_GOTTPREL_G1)
+    ECase(R_AARCH64_TLSIE_MOVW_GOTTPREL_G0_NC)
+    ECase(R_AARCH64_TLSIE_ADR_GOTTPREL_PAGE21)
+    ECase(R_AARCH64_TLSIE_LD64_GOTTPREL_LO12_NC)
+    ECase(R_AARCH64_TLSIE_LD_GOTTPREL_PREL19)
+    ECase(R_AARCH64_TLSLE_MOVW_TPREL_G2)
+    ECase(R_AARCH64_TLSLE_MOVW_TPREL_G1)
+    ECase(R_AARCH64_TLSLE_MOVW_TPREL_G1_NC)
+    ECase(R_AARCH64_TLSLE_MOVW_TPREL_G0)
+    ECase(R_AARCH64_TLSLE_MOVW_TPREL_G0_NC)
+    ECase(R_AARCH64_TLSLE_ADD_TPREL_HI12)
+    ECase(R_AARCH64_TLSLE_ADD_TPREL_LO12)
+    ECase(R_AARCH64_TLSLE_ADD_TPREL_LO12_NC)
+    ECase(R_AARCH64_TLSLE_LDST8_TPREL_LO12)
+    ECase(R_AARCH64_TLSLE_LDST8_TPREL_LO12_NC)
+    ECase(R_AARCH64_TLSLE_LDST16_TPREL_LO12)
+    ECase(R_AARCH64_TLSLE_LDST16_TPREL_LO12_NC)
+    ECase(R_AARCH64_TLSLE_LDST32_TPREL_LO12)
+    ECase(R_AARCH64_TLSLE_LDST32_TPREL_LO12_NC)
+    ECase(R_AARCH64_TLSLE_LDST64_TPREL_LO12)
+    ECase(R_AARCH64_TLSLE_LDST64_TPREL_LO12_NC)
+    ECase(R_AARCH64_TLSDESC_ADR_PAGE)
+    ECase(R_AARCH64_TLSDESC_LD64_LO12_NC)
+    ECase(R_AARCH64_TLSDESC_ADD_LO12_NC)
+    ECase(R_AARCH64_TLSDESC_CALL)
+    ECase(R_AARCH64_COPY)
+    ECase(R_AARCH64_GLOB_DAT)
+    ECase(R_AARCH64_JUMP_SLOT)
+    ECase(R_AARCH64_RELATIVE)
+    ECase(R_AARCH64_TLS_DTPREL64)
+    ECase(R_AARCH64_TLS_DTPMOD64)
+    ECase(R_AARCH64_TLS_TPREL64)
+    ECase(R_AARCH64_TLSDESC)
+    ECase(R_AARCH64_IRELATIVE)
+    break;
   default:
     llvm_unreachable("Unsupported architecture");
   }
@@ -669,13 +775,30 @@ void MappingTraits<ELFYAML::FileHeader>::mapping(IO &IO,
   IO.mapOptional("Entry", FileHdr.Entry, Hex64(0));
 }
 
+namespace {
+struct NormalizedOther {
+  NormalizedOther(IO &)
+      : Visibility(ELFYAML::ELF_STV(0)), Other(ELFYAML::ELF_STO(0)) {}
+  NormalizedOther(IO &, uint8_t Original)
+      : Visibility(Original & 0x3), Other(Original & ~0x3) {}
+
+  uint8_t denormalize(IO &) { return Visibility | Other; }
+
+  ELFYAML::ELF_STV Visibility;
+  ELFYAML::ELF_STO Other;
+};
+}
+
 void MappingTraits<ELFYAML::Symbol>::mapping(IO &IO, ELFYAML::Symbol &Symbol) {
   IO.mapOptional("Name", Symbol.Name, StringRef());
   IO.mapOptional("Type", Symbol.Type, ELFYAML::ELF_STT(0));
   IO.mapOptional("Section", Symbol.Section, StringRef());
   IO.mapOptional("Value", Symbol.Value, Hex64(0));
   IO.mapOptional("Size", Symbol.Size, Hex64(0));
-  IO.mapOptional("Visibility", Symbol.Visibility, ELFYAML::ELF_STV(0));
+
+  MappingNormalization<NormalizedOther, uint8_t> Keys(IO, Symbol.Other);
+  IO.mapOptional("Visibility", Keys->Visibility, ELFYAML::ELF_STV(0));
+  IO.mapOptional("Other", Keys->Other, ELFYAML::ELF_STO(0));
 }
 
 void MappingTraits<ELFYAML::LocalGlobalWeakSymbols>::mapping(

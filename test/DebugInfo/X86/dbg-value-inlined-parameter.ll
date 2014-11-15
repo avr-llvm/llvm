@@ -6,26 +6,26 @@
 ; RUN:     | llvm-dwarfdump -debug-dump=info - | FileCheck --check-prefix=CHECK --check-prefix=DARWIN %s
 
 ; CHECK: DW_TAG_subprogram
-; CHECK:   DW_AT_abstract_origin {{.*}}{[[ABS:.*]]}
+; CHECK:   DW_AT_abstract_origin {{.*}} "foo"
 ; CHECK:   DW_TAG_formal_parameter
 ; CHECK-NOT: DW_TAG
-; CHECK:     DW_AT_abstract_origin {{.*}}{[[ABS_SP:.*]]}
+; CHECK:     DW_AT_abstract_origin {{.*}} "sp"
 ; CHECK:   DW_TAG_formal_parameter
 ; CHECK-NOT: DW_TAG
-; CHECK:     DW_AT_abstract_origin {{.*}}{[[ABS_NUMS:.*]]}
+; CHECK:     DW_AT_abstract_origin {{.*}} "nums"
 
-; CHECK: [[ABS]]: DW_TAG_subprogram
+; CHECK: DW_TAG_subprogram
 ; CHECK-NOT: DW_TAG
 ; CHECK:   DW_AT_name {{.*}} "foo"
-; CHECK: [[ABS_SP]]:   DW_TAG_formal_parameter
+; CHECK:   DW_TAG_formal_parameter
 ; CHECK-NOT: DW_TAG
 ; CHECK:     DW_AT_name {{.*}} "sp"
-; CHECK: [[ABS_NUMS]]:  DW_TAG_formal_parameter
+; CHECK:   DW_TAG_formal_parameter
 ; CHECK-NOT: DW_TAG
 ; CHECK:     DW_AT_name {{.*}} "nums"
 
 ;CHECK: DW_TAG_inlined_subroutine
-;CHECK-NEXT: DW_AT_abstract_origin {{.*}}{[[ABS]]}
+;CHECK-NEXT: DW_AT_abstract_origin {{.*}} "foo"
 ;CHECK-NEXT: DW_AT_low_pc [DW_FORM_addr]
 ;CHECK-NEXT: DW_AT_high_pc [DW_FORM_data4]
 ;CHECK-NEXT: DW_AT_call_file
@@ -34,9 +34,9 @@
 ;CHECK: DW_TAG_formal_parameter
 ;FIXME: Linux shouldn't drop this parameter either...
 ;CHECK-NOT: DW_TAG
-;DARWIN:   DW_AT_abstract_origin {{.*}}{[[ABS_SP]]}
+;DARWIN:   DW_AT_abstract_origin {{.*}} "sp"
 ;DARWIN: DW_TAG_formal_parameter
-;CHECK: DW_AT_abstract_origin {{.*}}{[[ABS_NUMS]]}
+;CHECK: DW_AT_abstract_origin {{.*}} "nums"
 ;CHECK-NOT: DW_TAG_formal_parameter
 
 %struct.S1 = type { float*, i32 }

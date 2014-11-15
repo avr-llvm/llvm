@@ -42,7 +42,6 @@ function(check_type_exists type files variable)
 endfunction()
 
 # include checks
-check_include_file_cxx(cxxabi.h HAVE_CXXABI_H)
 check_include_file(dirent.h HAVE_DIRENT_H)
 check_include_file(dlfcn.h HAVE_DLFCN_H)
 check_include_file(errno.h HAVE_ERRNO_H)
@@ -50,6 +49,7 @@ check_include_file(execinfo.h HAVE_EXECINFO_H)
 check_include_file(fcntl.h HAVE_FCNTL_H)
 check_include_file(inttypes.h HAVE_INTTYPES_H)
 check_include_file(limits.h HAVE_LIMITS_H)
+check_include_file(link.h HAVE_LINK_H)
 check_include_file(malloc.h HAVE_MALLOC_H)
 check_include_file(malloc/malloc.h HAVE_MALLOC_MALLOC_H)
 check_include_file(ndir.h HAVE_NDIR_H)
@@ -79,6 +79,13 @@ check_symbol_exists(FE_INEXACT "fenv.h" HAVE_DECL_FE_INEXACT)
 
 check_include_file(mach/mach.h HAVE_MACH_MACH_H)
 check_include_file(mach-o/dyld.h HAVE_MACH_O_DYLD_H)
+
+# size_t must be defined before including cxxabi.h on FreeBSD 10.0.
+check_cxx_source_compiles("
+#include <stddef.h>
+#include <cxxabi.h>
+int main() { return 0; }
+" HAVE_CXXABI_H)
 
 # library checks
 if( NOT PURE_WINDOWS )
@@ -491,4 +498,23 @@ if (LLVM_ENABLE_SPHINX)
   endif()
 else()
   message(STATUS "Sphinx disabled.")
+endif()
+
+set(LLVM_BINDINGS "")
+if(WIN32)
+  message(STATUS "Go bindings disabled.")
+else()
+  find_program(GO_EXECUTABLE NAMES go DOC "go executable")
+  if(GO_EXECUTABLE STREQUAL "GO_EXECUTABLE-NOTFOUND")
+    message(STATUS "Go bindings disabled.")
+  else()
+    execute_process(COMMAND ${GO_EXECUTABLE} run ${CMAKE_SOURCE_DIR}/bindings/go/conftest.go
+                    RESULT_VARIABLE GO_CONFTEST)
+    if(GO_CONFTEST STREQUAL "0")
+      set(LLVM_BINDINGS "${LLVM_BINDINGS} go")
+      message(STATUS "Go bindings enabled.")
+    else()
+      message(STATUS "Go bindings disabled, need at least Go 1.2.")
+    endif()
+  endif()
 endif()

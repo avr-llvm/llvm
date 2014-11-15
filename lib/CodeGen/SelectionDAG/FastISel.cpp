@@ -1579,10 +1579,10 @@ FastISel::FastISel(FunctionLoweringInfo &FuncInfo,
                    bool SkipTargetIndependentISel)
     : FuncInfo(FuncInfo), MF(FuncInfo.MF), MRI(FuncInfo.MF->getRegInfo()),
       MFI(*FuncInfo.MF->getFrameInfo()), MCP(*FuncInfo.MF->getConstantPool()),
-      TM(FuncInfo.MF->getTarget()), DL(*TM.getSubtargetImpl()->getDataLayout()),
-      TII(*TM.getSubtargetImpl()->getInstrInfo()),
-      TLI(*TM.getSubtargetImpl()->getTargetLowering()),
-      TRI(*TM.getSubtargetImpl()->getRegisterInfo()), LibInfo(LibInfo),
+      TM(FuncInfo.MF->getTarget()), DL(*MF->getSubtarget().getDataLayout()),
+      TII(*MF->getSubtarget().getInstrInfo()),
+      TLI(*MF->getSubtarget().getTargetLowering()),
+      TRI(*MF->getSubtarget().getRegisterInfo()), LibInfo(LibInfo),
       SkipTargetIndependentISel(SkipTargetIndependentISel) {}
 
 FastISel::~FastISel() {}
@@ -2000,9 +2000,7 @@ bool FastISel::handlePHINodesInSuccessorBlocks(const BasicBlock *LLVMBB) {
       EVT VT = TLI.getValueType(PN->getType(), /*AllowUnknown=*/true);
       if (VT == MVT::Other || !TLI.isTypeLegal(VT)) {
         // Handle integer promotions, though, because they're common and easy.
-        if (VT == MVT::i1 || VT == MVT::i8 || VT == MVT::i16)
-          VT = TLI.getTypeToTransformTo(LLVMBB->getContext(), VT);
-        else {
+        if (!(VT == MVT::i1 || VT == MVT::i8 || VT == MVT::i16)) {
           FuncInfo.PHINodesToUpdate.resize(FuncInfo.OrigNumPHINodesToUpdate);
           return false;
         }
@@ -2124,8 +2122,8 @@ FastISel::createMachineMemOperandFor(const Instruction *I) const {
   } else
     return nullptr;
 
-  bool IsNonTemporal = I->getMetadata("nontemporal") != nullptr;
-  bool IsInvariant = I->getMetadata("invariant.load") != nullptr;
+  bool IsNonTemporal = I->getMetadata(LLVMContext::MD_nontemporal) != nullptr;
+  bool IsInvariant = I->getMetadata(LLVMContext::MD_invariant_load) != nullptr;
   const MDNode *Ranges = I->getMetadata(LLVMContext::MD_range);
 
   AAMDNodes AAInfo;
@@ -2134,8 +2132,7 @@ FastISel::createMachineMemOperandFor(const Instruction *I) const {
   if (Alignment == 0) // Ensure that codegen never sees alignment 0.
     Alignment = DL.getABITypeAlignment(ValTy);
 
-  unsigned Size =
-      TM.getSubtargetImpl()->getDataLayout()->getTypeStoreSize(ValTy);
+  unsigned Size = DL.getTypeStoreSize(ValTy);
 
   if (IsVolatile)
     Flags |= MachineMemOperand::MOVolatile;

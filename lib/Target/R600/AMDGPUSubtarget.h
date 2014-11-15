@@ -28,8 +28,6 @@
 #define GET_SUBTARGETINFO_HEADER
 #include "AMDGPUGenSubtargetInfo.inc"
 
-#define MAX_CB_SIZE (1 << 16)
-
 namespace llvm {
 
 class AMDGPUSubtarget : public AMDGPUGenSubtargetInfo {
@@ -60,6 +58,7 @@ private:
   bool EnableIRStructurizer;
   bool EnablePromoteAlloca;
   bool EnableIfCvt;
+  bool EnableLoadStoreOpt;
   unsigned WavefrontSize;
   bool CFALUBug;
   int LocalMemorySize;
@@ -178,6 +177,10 @@ public:
 
   bool isIfCvtEnabled() const {
     return EnableIfCvt;
+  }
+
+  bool loadStoreOptEnabled() const {
+    return EnableLoadStoreOpt;
   }
 
   unsigned getWavefrontSize() const {

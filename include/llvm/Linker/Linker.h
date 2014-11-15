@@ -11,14 +11,12 @@
 #define LLVM_LINKER_LINKER_H
 
 #include "llvm/ADT/SmallPtrSet.h"
-#include <string>
+
+#include <functional>
 
 namespace llvm {
-
-class Comdat;
-class GlobalValue;
+class DiagnosticInfo;
 class Module;
-class StringRef;
 class StructType;
 
 /// This class provides the core functionality of linking in LLVM. It keeps a
@@ -27,35 +25,29 @@ class StructType;
 /// something with it after the linking.
 class Linker {
   public:
-    enum LinkerMode {
-      DestroySource = 0, // Allow source module to be destroyed.
-      PreserveSource = 1 // Preserve the source module.
-    };
+    typedef std::function<void(const DiagnosticInfo &)>
+        DiagnosticHandlerFunction;
 
-    Linker(Module *M, bool SuppressWarnings=false);
+    Linker(Module *M, DiagnosticHandlerFunction DiagnosticHandler);
+    Linker(Module *M);
     ~Linker();
 
     Module *getModule() const { return Composite; }
     void deleteModule();
 
-    /// \brief Link \p Src into the composite. The source is destroyed if
-    /// \p Mode is DestroySource and preserved if it is PreserveSource.
-    /// If \p ErrorMsg is not null, information about any error is written
-    /// to it.
+    /// \brief Link \p Src into the composite. The source is destroyed.
     /// Returns true on error.
-    bool linkInModule(Module *Src, unsigned Mode, std::string *ErrorMsg);
-    bool linkInModule(Module *Src, std::string *ErrorMsg) {
-      return linkInModule(Src, Linker::DestroySource, ErrorMsg);
-    }
+    bool linkInModule(Module *Src);
 
-    static bool LinkModules(Module *Dest, Module *Src, unsigned Mode,
-                            std::string *ErrorMsg);
+    static bool LinkModules(Module *Dest, Module *Src,
+                            DiagnosticHandlerFunction DiagnosticHandler);
+
+    static bool LinkModules(Module *Dest, Module *Src);
 
   private:
     Module *Composite;
     SmallPtrSet<StructType*, 32> IdentifiedStructTypes;
-
-    bool SuppressWarnings;
+    DiagnosticHandlerFunction DiagnosticHandler;
 };
 
 } // End llvm namespace

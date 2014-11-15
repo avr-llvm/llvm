@@ -1057,6 +1057,16 @@ static Value *SimplifyDiv(Instruction::BinaryOps Opcode, Value *Op0, Value *Op1,
       (!isSigned && match(Op0, m_URem(m_Value(), m_Specific(Op1)))))
     return Constant::getNullValue(Op0->getType());
 
+  // (X /u C1) /u C2 -> 0 if C1 * C2 overflow
+  ConstantInt *C1, *C2;
+  if (!isSigned && match(Op0, m_UDiv(m_Value(X), m_ConstantInt(C1))) &&
+      match(Op1, m_ConstantInt(C2))) {
+    bool Overflow;
+    C1->getValue().umul_ov(C2->getValue(), Overflow);
+    if (Overflow)
+      return Constant::getNullValue(Op0->getType());
+  }
+
   // If the operation is with the result of a select instruction, check whether
   // operating on either branch of the select always yields the same value.
   if (isa<SelectInst>(Op0) || isa<SelectInst>(Op1))
@@ -1318,6 +1328,32 @@ static Value *SimplifyShift(unsigned Opcode, Value *Op0, Value *Op1,
   return nullptr;
 }
 
+/// \brief Given operands for an Shl, LShr or AShr, see if we can
+/// fold the result.  If not, this returns null.
+static Value *SimplifyRightShift(unsigned Opcode, Value *Op0, Value *Op1,
+                                 bool isExact, const Query &Q,
+                                 unsigned MaxRecurse) {
+  if (Value *V = SimplifyShift(Opcode, Op0, Op1, Q, MaxRecurse))
+    return V;
+
+  // X >> X -> 0
+  if (Op0 == Op1)
+    return Constant::getNullValue(Op0->getType());
+
+  // The low bit cannot be shifted out of an exact shift if it is set.
+  if (isExact) {
+    unsigned BitWidth = Op0->getType()->getScalarSizeInBits();
+    APInt Op0KnownZero(BitWidth, 0);
+    APInt Op0KnownOne(BitWidth, 0);
+    computeKnownBits(Op0, Op0KnownZero, Op0KnownOne, Q.DL, /*Depth=*/0, Q.AT, Q.CxtI,
+                     Q.DT);
+    if (Op0KnownOne[0])
+      return Op0;
+  }
+
+  return nullptr;
+}
+
 /// SimplifyShlInst - Given operands for an Shl, see if we can
 /// fold the result.  If not, this returns null.
 static Value *SimplifyShlInst(Value *Op0, Value *Op1, bool isNSW, bool isNUW,
@@ -1348,12 +1384,9 @@ Value *llvm::SimplifyShlInst(Value *Op0, Value *Op1, bool isNSW, bool isNUW,
 /// fold the result.  If not, this returns null.
 static Value *SimplifyLShrInst(Value *Op0, Value *Op1, bool isExact,
                                const Query &Q, unsigned MaxRecurse) {
-  if (Value *V = SimplifyShift(Instruction::LShr, Op0, Op1, Q, MaxRecurse))
-    return V;
-
-  // X >> X -> 0
-  if (Op0 == Op1)
-    return Constant::getNullValue(Op0->getType());
+  if (Value *V = SimplifyRightShift(Instruction::LShr, Op0, Op1, isExact, Q,
+                                    MaxRecurse))
+      return V;
 
   // undef >>l X -> 0
   if (match(Op0, m_Undef()))
@@ -1361,8 +1394,7 @@ static Value *SimplifyLShrInst(Value *Op0, Value *Op1, bool isExact,
 
   // (X << A) >> A -> X
   Value *X;
-  if (match(Op0, m_Shl(m_Value(X), m_Specific(Op1))) &&
-      cast<OverflowingBinaryOperator>(Op0)->hasNoUnsignedWrap())
+  if (match(Op0, m_NUWShl(m_Value(X), m_Specific(Op1))))
     return X;
 
   return nullptr;
@@ -1382,12 +1414,9 @@ Value *llvm::SimplifyLShrInst(Value *Op0, Value *Op1, bool isExact,
 /// fold the result.  If not, this returns null.
 static Value *SimplifyAShrInst(Value *Op0, Value *Op1, bool isExact,
                                const Query &Q, unsigned MaxRecurse) {
-  if (Value *V = SimplifyShift(Instruction::AShr, Op0, Op1, Q, MaxRecurse))
+  if (Value *V = SimplifyRightShift(Instruction::AShr, Op0, Op1, isExact, Q,
+                                    MaxRecurse))
     return V;
-
-  // X >> X -> 0
-  if (Op0 == Op1)
-    return Constant::getNullValue(Op0->getType());
 
   // all ones >>a X -> all ones
   if (match(Op0, m_AllOnes()))
@@ -1399,8 +1428,7 @@ static Value *SimplifyAShrInst(Value *Op0, Value *Op1, bool isExact,
 
   // (X << A) >> A -> X
   Value *X;
-  if (match(Op0, m_Shl(m_Value(X), m_Specific(Op1))) &&
-      cast<OverflowingBinaryOperator>(Op0)->hasNoSignedWrap())
+  if (match(Op0, m_NSWShl(m_Value(X), m_Specific(Op1))))
     return X;
 
   // Arithmetic shifting an all-sign-bit value is a no-op.

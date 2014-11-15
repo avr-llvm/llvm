@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "AArch64InstrInfo.h"
+#include "AArch64PBQPRegAlloc.h"
 #include "AArch64Subtarget.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/MachineScheduler.h"
@@ -64,13 +65,7 @@ AArch64Subtarget::AArch64Subtarget(const std::string &TT,
 unsigned char
 AArch64Subtarget::ClassifyGlobalReference(const GlobalValue *GV,
                                         const TargetMachine &TM) const {
-
-  // Determine whether this is a reference to a definition or a declaration.
-  // Materializable GVs (in JIT lazy compilation mode) do not require an extra
-  // load from stub.
-  bool isDecl = GV->hasAvailableExternallyLinkage();
-  if (GV->isDeclaration() && !GV->isMaterializable())
-    isDecl = true;
+  bool isDecl = GV->isDeclarationForLinker();
 
   // MachO large model always goes via a GOT, simply to get a single 8-byte
   // absolute relocation on all global addresses.
@@ -132,4 +127,12 @@ void AArch64Subtarget::overrideSchedPolicy(MachineSchedPolicy &Policy,
 
 bool AArch64Subtarget::enableEarlyIfConversion() const {
   return EnableEarlyIfConvert;
+}
+
+std::unique_ptr<PBQPRAConstraint>
+AArch64Subtarget::getCustomPBQPConstraints() const {
+  if (!isCortexA57())
+    return nullptr;
+
+  return llvm::make_unique<A57ChainingConstraint>();
 }

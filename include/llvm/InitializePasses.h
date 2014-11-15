@@ -91,6 +91,7 @@ void initializeCFGOnlyViewerPass(PassRegistry&);
 void initializeCFGPrinterPass(PassRegistry&);
 void initializeCFGSimplifyPassPass(PassRegistry&);
 void initializeCFLAliasAnalysisPass(PassRegistry&);
+void initializeForwardControlFlowIntegrityPass(PassRegistry&);
 void initializeFlattenCFGPassPass(PassRegistry&);
 void initializeStructurizeCFGPass(PassRegistry&);
 void initializeCFGViewerPass(PassRegistry&);
@@ -125,6 +126,7 @@ void initializeAddressSanitizerPass(PassRegistry&);
 void initializeAddressSanitizerModulePass(PassRegistry&);
 void initializeMemorySanitizerPass(PassRegistry&);
 void initializeThreadSanitizerPass(PassRegistry&);
+void initializeSanitizerCoverageModulePass(PassRegistry&);
 void initializeDataFlowSanitizerPass(PassRegistry&);
 void initializeScalarizerPass(PassRegistry&);
 void initializeEarlyCSEPass(PassRegistry&);
@@ -284,6 +286,7 @@ void initializeMachineFunctionPrinterPassPass(PassRegistry&);
 void initializeStackMapLivenessPass(PassRegistry&);
 void initializeMachineCombinerPass(PassRegistry &);
 void initializeLoadCombinePass(PassRegistry&);
+void initializeRewriteSymbolsPass(PassRegistry&);
 }
 
 #endif

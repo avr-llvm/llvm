@@ -80,7 +80,7 @@ inline std::size_t countTrailingZeros<uint32_t>(uint32_t Val, ZeroBehavior ZB) {
   if (ZB != ZB_Undefined && Val == 0)
     return 32;
 
-#if __has_builtin(__builtin_ctz) || __GNUC_PREREQ(4, 0)
+#if __has_builtin(__builtin_ctz) || LLVM_GNUC_PREREQ(4, 0, 0)
   return __builtin_ctz(Val);
 #elif _MSC_VER
   unsigned long Index;
@@ -95,7 +95,7 @@ inline std::size_t countTrailingZeros<uint64_t>(uint64_t Val, ZeroBehavior ZB) {
   if (ZB != ZB_Undefined && Val == 0)
     return 64;
 
-#if __has_builtin(__builtin_ctzll) || __GNUC_PREREQ(4, 0)
+#if __has_builtin(__builtin_ctzll) || LLVM_GNUC_PREREQ(4, 0, 0)
   return __builtin_ctzll(Val);
 #elif _MSC_VER
   unsigned long Index;
@@ -146,7 +146,7 @@ inline std::size_t countLeadingZeros<uint32_t>(uint32_t Val, ZeroBehavior ZB) {
   if (ZB != ZB_Undefined && Val == 0)
     return 32;
 
-#if __has_builtin(__builtin_clz) || __GNUC_PREREQ(4, 0)
+#if __has_builtin(__builtin_clz) || LLVM_GNUC_PREREQ(4, 0, 0)
   return __builtin_clz(Val);
 #elif _MSC_VER
   unsigned long Index;
@@ -161,7 +161,7 @@ inline std::size_t countLeadingZeros<uint64_t>(uint64_t Val, ZeroBehavior ZB) {
   if (ZB != ZB_Undefined && Val == 0)
     return 64;
 
-#if __has_builtin(__builtin_clzll) || __GNUC_PREREQ(4, 0)
+#if __has_builtin(__builtin_clzll) || LLVM_GNUC_PREREQ(4, 0, 0)
   return __builtin_clzll(Val);
 #elif _MSC_VER
   unsigned long Index;
@@ -597,7 +597,8 @@ inline uint64_t PowerOf2Floor(uint64_t A) {
 ///   RoundUpToAlignment(~0LL, 8) = 0
 /// \endcode
 inline uint64_t RoundUpToAlignment(uint64_t Value, uint64_t Align) {
-  return ((Value + Align - 1) / Align) * Align;
+  assert(isPowerOf2_64(Align) && "Alignment must be power of 2!");
+  return (Value + Align - 1) & ~uint64_t(Align - 1);
 }
 
 /// Returns the offset to the next integer (mod 2**64) that is greater than

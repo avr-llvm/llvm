@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "SparcTargetMachine.h"
+#include "SparcTargetObjectFile.h"
 #include "Sparc.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/PassManager.h"
@@ -32,6 +33,7 @@ SparcTargetMachine::SparcTargetMachine(const Target &T, StringRef TT,
                                        CodeGenOpt::Level OL,
                                        bool is64bit)
   : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
+    TLOF(make_unique<SparcELFTargetObjectFile>()),
     Subtarget(TT, CPU, FS, *this, is64bit) {
   initAsmInfo();
 }
@@ -47,6 +49,7 @@ public:
     return getTM<SparcTargetMachine>();
   }
 
+  void addIRPasses() override;
   bool addInstSelector() override;
   bool addPreEmitPass() override;
 };
@@ -54,6 +57,12 @@ public:
 
 TargetPassConfig *SparcTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new SparcPassConfig(this, PM);
+}
+
+void SparcPassConfig::addIRPasses() {
+  addPass(createAtomicExpandPass(&getSparcTargetMachine()));
+
+  TargetPassConfig::addIRPasses();
 }
 
 bool SparcPassConfig::addInstSelector() {

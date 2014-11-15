@@ -12,8 +12,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "PPCTargetMachine.h"
+#include "PPCTargetObjectFile.h"
 #include "PPC.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/IR/Function.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/PassManager.h"
 #include "llvm/Support/CommandLine.h"
@@ -59,6 +61,15 @@ static std::string computeFSAdditions(StringRef FS, CodeGenOpt::Level OL, String
   return FullFS;
 }
 
+static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
+  // If it isn't a Mach-O file then it's going to be a linux ELF
+  // object file.
+  if (TT.isOSDarwin())
+    return make_unique<TargetLoweringObjectFileMachO>();
+
+  return make_unique<PPC64LinuxTargetObjectFile>();
+}
+
 // The FeatureString here is a little subtle. We are modifying the feature string
 // with what are (currently) non-function specific overrides as it goes into the
 // LLVMTargetMachine constructor and then using the stored value in the
@@ -69,6 +80,7 @@ PPCTargetMachine::PPCTargetMachine(const Target &T, StringRef TT, StringRef CPU,
                                    CodeGenOpt::Level OL)
     : LLVMTargetMachine(T, TT, CPU, computeFSAdditions(FS, OL, TT), Options, RM,
                         CM, OL),
+      TLOF(createTLOF(Triple(getTargetTriple()))),
       Subtarget(TT, CPU, TargetFS, *this) {
   initAsmInfo();
 }
@@ -93,6 +105,31 @@ PPC64TargetMachine::PPC64TargetMachine(const Target &T, StringRef TT,
   : PPCTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL) {
 }
 
+const PPCSubtarget *
+PPCTargetMachine::getSubtargetImpl(const Function &F) const {
+  AttributeSet FnAttrs = F.getAttributes();
+  Attribute CPUAttr =
+      FnAttrs.getAttribute(AttributeSet::FunctionIndex, "target-cpu");
+  Attribute FSAttr =
+      FnAttrs.getAttribute(AttributeSet::FunctionIndex, "target-features");
+
+  std::string CPU = !CPUAttr.hasAttribute(Attribute::None)
+                        ? CPUAttr.getValueAsString().str()
+                        : TargetCPU;
+  std::string FS = !FSAttr.hasAttribute(Attribute::None)
+                       ? FSAttr.getValueAsString().str()
+                       : TargetFS;
+
+  auto &I = SubtargetMap[CPU + FS];
+  if (!I) {
+    // This needs to be done before we create a new subtarget since any
+    // creation will depend on the TM and the code generation flags on the
+    // function that reside in TargetOptions.
+    resetTargetOptions(F);
+    I = llvm::make_unique<PPCSubtarget>(TargetTriple, CPU, FS, *this);
+  }
+  return I.get();
+}
 
 //===----------------------------------------------------------------------===//
 // Pass Pipeline Configuration

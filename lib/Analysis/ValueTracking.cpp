@@ -39,8 +39,8 @@ using namespace llvm::PatternMatch;
 
 const unsigned MaxDepth = 6;
 
-/// getBitWidth - Returns the bitwidth of the given scalar or pointer type (if
-/// unknown returns 0).  For vector types, returns the element type's bitwidth.
+/// Returns the bitwidth of the given scalar or pointer type (if unknown returns
+/// 0). For vector types, returns the element type's bitwidth.
 static unsigned getBitWidth(Type *Ty, const DataLayout *TD) {
   if (unsigned BitWidth = Ty->getScalarSizeInBits())
     return BitWidth;
@@ -80,7 +80,7 @@ struct Query {
 };
 } // end anonymous namespace
 
-// Given the provided Value and, potentially, a context instruction, returned
+// Given the provided Value and, potentially, a context instruction, return
 // the preferred context instruction (if any).
 static const Instruction *safeCxtI(const Value *V, const Instruction *CxtI) {
   // If we've been provided with a context instruction, then use that (provided
@@ -790,6 +790,17 @@ void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
     return;
   }
 
+  // A weak GlobalAlias is totally unknown. A non-weak GlobalAlias has
+  // the bits of its aliasee.
+  if (GlobalAlias *GA = dyn_cast<GlobalAlias>(V)) {
+    if (GA->mayBeOverridden()) {
+      KnownZero.clearAllBits(); KnownOne.clearAllBits();
+    } else {
+      computeKnownBits(GA->getAliasee(), KnownZero, KnownOne, TD, Depth+1, Q);
+    }
+    return;
+  }
+
   // The address of an aligned GlobalValue has trailing zeros.
   if (GlobalValue *GV = dyn_cast<GlobalValue>(V)) {
     unsigned Align = GV->getAlignment();
@@ -813,16 +824,6 @@ void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
     else
       KnownZero.clearAllBits();
     KnownOne.clearAllBits();
-    return;
-  }
-  // A weak GlobalAlias is totally unknown. A non-weak GlobalAlias has
-  // the bits of its aliasee.
-  if (GlobalAlias *GA = dyn_cast<GlobalAlias>(V)) {
-    if (GA->mayBeOverridden()) {
-      KnownZero.clearAllBits(); KnownOne.clearAllBits();
-    } else {
-      computeKnownBits(GA->getAliasee(), KnownZero, KnownOne, TD, Depth+1, Q);
-    }
     return;
   }
 
@@ -1004,7 +1005,6 @@ void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
       KnownZero <<= ShiftAmt;
       KnownOne  <<= ShiftAmt;
       KnownZero |= APInt::getLowBitsSet(BitWidth, ShiftAmt); // low bits known 0
-      break;
     }
     break;
   case Instruction::LShr:
@@ -1014,12 +1014,11 @@ void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
       uint64_t ShiftAmt = SA->getLimitedValue(BitWidth);
 
       // Unsigned shift right.
-      computeKnownBits(I->getOperand(0), KnownZero,KnownOne, TD, Depth+1, Q);
+      computeKnownBits(I->getOperand(0), KnownZero, KnownOne, TD, Depth+1, Q);
       KnownZero = APIntOps::lshr(KnownZero, ShiftAmt);
       KnownOne  = APIntOps::lshr(KnownOne, ShiftAmt);
       // high bits known zero.
       KnownZero |= APInt::getHighBitsSet(BitWidth, ShiftAmt);
-      break;
     }
     break;
   case Instruction::AShr:
@@ -1038,7 +1037,6 @@ void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
         KnownZero |= HighBits;
       else if (KnownOne[BitWidth-ShiftAmt-1])  // New bits are known one.
         KnownOne |= HighBits;
-      break;
     }
     break;
   case Instruction::Sub: {
@@ -1321,8 +1319,8 @@ void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
   assert((KnownZero & KnownOne) == 0 && "Bits known to be one AND zero?");
 }
 
-/// ComputeSignBit - Determine whether the sign bit is known to be zero or
-/// one.  Convenience wrapper around computeKnownBits.
+/// Determine whether the sign bit is known to be zero or one.
+/// Convenience wrapper around computeKnownBits.
 void ComputeSignBit(Value *V, bool &KnownZero, bool &KnownOne,
                     const DataLayout *TD, unsigned Depth,
                     const Query &Q) {
@@ -1339,9 +1337,9 @@ void ComputeSignBit(Value *V, bool &KnownZero, bool &KnownOne,
   KnownZero = ZeroBits[BitWidth - 1];
 }
 
-/// isKnownToBeAPowerOfTwo - Return true if the given value is known to have exactly one
+/// Return true if the given value is known to have exactly one
 /// bit set when defined. For vectors return true if every element is known to
-/// be a power of two when defined.  Supports values with integer or pointer
+/// be a power of two when defined. Supports values with integer or pointer
 /// types and vectors of integers.
 bool isKnownToBeAPowerOfTwo(Value *V, bool OrZero, unsigned Depth,
                             const Query &Q) {
@@ -1501,10 +1499,27 @@ static bool isGEPKnownNonNull(GEPOperator *GEP, const DataLayout *DL,
   return false;
 }
 
-/// isKnownNonZero - Return true if the given value is known to be non-zero
-/// when defined.  For vectors return true if every element is known to be
-/// non-zero when defined.  Supports values with integer or pointer type and
-/// vectors of integers.
+/// Does the 'Range' metadata (which must be a valid MD_range operand list)
+/// ensure that the value it's attached to is never Value?  'RangeType' is
+/// is the type of the value described by the range.
+static bool rangeMetadataExcludesValue(MDNode* Ranges,
+                                       const APInt& Value) {
+  const unsigned NumRanges = Ranges->getNumOperands() / 2;
+  assert(NumRanges >= 1);
+  for (unsigned i = 0; i < NumRanges; ++i) {
+    ConstantInt *Lower = cast<ConstantInt>(Ranges->getOperand(2*i + 0));
+    ConstantInt *Upper = cast<ConstantInt>(Ranges->getOperand(2*i + 1));
+    ConstantRange Range(Lower->getValue(), Upper->getValue());
+    if (Range.contains(Value))
+      return false;
+  }
+  return true;
+}
+
+/// Return true if the given value is known to be non-zero when defined.
+/// For vectors return true if every element is known to be non-zero when
+/// defined. Supports values with integer or pointer type and vectors of
+/// integers.
 bool isKnownNonZero(Value *V, const DataLayout *TD, unsigned Depth,
                     const Query &Q) {
   if (Constant *C = dyn_cast<Constant>(V)) {
@@ -1515,6 +1530,18 @@ bool isKnownNonZero(Value *V, const DataLayout *TD, unsigned Depth,
       return true;
     // TODO: Handle vectors
     return false;
+  }
+
+  if (Instruction* I = dyn_cast<Instruction>(V)) {
+    if (MDNode *Ranges = I->getMetadata(LLVMContext::MD_range)) {
+      // If the possible ranges don't contain zero, then the value is
+      // definitely non-zero.
+      if (IntegerType* Ty = dyn_cast<IntegerType>(V->getType())) {
+        const APInt ZeroValue(Ty->getBitWidth(), 0);
+        if (rangeMetadataExcludesValue(Ranges, ZeroValue))
+          return true;
+      }
+    }
   }
 
   // The remaining tests are all recursive, so bail out if we hit the limit.
@@ -1637,9 +1664,9 @@ bool isKnownNonZero(Value *V, const DataLayout *TD, unsigned Depth,
   return KnownOne != 0;
 }
 
-/// MaskedValueIsZero - Return true if 'V & Mask' is known to be zero.  We use
-/// this predicate to simplify operations downstream.  Mask is known to be zero
-/// for bits that V cannot have.
+/// Return true if 'V & Mask' is known to be zero.  We use this predicate to
+/// simplify operations downstream. Mask is known to be zero for bits that V
+/// cannot have.
 ///
 /// This function is defined on values with integer type, values with pointer
 /// type (but only if TD is non-null), and vectors of integers.  In the case
@@ -1656,11 +1683,11 @@ bool MaskedValueIsZero(Value *V, const APInt &Mask,
 
 
 
-/// ComputeNumSignBits - Return the number of times the sign bit of the
-/// register is replicated into the other bits.  We know that at least 1 bit
-/// is always equal to the sign bit (itself), but other cases can give us
-/// information.  For example, immediately after an "ashr X, 2", we know that
-/// the top 3 bits are all equal to each other, so we return 3.
+/// Return the number of times the sign bit of the register is replicated into
+/// the other bits. We know that at least 1 bit is always equal to the sign bit
+/// (itself), but other cases can give us information. For example, immediately
+/// after an "ashr X, 2", we know that the top 3 bits are all equal to each
+/// other, so we return 3.
 ///
 /// 'Op' must have a scalar integer type.
 ///
@@ -1832,9 +1859,9 @@ unsigned ComputeNumSignBits(Value *V, const DataLayout *TD,
   return std::max(FirstAnswer, std::min(TyBits, Mask.countLeadingZeros()));
 }
 
-/// ComputeMultiple - This function computes the integer multiple of Base that
-/// equals V.  If successful, it returns true and returns the multiple in
-/// Multiple.  If unsuccessful, it returns false. It looks
+/// This function computes the integer multiple of Base that equals V.
+/// If successful, it returns true and returns the multiple in
+/// Multiple. If unsuccessful, it returns false. It looks
 /// through SExt instructions only if LookThroughSExt is true.
 bool llvm::ComputeMultiple(Value *V, unsigned Base, Value *&Multiple,
                            bool LookThroughSExt, unsigned Depth) {
@@ -1952,8 +1979,8 @@ bool llvm::ComputeMultiple(Value *V, unsigned Base, Value *&Multiple,
   return false;
 }
 
-/// CannotBeNegativeZero - Return true if we can prove that the specified FP
-/// value is never equal to -0.0.
+/// Return true if we can prove that the specified FP value is never equal to
+/// -0.0.
 ///
 /// NOTE: this function will need to be revisited when we support non-default
 /// rounding modes!
@@ -2006,8 +2033,8 @@ bool llvm::CannotBeNegativeZero(const Value *V, unsigned Depth) {
   return false;
 }
 
-/// isBytewiseValue - If the specified value can be set by repeating the same
-/// byte in memory, return the i8 value that it is represented with.  This is
+/// If the specified value can be set by repeating the same byte in memory,
+/// return the i8 value that it is represented with.  This is
 /// true for all i8 values obviously, but is also true for i32 0, i32 -1,
 /// i16 0xF0F0, double 0.0 etc.  If the value can't be handled with a repeated
 /// byte store (e.g. i16 0x1234), return null.
@@ -2155,7 +2182,7 @@ static Value *BuildSubAggregate(Value *From, ArrayRef<unsigned> idx_range,
   return BuildSubAggregate(From, To, IndexedType, Idxs, IdxSkip, InsertBefore);
 }
 
-/// FindInsertedValue - Given an aggregrate and an sequence of indices, see if
+/// Given an aggregrate and an sequence of indices, see if
 /// the scalar value indexed is already around as a register, for example if it
 /// were inserted directly into the aggregrate.
 ///
@@ -2245,9 +2272,8 @@ Value *llvm::FindInsertedValue(Value *V, ArrayRef<unsigned> idx_range,
   return nullptr;
 }
 
-/// GetPointerBaseWithConstantOffset - Analyze the specified pointer to see if
-/// it can be expressed as a base pointer plus a constant offset.  Return the
-/// base and offset to the caller.
+/// Analyze the specified pointer to see if it can be expressed as a base
+/// pointer plus a constant offset. Return the base and offset to the caller.
 Value *llvm::GetPointerBaseWithConstantOffset(Value *Ptr, int64_t &Offset,
                                               const DataLayout *DL) {
   // Without DataLayout, conservatively assume 64-bit offsets, which is
@@ -2284,9 +2310,9 @@ Value *llvm::GetPointerBaseWithConstantOffset(Value *Ptr, int64_t &Offset,
 }
 
 
-/// getConstantStringInfo - This function computes the length of a
-/// null-terminated C string pointed to by V.  If successful, it returns true
-/// and returns the string in Str.  If unsuccessful, it returns false.
+/// This function computes the length of a null-terminated C string pointed to
+/// by V. If successful, it returns true and returns the string in Str.
+/// If unsuccessful, it returns false.
 bool llvm::getConstantStringInfo(const Value *V, StringRef &Str,
                                  uint64_t Offset, bool TrimAtNul) {
   assert(V);
@@ -2370,7 +2396,7 @@ bool llvm::getConstantStringInfo(const Value *V, StringRef &Str,
 // nodes.
 // TODO: See if we can integrate these two together.
 
-/// GetStringLengthH - If we can compute the length of the string pointed to by
+/// If we can compute the length of the string pointed to by
 /// the specified pointer, return 'len+1'.  If we can't, return 0.
 static uint64_t GetStringLengthH(Value *V, SmallPtrSetImpl<PHINode*> &PHIs) {
   // Look through noop bitcast instructions.
@@ -2419,7 +2445,7 @@ static uint64_t GetStringLengthH(Value *V, SmallPtrSetImpl<PHINode*> &PHIs) {
   return StrData.size()+1;
 }
 
-/// GetStringLength - If we can compute the length of the string pointed to by
+/// If we can compute the length of the string pointed to by
 /// the specified pointer, return 'len+1'.  If we can't, return 0.
 uint64_t llvm::GetStringLength(Value *V) {
   if (!V->getType()->isPointerTy()) return 0;
@@ -2492,9 +2518,7 @@ llvm::GetUnderlyingObjects(Value *V,
   } while (!Worklist.empty());
 }
 
-/// onlyUsedByLifetimeMarkers - Return true if the only users of this pointer
-/// are lifetime markers.
-///
+/// Return true if the only users of this pointer are lifetime markers.
 bool llvm::onlyUsedByLifetimeMarkers(const Value *V) {
   for (const User *U : V->users()) {
     const IntrinsicInst *II = dyn_cast<IntrinsicInst>(U);
@@ -2522,23 +2546,31 @@ bool llvm::isSafeToSpeculativelyExecute(const Value *V,
   default:
     return true;
   case Instruction::UDiv:
-  case Instruction::URem:
-    // x / y is undefined if y == 0, but calculations like x / 3 are safe.
-    return isKnownNonZero(Inst->getOperand(1), TD);
+  case Instruction::URem: {
+    // x / y is undefined if y == 0.
+    const APInt *V;
+    if (match(Inst->getOperand(1), m_APInt(V)))
+      return *V != 0;
+    return false;
+  }
   case Instruction::SDiv:
   case Instruction::SRem: {
-    Value *Op = Inst->getOperand(1);
-    // x / y is undefined if y == 0
-    if (!isKnownNonZero(Op, TD))
-      return false;
-    // x / y might be undefined if y == -1
-    unsigned BitWidth = getBitWidth(Op->getType(), TD);
-    if (BitWidth == 0)
-      return false;
-    APInt KnownZero(BitWidth, 0);
-    APInt KnownOne(BitWidth, 0);
-    computeKnownBits(Op, KnownZero, KnownOne, TD);
-    return !!KnownZero;
+    // x / y is undefined if y == 0 or x == INT_MIN and y == -1
+    const APInt *X, *Y;
+    if (match(Inst->getOperand(1), m_APInt(Y))) {
+      if (*Y != 0) {
+        if (*Y == -1) {
+          // The numerator can't be MinSignedValue if the denominator is -1.
+          if (match(Inst->getOperand(0), m_APInt(X)))
+            return !Y->isMinSignedValue();
+          // The numerator *might* be MinSignedValue.
+          return false;
+        }
+        // The denominator is not 0 or -1, it's safe to proceed.
+        return true;
+      }
+    }
+    return false;
   }
   case Instruction::Load: {
     const LoadInst *LI = cast<LoadInst>(Inst);
@@ -2549,42 +2581,44 @@ bool llvm::isSafeToSpeculativelyExecute(const Value *V,
     return LI->getPointerOperand()->isDereferenceablePointer(TD);
   }
   case Instruction::Call: {
-   if (const IntrinsicInst *II = dyn_cast<IntrinsicInst>(Inst)) {
-     switch (II->getIntrinsicID()) {
-       // These synthetic intrinsics have no side-effects and just mark
-       // information about their operands.
-       // FIXME: There are other no-op synthetic instructions that potentially
-       // should be considered at least *safe* to speculate...
-       case Intrinsic::dbg_declare:
-       case Intrinsic::dbg_value:
-         return true;
+    if (const IntrinsicInst *II = dyn_cast<IntrinsicInst>(Inst)) {
+      switch (II->getIntrinsicID()) {
+      // These synthetic intrinsics have no side-effects and just mark
+      // information about their operands.
+      // FIXME: There are other no-op synthetic instructions that potentially
+      // should be considered at least *safe* to speculate...
+      case Intrinsic::dbg_declare:
+      case Intrinsic::dbg_value:
+        return true;
 
-       case Intrinsic::bswap:
-       case Intrinsic::ctlz:
-       case Intrinsic::ctpop:
-       case Intrinsic::cttz:
-       case Intrinsic::objectsize:
-       case Intrinsic::sadd_with_overflow:
-       case Intrinsic::smul_with_overflow:
-       case Intrinsic::ssub_with_overflow:
-       case Intrinsic::uadd_with_overflow:
-       case Intrinsic::umul_with_overflow:
-       case Intrinsic::usub_with_overflow:
-         return true;
-       // Sqrt should be OK, since the llvm sqrt intrinsic isn't defined to set
-       // errno like libm sqrt would.
-       case Intrinsic::sqrt:
-       case Intrinsic::fma:
-       case Intrinsic::fmuladd:
-       case Intrinsic::fabs:
-         return true;
-       // TODO: some fp intrinsics are marked as having the same error handling
-       // as libm. They're safe to speculate when they won't error.
-       // TODO: are convert_{from,to}_fp16 safe?
-       // TODO: can we list target-specific intrinsics here?
-       default: break;
-     }
-   }
+      case Intrinsic::bswap:
+      case Intrinsic::ctlz:
+      case Intrinsic::ctpop:
+      case Intrinsic::cttz:
+      case Intrinsic::objectsize:
+      case Intrinsic::sadd_with_overflow:
+      case Intrinsic::smul_with_overflow:
+      case Intrinsic::ssub_with_overflow:
+      case Intrinsic::uadd_with_overflow:
+      case Intrinsic::umul_with_overflow:
+      case Intrinsic::usub_with_overflow:
+        return true;
+      // Sqrt should be OK, since the llvm sqrt intrinsic isn't defined to set
+      // errno like libm sqrt would.
+      case Intrinsic::sqrt:
+      case Intrinsic::fma:
+      case Intrinsic::fmuladd:
+      case Intrinsic::fabs:
+      case Intrinsic::minnum:
+      case Intrinsic::maxnum:
+        return true;
+      // TODO: some fp intrinsics are marked as having the same error handling
+      // as libm. They're safe to speculate when they won't error.
+      // TODO: are convert_{from,to}_fp16 safe?
+      // TODO: can we list target-specific intrinsics here?
+      default: break;
+      }
+    }
     return false; // The called function could have undefined behavior or
                   // side-effects, even if marked readnone nounwind.
   }
@@ -2607,8 +2641,7 @@ bool llvm::isSafeToSpeculativelyExecute(const Value *V,
   }
 }
 
-/// isKnownNonNull - Return true if we know that the specified value is never
-/// null.
+/// Return true if we know that the specified value is never null.
 bool llvm::isKnownNonNull(const Value *V, const TargetLibraryInfo *TLI) {
   // Alloca never returns null, malloc might.
   if (isa<AllocaInst>(V)) return true;
@@ -2620,6 +2653,10 @@ bool llvm::isKnownNonNull(const Value *V, const TargetLibraryInfo *TLI) {
   // Global values are not null unless extern weak.
   if (const GlobalValue *GV = dyn_cast<GlobalValue>(V))
     return !GV->hasExternalWeakLinkage();
+
+  // A Load tagged w/nonnull metadata is never null. 
+  if (const LoadInst *LI = dyn_cast<LoadInst>(V))
+    return LI->getMetadata(LLVMContext::MD_nonnull);
 
   if (ImmutableCallSite CS = V)
     if (CS.isReturnNonNull())

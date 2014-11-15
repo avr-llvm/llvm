@@ -78,10 +78,9 @@ static std::vector<std::string> Cleanup;
 static llvm::TargetOptions TargetOpts;
 
 namespace options {
-  enum generate_bc { BC_NO, BC_ALSO, BC_ONLY };
+  enum generate_bc { BC_NO, BC_ONLY, BC_SAVE_TEMPS };
   static bool generate_api_file = false;
   static generate_bc generate_bc_file = BC_NO;
-  static std::string bc_path;
   static std::string obj_path;
   static std::string extra_library_path;
   static std::string triple;
@@ -111,18 +110,8 @@ namespace options {
       obj_path = opt.substr(strlen("obj-path="));
     } else if (opt == "emit-llvm") {
       generate_bc_file = BC_ONLY;
-    } else if (opt == "also-emit-llvm") {
-      generate_bc_file = BC_ALSO;
-    } else if (opt.startswith("also-emit-llvm=")) {
-      llvm::StringRef path = opt.substr(strlen("also-emit-llvm="));
-      generate_bc_file = BC_ALSO;
-      if (!bc_path.empty()) {
-        message(LDPL_WARNING, "Path to the output IL file specified twice. "
-                              "Discarding %s",
-                opt_);
-      } else {
-        bc_path = path;
-      }
+    } else if (opt == "save-temps") {
+      generate_bc_file = BC_SAVE_TEMPS;
     } else {
       // Save this option to pass to the code generator.
       // ParseCommandLineOptions() expects argv[0] to be program name. Lazily
@@ -278,7 +267,7 @@ static ld_plugin_status claim_file_hook(const ld_plugin_input_file *file,
       message(LDPL_ERROR, "Failed to get a view of %s", file->name);
       return LDPS_ERR;
     }
-    BufferRef = MemoryBufferRef(StringRef((char *)view, file->filesize), "");
+    BufferRef = MemoryBufferRef(StringRef((const char *)view, file->filesize), "");
   } else {
     int64_t offset = 0;
     // Gold has found what might be IR part-way inside of a file, such as
@@ -418,18 +407,8 @@ static void keepGlobalValue(GlobalValue &GV,
   assert(!GV.isDiscardableIfUnused());
 }
 
-static bool isDeclaration(const GlobalValue &V) {
-  if (V.hasAvailableExternallyLinkage())
-    return true;
-
-  if (V.isMaterializable())
-    return false;
-
-  return V.isDeclaration();
-}
-
 static void internalize(GlobalValue &GV) {
-  if (isDeclaration(GV))
+  if (GV.isDeclarationForLinker())
     return; // We get here if there is a matching asm definition.
   if (!GV.hasLocalLinkage())
     GV.setLinkage(GlobalValue::InternalLinkage);
@@ -485,27 +464,46 @@ static const char *getResolutionName(ld_plugin_symbol_resolution R) {
   case LDPR_PREVAILING_DEF_IRONLY_EXP:
     return "PREVAILING_DEF_IRONLY_EXP";
   }
+  llvm_unreachable("Unknown resolution");
 }
 
 static GlobalObject *makeInternalReplacement(GlobalObject *GO) {
   Module *M = GO->getParent();
   GlobalObject *Ret;
   if (auto *F = dyn_cast<Function>(GO)) {
-    auto *NewF = Function::Create(
-        F->getFunctionType(), GlobalValue::InternalLinkage, F->getName(), M);
+    if (F->materialize())
+      message(LDPL_FATAL, "LLVM gold plugin has failed to read a function");
+
+    auto *NewF = Function::Create(F->getFunctionType(), F->getLinkage(),
+                                  F->getName(), M);
+
+    ValueToValueMapTy VM;
+    Function::arg_iterator NewI = NewF->arg_begin();
+    for (auto &Arg : F->args()) {
+      NewI->setName(Arg.getName());
+      VM[&Arg] = NewI;
+      ++NewI;
+    }
+
     NewF->getBasicBlockList().splice(NewF->end(), F->getBasicBlockList());
+    for (auto &BB : *NewF) {
+      for (auto &Inst : BB)
+        RemapInstruction(&Inst, VM, RF_IgnoreMissingEntries);
+    }
+
     Ret = NewF;
     F->deleteBody();
   } else {
     auto *Var = cast<GlobalVariable>(GO);
     Ret = new GlobalVariable(
         *M, Var->getType()->getElementType(), Var->isConstant(),
-        GlobalValue::InternalLinkage, Var->getInitializer(), Var->getName(),
+        Var->getLinkage(), Var->getInitializer(), Var->getName(),
         nullptr, Var->getThreadLocalMode(), Var->getType()->getAddressSpace(),
         Var->isExternallyInitialized());
     Var->setInitializer(nullptr);
   }
   Ret->copyAttributesFrom(GO);
+  Ret->setLinkage(GlobalValue::InternalLinkage);
   Ret->setComdat(GO->getComdat());
 
   return Ret;
@@ -604,7 +602,7 @@ getModuleForFile(LLVMContext &Context, claimed_file &F, raw_fd_ostream *ApiFile,
     case LDPR_RESOLVED_EXEC:
     case LDPR_RESOLVED_DYN:
     case LDPR_UNDEF:
-      assert(isDeclaration(*GV));
+      assert(GV->isDeclarationForLinker());
       break;
 
     case LDPR_PREVAILING_DEF_IRONLY: {
@@ -622,8 +620,14 @@ getModuleForFile(LLVMContext &Context, claimed_file &F, raw_fd_ostream *ApiFile,
       keepGlobalValue(*GV, KeptAliases);
       break;
 
-    case LDPR_PREEMPTED_REG:
     case LDPR_PREEMPTED_IR:
+      // Gold might have selected a linkonce_odr and preempted a weak_odr.
+      // In that case we have to make sure we don't end up internalizing it.
+      if (!GV->isDiscardableIfUnused())
+        Maybe.erase(Sym.name);
+
+      // fall-through
+    case LDPR_PREEMPTED_REG:
       Drop.insert(GV);
       break;
 
@@ -644,12 +648,6 @@ getModuleForFile(LLVMContext &Context, claimed_file &F, raw_fd_ostream *ApiFile,
     Sym.name = nullptr;
     Sym.comdat_key = nullptr;
   }
-
-  if (!Drop.empty())
-    // This is horrible. Given how lazy loading is implemented, dropping
-    // the body while there is a materializer present doesn't work, the
-    // linker will just read the body back.
-    M->materializeAllPermanently();
 
   ValueToValueMapTy VM;
   LocalValueMaterializer Materializer(Drop);
@@ -675,8 +673,18 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   PMB.Inliner = createFunctionInliningPass();
   PMB.VerifyInput = true;
   PMB.VerifyOutput = true;
+  PMB.LoopVectorize = true;
+  PMB.SLPVectorize = true;
   PMB.populateLTOPassManager(passes, &TM);
   passes.run(M);
+}
+
+static void saveBCFile(StringRef Path, Module &M) {
+  std::error_code EC;
+  raw_fd_ostream OS(Path, EC, sys::fs::OpenFlags::F_None);
+  if (EC)
+    message(LDPL_FATAL, "Failed to write the output file.");
+  WriteBitcodeToFile(&M, OS);
 }
 
 static void codegen(Module &M) {
@@ -702,6 +710,9 @@ static void codegen(Module &M) {
       CodeModel::Default, CodeGenOpt::Aggressive));
 
   runLTOPasses(M, *TM);
+
+  if (options::generate_bc_file == options::BC_SAVE_TEMPS)
+    saveBCFile(output_name + ".opt.bc", M);
 
   PassManager CodeGenPasses;
   CodeGenPasses.add(new DataLayoutPass());
@@ -765,9 +776,8 @@ static ld_plugin_status allSymbolsReadHook(raw_fd_ostream *ApiFile) {
       M->setTargetTriple(DefaultTriple);
     }
 
-    std::string ErrMsg;
-    if (L.linkInModule(M.get(), &ErrMsg))
-      message(LDPL_FATAL, "Failed to link module: %s", ErrMsg.c_str());
+    if (L.linkInModule(M.get()))
+      message(LDPL_FATAL, "Failed to link module");
   }
 
   for (const auto &Name : Internalize) {
@@ -789,17 +799,9 @@ static ld_plugin_status allSymbolsReadHook(raw_fd_ostream *ApiFile) {
     std::string path;
     if (options::generate_bc_file == options::BC_ONLY)
       path = output_name;
-    else if (!options::bc_path.empty())
-      path = options::bc_path;
     else
       path = output_name + ".bc";
-    {
-      std::error_code EC;
-      raw_fd_ostream OS(path, EC, sys::fs::OpenFlags::F_None);
-      if (EC)
-        message(LDPL_FATAL, "Failed to write the output file.");
-      WriteBitcodeToFile(L.getModule(), OS);
-    }
+    saveBCFile(path, *L.getModule());
     if (options::generate_bc_file == options::BC_ONLY)
       return LDPS_OK;
   }

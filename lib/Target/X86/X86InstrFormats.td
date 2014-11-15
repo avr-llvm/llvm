@@ -101,6 +101,7 @@ def CD8VF  : CD8VForm<0>;  // v := VL
 def CD8VH  : CD8VForm<1>;  // v := VL/2
 def CD8VQ  : CD8VForm<2>;  // v := VL/4
 def CD8VO  : CD8VForm<3>;  // v := VL/8
+// The tuple (subvector) forms.
 def CD8VT1 : CD8VForm<4>;  // v := 1
 def CD8VT2 : CD8VForm<5>;  // v := 2
 def CD8VT4 : CD8VForm<6>;  // v := 4
@@ -714,10 +715,17 @@ class AVX512BI<bits<8> o, Format F, dag outs, dag ins, string asm,
             list<dag> pattern, InstrItinClass itin = NoItinerary>
       : I<o, F, outs, ins, asm, pattern, itin, SSEPackedInt>, PD,
         Requires<[HasAVX512]>;
+class AVX512BIBase : PD {
+  Domain ExeDomain = SSEPackedInt;
+}
 class AVX512BIi8<bits<8> o, Format F, dag outs, dag ins, string asm,
               list<dag> pattern, InstrItinClass itin = NoItinerary>
       : Ii8<o, F, outs, ins, asm, pattern, itin, SSEPackedInt>, PD,
         Requires<[HasAVX512]>;
+class AVX512BIi8Base : PD {
+  Domain ExeDomain = SSEPackedInt;
+  ImmType ImmT = Imm8;
+}
 class AVX512AIi8<bits<8> o, Format F, dag outs, dag ins, string asm,
               list<dag> pattern, InstrItinClass itin = NoItinerary>
       : Ii8<o, F, outs, ins, asm, pattern, itin, SSEPackedInt>, TAPD,

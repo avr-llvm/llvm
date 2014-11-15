@@ -12,7 +12,6 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDisassembler.h"
 #include "llvm/MC/MCInst.h"
-#include "llvm/Support/StringRefMemoryObject.h"
 #include "llvm/Support/Path.h"
 #include "RuntimeDyldCheckerImpl.h"
 #include "RuntimeDyldImpl.h"
@@ -668,7 +667,9 @@ private:
   bool decodeInst(StringRef Symbol, MCInst &Inst, uint64_t &Size) const {
     MCDisassembler *Dis = Checker.Disassembler;
     StringRef SectionMem = Checker.getSubsectionStartingAt(Symbol);
-    StringRefMemoryObject SectionBytes(SectionMem, 0);
+    ArrayRef<uint8_t> SectionBytes(
+        reinterpret_cast<const uint8_t *>(SectionMem.data()),
+        SectionMem.size());
 
     MCDisassembler::DecodeStatus S =
         Dis->getInstruction(Inst, Size, SectionBytes, 0, nulls(), nulls());
