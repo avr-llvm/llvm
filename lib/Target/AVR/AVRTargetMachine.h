@@ -35,6 +35,8 @@ public:
 public: // TargetMachine
 
   const AVRSubtarget *getSubtargetImpl() const override;
+  
+  TargetLoweringObjectFile *getObjFileLowering() const override { return this->TLOF.get(); }
 
 public:
 
@@ -42,6 +44,7 @@ public:
   TargetPassConfig *createPassConfig(PassManagerBase &PM);
 
 private:
+  std::unique_ptr<TargetLoweringObjectFile> TLOF;
   AVRSubtarget SubTarget;
 
 };

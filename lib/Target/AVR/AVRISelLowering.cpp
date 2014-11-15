@@ -16,7 +16,6 @@
 #include "AVR.h"
 #include "AVRMachineFunctionInfo.h"
 #include "AVRTargetMachine.h"
-#include "AVRTargetObjectFile.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -29,7 +28,7 @@
 using namespace llvm;
 
 AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
-  TargetLowering(tm, new AVRTargetObjectFile()), TM(tm)
+  TargetLowering(tm), TM(tm)
 {
   TD = getDataLayout();
 
@@ -131,7 +130,6 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setOperationAction(ISD::MULHS, MVT::i16, Expand);
 
   setMinFunctionAlignment(1);
-  setSupportJumpTables(false);
 }
 
 const char *AVRTargetLowering::getTargetNodeName(unsigned Opcode) const

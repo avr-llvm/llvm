@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "AVRTargetMachine.h"
+#include "AVRTargetObjectFile.h"
 #include "AVR.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/IR/Module.h"
@@ -27,6 +28,7 @@ AVRTargetMachine::AVRTargetMachine(const Target &T, StringRef TT, StringRef CPU,
   LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
   SubTarget(TT, CPU, FS, *this)
 {
+  this->TLOF = make_unique<AVRTargetObjectFile>();
   initAsmInfo();
 }
 
