@@ -1366,15 +1366,17 @@ def BCLRs           1001 0100 1sss 1000 // probably all the todo below comes fro
   CLZ
  */
 
-def SEI : Pseudo<(outs),
-                 (ins),
-                 "sei",
-                 []>;
+def SEI : FI<0b1001010001111000,
+               (outs),
+               (ins),
+               "cli",
+               []>;
 
-def CLI : Pseudo<(outs),
-                 (ins),
-                 "cli",
-                 []>;
+def CLI : FI<0b1001010011111000,
+               (outs),
+               (ins),
+               "cli",
+               []>;
 
 /*
   SES

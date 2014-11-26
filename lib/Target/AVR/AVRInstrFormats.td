@@ -266,6 +266,15 @@ class FBR<bits<16> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
 }
 
 //===----------------------------------------------------------------------===//
+// Interrupt instructions: <|opcode|>
+//===----------------------------------------------------------------------===//
+class FI<bits<16> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  let Inst = opcode;
+}
+
+//===----------------------------------------------------------------------===//
 // Branching instructions with immediate12: <|110f|kkkk|kkkk|kkkk|>
 // f = secondary opcode = 1 bit
 // k = constant address = 12 bits
