@@ -187,7 +187,7 @@ VirtRegAuxInfo::calculateSpillWeightAndHint(LiveInterval &li) {
      // Here we avoid marking as not spillable live intervals that use the
      // PTRDISPREGS class and have a size greater than 8, smaller ones
      // get filtered out, generating better code.
-     if (strcmp(mri.getRegClass(li.reg)->getName(), "PTRDISPREGS") == 0 &&
+     if (strcmp(MF.getSubtarget().getRegisterInfo()->getRegClassName(mri.getRegClass(li.reg)), "PTRDISPREGS") == 0 &&
          li.getSize() > 8) {
              totalWeight *= 10000.0F;
              li.weight = normalizeSpillWeight(totalWeight, li.getSize(), numInstr);
