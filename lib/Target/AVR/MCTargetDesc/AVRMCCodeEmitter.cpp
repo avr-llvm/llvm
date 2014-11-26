@@ -83,31 +83,13 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
     return static_cast<unsigned>(APFloat(MO.getFPImm())
         .bitcastToAPInt().getHiBits(32).getLimitedValue());
   }
-  // MO must be an Expr.
-  assert(MO.isExpr());
-  return getExprOpValue(MO.getExpr(),Fixups, STI);
-}
-
-unsigned AVRMCCodeEmitter::
-getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
-               const MCSubtargetInfo &STI) const {
-  int64_t Res;
-
-  if (Expr->EvaluateAsAbsolute(Res))
-    return Res;
-
-  MCExpr::ExprKind Kind = Expr->getKind();
-  if (Kind == MCExpr::Constant) {
-    return cast<MCConstantExpr>(Expr)->getValue();
-  }
-
-  if (Kind == MCExpr::Binary) {
-    unsigned Res = getExprOpValue(cast<MCBinaryExpr>(Expr)->getLHS(), Fixups, STI);
-    Res += getExprOpValue(cast<MCBinaryExpr>(Expr)->getRHS(), Fixups, STI);
-    return Res;
-  }
-
-  return 0;
+  
+  // [avr-todo] I don't exactly know what getExprOrValue does. It seems as if an MCExpr
+  // can take on expressions or values which to me doesn't make sense (everything should've
+  // been rendered down into raw machine instructions at this point).
+  // I removed the previous code from the Mips backend and added this roadblock so
+  // that the issue may come to light.
+  llvm_unreachable("this is an AVR-LLVM bug, please report it with the number 92331");
 }
 
 #include "AVRGenMCCodeEmitter.inc"

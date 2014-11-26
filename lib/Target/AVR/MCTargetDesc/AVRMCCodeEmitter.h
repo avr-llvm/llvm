@@ -63,9 +63,6 @@ public:
   unsigned getMachineOpValue(const MCInst &MI, const MCOperand &MO,
                              SmallVectorImpl<MCFixup> &Fixups,
                              const MCSubtargetInfo &STI) const;
-  
-  unsigned getExprOpValue(const MCExpr *Expr, SmallVectorImpl<MCFixup> &Fixups,
-                          const MCSubtargetInfo &STI) const;
 
 }; // class AVRMCCodeEmitter
 } // namespace llvm.
