@@ -29,12 +29,16 @@ class AVRInst16<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst<outs, ins, asmstr, pattern>
 {
   field bits<16> Inst;
+  
+  let Size = 2;
 }
 
 class AVRInst32<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst<outs, ins, asmstr, pattern>
 {
   field bits<32> Inst;
+  
+  let Size = 4;
 }
 
 // Pseudo instructions
