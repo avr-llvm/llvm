@@ -57,13 +57,15 @@ public:
   uint64_t getBinaryCodeForInstr(const MCInst &MI,
                                  SmallVectorImpl<MCFixup> &Fixups,
                                  const MCSubtargetInfo &STI) const;
-
-  // getJumpTargetOpValue - Return binary encoding of the jump
-  // target operand. If the machine operand requires relocation,
-  // record the relocation and return zero.
-  unsigned getJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
-                                SmallVectorImpl<MCFixup> &Fixups,
-                                const MCSubtargetInfo &STI) const;
+  
+  // getMachineOpValue - Return binary encoding of operand. If the machin
+  // operand requires relocation, record the relocation and return zero.
+  unsigned getMachineOpValue(const MCInst &MI, const MCOperand &MO,
+                             SmallVectorImpl<MCFixup> &Fixups,
+                             const MCSubtargetInfo &STI) const;
+  
+  unsigned getExprOpValue(const MCExpr *Expr, SmallVectorImpl<MCFixup> &Fixups,
+                          const MCSubtargetInfo &STI) const;
 
 }; // class AVRMCCodeEmitter
 } // namespace llvm.

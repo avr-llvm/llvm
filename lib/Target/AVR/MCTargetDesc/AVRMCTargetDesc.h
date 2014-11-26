@@ -18,21 +18,31 @@
 
 namespace llvm
 {
-class MCAsmBackend;
-class MCRegisterInfo;
-class MCObjectWriter;
-class StringRef;
-class Target;
-class raw_ostream;
+    class MCCodeEmitter;
+    class MCAsmBackend;
+    class MCRegisterInfo;
+    class MCObjectWriter;
+    class MCSubtargetInfo;
+    class MCInstrInfo;
+    class MCContext;
+    class StringRef;
+    class Target;
+    class raw_ostream;
 
-extern Target TheAVRTarget;
+    extern Target TheAVRTarget;
 
-MCAsmBackend *createAVRAsmBackend(const Target &T, const MCRegisterInfo &MRI,
-                                  StringRef TT, StringRef CPU);
 
-MCObjectWriter *createAVRELFObjectWriter(raw_ostream &OS,
-                                         uint8_t OSABI,
-                                         bool IsLittleEndian);
+    MCCodeEmitter *createAVRMCCodeEmitter(const MCInstrInfo &MCII,
+                                          const MCRegisterInfo &MRI,
+                                          const MCSubtargetInfo &STI,
+                                          MCContext &Ctx);
+
+    MCAsmBackend *createAVRAsmBackend(const Target &T, const MCRegisterInfo &MRI,
+                                      StringRef TT, StringRef CPU);
+
+    MCObjectWriter *createAVRELFObjectWriter(raw_ostream &OS,
+                                             uint8_t OSABI,
+                                             bool IsLittleEndian);
 
 } // end namespace llvm
 

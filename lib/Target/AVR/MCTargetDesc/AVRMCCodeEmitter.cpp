@@ -31,16 +31,12 @@
 #include "AVRGenInstrInfo.inc"
 #undef GET_INSTRMAP_INFO
 
-namespace llvm {
-MCCodeEmitter *createAVRMCCodeEmitter(const MCInstrInfo &MCII,
+MCCodeEmitter *llvm::createAVRMCCodeEmitter(const MCInstrInfo &MCII,
                                          const MCRegisterInfo &MRI,
                                          const MCSubtargetInfo &STI,
                                          MCContext &Ctx) {
   return new AVRMCCodeEmitter(MCII, Ctx, false);
 }
-
-} // End of namespace llvm.
-
 void AVRMCCodeEmitter::EmitByte(unsigned char C, raw_ostream &OS) const {
   OS << (char)C;
 }
@@ -62,15 +58,56 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
                   const MCSubtargetInfo &STI) const
 {
   uint32_t Binary = getBinaryCodeForInstr(MI, Fixups, STI);
-
+  
   const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
-
+  
   // Get byte count of instruction
   unsigned Size = Desc.getSize();
   if (!Size)
     llvm_unreachable("Desc.getSize() returns 0");
 
   EmitInstruction(Binary, Size, STI, OS);
+}
+
+unsigned AVRMCCodeEmitter::
+getMachineOpValue(const MCInst &MI, const MCOperand &MO,
+                  SmallVectorImpl<MCFixup> &Fixups,
+                  const MCSubtargetInfo &STI) const {
+  if (MO.isReg()) {
+    unsigned Reg = MO.getReg();
+    unsigned RegNo = Ctx.getRegisterInfo()->getEncodingValue(Reg);
+    return RegNo;
+  } else if (MO.isImm()) {
+    return static_cast<unsigned>(MO.getImm());
+  } else if (MO.isFPImm()) {
+    return static_cast<unsigned>(APFloat(MO.getFPImm())
+        .bitcastToAPInt().getHiBits(32).getLimitedValue());
+  }
+  // MO must be an Expr.
+  assert(MO.isExpr());
+  return getExprOpValue(MO.getExpr(),Fixups, STI);
+}
+
+unsigned AVRMCCodeEmitter::
+getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
+               const MCSubtargetInfo &STI) const {
+  int64_t Res;
+
+  if (Expr->EvaluateAsAbsolute(Res))
+    return Res;
+
+  MCExpr::ExprKind Kind = Expr->getKind();
+  if (Kind == MCExpr::Constant) {
+    return cast<MCConstantExpr>(Expr)->getValue();
+  }
+
+  if (Kind == MCExpr::Binary) {
+    unsigned Res = getExprOpValue(cast<MCBinaryExpr>(Expr)->getLHS(), Fixups, STI);
+    Res += getExprOpValue(cast<MCBinaryExpr>(Expr)->getRHS(), Fixups, STI);
+    return Res;
+  }
+
+  return 0;
 }
 
 #include "AVRGenMCCodeEmitter.inc"
