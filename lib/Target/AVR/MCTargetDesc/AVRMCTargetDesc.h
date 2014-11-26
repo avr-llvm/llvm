@@ -14,12 +14,25 @@
 #ifndef __INCLUDE_AVRMCTARGETDESC_H__
 #define __INCLUDE_AVRMCTARGETDESC_H__
 
+#include "llvm/Support/DataTypes.h"
+
 namespace llvm
 {
-
+class MCAsmBackend;
+class MCRegisterInfo;
+class MCObjectWriter;
+class StringRef;
 class Target;
+class raw_ostream;
 
 extern Target TheAVRTarget;
+
+MCAsmBackend *createAVRAsmBackend(const Target &T, const MCRegisterInfo &MRI,
+                                  StringRef TT, StringRef CPU);
+
+MCObjectWriter *createAVRELFObjectWriter(raw_ostream &OS,
+                                         uint8_t OSABI,
+                                         bool IsLittleEndian);
 
 } // end namespace llvm
 

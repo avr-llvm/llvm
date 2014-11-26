@@ -461,6 +461,11 @@ enum : unsigned {
   EF_MIPS_ARCH      = 0xf0000000  // Mask for applying EF_MIPS_ARCH_ variant
 };
 
+// ELF Relocation types for AVR
+enum {
+#include "ELFRelocs/AVR.def"
+};
+
 // ELF Relocation types for Mips
 enum {
 #include "ELFRelocs/Mips.def"
