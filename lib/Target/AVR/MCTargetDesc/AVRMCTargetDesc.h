@@ -36,10 +36,18 @@ namespace llvm
                                           const MCRegisterInfo &MRI,
                                           const MCSubtargetInfo &STI,
                                           MCContext &Ctx);
-
-    MCAsmBackend *createAVRAsmBackend(const Target &T, const MCRegisterInfo &MRI,
-                                      StringRef TT, StringRef CPU);
-
+    /*!
+     * \brief Creates a little endian AVR assembly backend.
+     */
+    MCAsmBackend *createAVRAsmBackendEL(const Target &T, const MCRegisterInfo &MRI,
+                                        StringRef TT, StringRef CPU);
+    
+    /*!
+     * \brief Creates a big endian AVR assembly backend.
+     */
+    MCAsmBackend *createAVRAsmBackendEB(const Target &T, const MCRegisterInfo &MRI,
+                                        StringRef TT, StringRef CPU);
+                                        
     MCObjectWriter *createAVRELFObjectWriter(raw_ostream &OS,
                                              uint8_t OSABI,
                                              bool IsLittleEndian);

@@ -27,9 +27,12 @@ class MCObjectWriter;
 
 class AVRAsmBackend : public MCAsmBackend {
 
+  Triple::OSType OSType;
+  bool IsLittle; // Big or little endian
+
 public:
-  AVRAsmBackend(const Target &T)
-      : MCAsmBackend() {}
+  AVRAsmBackend(const Target &T, Triple::OSType _OSType, bool _IsLittle)
+      : MCAsmBackend(), OSType(_OSType), IsLittle(_IsLittle) {}
 
   MCObjectWriter *createObjectWriter(raw_ostream &OS) const override;
 
