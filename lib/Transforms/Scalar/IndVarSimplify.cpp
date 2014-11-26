@@ -1102,7 +1102,7 @@ void WidenIV::pushNarrowIVUsers(Instruction *NarrowDef, Instruction *WideDef) {
     Instruction *NarrowUser = cast<Instruction>(U);
 
     // Handle data flow merges and bizarre phi cycles.
-    if (!Widened.insert(NarrowUser))
+    if (!Widened.insert(NarrowUser).second)
       continue;
 
     NarrowIVUsers.push_back(NarrowIVDefUse(NarrowDef, NarrowUser, WideDef));
@@ -1284,7 +1284,7 @@ void IndVarSimplify::SimplifyAndExtend(Loop *L,
 static bool isHighCostExpansion(const SCEV *S, BranchInst *BI,
                                 SmallPtrSetImpl<const SCEV*> &Processed,
                                 ScalarEvolution *SE) {
-  if (!Processed.insert(S))
+  if (!Processed.insert(S).second)
     return false;
 
   // If the backedge-taken count is a UDiv, it's very likely a UDiv that
@@ -1475,7 +1475,7 @@ static bool hasConcreteDefImpl(Value *V, SmallPtrSetImpl<Value*> &Visited,
 
   // Optimistically handle other instructions.
   for (User::op_iterator OI = I->op_begin(), E = I->op_end(); OI != E; ++OI) {
-    if (!Visited.insert(*OI))
+    if (!Visited.insert(*OI).second)
       continue;
     if (!hasConcreteDefImpl(*OI, Visited, Depth+1))
       return false;
@@ -1719,8 +1719,29 @@ LinearFunctionTestReplace(Loop *L,
     // FIXME: In theory, SCEV could drop flags even though they exist in IR.
     // A more robust solution would involve getting a new expression for
     // CmpIndVar by applying non-NSW/NUW AddExprs.
+    auto WrappingFlags =
+        ScalarEvolution::setFlags(SCEV::FlagNUW, SCEV::FlagNSW);
+    const SCEV *IVInit = IncrementedIndvarSCEV->getStart();
+    if (SE->getTypeSizeInBits(IVInit->getType()) >
+        SE->getTypeSizeInBits(IVCount->getType()))
+      IVInit = SE->getTruncateExpr(IVInit, IVCount->getType());
+    unsigned BitWidth = SE->getTypeSizeInBits(IVCount->getType());
+    Type *WideTy = IntegerType::get(SE->getContext(), BitWidth + 1);
+    // Check if InitIV + BECount+1 requires sign/zero extension.
+    // If not, clear the corresponding flag from WrappingFlags because it is not
+    // necessary for those flags in the IncrementedIndvarSCEV expression.
+    if (SE->getSignExtendExpr(SE->getAddExpr(IVInit, BackedgeTakenCount),
+                              WideTy) ==
+        SE->getAddExpr(SE->getSignExtendExpr(IVInit, WideTy),
+                       SE->getSignExtendExpr(BackedgeTakenCount, WideTy)))
+      WrappingFlags = ScalarEvolution::clearFlags(WrappingFlags, SCEV::FlagNSW);
+    if (SE->getZeroExtendExpr(SE->getAddExpr(IVInit, BackedgeTakenCount),
+                              WideTy) ==
+        SE->getAddExpr(SE->getZeroExtendExpr(IVInit, WideTy),
+                       SE->getZeroExtendExpr(BackedgeTakenCount, WideTy)))
+      WrappingFlags = ScalarEvolution::clearFlags(WrappingFlags, SCEV::FlagNUW);
     if (!ScalarEvolution::maskFlags(IncrementedIndvarSCEV->getNoWrapFlags(),
-                                    SCEV::FlagNUW | SCEV::FlagNSW)) {
+                                    WrappingFlags)) {
       // Add one to the "backedge-taken" count to get the trip count.
       // This addition may overflow, which is valid as long as the comparison is
       // truncated to BackedgeTakenCount->getType().

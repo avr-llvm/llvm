@@ -1,3 +1,11 @@
+//===--- DWARFAcceleratorTable.h --------------------------------*- C++ -*-===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
 
 #include "DWARFRelocMap.h"
 
@@ -21,8 +29,9 @@ class DWARFAcceleratorTable {
 
   struct HeaderData {
     typedef uint16_t AtomType;
+    typedef uint16_t Form;
     uint32_t DIEOffsetBase;
-    SmallVector<std::pair<AtomType, DWARFFormValue>, 1> Atoms;
+    SmallVector<std::pair<AtomType, Form>, 3> Atoms;
   };
 
   struct Header Hdr;
@@ -36,7 +45,7 @@ public:
     : AccelSection(AccelSection), StringSection(StringSection), Relocs(Relocs) {}
 
   bool extract();
-  void dump(raw_ostream &OS);
+  void dump(raw_ostream &OS) const;
 };
 
 }

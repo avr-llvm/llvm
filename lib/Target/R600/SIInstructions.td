@@ -96,8 +96,10 @@ defm S_BUFFER_LOAD_DWORDX16 : SMRD_Helper <
 //===----------------------------------------------------------------------===//
 
 let isMoveImm = 1 in {
+let isReMaterializable = 1 in {
 def S_MOV_B32 : SOP1_32 <0x00000003, "s_mov_b32", []>;
 def S_MOV_B64 : SOP1_64 <0x00000004, "s_mov_b64", []>;
+} // let isRematerializeable = 1
 def S_CMOV_B32 : SOP1_32 <0x00000005, "s_cmov_b32", []>;
 def S_CMOV_B64 : SOP1_64 <0x00000006, "s_cmov_b64", []>;
 } // End isMoveImm = 1
@@ -2497,17 +2499,21 @@ def : Pat <
 /********** Interpolation Paterns **********/
 /********** ===================== **********/
 
+// The value of $params is constant through out the entire kernel.
+// We need to use S_MOV_B32 $params, because CSE ignores copies, so
+// without it we end up with a lot of redundant moves.
+
 def : Pat <
   (int_SI_fs_constant imm:$attr_chan, imm:$attr, i32:$params),
-  (V_INTERP_MOV_F32 INTERP.P0, imm:$attr_chan, imm:$attr, $params)
+  (V_INTERP_MOV_F32 INTERP.P0, imm:$attr_chan, imm:$attr, (S_MOV_B32 $params))
 >;
 
 def : Pat <
-  (int_SI_fs_interp imm:$attr_chan, imm:$attr, M0Reg:$params, v2i32:$ij),
+  (int_SI_fs_interp imm:$attr_chan, imm:$attr, i32:$params, v2i32:$ij),
   (V_INTERP_P2_F32 (V_INTERP_P1_F32 (EXTRACT_SUBREG v2i32:$ij, sub0),
-                                    imm:$attr_chan, imm:$attr, i32:$params),
+                                    imm:$attr_chan, imm:$attr, (S_MOV_B32 $params)),
                    (EXTRACT_SUBREG $ij, sub1),
-                   imm:$attr_chan, imm:$attr, $params)
+                   imm:$attr_chan, imm:$attr, (S_MOV_B32 $params))
 >;
 
 /********** ================== **********/
@@ -2612,7 +2618,7 @@ def : ROTRPattern <V_ALIGNBIT_B32>;
 
 class DSReadPat <DS inst, ValueType vt, PatFrag frag> : Pat <
   (vt (frag (DS1Addr1Offset i32:$ptr, i32:$offset))),
-  (inst (i1 0), $ptr, (as_i16imm $offset))
+  (inst (i1 0), $ptr, (as_i16imm $offset), (S_MOV_B32 -1))
 >;
 
 def : DSReadPat <DS_READ_I8,  i32, sextloadi8_local>;
@@ -2630,12 +2636,12 @@ def : DSReadPat <DS_READ_B64, v2i32, local_load_aligned8bytes>;
 def : Pat <
   (v2i32 (local_load (DS64Bit4ByteAligned i32:$ptr, i8:$offset0,
                                                     i8:$offset1))),
-  (DS_READ2_B32 (i1 0), $ptr, $offset0, $offset1)
+  (DS_READ2_B32 (i1 0), $ptr, $offset0, $offset1, (S_MOV_B32 -1))
 >;
 
 class DSWritePat <DS inst, ValueType vt, PatFrag frag> : Pat <
   (frag vt:$value, (DS1Addr1Offset i32:$ptr, i32:$offset)),
-  (inst (i1 0), $ptr, $value, (as_i16imm $offset))
+  (inst (i1 0), $ptr, $value, (as_i16imm $offset), (S_MOV_B32 -1))
 >;
 
 def : DSWritePat <DS_WRITE_B8, i32, truncstorei8_local>;
@@ -2651,12 +2657,13 @@ def : Pat <
   (local_store v2i32:$value, (DS64Bit4ByteAligned i32:$ptr, i8:$offset0,
                                                             i8:$offset1)),
   (DS_WRITE2_B32 (i1 0), $ptr, (EXTRACT_SUBREG $value, sub0),
-                        (EXTRACT_SUBREG $value, sub1), $offset0, $offset1)
+                        (EXTRACT_SUBREG $value, sub1), $offset0, $offset1,
+                        (S_MOV_B32 -1))
 >;
 
 class DSAtomicRetPat<DS inst, ValueType vt, PatFrag frag> : Pat <
   (frag (DS1Addr1Offset i32:$ptr, i32:$offset), vt:$value),
-  (inst (i1 0), $ptr, $value, (as_i16imm $offset))
+  (inst (i1 0), $ptr, $value, (as_i16imm $offset), (S_MOV_B32 -1))
 >;
 
 // Special case of DSAtomicRetPat for add / sub 1 -> inc / dec
@@ -2672,13 +2679,13 @@ class DSAtomicRetPat<DS inst, ValueType vt, PatFrag frag> : Pat <
 class DSAtomicIncRetPat<DS inst, ValueType vt,
                         Instruction LoadImm, PatFrag frag> : Pat <
   (frag (DS1Addr1Offset i32:$ptr, i32:$offset), (vt 1)),
-  (inst (i1 0), $ptr, (LoadImm (vt -1)), (as_i16imm $offset))
+  (inst (i1 0), $ptr, (LoadImm (vt -1)), (as_i16imm $offset), (S_MOV_B32 -1))
 >;
 
 
 class DSAtomicCmpXChg <DS inst, ValueType vt, PatFrag frag> : Pat <
   (frag (DS1Addr1Offset i32:$ptr, i32:$offset), vt:$cmp, vt:$swap),
-  (inst (i1 0), $ptr, $cmp, $swap, (as_i16imm $offset))
+  (inst (i1 0), $ptr, $cmp, $swap, (as_i16imm $offset), (S_MOV_B32 -1))
 >;
 
 

@@ -902,8 +902,8 @@ bool JumpThreading::SimplifyPartiallyRedundantLoad(LoadInst *LI) {
     // only happen in dead loops.
     if (AvailableVal == LI) AvailableVal = UndefValue::get(LI->getType());
     if (AvailableVal->getType() != LI->getType())
-      AvailableVal = CastInst::Create(CastInst::BitCast, AvailableVal,
-                                      LI->getType(), "", LI);
+      AvailableVal =
+          CastInst::CreateBitOrPointerCast(AvailableVal, LI->getType(), "", LI);
     LI->replaceAllUsesWith(AvailableVal);
     LI->eraseFromParent();
     return true;
@@ -932,7 +932,7 @@ bool JumpThreading::SimplifyPartiallyRedundantLoad(LoadInst *LI) {
     BasicBlock *PredBB = *PI;
 
     // If we already scanned this predecessor, skip it.
-    if (!PredsScanned.insert(PredBB))
+    if (!PredsScanned.insert(PredBB).second)
       continue;
 
     // Scan the predecessor to see if the value is available in the pred.
@@ -1040,8 +1040,8 @@ bool JumpThreading::SimplifyPartiallyRedundantLoad(LoadInst *LI) {
     // predecessor use the same bitcast.
     Value *&PredV = I->second;
     if (PredV->getType() != LI->getType())
-      PredV = CastInst::Create(CastInst::BitCast, PredV, LI->getType(), "",
-                               P->getTerminator());
+      PredV = CastInst::CreateBitOrPointerCast(PredV, LI->getType(), "",
+                                               P->getTerminator());
 
     PN->addIncoming(PredV, I->first);
   }
@@ -1151,7 +1151,7 @@ bool JumpThreading::ProcessThreadableEdges(Value *Cond, BasicBlock *BB,
 
   for (unsigned i = 0, e = PredValues.size(); i != e; ++i) {
     BasicBlock *Pred = PredValues[i].second;
-    if (!SeenPreds.insert(Pred))
+    if (!SeenPreds.insert(Pred).second)
       continue;  // Duplicate predecessor entry.
 
     // If the predecessor ends with an indirect goto, we can't change its

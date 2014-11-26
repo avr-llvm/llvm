@@ -22,6 +22,7 @@
 #include "llvm/ADT/ilist_node.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/IR/Value.h"
+#include "llvm/Support/ErrorHandling.h"
 
 namespace llvm {
 class LLVMContext;
@@ -45,7 +46,9 @@ protected:
 
 public:
   static bool classof(const Value *V) {
-    return V->getValueID() == MDNodeVal || V->getValueID() == MDStringVal;
+    return V->getValueID() == GenericMDNodeVal ||
+           V->getValueID() == MDNodeFwdDeclVal ||
+           V->getValueID() == MDStringVal;
   }
 };
 
@@ -137,16 +140,29 @@ struct DenseMapInfo<AAMDNodes> {
 class MDNodeOperand;
 
 //===----------------------------------------------------------------------===//
-/// \brief Generic tuple of metadata.
-class MDNode : public Metadata, public FoldingSetNode {
+/// \brief Tuple of metadata.
+class MDNode : public Metadata {
   MDNode(const MDNode &) LLVM_DELETED_FUNCTION;
   void operator=(const MDNode &) LLVM_DELETED_FUNCTION;
   friend class MDNodeOperand;
   friend class LLVMContextImpl;
-  friend struct FoldingSetTrait<MDNode>;
+  void *operator new(size_t) LLVM_DELETED_FUNCTION;
 
-  /// \brief If the MDNode is uniqued cache the hash to speed up lookup.
-  unsigned Hash;
+protected:
+  void *operator new(size_t Size, unsigned NumOps);
+
+  /// \brief Required by std, but never called.
+  void operator delete(void *Mem);
+
+  /// \brief Required by std, but never called.
+  void operator delete(void *, unsigned) {
+    llvm_unreachable("Constructor throws?");
+  }
+
+  /// \brief Required by std, but never called.
+  void operator delete(void *, unsigned, bool) {
+    llvm_unreachable("Constructor throws?");
+  }
 
   /// \brief Subclass data enums.
   enum {
@@ -157,11 +173,7 @@ class MDNode : public Metadata, public FoldingSetNode {
 
     /// NotUniquedBit - This is set on MDNodes that are not uniqued because they
     /// have a null operand.
-    NotUniquedBit    = 1 << 1,
-
-    /// DestroyFlag - This bit is set by destroy() so the destructor can assert
-    /// that the node isn't being destroyed with a plain 'delete'.
-    DestroyFlag      = 1 << 2
+    NotUniquedBit    = 1 << 1
   };
 
   /// \brief FunctionLocal enums.
@@ -173,9 +185,10 @@ class MDNode : public Metadata, public FoldingSetNode {
 
   /// \brief Replace each instance of the given operand with a new value.
   void replaceOperand(MDNodeOperand *Op, Value *NewVal);
-  ~MDNode();
 
-  MDNode(LLVMContext &C, ArrayRef<Value*> Vals, bool isFunctionLocal);
+  MDNode(LLVMContext &C, unsigned ID, ArrayRef<Value *> Vals,
+         bool isFunctionLocal);
+  ~MDNode() {}
 
   static MDNode *getMDNode(LLVMContext &C, ArrayRef<Value*> Vals,
                            FunctionLocalness FL, bool Insert = true);
@@ -224,12 +237,10 @@ public:
   /// code because it recursively visits all the MDNode's operands.
   const Function *getFunction() const;
 
-  /// \brief Calculate a unique identifier for this MDNode.
-  void Profile(FoldingSetNodeID &ID) const;
-
   /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static bool classof(const Value *V) {
-    return V->getValueID() == MDNodeVal;
+    return V->getValueID() == GenericMDNodeVal ||
+           V->getValueID() == MDNodeFwdDeclVal;
   }
 
   /// \brief Check whether MDNode is a vtable access.
@@ -242,10 +253,8 @@ public:
   static AAMDNodes getMostGenericAA(const AAMDNodes &A, const AAMDNodes &B);
   static MDNode *getMostGenericFPMath(MDNode *A, MDNode *B);
   static MDNode *getMostGenericRange(MDNode *A, MDNode *B);
-private:
-  /// \brief Delete this node.  Only when there are no uses.
-  void destroy();
 
+protected:
   bool isNotUniqued() const {
     return (getSubclassDataFromValue() & NotUniquedBit) != 0;
   }
@@ -255,6 +264,55 @@ private:
   // any future subclasses cannot accidentally use it.
   void setValueSubclassData(unsigned short D) {
     Value::setValueSubclassData(D);
+  }
+};
+
+/// \brief Generic metadata node.
+///
+/// Generic metadata nodes, with opt-out support for uniquing.
+///
+/// Although nodes are uniqued by default, \a GenericMDNode has no support for
+/// RAUW.  If an operand change (due to RAUW or otherwise) causes a uniquing
+/// collision, the uniquing bit is dropped.
+///
+/// TODO: Make uniquing opt-out (status: mandatory, sometimes dropped).
+/// TODO: Drop support for RAUW.
+class GenericMDNode : public MDNode {
+  friend class MDNode;
+  friend class LLVMContextImpl;
+
+  unsigned Hash;
+
+  GenericMDNode(LLVMContext &C, ArrayRef<Value *> Vals, bool isFunctionLocal)
+      : MDNode(C, GenericMDNodeVal, Vals, isFunctionLocal), Hash(0) {}
+  ~GenericMDNode();
+
+  void dropAllReferences();
+
+public:
+  /// \brief Get the hash, if any.
+  unsigned getHash() const { return Hash; }
+
+  static bool classof(const Value *V) {
+    return V->getValueID() == GenericMDNodeVal;
+  }
+};
+
+/// \brief Forward declaration of metadata.
+///
+/// Forward declaration of metadata, in the form of a metadata node.  Unlike \a
+/// GenericMDNode, this class has support for RAUW and is suitable for forward
+/// references.
+class MDNodeFwdDecl : public MDNode {
+  friend class MDNode;
+
+  MDNodeFwdDecl(LLVMContext &C, ArrayRef<Value *> Vals, bool isFunctionLocal)
+      : MDNode(C, MDNodeFwdDeclVal, Vals, isFunctionLocal) {}
+  ~MDNodeFwdDecl() {}
+
+public:
+  static bool classof(const Value *V) {
+    return V->getValueID() == MDNodeFwdDeclVal;
   }
 };
 

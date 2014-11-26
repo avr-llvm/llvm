@@ -480,7 +480,7 @@ void Verifier::visitGlobalVariable(const GlobalVariable &GV) {
 
   while (!WorkStack.empty()) {
     const Value *V = WorkStack.pop_back_val();
-    if (!Visited.insert(V))
+    if (!Visited.insert(V).second)
       continue;
 
     if (const User *U = dyn_cast<User>(V)) {
@@ -510,7 +510,7 @@ void Verifier::visitAliaseeSubExpr(SmallPtrSetImpl<const GlobalAlias*> &Visited,
     Assert1(!GV->isDeclaration(), "Alias must point to a definition", &GA);
 
     if (const auto *GA2 = dyn_cast<GlobalAlias>(GV)) {
-      Assert1(Visited.insert(GA2), "Aliases cannot form a cycle", &GA);
+      Assert1(Visited.insert(GA2).second, "Aliases cannot form a cycle", &GA);
 
       Assert1(!GA2->mayBeOverridden(), "Alias cannot point to a weak alias",
               &GA);
@@ -568,7 +568,7 @@ void Verifier::visitNamedMDNode(const NamedMDNode &NMD) {
 void Verifier::visitMDNode(MDNode &MD, Function *F) {
   // Only visit each node once.  Metadata can be mutually recursive, so this
   // avoids infinite recursion here, as well as being an optimization.
-  if (!MDNodes.insert(&MD))
+  if (!MDNodes.insert(&MD).second)
     return;
 
   for (unsigned i = 0, e = MD.getNumOperands(); i != e; ++i) {
@@ -1176,6 +1176,12 @@ void Verifier::visitBasicBlock(BasicBlock &BB) {
       }
     }
   }
+
+  // Check that all instructions have their parent pointers set up correctly.
+  for (auto &I : BB)
+  {
+    Assert(I.getParent() == &BB, "Instruction has bogus parent pointer!");
+  }
 }
 
 void Verifier::visitTerminatorInst(TerminatorInst &I) {
@@ -1218,7 +1224,7 @@ void Verifier::visitSwitchInst(SwitchInst &SI) {
   for (SwitchInst::CaseIt i = SI.case_begin(), e = SI.case_end(); i != e; ++i) {
     Assert1(i.getCaseValue()->getType() == SwitchTy,
             "Switch constants must all be same type as switch value!", &SI);
-    Assert2(Constants.insert(i.getCaseValue()),
+    Assert2(Constants.insert(i.getCaseValue()).second,
             "Duplicate integer as switch case", &SI, i.getCaseValue());
   }
 
@@ -2253,7 +2259,7 @@ void Verifier::visitInstruction(Instruction &I) {
 
         while (!Stack.empty()) {
           const ConstantExpr *V = Stack.pop_back_val();
-          if (!Visited.insert(V))
+          if (!Visited.insert(V).second)
             continue;
 
           VerifyConstantExprBitcastType(V);
@@ -2399,6 +2405,19 @@ bool Verifier::VerifyIntrinsicType(Type *Ty,
            !isa<VectorType>(ArgTys[D.getArgumentNumber()]) ||
            VectorType::getHalfElementsVectorType(
                          cast<VectorType>(ArgTys[D.getArgumentNumber()])) != Ty;
+  case IITDescriptor::SameVecWidthArgument: {
+    if (D.getArgumentNumber() >= ArgTys.size())
+      return true;
+    VectorType * ReferenceType =
+      dyn_cast<VectorType>(ArgTys[D.getArgumentNumber()]);
+    VectorType *ThisArgType = dyn_cast<VectorType>(Ty);
+    if (!ThisArgType || !ReferenceType || 
+        (ReferenceType->getVectorNumElements() !=
+         ThisArgType->getVectorNumElements()))
+      return true;
+    return VerifyIntrinsicType(ThisArgType->getVectorElementType(),
+                               Infos, ArgTys);
+  }
   }
   llvm_unreachable("unhandled");
 }

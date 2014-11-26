@@ -64,7 +64,7 @@ void DIBuilder::finalize() {
   // TrackingVHs back into Values.
   SmallPtrSet<Value *, 16> RetainSet;
   for (unsigned I = 0, E = AllRetainTypes.size(); I < E; I++)
-    if (RetainSet.insert(AllRetainTypes[I]))
+    if (RetainSet.insert(AllRetainTypes[I]).second)
       RetainValues.push_back(AllRetainTypes[I]);
   DIArray RetainTypes = getOrCreateArray(RetainValues);
   DIType(TempRetainTypes).replaceAllUsesWith(RetainTypes);
@@ -836,6 +836,13 @@ static DIGlobalVariable createGlobalVariableHelper(
     StringRef LinkageName, DIFile F, unsigned LineNumber, DITypeRef Ty,
     bool isLocalToUnit, Constant *Val, MDNode *Decl, bool isDefinition,
     std::function<MDNode *(ArrayRef<Value *>)> CreateFunc) {
+
+  MDNode *TheCtx = getNonCompileUnitScope(Context);
+  if (DIScope(TheCtx).isCompositeType()) {
+    assert(!DICompositeType(TheCtx).getIdentifier() &&
+           "Context of a global variable should not be a type with identifier");
+  }
+
   Value *Elts[] = {HeaderBuilder::get(dwarf::DW_TAG_variable)
                        .concat(Name)
                        .concat(Name)
@@ -844,7 +851,7 @@ static DIGlobalVariable createGlobalVariableHelper(
                        .concat(isLocalToUnit)
                        .concat(isDefinition)
                        .get(VMContext),
-                   getNonCompileUnitScope(Context), F, Ty, Val,
+                   TheCtx, F, Ty, Val,
                    DIDescriptor(Decl)};
 
   return DIGlobalVariable(CreateFunc(Elts));
@@ -937,11 +944,10 @@ createFunctionHelper(LLVMContext &VMContext, DIDescriptor Context, StringRef Nam
                      StringRef LinkageName, DIFile File, unsigned LineNo,
                      DICompositeType Ty, bool isLocalToUnit, bool isDefinition,
                      unsigned ScopeLine, unsigned Flags, bool isOptimized,
-                     Function *Fn, MDNode *TParams, MDNode *Decl,
+                     Function *Fn, MDNode *TParams, MDNode *Decl, MDNode *Vars,
                      std::function<MDNode *(ArrayRef<Value *>)> CreateFunc) {
   assert(Ty.getTag() == dwarf::DW_TAG_subroutine_type &&
          "function types should be subroutines");
-  Value *TElts[] = {HeaderBuilder::get(DW_TAG_base_type).get(VMContext)};
   Value *Elts[] = {
       HeaderBuilder::get(dwarf::DW_TAG_subprogram)
           .concat(Name)
@@ -957,7 +963,7 @@ createFunctionHelper(LLVMContext &VMContext, DIDescriptor Context, StringRef Nam
           .concat(ScopeLine)
           .get(VMContext),
       File.getFileNode(), DIScope(getNonCompileUnitScope(Context)).getRef(), Ty,
-      nullptr, Fn, TParams, Decl, MDNode::getTemporary(VMContext, TElts)};
+      nullptr, Fn, TParams, Decl, Vars};
 
   DISubprogram S(CreateFunc(Elts));
   assert(S.isSubprogram() &&
@@ -976,6 +982,7 @@ DISubprogram DIBuilder::createFunction(DIDescriptor Context, StringRef Name,
   return createFunctionHelper(VMContext, Context, Name, LinkageName, File,
                               LineNo, Ty, isLocalToUnit, isDefinition, ScopeLine,
                               Flags, isOptimized, Fn, TParams, Decl,
+                              MDNode::getTemporary(VMContext, None),
                               [&] (ArrayRef<Value *> Elts) -> MDNode *{
                                 MDNode *Node = MDNode::get(VMContext, Elts);
                                 // Create a named metadata so that we
@@ -996,7 +1003,7 @@ DIBuilder::createTempFunctionFwdDecl(DIDescriptor Context, StringRef Name,
                                      MDNode *TParams, MDNode *Decl) {
   return createFunctionHelper(VMContext, Context, Name, LinkageName, File,
                               LineNo, Ty, isLocalToUnit, isDefinition, ScopeLine,
-                              Flags, isOptimized, Fn, TParams, Decl,
+                              Flags, isOptimized, Fn, TParams, Decl, nullptr,
                               [&] (ArrayRef<Value *> Elts) {
                                 return MDNode::getTemporary(VMContext, Elts);
                               });

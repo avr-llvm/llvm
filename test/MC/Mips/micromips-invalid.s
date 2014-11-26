@@ -22,3 +22,34 @@
   li16  $4, -2 # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
   addiur2 $9, $7, -1 # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
   addiur2 $6, $7, 10 # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
+  lwm32   $5, $6, 8($4)    # CHECK: :[[@LINE]]:{{[0-9]+}}: error: $16 or $31 expected
+  lwm32   $16, $19, 8($4)  # CHECK: :[[@LINE]]:{{[0-9]+}}: error: consecutive register numbers expected
+  lwm32   $16-$25, 8($4)   # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid register operand
+  swm32   $5, $6, 8($4)    # CHECK: :[[@LINE]]:{{[0-9]+}}: error: $16 or $31 expected
+  swm32   $16, $19, 8($4)  # CHECK: :[[@LINE]]:{{[0-9]+}}: error: consecutive register numbers expected
+  swm32   $16-$25, 8($4)   # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid register operand
+  lwm32 $16, $17, $18, $19, $20, $21, $22, $23, $24, 8($4) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid register operand
+  lbu16 $9, 8($16) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  lhu16 $9, 4($16) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  lw16  $9, 8($17) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  sb16  $9, 4($16) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  sh16  $9, 8($17) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  sw16  $9, 4($17) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  lbu16 $3, -2($16) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
+  lhu16 $3, 64($16) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
+  lw16  $4, 68($17) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
+  sb16  $3, 64($16) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
+  sh16  $4, 68($17) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
+  sw16  $4, 64($17) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
+  lbu16 $3, -2($16) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
+  lhu16 $3, 64($16) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
+  lw16  $4, 68($17) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: immediate operand value out of range
+  sb16  $16, 4($16) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  sh16  $16, 8($17) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  sw16  $16, 4($17) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  lbu16 $16, 8($9)  # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  lhu16 $16, 4($9)  # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  lw16  $17, 8($10) # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  sb16  $7, 4($9)   # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  sh16  $7, 8($9)   # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction
+  sw16  $7, 4($10)  # CHECK: :[[@LINE]]:{{[0-9]+}}: error: invalid operand for instruction

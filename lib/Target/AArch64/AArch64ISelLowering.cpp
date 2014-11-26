@@ -1642,7 +1642,7 @@ SDValue AArch64TargetLowering::LowerFSINCOS(SDValue Op,
       (ArgVT == MVT::f64) ? "__sincos_stret" : "__sincosf_stret";
   SDValue Callee = DAG.getExternalSymbol(LibcallName, getPointerTy());
 
-  StructType *RetTy = StructType::get(ArgTy, ArgTy, NULL);
+  StructType *RetTy = StructType::get(ArgTy, ArgTy, nullptr);
   TargetLowering::CallLoweringInfo CLI(DAG);
   CLI.setDebugLoc(dl).setChain(DAG.getEntryNode())
     .setCallee(CallingConv::Fast, RetTy, Callee, std::move(Args), 0);
@@ -3431,6 +3431,9 @@ SDValue AArch64TargetLowering::LowerFCOPYSIGN(SDValue Op,
 SDValue AArch64TargetLowering::LowerCTPOP(SDValue Op, SelectionDAG &DAG) const {
   if (DAG.getMachineFunction().getFunction()->getAttributes().hasAttribute(
           AttributeSet::FunctionIndex, Attribute::NoImplicitFloat))
+    return SDValue();
+
+  if (!Subtarget->hasNEON())
     return SDValue();
 
   // While there is no integer popcount instruction, it can
@@ -8727,6 +8730,12 @@ void AArch64TargetLowering::ReplaceNodeResults(
 
 bool AArch64TargetLowering::useLoadStackGuardNode() const {
   return true;
+}
+
+bool AArch64TargetLowering::combineRepeatedFPDivisors(unsigned NumUsers) const {
+  // Combine multiple FDIVs with the same divisor into multiple FMULs by the
+  // reciprocal if there are three or more FDIVs.
+  return NumUsers > 2;
 }
 
 TargetLoweringBase::LegalizeTypeAction

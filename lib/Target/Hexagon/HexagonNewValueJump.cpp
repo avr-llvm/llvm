@@ -199,8 +199,7 @@ static bool commonChecksToProhibitNewValueJump(bool afterRA,
     // of registers by individual passes in the backend. At this time,
     // we don't know the scope of usage and definitions of these
     // instructions.
-    if (MII->getOpcode() == Hexagon::TFR_condset_rr ||
-        MII->getOpcode() == Hexagon::TFR_condset_ii ||
+    if (MII->getOpcode() == Hexagon::TFR_condset_ii ||
         MII->getOpcode() == Hexagon::TFR_condset_ri ||
         MII->getOpcode() == Hexagon::TFR_condset_ir ||
         MII->getOpcode() == Hexagon::LDriw_pred     ||
@@ -299,7 +298,7 @@ static unsigned getNewValueJumpOpcode(MachineInstr *MI, int reg,
     taken = true;
 
   switch (MI->getOpcode()) {
-    case Hexagon::CMPEQrr:
+    case Hexagon::C2_cmpeq:
       return taken ? Hexagon::CMPEQrr_t_Jumpnv_t_V4
                    : Hexagon::CMPEQrr_t_Jumpnv_nt_V4;
 
@@ -312,7 +311,7 @@ static unsigned getNewValueJumpOpcode(MachineInstr *MI, int reg,
                      : Hexagon::CMPEQn1_t_Jumpnv_nt_V4;
     }
 
-    case Hexagon::CMPGTrr: {
+    case Hexagon::C2_cmpgt: {
       if (secondRegNewified)
         return taken ? Hexagon::CMPLTrr_t_Jumpnv_t_V4
                      : Hexagon::CMPLTrr_t_Jumpnv_nt_V4;
@@ -330,7 +329,7 @@ static unsigned getNewValueJumpOpcode(MachineInstr *MI, int reg,
                      : Hexagon::CMPGTn1_t_Jumpnv_nt_V4;
     }
 
-    case Hexagon::CMPGTUrr: {
+    case Hexagon::C2_cmpgtu: {
       if (secondRegNewified)
         return taken ? Hexagon::CMPLTUrr_t_Jumpnv_t_V4
                      : Hexagon::CMPLTUrr_t_Jumpnv_nt_V4;
@@ -545,7 +544,7 @@ bool HexagonNewValueJump::runOnMachineFunction(MachineFunction &MF) {
           if (isSecondOpReg) {
             // In case of CMPLT, or CMPLTU, or EQ with the second register
             // to newify, swap the operands.
-            if (cmpInstr->getOpcode() == Hexagon::CMPEQrr &&
+            if (cmpInstr->getOpcode() == Hexagon::C2_cmpeq &&
                                      feederReg == (unsigned) cmpOp2) {
               unsigned tmp = cmpReg1;
               bool tmpIsKill = MO1IsKill;

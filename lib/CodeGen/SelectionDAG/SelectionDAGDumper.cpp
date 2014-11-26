@@ -269,6 +269,8 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
     // Other operators
   case ISD::LOAD:                       return "load";
   case ISD::STORE:                      return "store";
+  case ISD::MLOAD:                      return "masked_load";
+  case ISD::MSTORE:                     return "masked_store";
   case ISD::VAARG:                      return "vaarg";
   case ISD::VACOPY:                     return "vacopy";
   case ISD::VAEND:                      return "vaend";
@@ -569,7 +571,7 @@ void SDNode::printr(raw_ostream &OS, const SelectionDAG *G) const {
 typedef SmallPtrSet<const SDNode *, 128> VisitedSDNodeSet;
 static void DumpNodesr(raw_ostream &OS, const SDNode *N, unsigned indent,
                        const SelectionDAG *G, VisitedSDNodeSet &once) {
-  if (!once.insert(N))          // If we've been here before, return now.
+  if (!once.insert(N).second) // If we've been here before, return now.
     return;
 
   // Dump the current SDNode, but don't end the line yet.

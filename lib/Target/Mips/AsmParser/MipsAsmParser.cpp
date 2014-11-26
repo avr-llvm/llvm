@@ -146,6 +146,9 @@ class MipsAsmParser : public MCTargetAsmParser {
 
   MipsAsmParser::OperandMatchResultTy parseLSAImm(OperandVector &Operands);
 
+  MipsAsmParser::OperandMatchResultTy
+  parseRegisterList (OperandVector  &Operands);
+
   bool searchSymbolAlias(OperandVector &Operands);
 
   bool parseOperand(OperandVector &, StringRef Mnemonic);
@@ -424,7 +427,8 @@ private:
     k_Memory,        /// Base + Offset Memory Address
     k_PhysRegister,  /// A physical register from the Mips namespace
     k_RegisterIndex, /// A register index in one or more RegKind.
-    k_Token          /// A simple token
+    k_Token,         /// A simple token
+    k_RegList        /// A physical register list
   } Kind;
 
 public:
@@ -459,12 +463,17 @@ private:
     const MCExpr *Off;
   };
 
+  struct RegListOp {
+    SmallVector<unsigned, 10> *List;
+  };
+
   union {
     struct Token Tok;
     struct PhysRegOp PhysReg;
     struct RegIdxOp RegIdx;
     struct ImmOp Imm;
     struct MemOp Mem;
+    struct RegListOp RegList;
   };
 
   SMLoc StartLoc, EndLoc;
@@ -654,6 +663,11 @@ public:
     Inst.addOperand(MCOperand::CreateReg(getGPRMM16Reg()));
   }
 
+  void addGPRMM16AsmRegZeroOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+    Inst.addOperand(MCOperand::CreateReg(getGPRMM16Reg()));
+  }
+
   /// Render the operand to an MCInst as a GPR64
   /// Asserts if the wrong number of operands are requested, or the operand
   /// is not a k_RegisterIndex compatible with RegKind_GPR
@@ -751,6 +765,22 @@ public:
     addExpr(Inst, Expr);
   }
 
+  void addMicroMipsMemOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 2 && "Invalid number of operands!");
+
+    Inst.addOperand(MCOperand::CreateReg(getMemBase()->getGPRMM16Reg()));
+
+    const MCExpr *Expr = getMemOff();
+    addExpr(Inst, Expr);
+  }
+
+  void addRegListOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+
+    for (auto RegNo : getRegList())
+      Inst.addOperand(MCOperand::CreateReg(RegNo));
+  }
+
   bool isReg() const override {
     // As a special case until we sort out the definition of div/divu, pretend
     // that $0/$zero are k_PhysRegister so that MCK_ZERO works correctly.
@@ -776,6 +806,9 @@ public:
   template <unsigned Bits> bool isMemWithSimmOffset() const {
     return isMem() && isConstantMemOff() && isInt<Bits>(getConstantMemOff());
   }
+  bool isMemWithGRPMM16Base() const {
+    return isMem() && getMemBase()->isMM16AsmReg();
+  }
   bool isInvNum() const { return Kind == k_Immediate; }
   bool isLSAImm() const {
     if (!isConstantImm())
@@ -783,6 +816,7 @@ public:
     int64_t Val = getConstantImm();
     return 1 <= Val && Val <= 4;
   }
+  bool isRegList() const { return Kind == k_RegList; }
 
   StringRef getToken() const {
     assert(Kind == k_Token && "Invalid access!");
@@ -822,6 +856,11 @@ public:
 
   int64_t getConstantMemOff() const {
     return static_cast<const MCConstantExpr *>(getMemOff())->getValue();
+  }
+
+  const SmallVectorImpl<unsigned> &getRegList() const {
+    assert((Kind == k_RegList) && "Invalid access!");
+    return *(RegList.List);
   }
 
   static std::unique_ptr<MipsOperand> CreateToken(StringRef Str, SMLoc S,
@@ -919,6 +958,20 @@ public:
     return Op;
   }
 
+  static std::unique_ptr<MipsOperand>
+  CreateRegList(SmallVectorImpl<unsigned> &Regs, SMLoc StartLoc, SMLoc EndLoc,
+                MipsAsmParser &Parser) {
+    assert (Regs.size() > 0 && "Empty list not allowed");
+
+    auto Op = make_unique<MipsOperand>(k_RegList, Parser);
+    Op->RegList.List = new SmallVector<unsigned, 10>();
+    for (auto Reg : Regs)
+      Op->RegList.List->push_back(Reg);
+    Op->StartLoc = StartLoc;
+    Op->EndLoc = EndLoc;
+    return Op;
+  }
+
   bool isGPRAsmReg() const {
     return isRegIdx() && RegIdx.Kind & RegKind_GPR && RegIdx.Index <= 31;
   }
@@ -927,6 +980,13 @@ public:
       return false;
     return ((RegIdx.Index >= 2 && RegIdx.Index <= 7)
             || RegIdx.Index == 16 || RegIdx.Index == 17);
+  }
+  bool isMM16AsmRegZero() const {
+    if (!(isRegIdx() && RegIdx.Kind))
+      return false;
+    return (RegIdx.Index == 0 ||
+            (RegIdx.Index >= 2 && RegIdx.Index <= 7) ||
+            RegIdx.Index == 17);
   }
   bool isFGRAsmReg() const {
     // AFGR64 is $0-$15 but we handle this in getAFGR64()
@@ -973,6 +1033,8 @@ public:
     case k_Memory:
       delete Mem.Base;
       break;
+    case k_RegList:
+      delete RegList.List;
     case k_PhysRegister:
     case k_RegisterIndex:
     case k_Token:
@@ -1002,6 +1064,12 @@ public:
       break;
     case k_Token:
       OS << Tok.Data;
+      break;
+    case k_RegList:
+      OS << "RegList< ";
+      for (auto Reg : (*RegList.List))
+        OS << Reg << " ";
+      OS <<  ">";
       break;
     }
   }
@@ -1214,6 +1282,40 @@ bool MipsAsmParser::processInstruction(MCInst &Inst, SMLoc IDLoc,
         if (!(Imm == 128 || (Imm >= 1 && Imm <= 4) || Imm == 7 || Imm == 8 ||
               Imm == 15 || Imm == 16 || Imm == 31 || Imm == 32 || Imm == 63 ||
               Imm == 64 || Imm == 255 || Imm == 32768 || Imm == 65535))
+          return Error(IDLoc, "immediate operand value out of range");
+        break;
+      case Mips::LBU16_MM:
+        Opnd = Inst.getOperand(2);
+        if (!Opnd.isImm())
+          return Error(IDLoc, "expected immediate operand kind");
+        Imm = Opnd.getImm();
+        if (Imm < -1 || Imm > 14)
+          return Error(IDLoc, "immediate operand value out of range");
+        break;
+      case Mips::SB16_MM:
+        Opnd = Inst.getOperand(2);
+        if (!Opnd.isImm())
+          return Error(IDLoc, "expected immediate operand kind");
+        Imm = Opnd.getImm();
+        if (Imm < 0 || Imm > 15)
+          return Error(IDLoc, "immediate operand value out of range");
+        break;
+      case Mips::LHU16_MM:
+      case Mips::SH16_MM:
+        Opnd = Inst.getOperand(2);
+        if (!Opnd.isImm())
+          return Error(IDLoc, "expected immediate operand kind");
+        Imm = Opnd.getImm();
+        if (Imm < 0 || Imm > 30 || (Imm % 2 != 0))
+          return Error(IDLoc, "immediate operand value out of range");
+        break;
+      case Mips::LW16_MM:
+      case Mips::SW16_MM:
+        Opnd = Inst.getOperand(2);
+        if (!Opnd.isImm())
+          return Error(IDLoc, "expected immediate operand kind");
+        Imm = Opnd.getImm();
+        if (Imm < 0 || Imm > 60 || (Imm % 4 != 0))
           return Error(IDLoc, "immediate operand value out of range");
         break;
     }
@@ -2519,6 +2621,82 @@ MipsAsmParser::parseLSAImm(OperandVector &Operands) {
 
   Operands.push_back(
       MipsOperand::CreateImm(Expr, S, Parser.getTok().getLoc(), *this));
+  return MatchOperand_Success;
+}
+
+MipsAsmParser::OperandMatchResultTy
+MipsAsmParser::parseRegisterList(OperandVector &Operands) {
+  MCAsmParser &Parser = getParser();
+  SmallVector<unsigned, 10> Regs;
+  unsigned RegNo;
+  unsigned PrevReg = Mips::NoRegister;
+  bool RegRange = false;
+  SmallVector<std::unique_ptr<MCParsedAsmOperand>, 8> TmpOperands;
+
+  if (Parser.getTok().isNot(AsmToken::Dollar))
+    return MatchOperand_ParseFail;
+
+  SMLoc S = Parser.getTok().getLoc();
+  while (parseAnyRegister(TmpOperands) == MatchOperand_Success) {
+    SMLoc E = getLexer().getLoc();
+    MipsOperand &Reg = static_cast<MipsOperand &>(*TmpOperands.back());
+    RegNo = isGP64bit() ? Reg.getGPR64Reg() : Reg.getGPR32Reg();
+    if (RegRange) {
+      // Remove last register operand because registers from register range
+      // should be inserted first.
+      if (RegNo == Mips::RA) {
+        Regs.push_back(RegNo);
+      } else {
+        unsigned TmpReg = PrevReg + 1;
+        while (TmpReg <= RegNo) {
+          if ((TmpReg < Mips::S0) || (TmpReg > Mips::S7)) {
+            Error(E, "invalid register operand");
+            return MatchOperand_ParseFail;
+          }
+
+          PrevReg = TmpReg;
+          Regs.push_back(TmpReg++);
+        }
+      }
+
+      RegRange = false;
+    } else {
+      if ((PrevReg == Mips::NoRegister) && (RegNo != Mips::S0) &&
+          (RegNo != Mips::RA)) {
+        Error(E, "$16 or $31 expected");
+        return MatchOperand_ParseFail;
+      } else if (((RegNo < Mips::S0) || (RegNo > Mips::S7)) &&
+                 (RegNo != Mips::FP) && (RegNo != Mips::RA)) {
+        Error(E, "invalid register operand");
+        return MatchOperand_ParseFail;
+      } else if ((PrevReg != Mips::NoRegister) && (RegNo != PrevReg + 1) &&
+                 (RegNo != Mips::FP) && (RegNo != Mips::RA)) {
+        Error(E, "consecutive register numbers expected");
+        return MatchOperand_ParseFail;
+      }
+
+      Regs.push_back(RegNo);
+    }
+
+    if (Parser.getTok().is(AsmToken::Minus))
+      RegRange = true;
+
+    if (!Parser.getTok().isNot(AsmToken::Minus) &&
+        !Parser.getTok().isNot(AsmToken::Comma)) {
+      Error(E, "',' or '-' expected");
+      return MatchOperand_ParseFail;
+    }
+
+    Lex(); // Consume comma or minus
+    if (Parser.getTok().isNot(AsmToken::Dollar))
+      break;
+
+    PrevReg = RegNo;
+  }
+
+  SMLoc E = Parser.getTok().getLoc();
+  Operands.push_back(MipsOperand::CreateRegList(Regs, S, E, *this));
+  parseMemOperand(Operands);
   return MatchOperand_Success;
 }
 

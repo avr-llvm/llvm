@@ -2,6 +2,10 @@
 # options and executing the appropriate CMake commands to realize the users'
 # selections.
 
+# This is commonly needed so make sure it's defined before we include anything
+# else.
+string(TOUPPER "${CMAKE_BUILD_TYPE}" uppercase_CMAKE_BUILD_TYPE)
+
 include(HandleLLVMStdlib)
 include(AddLLVMDefinitions)
 include(CheckCCompilerFlag)
@@ -392,6 +396,9 @@ if(LLVM_USE_SANITIZER)
       append_common_sanitizer_flags()
       append("-fsanitize=undefined -fno-sanitize=vptr,function -fno-sanitize-recover"
               CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+    elseif (LLVM_USE_SANITIZER STREQUAL "Thread")
+      append_common_sanitizer_flags()
+      append("-fsanitize=thread" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
     else()
       message(WARNING "Unsupported value of LLVM_USE_SANITIZER: ${LLVM_USE_SANITIZER}")
     endif()

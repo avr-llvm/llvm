@@ -2760,7 +2760,7 @@ void SelectionDAGBuilder::visitIndirectBr(const IndirectBrInst &I) {
   SmallSet<BasicBlock*, 32> Done;
   for (unsigned i = 0, e = I.getNumSuccessors(); i != e; ++i) {
     BasicBlock *BB = I.getSuccessor(i);
-    bool Inserted = Done.insert(BB);
+    bool Inserted = Done.insert(BB).second;
     if (!Inserted)
         continue;
 
@@ -3611,6 +3611,70 @@ void SelectionDAGBuilder::visitStore(const StoreInst &I) {
   SDValue StoreNode = DAG.getNode(ISD::TokenFactor, getCurSDLoc(), MVT::Other,
                                   makeArrayRef(Chains.data(), ChainI));
   DAG.setRoot(StoreNode);
+}
+
+void SelectionDAGBuilder::visitMaskedStore(const CallInst &I) {
+  SDLoc sdl = getCurSDLoc();
+
+  Value  *PtrOperand = I.getArgOperand(0);
+  SDValue Ptr = getValue(PtrOperand);
+  SDValue Src0 = getValue(I.getArgOperand(1));
+  SDValue Mask = getValue(I.getArgOperand(3));
+  EVT VT = Src0.getValueType();
+  unsigned Alignment = (cast<ConstantInt>(I.getArgOperand(2)))->getZExtValue();
+  if (!Alignment)
+    Alignment = DAG.getEVTAlignment(VT);
+
+  AAMDNodes AAInfo;
+  I.getAAMetadata(AAInfo);
+
+  MachineMemOperand *MMO =
+    DAG.getMachineFunction().
+    getMachineMemOperand(MachinePointerInfo(PtrOperand),
+                          MachineMemOperand::MOStore,  VT.getStoreSize(),
+                          Alignment, AAInfo);
+  SDValue StoreNode = DAG.getMaskedStore(getRoot(), sdl, Src0, Ptr, Mask, MMO);
+  DAG.setRoot(StoreNode);
+  setValue(&I, StoreNode);
+}
+
+void SelectionDAGBuilder::visitMaskedLoad(const CallInst &I) {
+  SDLoc sdl = getCurSDLoc();
+
+  Value  *PtrOperand = I.getArgOperand(0);
+  SDValue Ptr = getValue(PtrOperand);
+  SDValue Src0 = getValue(I.getArgOperand(1));
+  SDValue Mask = getValue(I.getArgOperand(3));
+
+  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
+  EVT VT = TLI.getValueType(I.getType());
+  unsigned Alignment = (cast<ConstantInt>(I.getArgOperand(2)))->getZExtValue();
+  if (!Alignment)
+    Alignment = DAG.getEVTAlignment(VT);
+
+  AAMDNodes AAInfo;
+  I.getAAMetadata(AAInfo);
+  const MDNode *Ranges = I.getMetadata(LLVMContext::MD_range);
+
+  SDValue InChain = DAG.getRoot();
+  if (AA->pointsToConstantMemory(
+      AliasAnalysis::Location(PtrOperand,
+                              AA->getTypeStoreSize(I.getType()),
+                              AAInfo))) {
+    // Do not serialize (non-volatile) loads of constant memory with anything.
+    InChain = DAG.getEntryNode();
+  }
+
+  MachineMemOperand *MMO =
+    DAG.getMachineFunction().
+    getMachineMemOperand(MachinePointerInfo(PtrOperand),
+                          MachineMemOperand::MOLoad,  VT.getStoreSize(),
+                          Alignment, AAInfo, Ranges);
+
+  SDValue Load = DAG.getMaskedLoad(VT, sdl, InChain, Ptr, Mask, Src0, MMO);
+  SDValue OutChain = Load.getValue(1);
+  DAG.setRoot(OutChain);
+  setValue(&I, Load);
 }
 
 void SelectionDAGBuilder::visitAtomicCmpXchg(const AtomicCmpXchgInst &I) {
@@ -4914,6 +4978,12 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     return nullptr;
   }
 
+  case Intrinsic::masked_load:
+    visitMaskedLoad(I);
+    return nullptr;
+  case Intrinsic::masked_store:
+    visitMaskedStore(I);
+    return nullptr;
   case Intrinsic::x86_mmx_pslli_w:
   case Intrinsic::x86_mmx_pslli_d:
   case Intrinsic::x86_mmx_pslli_q:
@@ -7697,7 +7767,8 @@ SelectionDAGBuilder::HandlePHINodesInSuccessorBlocks(const BasicBlock *LLVMBB) {
 
     // If this terminator has multiple identical successors (common for
     // switches), only handle each succ once.
-    if (!SuccsHandled.insert(SuccMBB)) continue;
+    if (!SuccsHandled.insert(SuccMBB).second)
+      continue;
 
     MachineBasicBlock::iterator MBBI = SuccMBB->begin();
 

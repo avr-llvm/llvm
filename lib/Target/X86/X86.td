@@ -82,6 +82,9 @@ def FeatureSlowSHLD : SubtargetFeature<"slow-shld", "IsSHLDSlow", "true",
 def FeatureFastUAMem : SubtargetFeature<"fast-unaligned-mem",
                                         "IsUAMemFast", "true",
                                         "Fast unaligned memory access">;
+def FeatureSlowUAMem32 : SubtargetFeature<"slow-unaligned-mem-32",
+                            "IsUAMem32Slow", "true",
+                            "Slow unaligned 32-byte memory access">;
 def FeatureSSE4A   : SubtargetFeature<"sse4a", "HasSSE4A", "true",
                                       "Support SSE 4a instructions",
                                       [FeatureSSE3]>;
@@ -167,9 +170,12 @@ def FeatureSMAP    : SubtargetFeature<"smap", "HasSMAP", "true",
                                       "Support SMAP instructions">;
 def FeatureLeaForSP : SubtargetFeature<"lea-sp", "UseLeaForSP", "true",
                                      "Use LEA for adjusting the stack pointer">;
-def FeatureSlowDivide : SubtargetFeature<"idiv-to-divb",
-                                     "HasSlowDivide", "true",
-                                     "Use small divide for positive values less than 256">;
+def FeatureSlowDivide32 : SubtargetFeature<"idivl-to-divb",
+                                     "HasSlowDivide32", "true",
+                                     "Use 8-bit divide for positive values less than 256">;
+def FeatureSlowDivide64 : SubtargetFeature<"idivq-to-divw",
+                                     "HasSlowDivide64", "true",
+                                     "Use 16-bit divide for positive values less than 65536">;
 def FeaturePadShortFunctions : SubtargetFeature<"pad-short-functions",
                                      "PadShortFunctions", "true",
                                      "Pad short functions">;
@@ -234,7 +240,7 @@ def : ProcessorModel<"penryn", SandyBridgeModel,
 def : ProcessorModel<"atom", AtomModel,
                      [ProcIntelAtom, FeatureSSSE3, FeatureCMPXCHG16B,
                       FeatureMOVBE, FeatureSlowBTMem, FeatureLeaForSP,
-                      FeatureSlowDivide,
+                      FeatureSlowDivide32, FeatureSlowDivide64,
                       FeatureCallRegIndirect,
                       FeatureLEAUsesAG,
                       FeaturePadShortFunctions]>;
@@ -244,6 +250,7 @@ def : ProcessorModel<"slm",  SLMModel, [ProcIntelSLM,
                                FeatureSSE42, FeatureCMPXCHG16B,
                                FeatureMOVBE, FeaturePOPCNT,
                                FeaturePCLMUL, FeatureAES,
+                               FeatureSlowDivide64,
                                FeatureCallRegIndirect,
                                FeaturePRFCHW,
                                FeatureSlowLEA, FeatureSlowIncDec,
@@ -267,12 +274,14 @@ def : ProcessorModel<"westmere", SandyBridgeModel,
 // rather than a superset.
 def : ProcessorModel<"corei7-avx", SandyBridgeModel,
                      [FeatureAVX, FeatureCMPXCHG16B, FeatureFastUAMem,
-                      FeaturePOPCNT, FeatureAES, FeaturePCLMUL]>;
+                      FeatureSlowUAMem32, FeaturePOPCNT, FeatureAES,
+                      FeaturePCLMUL]>;
 // Ivy Bridge
 def : ProcessorModel<"core-avx-i", SandyBridgeModel,
                      [FeatureAVX, FeatureCMPXCHG16B, FeatureFastUAMem,
-                      FeaturePOPCNT, FeatureAES, FeaturePCLMUL, FeatureRDRAND,
-                      FeatureF16C, FeatureFSGSBase]>;
+                      FeatureSlowUAMem32, FeaturePOPCNT, FeatureAES,
+                      FeaturePCLMUL, FeatureRDRAND, FeatureF16C,
+                      FeatureFSGSBase]>;
 
 // Haswell
 def : ProcessorModel<"core-avx2", HaswellModel,
@@ -280,7 +289,7 @@ def : ProcessorModel<"core-avx2", HaswellModel,
                       FeaturePOPCNT, FeatureAES, FeaturePCLMUL, FeatureRDRAND,
                       FeatureF16C, FeatureFSGSBase, FeatureMOVBE, FeatureLZCNT,
                       FeatureBMI, FeatureBMI2, FeatureFMA, FeatureRTM,
-                      FeatureHLE]>;
+                      FeatureHLE, FeatureSlowIncDec]>;
 
 // Broadwell
 def : ProcessorModel<"broadwell", HaswellModel,
@@ -288,7 +297,8 @@ def : ProcessorModel<"broadwell", HaswellModel,
                       FeaturePOPCNT, FeatureAES, FeaturePCLMUL, FeatureRDRAND,
                       FeatureF16C, FeatureFSGSBase, FeatureMOVBE, FeatureLZCNT,
                       FeatureBMI, FeatureBMI2, FeatureFMA, FeatureRTM,
-                      FeatureHLE, FeatureADX, FeatureRDSEED, FeatureSMAP]>;
+                      FeatureHLE, FeatureADX, FeatureRDSEED, FeatureSMAP,
+                      FeatureSlowIncDec]>;
 // KNL
 // FIXME: define KNL model
 def : ProcessorModel<"knl", HaswellModel,

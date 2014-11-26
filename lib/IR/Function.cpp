@@ -456,7 +456,15 @@ unsigned Function::lookupIntrinsicID() const {
 }
 
 /// Returns a stable mangling for the type specified for use in the name
-/// mangling scheme used by 'any' types in intrinsic signatures.
+/// mangling scheme used by 'any' types in intrinsic signatures.  The mangling
+/// of named types is simply their name.  Manglings for unnamed types consist
+/// of a prefix ('p' for pointers, 'a' for arrays, 'f_' for functions)
+/// combined with the mangling of their component types.  A vararg function
+/// type will have a suffix of 'vararg'.  Since function types can contain
+/// other function types, we close a function type mangling with suffix 'f'
+/// which can't be confused with it's prefix.  This ensures we don't have
+/// collisions between two unrelated function types. Otherwise, you might
+/// parse ffXX as f(fXX) or f(fX)X.  (X is a placeholder for any other type.)
 static std::string getMangledTypeStr(Type* Ty) {
   std::string Result;
   if (PointerType* PTyp = dyn_cast<PointerType>(Ty)) {
@@ -476,7 +484,8 @@ static std::string getMangledTypeStr(Type* Ty) {
       Result += getMangledTypeStr(FT->getParamType(i));
     if (FT->isVarArg())
       Result += "vararg";
-    Result += "f"; //ensure distinguishable
+    // Ensure nested function types are distinguishable.
+    Result += "f"; 
   } else if (Ty)
     Result += EVT::getEVT(Ty).getEVTString();
   return Result;
@@ -537,7 +546,8 @@ enum IIT_Info {
   IIT_ANYPTR = 26,
   IIT_V1   = 27,
   IIT_VARARG = 28,
-  IIT_HALF_VEC_ARG = 29
+  IIT_HALF_VEC_ARG = 29,
+  IIT_SAME_VEC_WIDTH_ARG = 30
 };
 
 
@@ -642,6 +652,12 @@ static void DecodeIITType(unsigned &NextElt, ArrayRef<unsigned char> Infos,
   case IIT_HALF_VEC_ARG: {
     unsigned ArgInfo = (NextElt == Infos.size() ? 0 : Infos[NextElt++]);
     OutputTable.push_back(IITDescriptor::get(IITDescriptor::HalfVecArgument,
+                                             ArgInfo));
+    return;
+  }
+  case IIT_SAME_VEC_WIDTH_ARG: {
+    unsigned ArgInfo = (NextElt == Infos.size() ? 0 : Infos[NextElt++]);
+    OutputTable.push_back(IITDescriptor::get(IITDescriptor::SameVecWidthArgument,
                                              ArgInfo));
     return;
   }
@@ -752,7 +768,14 @@ static Type *DecodeFixedType(ArrayRef<Intrinsic::IITDescriptor> &Infos,
   case IITDescriptor::HalfVecArgument:
     return VectorType::getHalfElementsVectorType(cast<VectorType>(
                                                   Tys[D.getArgumentNumber()]));
-  }
+  case IITDescriptor::SameVecWidthArgument:
+    Type *EltTy = DecodeFixedType(Infos, Tys, Context);
+    Type *Ty = Tys[D.getArgumentNumber()];
+    if (VectorType *VTy = dyn_cast<VectorType>(Ty)) {
+      return VectorType::get(EltTy, VTy->getNumElements());
+    }
+    llvm_unreachable("unhandled");
+ }
   llvm_unreachable("unhandled");
 }
 

@@ -3739,7 +3739,7 @@ bool LLParser::ParseSwitch(Instruction *&Inst, PerFunctionState &PFS) {
         ParseTypeAndBasicBlock(DestBB, PFS))
       return true;
 
-    if (!SeenCases.insert(Constant))
+    if (!SeenCases.insert(Constant).second)
       return Error(CondLoc, "duplicate case value in switch");
     if (!isa<ConstantInt>(Constant))
       return Error(CondLoc, "case value is not a constant integer");

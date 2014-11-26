@@ -20,6 +20,7 @@
 #include "Win64EHDumper.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Object/COFF.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/COFF.h"
@@ -57,6 +58,7 @@ public:
   void printUnwindInfo() override;
   void printCOFFImports() override;
   void printCOFFDirectives() override;
+  void printCOFFBaseReloc() override;
 
 private:
   void printSymbol(const SymbolRef &Sym);
@@ -437,7 +439,7 @@ void COFFDumper::printPEHeader(const PEHeader *Hdr) {
   W.printNumber("SizeOfImage", Hdr->SizeOfImage);
   W.printNumber("SizeOfHeaders", Hdr->SizeOfHeaders);
   W.printEnum  ("Subsystem", Hdr->Subsystem, makeArrayRef(PEWindowsSubsystem));
-  W.printFlags ("Subsystem", Hdr->DLLCharacteristics,
+  W.printFlags ("Characteristics", Hdr->DLLCharacteristics,
                 makeArrayRef(PEDLLCharacteristics));
   W.printNumber("SizeOfStackReserve", Hdr->SizeOfStackReserve);
   W.printNumber("SizeOfStackCommit", Hdr->SizeOfStackCommit);
@@ -825,22 +827,22 @@ void COFFDumper::printSymbols() {
 
 void COFFDumper::printDynamicSymbols() { ListScope Group(W, "DynamicSymbols"); }
 
-static StringRef getSectionName(const llvm::object::COFFObjectFile *Obj,
-                                COFFSymbolRef Symbol,
-                                const coff_section *Section) {
+static ErrorOr<StringRef>
+getSectionName(const llvm::object::COFFObjectFile *Obj, int32_t SectionNumber,
+               const coff_section *Section) {
   if (Section) {
     StringRef SectionName;
-    Obj->getSectionName(Section, SectionName);
+    if (std::error_code EC = Obj->getSectionName(Section, SectionName))
+      return EC;
     return SectionName;
   }
-  int32_t SectionNumber = Symbol.getSectionNumber();
   if (SectionNumber == llvm::COFF::IMAGE_SYM_DEBUG)
-    return "IMAGE_SYM_DEBUG";
+    return StringRef("IMAGE_SYM_DEBUG");
   if (SectionNumber == llvm::COFF::IMAGE_SYM_ABSOLUTE)
-    return "IMAGE_SYM_ABSOLUTE";
+    return StringRef("IMAGE_SYM_ABSOLUTE");
   if (SectionNumber == llvm::COFF::IMAGE_SYM_UNDEFINED)
-    return "IMAGE_SYM_UNDEFINED";
-  return "";
+    return StringRef("IMAGE_SYM_UNDEFINED");
+  return StringRef("");
 }
 
 void COFFDumper::printSymbol(const SymbolRef &Sym) {
@@ -858,7 +860,11 @@ void COFFDumper::printSymbol(const SymbolRef &Sym) {
   if (Obj->getSymbolName(Symbol, SymbolName))
     SymbolName = "";
 
-  StringRef SectionName = getSectionName(Obj, Symbol, Section);
+  StringRef SectionName = "";
+  ErrorOr<StringRef> Res =
+      getSectionName(Obj, Symbol.getSectionNumber(), Section);
+  if (Res)
+    SectionName = *Res;
 
   W.printString("Name", SymbolName);
   W.printNumber("Value", Symbol.getValue());
@@ -929,10 +935,14 @@ void COFFDumper::printSymbol(const SymbolRef &Sym) {
       if (Section && Section->Characteristics & COFF::IMAGE_SCN_LNK_COMDAT
           && Aux->Selection == COFF::IMAGE_COMDAT_SELECT_ASSOCIATIVE) {
         const coff_section *Assoc;
-        StringRef AssocName;
-        std::error_code EC;
-        if ((EC = Obj->getSection(AuxNumber, Assoc)) ||
-            (EC = Obj->getSectionName(Assoc, AssocName))) {
+        StringRef AssocName = "";
+        std::error_code EC = Obj->getSection(AuxNumber, Assoc);
+        ErrorOr<StringRef> Res = getSectionName(Obj, AuxNumber, Assoc);
+        if (Res)
+          AssocName = *Res;
+        if (!EC)
+          EC = Res.getError();
+        if (EC) {
           AssocName = "";
           error(EC);
         }
@@ -1066,5 +1076,32 @@ void COFFDumper::printCOFFDirectives() {
       return;
 
     W.printString("Directive(s)", Contents);
+  }
+}
+
+static StringRef getBaseRelocTypeName(uint8_t Type) {
+  switch (Type) {
+  case COFF::IMAGE_REL_BASED_ABSOLUTE: return "ABSOLUTE";
+  case COFF::IMAGE_REL_BASED_HIGH: return "HIGH";
+  case COFF::IMAGE_REL_BASED_LOW: return "LOW";
+  case COFF::IMAGE_REL_BASED_HIGHLOW: return "HIGHLOW";
+  case COFF::IMAGE_REL_BASED_HIGHADJ: return "HIGHADJ";
+  case COFF::IMAGE_REL_BASED_DIR64: return "DIR64";
+  default: return "unknown (" + llvm::utostr(Type) + ")";
+  }
+}
+
+void COFFDumper::printCOFFBaseReloc() {
+  ListScope D(W, "BaseReloc");
+  for (const BaseRelocRef &I : Obj->base_relocs()) {
+    uint8_t Type;
+    uint32_t RVA;
+    if (error(I.getRVA(RVA)))
+      continue;
+    if (error(I.getType(Type)))
+      continue;
+    DictScope Import(W, "Entry");
+    W.printString("Type", getBaseRelocTypeName(Type));
+    W.printHex("Address", RVA);
   }
 }

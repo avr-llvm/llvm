@@ -53,10 +53,10 @@ SITargetLowering::SITargetLowering(TargetMachine &TM) :
   addRegisterClass(MVT::v4i32, &AMDGPU::SReg_128RegClass);
   addRegisterClass(MVT::v4f32, &AMDGPU::VReg_128RegClass);
 
-  addRegisterClass(MVT::v8i32, &AMDGPU::VReg_256RegClass);
+  addRegisterClass(MVT::v8i32, &AMDGPU::SReg_256RegClass);
   addRegisterClass(MVT::v8f32, &AMDGPU::VReg_256RegClass);
 
-  addRegisterClass(MVT::v16i32, &AMDGPU::VReg_512RegClass);
+  addRegisterClass(MVT::v16i32, &AMDGPU::SReg_512RegClass);
   addRegisterClass(MVT::v16f32, &AMDGPU::VReg_512RegClass);
 
   computeRegisterProperties();
@@ -529,7 +529,7 @@ SDValue SITargetLowering::LowerFormalArguments(
     }
 
     CCValAssign &VA = ArgLocs[ArgIdx++];
-    EVT VT = VA.getLocVT();
+    MVT VT = VA.getLocVT();
 
     if (VA.isMemLoc()) {
       VT = Ins[i].VT;
@@ -1986,6 +1986,7 @@ void SITargetLowering::AdjustInstrPostInstrSelection(MachineInstr *MI,
   const SIInstrInfo *TII = static_cast<const SIInstrInfo *>(
       getTargetMachine().getSubtargetImpl()->getInstrInfo());
 
+  MachineRegisterInfo &MRI = MI->getParent()->getParent()->getRegInfo();
   TII->legalizeOperands(MI);
 
   if (TII->isMIMG(MI->getOpcode())) {
@@ -2005,7 +2006,6 @@ void SITargetLowering::AdjustInstrPostInstrSelection(MachineInstr *MI,
 
     unsigned NewOpcode = TII->getMaskedMIMGOp(MI->getOpcode(), BitsSet);
     MI->setDesc(TII->get(NewOpcode));
-    MachineRegisterInfo &MRI = MI->getParent()->getParent()->getRegInfo();
     MRI.setRegClass(VReg, RC);
     return;
   }

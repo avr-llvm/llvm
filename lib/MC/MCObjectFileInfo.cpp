@@ -273,6 +273,17 @@ void MCObjectFileInfo::InitELFMCObjectFileInfo(Triple T) {
   case Triple::mips64el:
     FDECFIEncoding = dwarf::DW_EH_PE_sdata8;
     break;
+  case Triple::x86_64:
+    if (RelocM == Reloc::PIC_) {
+      FDECFIEncoding = dwarf::DW_EH_PE_pcrel |
+        ((CMModel == CodeModel::Small || CMModel == CodeModel::Medium)
+         ? dwarf::DW_EH_PE_sdata4 : dwarf::DW_EH_PE_sdata8);
+    } else {
+      FDECFIEncoding =
+        (CMModel == CodeModel::Small || CMModel == CodeModel::Medium)
+        ? dwarf::DW_EH_PE_udata4 : dwarf::DW_EH_PE_absptr;
+    }
+    break;
   default:
     FDECFIEncoding = dwarf::DW_EH_PE_pcrel | dwarf::DW_EH_PE_sdata4;
     break;
@@ -401,7 +412,7 @@ void MCObjectFileInfo::InitELFMCObjectFileInfo(Triple T) {
   // platform.
   EHSectionType = ELF::SHT_PROGBITS;
   EHSectionFlags = ELF::SHF_ALLOC;
-  if (T.getOS() == Triple::Solaris) {
+  if (T.isOSSolaris()) {
     if (T.getArch() == Triple::x86_64)
       EHSectionType = ELF::SHT_X86_64_UNWIND;
     else
