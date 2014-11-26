@@ -2,6 +2,7 @@ set(LLVM_TARGET_DEFINITIONS AVR.td)
 
 tablegen(LLVM AVRGenRegisterInfo.inc -gen-register-info)
 tablegen(LLVM AVRGenInstrInfo.inc -gen-instr-info)
+tablegen(LLVM AVRGenMCCodeEmitter.inc -gen-emitter)
 tablegen(LLVM AVRGenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM AVRGenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM AVRGenCallingConv.inc -gen-callingconv)
@@ -30,3 +31,4 @@ add_dependencies(LLVMAVRCodeGen intrinsics_gen)
 add_subdirectory(InstPrinter)
 add_subdirectory(TargetInfo)
 add_subdirectory(MCTargetDesc)
+
