@@ -45,7 +45,7 @@ void AVRMCCodeEmitter::EmitInstruction(uint64_t Val, unsigned Size,
                                         const MCSubtargetInfo &STI,
                                         raw_ostream &OS) const {
   for (unsigned i = 0; i < Size; ++i) {
-    unsigned Shift = IsLittleEndian ? i * 8 : (Size - 1 - i) * 8;
+    unsigned Shift = !IsLittleEndian ? i * 8 : (Size - 1 - i) * 8;
     EmitByte((Val >> Shift) & 0xff, OS);
   }
 }
