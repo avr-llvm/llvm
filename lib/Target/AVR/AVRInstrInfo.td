@@ -848,16 +848,23 @@ def STSWKRr : Pseudo<(outs),
                      "stsw\t$dst, $src",
                      [(store DREGS:$src, imm:$dst)]>;
 
+// ST P, Rr
+// Stores the value of Rr into the location addressed by pointer P.
 def STPtrRr : Pseudo<(outs),
                      (ins PTRREGS:$dst, GPR8:$src),
                      "st\t$dst, $src",
                      [(store GPR8:$src, PTRREGS:$dst)]>;
 
+// STW P, Rr
+// Stores the value of Rr into the location addressed by pointer P.
 def STWPtrRr : Pseudo<(outs),
                       (ins PTRDISPREGS:$dst, DREGS:$src),
                       "stw\t$dst, $src",
                       [(store DREGS:$src, PTRDISPREGS:$dst)]>;
 
+// ST P+, Rr
+// Stores the value of Rr into the location addressed by pointer P.
+// Post increments P.
 let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
 def STPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
                        (ins PTRREGS:$dst, GPR8:$src, i8imm:$offs),
@@ -865,6 +872,9 @@ def STPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
                        [(set PTRREGS:$base_wb,
                         (post_store GPR8:$src, PTRREGS:$dst, imm:$offs))]>;
 
+// STW P+, Rr
+// Stores the value of Rr into the location addressed by pointer P.
+// Post increments P.
 let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
 def STWPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
                         (ins PTRREGS:$dst, DREGS:$src, i8imm:$offs),
@@ -872,6 +882,9 @@ def STWPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
                         [(set PTRREGS:$base_wb,
                          (post_store DREGS:$src, PTRREGS:$dst, imm:$offs))]>;
 
+// ST -P, Rr
+// Stores the value of Rr into the location addressed by pointer P.
+// Pre decrements P.
 let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
 def STPtrPdRr : Pseudo<(outs PTRREGS:$base_wb),
                        (ins PTRREGS:$dst, GPR8:$src, i8imm:$offs),
@@ -879,6 +892,9 @@ def STPtrPdRr : Pseudo<(outs PTRREGS:$base_wb),
                        [(set PTRREGS:$base_wb,
                         (pre_store GPR8:$src, PTRREGS:$dst, imm:$offs))]>;
 
+// STW -P, Rr
+// Stores the value of Rr into the location addressed by pointer P.
+// Pre decrements P.
 let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
 def STWPtrPdRr : Pseudo<(outs PTRREGS:$base_wb),
                         (ins PTRREGS:$dst, DREGS:$src, i8imm:$offs),
@@ -886,11 +902,16 @@ def STWPtrPdRr : Pseudo<(outs PTRREGS:$base_wb),
                         [(set PTRREGS:$base_wb,
                          (pre_store DREGS:$src, PTRREGS:$dst, imm:$offs))]>;
 
+/// STD P+q, Rr
+// Stores the value of Rr into the location addressed by pointer P with a displacement of q.
+// Does not modify P.
 def STDPtrQRr : Pseudo<(outs),
                        (ins memri:$dst, GPR8:$src),
                        "std\t$dst, $src",
                        [(store GPR8:$src, addr:$dst)]>;
-
+/// STDW P+q, Rr
+// Stores the value of Rr into the location addressed by pointer P with a displacement of q.
+// Does not modify P.
 def STDWPtrQRr : Pseudo<(outs),
                         (ins memri:$dst, DREGS:$src),
                         "stdw\t$dst, $src",
