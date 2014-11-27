@@ -11,9 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-//:TODO: describe register and operands page 1 from inset.pdf
+// :TODO: set is isAsCheapAsAMove per format instead of per instruction??!
 
-// AVR generic instruction
+// A generic AVR instruction.
 class AVRInst<dag outs, dag ins, string asmstr, list<dag> pattern> : Instruction
 {
   let Namespace = "AVR";
@@ -24,7 +24,7 @@ class AVRInst<dag outs, dag ins, string asmstr, list<dag> pattern> : Instruction
   let Pattern = pattern;
 }
 
-//:TODO: hack to define 16 and 32 bit instructions, find a better way??!
+/// A 16-bit AVR instruction.
 class AVRInst16<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst<outs, ins, asmstr, pattern>
 {
@@ -33,6 +33,7 @@ class AVRInst16<dag outs, dag ins, string asmstr, list<dag> pattern>
   let Size = 2;
 }
 
+/// a 32-bit AVR instruction.
 class AVRInst32<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst<outs, ins, asmstr, pattern>
 {
@@ -41,16 +42,20 @@ class AVRInst32<dag outs, dag ins, string asmstr, list<dag> pattern>
   let Size = 4;
 }
 
-// Pseudo instructions
+// A class for pseudo instructions.
+// Psuedo instructions are not real AVR instructions. The DAG stores
+// psuedo instructions which are replaced by real AVR instructions by
+// AVRExpandPseudoInsts.cpp.
+//
+// For example, the ADDW (add wide, as in add 16 bit values) instruction is defined
+// as a pseudo instruction. In AVRExpandPseudoInsts.cpp, the instruction is then replaced
+// by two add instructions - one for each byte.
 class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
   let Pattern = pattern;
   let Inst{15-0} = 0;
 }
-
-//:TODO: set is isAsCheapAsAMove per format instead of per instruction??!
-// :TODO:REMAT LDI!?
 
 //===----------------------------------------------------------------------===//
 // Register / register instruction: <|opcode|ffrd|dddd|rrrr|>
