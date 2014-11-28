@@ -54,7 +54,11 @@ class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
   let Pattern = pattern;
-  let Inst{15-0} = 0;
+  
+  // Pseudo instructions should be lowered into real instructions
+  // by the time code is emitted. If the pseudo instruction hasn't been
+  // lowered, we'll write a hint.
+  let Inst{15-0} = 0xBEEF;
 }
 
 //===----------------------------------------------------------------------===//
@@ -113,6 +117,45 @@ class FRd<bits<4> opcode, bits<7> f, dag outs, dag ins, string asmstr,
   let Inst{11-9} = f{6-4};
   let Inst{8-4} = d;
   let Inst{3-0} = f{3-0};
+}
+
+//===----------------------------------------------------------------------===//
+// STD P+q, Rr special encoding: <|10q0|qq1r|rrrr|pqqq>
+// q = displacement (6 bits)
+// r = register (5 bits)
+// p = pointer register (1 bit) [1 for Y, 0 for Z]
+//===----------------------------------------------------------------------===//
+// Caveat:
+// This format is a dirty, dirty hack. In AVRInstrInfo.td, there is an operand
+// type called `memri`, which describes a pointer register and an immediate.
+// This operand has a custom encoding function in AVRMCCodeEmitter.cpp. Ideally
+// we would expose the ptr register and the immediate as seperate operands,so
+// that we can assign their bits here (and wouldn't need an encoder function).
+// I couldn't find a way to do this without breaking pattern matching. Instead,
+// they are unified into one encoding function, which outputs <qqqqqqp>. The only
+// way I could get tablegen to create the correct instructions was to increase the
+// size of `bits<6> q` to `bits<7> q` and to increase all indices by one (because
+// all bits were off by one place). Thus, we ignore q{0}.
+//===----------------------------------------------------------------------===//
+class FSTDPqRr<dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  bit p;
+  bits<7> q;
+  bits<5> r;
+
+  let Inst{15-14} = 0b10;
+  let Inst{13} = q{6};
+  let Inst{12} = 0b0;
+  
+  let Inst{11-10} = q{5-4};
+  let Inst{9} = 0b1;
+  let Inst{8} = r{4};
+  
+  let Inst{7-4} = r{3-0};
+  
+  let Inst{3} = p;
+  let Inst{2-0} = q{3-1};
 }
 
 //===----------------------------------------------------------------------===//
