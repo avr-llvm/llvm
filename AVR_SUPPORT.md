@@ -65,12 +65,12 @@ BREQ    x
 BRNE    x
 BRCS    not implemented
 BRCC    not implemented
-BRSH    pseudo
-BRLO    pseudo
-BRMI    pseudo
-BRPL    pseudo
-BRGE    pseudo
-BRLT    pseudo
+BRSH    x
+BRLO    x
+BRMI    x
+BRPL    x
+BRGE    x
+BRLT    x
 BRHS    not implemented
 BRHC    not implemented
 BRTS    not implemented

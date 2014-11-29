@@ -674,50 +674,62 @@ def BRNEk : FBRsk<1,
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
-def BRSHk : Pseudo<(outs),
-                   (ins brtarget:$target),
-                   "brsh\t$target",
-                   [(AVRbrcond bb:$target, AVR_COND_SH)]>;
+def BRSHk : FBRsk<1,
+                  0b000,
+                  (outs),
+                  (ins brtarget:$target),
+                  "brsh\t$target",
+                  [(AVRbrcond bb:$target, AVR_COND_SH)]>;
 
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
-def BRLOk : Pseudo<(outs),
-                   (ins brtarget:$target),
-                   "brlo\t$target",
-                   [(AVRbrcond bb:$target, AVR_COND_LO)]>;
+def BRLOk : FBRsk<0,
+                  0b000,
+                  (outs),
+                  (ins brtarget:$target),
+                  "brlo\t$target",
+                  [(AVRbrcond bb:$target, AVR_COND_LO)]>;
 
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
-def BRMIk : Pseudo<(outs),
-                   (ins brtarget:$target),
-                   "brmi\t$target",
-                   [(AVRbrcond bb:$target, AVR_COND_MI)]>;
+def BRMIk : FBRsk<0,
+                  0b010,
+                  (outs),
+                  (ins brtarget:$target),
+                  "brmi\t$target",
+                  [(AVRbrcond bb:$target, AVR_COND_MI)]>;
 
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
-def BRPLk : Pseudo<(outs),
-                   (ins brtarget:$target),
-                   "brpl\t$target",
-                   [(AVRbrcond bb:$target, AVR_COND_PL)]>;
+def BRPLk : FBRsk<1,
+                  0b101,
+                  (outs),
+                  (ins brtarget:$target),
+                  "brpl\t$target",
+                  [(AVRbrcond bb:$target, AVR_COND_PL)]>;
 
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
-def BRGEk : Pseudo<(outs),
-                   (ins brtarget:$target),
-                   "brge\t$target",
-                   [(AVRbrcond bb:$target, AVR_COND_GE)]>;
+def BRGEk : FBRsk<1,
+                  0b100,
+                  (outs),
+                  (ins brtarget:$target),
+                  "brge\t$target",
+                  [(AVRbrcond bb:$target, AVR_COND_GE)]>;
 
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
-def BRLTk : Pseudo<(outs),
-                   (ins brtarget:$target),
-                   "brlt\t$target",
-                   [(AVRbrcond bb:$target, AVR_COND_LT)]>;
+def BRLTk : FBRsk<0,
+                  0b100,
+                  (outs),
+                  (ins brtarget:$target),
+                  "brlt\t$target",
+                  [(AVRbrcond bb:$target, AVR_COND_LT)]>;
 // __________________________
 // Data transfer instructions
 // __________________________
