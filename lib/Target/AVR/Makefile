@@ -15,7 +15,8 @@ TARGET = AVR
 BUILT_SOURCES = AVRGenRegisterInfo.inc AVRGenInstrInfo.inc \
 		AVRGenAsmWriter.inc \
 		AVRGenDAGISel.inc AVRGenCallingConv.inc \
-		AVRGenSubtargetInfo.inc
+		AVRGenSubtargetInfo.inc \
+		AVRGenMCCodeEmitter.inc
 
 DIRS = InstPrinter TargetInfo MCTargetDesc
 
