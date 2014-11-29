@@ -113,24 +113,24 @@ BSET   not implemented
 BCLR   not implemented
 SBI    pseudo
 CBI    pseudo
-BST   not implemented
-BLD   not implemented
-SEC   not implemented
-CLC   not implemented
-SEN   not implemented
-CLN   not implemented
-SEZ   not implemented
-CLZ   not implemented
-SEI   x
-CLI   x
-SES   not implemented
-CLS   not implemented
-SEV   not implemented
-CLV   not implemented
-SET   not implemented
-CLT   not implemented
-SEH   not implemented
-CLH   not implemented
+BST    not implemented
+BLD    not implemented
+SEC    not implemented
+CLC    not implemented
+SEN    not implemented
+CLN    not implemented
+SEZ    not implemented
+CLZ    not implemented
+SEI    x
+CLI    x
+SES    not implemented
+CLS    not implemented
+SEV    not implemented
+CLV    not implemented
+SET    not implemented
+CLT    not implemented
+SEH    not implemented
+CLH    not implemented
 ```
 
 ### MCU Control Instructions
