@@ -47,6 +47,8 @@ class TypeMapTy : public ValueMapTypeRemapper {
   /// roll back.
   SmallVector<Type*, 16> SpeculativeTypes;
 
+  SmallVector<StructType*, 16> SpeculativeDstOpaqueTypes;
+
   /// This is a list of non-opaque structs in the source module that are mapped
   /// to an opaque struct in the destination module.
   SmallVector<StructType*, 16> SrcDefinitionsToResolve;
@@ -94,26 +96,24 @@ private:
 }
 
 void TypeMapTy::addTypeMapping(Type *DstTy, Type *SrcTy) {
+  assert(SpeculativeTypes.empty());
+  assert(SpeculativeDstOpaqueTypes.empty());
+
   // Check to see if these types are recursively isomorphic and establish a
   // mapping between them if so.
-  if (areTypesIsomorphic(DstTy, SrcTy)) {
-    SpeculativeTypes.clear();
-    return;
-  }
+  if (!areTypesIsomorphic(DstTy, SrcTy)) {
+    // Oops, they aren't isomorphic.  Just discard this request by rolling out
+    // any speculative mappings we've established.
+    for (Type *Ty : SpeculativeTypes)
+      MappedTypes.erase(Ty);
 
-  // Oops, they aren't isomorphic. Just discard this request by rolling out
-  // any speculative mappings we've established.
-  unsigned Removed = 0;
-  for (unsigned I = 0, E = SpeculativeTypes.size(); I != E; ++I) {
-    Type *SrcTy = SpeculativeTypes[I];
-    auto Iter = MappedTypes.find(SrcTy);
-    auto *DstTy = dyn_cast<StructType>(Iter->second);
-    if (DstTy && DstResolvedOpaqueTypes.erase(DstTy))
-      Removed++;
-    MappedTypes.erase(Iter);
+    SrcDefinitionsToResolve.resize(SrcDefinitionsToResolve.size() -
+                                   SpeculativeDstOpaqueTypes.size());
+    for (StructType *Ty : SpeculativeDstOpaqueTypes)
+      DstResolvedOpaqueTypes.erase(Ty);
   }
-  SrcDefinitionsToResolve.resize(SrcDefinitionsToResolve.size() - Removed);
   SpeculativeTypes.clear();
+  SpeculativeDstOpaqueTypes.clear();
 }
 
 /// Recursively walk this pair of types, returning true if they are isomorphic,
@@ -156,6 +156,7 @@ bool TypeMapTy::areTypesIsomorphic(Type *DstTy, Type *SrcTy) {
         return false;
       SrcDefinitionsToResolve.push_back(SSTy);
       SpeculativeTypes.push_back(SrcTy);
+      SpeculativeDstOpaqueTypes.push_back(cast<StructType>(DstTy));
       Entry = DstTy;
       return true;
     }

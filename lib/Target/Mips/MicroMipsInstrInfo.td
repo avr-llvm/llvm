@@ -1,7 +1,11 @@
 def addrimm12 : ComplexPattern<iPTR, 2, "selectIntAddrMM", [frameindex]>;
 
-def simm4 : Operand<i32>;
-def simm7 : Operand<i32>;
+def simm4 : Operand<i32> {
+  let DecoderMethod = "DecodeSimm4";
+}
+def li_simm7 : Operand<i32> {
+  let DecoderMethod = "DecodeLiSimm7";
+}
 
 def simm12 : Operand<i32> {
   let DecoderMethod = "DecodeSimm12";
@@ -13,6 +17,7 @@ def uimm5_lsl2 : Operand<OtherVT> {
 
 def uimm6_lsl2 : Operand<i32> {
   let EncoderMethod = "getUImm6Lsl2Encoding";
+  let DecoderMethod = "DecodeUImm6Lsl2";
 }
 
 def simm9_addiusp : Operand<i32> {
@@ -25,6 +30,7 @@ def uimm3_shift : Operand<i32> {
 
 def simm3_lsa2 : Operand<i32> {
   let EncoderMethod = "getSImm3Lsa2Value";
+  let DecoderMethod = "DecodeAddiur2Simm7";
 }
 
 def uimm4_andi : Operand<i32> {
@@ -77,6 +83,22 @@ def mem_mm_12 : Operand<i32> {
   let MIOperandInfo = (ops GPR32, simm12);
   let EncoderMethod = "getMemEncodingMMImm12";
   let ParserMatchClass = MipsMemAsmOperand;
+  let OperandType = "OPERAND_MEMORY";
+}
+
+def MipsMemUimm4AsmOperand : AsmOperandClass {
+  let Name = "MemOffsetUimm4";
+  let SuperClasses = [MipsMemAsmOperand];
+  let RenderMethod = "addMemOperands";
+  let ParserMethod = "parseMemOperand";
+  let PredicateMethod = "isMemWithUimmOffsetSP<6>";
+}
+
+def mem_mm_4sp : Operand<i32> {
+  let PrintMethod = "printMemOperand";
+  let MIOperandInfo = (ops GPR32, uimm8);
+  let EncoderMethod = "getMemEncodingMMImm4sp";
+  let ParserMatchClass = MipsMemUimm4AsmOperand;
   let OperandType = "OPERAND_MEMORY";
 }
 
@@ -186,6 +208,7 @@ class LoadMM16<string opstr, DAGOperand RO, SDPatternOperator OpNode,
                InstrItinClass Itin, Operand MemOpnd> :
   MicroMipsInst16<(outs RO:$rt), (ins MemOpnd:$addr),
                   !strconcat(opstr, "\t$rt, $addr"), [], Itin, FrmI> {
+  let DecoderMethod = "DecodeMemMMImm4";
   let canFoldAsLoad = 1;
   let mayLoad = 1;
 }
@@ -195,6 +218,7 @@ class StoreMM16<string opstr, DAGOperand RTOpnd, DAGOperand RO,
                 Operand MemOpnd> :
   MicroMipsInst16<(outs), (ins RTOpnd:$rt, MemOpnd:$addr),
                   !strconcat(opstr, "\t$rt, $addr"), [], Itin, FrmI> {
+  let DecoderMethod = "DecodeMemMMImm4";
   let mayStore = 1;
 }
 
@@ -288,6 +312,12 @@ class JumpRegCMM16<string opstr, RegisterOperand RO> :
   let isIndirectBranch = 1;
 }
 
+// Break16 and Sdbbp16
+class BrkSdbbp16MM<string opstr> :
+  MicroMipsInst16<(outs), (ins uimm4:$code_),
+                  !strconcat(opstr, "\t$code_"),
+                  [], NoItinerary, FrmOther>;
+
 // MicroMIPS Jump and Link (Call) - Short Delay Slot
 let isCall = 1, hasDelaySlot = 1, Defs = [RA] in {
   class JumpLinkMM<string opstr, DAGOperand opnd> :
@@ -325,6 +355,20 @@ def reglist : Operand<i32> {
   let DecoderMethod = "DecodeRegListOperand";
 }
 
+def RegList16AsmOperand : AsmOperandClass {
+  let Name = "RegList16";
+  let ParserMethod = "parseRegisterList";
+  let PredicateMethod = "isRegList16";
+  let RenderMethod = "addRegListOperands";
+}
+
+def reglist16 : Operand<i32> {
+  let EncoderMethod = "getRegisterListOpValue16";
+  let DecoderMethod = "DecodeRegListOperand16";
+  let PrintMethod = "printRegisterList";
+  let ParserMatchClass = RegList16AsmOperand;
+}
+
 class StoreMultMM<string opstr,
             InstrItinClass Itin = NoItinerary, ComplexPattern Addr = addr> :
   InstSE<(outs), (ins reglist:$rt, mem_mm_12:$addr),
@@ -338,6 +382,22 @@ class LoadMultMM<string opstr,
   InstSE<(outs reglist:$rt), (ins mem_mm_12:$addr),
           !strconcat(opstr, "\t$rt, $addr"), [], Itin, FrmI, opstr> {
   let DecoderMethod = "DecodeMemMMImm12";
+  let mayLoad = 1;
+}
+
+class StoreMultMM16<string opstr,
+                    InstrItinClass Itin = NoItinerary,
+                    ComplexPattern Addr = addr> :
+  MicroMipsInst16<(outs), (ins reglist16:$rt, mem_mm_4sp:$addr),
+                  !strconcat(opstr, "\t$rt, $addr"), [], Itin, FrmI> {
+  let mayStore = 1;
+}
+
+class LoadMultMM16<string opstr,
+                   InstrItinClass Itin = NoItinerary,
+                   ComplexPattern Addr = addr> :
+  MicroMipsInst16<(outs reglist16:$rt), (ins mem_mm_4sp:$addr),
+                  !strconcat(opstr, "\t$rt, $addr"), [], Itin, FrmI> {
   let mayLoad = 1;
 }
 
@@ -377,13 +437,15 @@ def ADDIUSP_MM : AddImmUSP<"addiusp">, ADDIUSP_FM_MM16;
 def MFHI16_MM : MoveFromHILOMM<"mfhi", GPR32Opnd, AC0>, MFHILO_FM_MM16<0x10>;
 def MFLO16_MM : MoveFromHILOMM<"mflo", GPR32Opnd, AC0>, MFHILO_FM_MM16<0x12>;
 def MOVE16_MM : MoveMM16<"move", GPR32Opnd>, MOVE_FM_MM16<0x03>;
-def LI16_MM : LoadImmMM16<"li16", simm7, GPRMM16Opnd, immLi16>,
+def LI16_MM : LoadImmMM16<"li16", li_simm7, GPRMM16Opnd, immLi16>,
               LI_FM_MM16, IsAsCheapAsAMove;
 def JALR16_MM : JumpLinkRegMM16<"jalr", GPR32Opnd>, JALR_FM_MM16<0x0e>;
 def JALRS16_MM : JumpLinkRegSMM16<"jalrs16", GPR32Opnd>, JALR_FM_MM16<0x0f>;
 def JRC16_MM : JumpRegCMM16<"jrc", GPR32Opnd>, JALR_FM_MM16<0x0d>;
 def JRADDIUSP : JumpRAddiuStackMM16, JRADDIUSP_FM_MM16<0x18>;
 def JR16_MM : JumpRegMM16<"jr16", GPR32Opnd>, JALR_FM_MM16<0x0c>;
+def BREAK16_MM : BrkSdbbp16MM<"break16">, BRKSDBBP16_FM_MM<0x28>;
+def SDBBP16_MM : BrkSdbbp16MM<"sdbbp16">, BRKSDBBP16_FM_MM<0x2C>;
 
 class WaitMM<string opstr> :
   InstSE<(outs), (ins uimm10:$code_), !strconcat(opstr, "\t$code_"), [],
@@ -488,6 +550,8 @@ let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
   /// Load and Store Instructions - multiple
   def SWM32_MM  : StoreMultMM<"swm32">, LWM_FM_MM<0xd>;
   def LWM32_MM  : LoadMultMM<"lwm32">, LWM_FM_MM<0x5>;
+  def SWM16_MM : StoreMultMM16<"swm16">, LWM_FM_MM16<0x5>;
+  def LWM16_MM : LoadMultMM16<"lwm16">, LWM_FM_MM16<0x4>;
 
   /// Move Conditional
   def MOVZ_I_MM : MMRel, CMov_I_I_FT<"movz", GPR32Opnd, GPR32Opnd,

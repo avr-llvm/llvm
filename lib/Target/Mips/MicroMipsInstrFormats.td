@@ -207,6 +207,15 @@ class ADDIUR1SP_FM_MM16 {
   let Inst{0}     = 1;
 }
 
+class BRKSDBBP16_FM_MM<bits<6> op> {
+  bits<4> code_;
+  bits<16> Inst;
+
+  let Inst{15-10} = 0x11;
+  let Inst{9-4}   = op;
+  let Inst{3-0}   = code_;
+}
+
 //===----------------------------------------------------------------------===//
 // MicroMIPS 32-bit Instruction Formats
 //===----------------------------------------------------------------------===//
@@ -828,4 +837,16 @@ class LWM_FM_MM<bits<4> funct> : MMArch {
   let Inst{20-16} = addr{20-16};
   let Inst{15-12} = funct;
   let Inst{11-0}  = addr{11-0};
+}
+
+class LWM_FM_MM16<bits<4> funct> : MMArch {
+  bits<2> rt;
+  bits<4> addr;
+
+  bits<16> Inst;
+
+  let Inst{15-10} = 0x11;
+  let Inst{9-6}   = funct;
+  let Inst{5-4}   = rt;
+  let Inst{3-0}   = addr;
 }
