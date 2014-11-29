@@ -55,10 +55,7 @@ class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
 {
   let Pattern = pattern;
   
-  // Pseudo instructions should be lowered into real instructions
-  // by the time code is emitted. If the pseudo instruction hasn't been
-  // lowered, we'll write a hint.
-  let Inst{15-0} = 0xBEEF;
+  let isPseudo = 1;
 }
 
 //===----------------------------------------------------------------------===//

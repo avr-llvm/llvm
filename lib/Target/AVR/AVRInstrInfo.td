@@ -542,11 +542,6 @@ def NEGRd : FRd<0b1001,
                 "neg\t$dst",
                 [(set GPR8:$dst, (ineg GPR8:$src)), (implicit SREG)]>;
 
-/*
-def SBRri           0110 KKKK dddd KKKK ok
-def CBRri           SAME AS   ANDI      ok
-*/
-
 let Defs = [SREG] in
 def TSTRd : Pseudo<(outs),
                    (ins GPR8:$src),
@@ -595,9 +590,6 @@ let isCall = 1 in
                     []>;
   }
 
-/*
-def EICALL          1001 0101 0001 1001 ok
-*/
 
 let isCall = 1 in
   // SP is marked as a use to prevent stack-pointer assignments that appear
