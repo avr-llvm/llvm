@@ -554,10 +554,11 @@ def TSTRd : Pseudo<(outs),
 let isBarrier = 1,
 isBranch = 1,
 isTerminator = 1 in
-def RJMPk : Pseudo<(outs),
-                   (ins brtarget:$target),
-                   "rjmp\t$target",
-                   [(br bb:$target)]>;
+def RJMPk : FBRk<0,
+                 (outs),
+                 (ins brtarget:$target),
+                 "rjmp\t$target",
+                 [(br bb:$target)]>;
 
 let isBranch = 1,
 isTerminator = 1,

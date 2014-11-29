@@ -41,7 +41,7 @@ FMULSU not implemented
 
 ### Branch Instructions
 ```
-RJMP    pseudo
+RJMP    x
 IJMP    not implemented
 EIJMP   not implemented
 JMP     x
