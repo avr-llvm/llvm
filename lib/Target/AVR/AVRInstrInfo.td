@@ -262,15 +262,15 @@ def ADCWRdRr : Pseudo<(outs DREGS:$dst),
                       [(set DREGS:$dst, (adde DREGS:$src, DREGS:$src2)),
                        (implicit SREG)]>;
 
-// AIDW Rd, K
-// Adds an immediate 6-bit value K to Rd.
+// AIDW Rd, k
+// Adds an immediate 6-bit value K to Rd, placing the result in Rd.
 let Constraints = "$src = $dst",
 Defs = [SREG] in
 def ADIWRdK : FWRdK<0b0,
                     (outs IWREGS:$dst),
-                    (ins IWREGS:$src, i16imm:$src2),
-                    "adiw\t$dst, $src2",
-                    [(set IWREGS:$dst, (add IWREGS:$src, uimm6:$src2)),
+                    (ins IWREGS:$src, i16imm:$k),
+                    "adiw\t$dst, $k",
+                    [(set IWREGS:$dst, (add IWREGS:$src, uimm6:$k)),
                      (implicit SREG)]>;
 
 // SUB Rd, Rr
@@ -355,9 +355,9 @@ let Constraints = "$src = $dst",
 Defs = [SREG] in
 def SBIWRdK : FWRdK<0b1,
                     (outs IWREGS:$dst),
-                    (ins IWREGS:$src, i16imm:$src2),
-                    "sbiw\t$dst, $src2",
-                    [(set IWREGS:$dst, (sub IWREGS:$src, uimm6:$src2)),
+                    (ins IWREGS:$src, i16imm:$k),
+                    "sbiw\t$dst, $k",
+                    [(set IWREGS:$dst, (sub IWREGS:$src, uimm6:$k)),
                      (implicit SREG)]>;
 
 let Constraints = "$src = $dst",

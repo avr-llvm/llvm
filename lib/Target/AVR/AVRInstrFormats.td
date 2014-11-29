@@ -231,23 +231,23 @@ class Mu3RdRr<bits<2> f, dag outs, dag ins, string asmstr, list<dag> pattern>
 }
 
 //===----------------------------------------------------------------------===//
-// Arithmetic word instructions (ADIW / SBIW): <|1001|011f|KKdd|KKKK|>
+// Arithmetic word instructions (ADIW / SBIW): <|1001|011f|kkdd|kkkk|>
 // f = secondary opcode = 1 bit
-// K = constant data = 6 bits
+// k = constant data = 6 bits
 // d = destination = 4 bits
 // (Only accepts r25:24 r27:26 r29:28 r31:30)
 //===----------------------------------------------------------------------===//
 class FWRdK<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<5> d;              // accept 5 bits but only encode bits 1 and 2
-  bits<6> K;
+  bits<5> dst;              // accept 5 bits but only encode bits 1 and 2
+  bits<6> k;
 
   let Inst{15-9} = 0b1001011;
   let Inst{8} = f;
-  let Inst{7-6} = K{5-4};
-  let Inst{5-4} = d{2-1};
-  let Inst{3-0} = K{3-0};
+  let Inst{7-6} = k{5-4};
+  let Inst{5-4} = dst{2-1};
+  let Inst{3-0} = k{3-0};
 }
 
 //===----------------------------------------------------------------------===//
