@@ -120,6 +120,44 @@ AVRMCCodeEmitter::getMemriEncoding(const MCInst &MI, unsigned OpNo,
   return encoding;
 }
 
+unsigned
+AVRMCCodeEmitter::getBreakTargetEncoding(const MCInst &MI, unsigned OpNo,
+                                         SmallVectorImpl<MCFixup> &Fixups,
+                                         const MCSubtargetInfo &STI) const {
+                                   
+  const MCOperand MO = MI.getOperand(OpNo);
+  
+  if (MO.isExpr())
+  {
+    /*const MCOperand &MO = MI.getOperand(OpIdx);
+
+    const MCExpr *Expr = MO.getExpr();
+    MCFixupKind Kind = MCFixupKind(FixupKind);
+    Fixups.push_back(MCFixup::Create(0, Expr, Kind, MI.getLoc()));*/
+    
+    llvm_unreachable("will implement");
+  } 
+  else
+    return (MO.getImm() >> 1);
+}
+
+unsigned AVRMCCodeEmitter::
+getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
+               const MCSubtargetInfo &STI) const {
+               
+  MCExpr::ExprKind Kind = Expr->getKind();
+
+  if (Kind == MCExpr::Binary) {
+    Expr = static_cast<const MCBinaryExpr*>(Expr)->getLHS();
+    Kind = Expr->getKind();
+  }
+
+  assert (Kind == MCExpr::SymbolRef);
+
+  // All of the information is in the fixup.
+  return 0;
+}
+
 unsigned AVRMCCodeEmitter::
 getMachineOpValue(const MCInst &MI, const MCOperand &MO,
                   SmallVectorImpl<MCFixup> &Fixups,
@@ -135,12 +173,10 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
         .bitcastToAPInt().getHiBits(32).getLimitedValue());
   }
   
-  // [avr-todo] I don't exactly know what getExprOrValue does. It seems as if an MCExpr
-  // can take on expressions or values which to me doesn't make sense (everything should've
-  // been rendered down into raw machine instructions at this point).
-  // I removed the previous code from the Mips backend and added this roadblock so
-  // that the issue may come to light.
-  llvm_unreachable("this is an AVR-LLVM bug, please report it with the number 92331");
+  // MO must be an Expr.
+  assert(MO.isExpr());
+  
+  return getExprOpValue(MO.getExpr(),Fixups, STI);
 }
 
 #include "AVRGenMCCodeEmitter.inc"

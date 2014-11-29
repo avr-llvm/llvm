@@ -156,6 +156,7 @@ def memspi : Operand<iPTR>
 def brtarget : Operand<OtherVT>
 {
   let PrintMethod = "print_pcrel_imm";
+  let EncoderMethod = "getBreakTargetEncoding";
 }
 
 // Addressing mode pattern reg+imm6
@@ -660,10 +661,13 @@ def BREQk : Pseudo<(outs),
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
-def BRNEk : Pseudo<(outs),
-                   (ins brtarget:$target),
-                   "brne\t$target",
-                   [(AVRbrcond bb:$target, AVR_COND_NE)]>;
+def BRNEk : FBRsk<1,
+                  0b001,
+                  (outs),
+                  (ins brtarget:$target),
+                  "brne\t$target",
+                  [(AVRbrcond bb:$target, AVR_COND_NE)]>;
+
 
 let isBranch = 1,
 isTerminator = 1,

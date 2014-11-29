@@ -55,7 +55,7 @@ class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
 {
   let Pattern = pattern;
   
-  let isPseudo = 1;
+  //let isPseudo = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -289,10 +289,9 @@ class FIOARr<dag outs, dag ins, string asmstr, list<dag> pattern>
 // k = constant address = 7 bits
 // s = bit in status register = 3 bits
 //===----------------------------------------------------------------------===//
-class FBRsk<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
+class FBRsk<bit f, bits<3> s, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<3> s;
   bits<7> k;
 
   let Inst{15-11} = 0b11110;
