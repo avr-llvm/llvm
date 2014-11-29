@@ -10,6 +10,8 @@ being placed first.
 As the project is still very much in development, it is likely that you will encounter bugs. If you think you've found one, submit an issue - we're aiming for AVR-LLVM to eventually be
 a production-quality compiler backend, so bugs will not be tolerated.
 
+See `AVR_SUPPORT.md` for a list of supported instructions.
+
 ## Development
 Take a look at the issues page for goals and bugs that currently exist. Pull requests are very welcome!
 
