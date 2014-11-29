@@ -28,20 +28,6 @@
 
 using namespace llvm;
 
-// Prepare value for the target space for it
-static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
-                                 MCContext *Ctx = nullptr) {
-
-  unsigned Kind = Fixup.getKind();
-
-  // Add/subtract and shift
-  switch (Kind) {
-  default:
-    return 0;
-  }
-
-  return Value;
-}
 
 MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_ostream &OS) const {
   return createAVRELFObjectWriter(OS,
@@ -55,29 +41,8 @@ MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_ostream &OS) const {
 void AVRAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
                                 unsigned DataSize, uint64_t Value,
                                 bool IsPCRel) const {
-  MCFixupKind Kind = Fixup.getKind();
-  Value = adjustFixupValue(Fixup, Value);
-
-  if (!Value)
-    return; // Doesn't change encoding.
-
-  // Used to point to big endian bytes
-  unsigned FullSize;
-
-  switch ((unsigned)Kind) {
-  case FK_Data_2:
-    FullSize = 2;
-    break;
-  case FK_Data_8:
-    FullSize = 8;
-    break;
-  case FK_Data_4:
-  default:
-    FullSize = 4;
-    break;
-  }
   
-  // I'm not sure how to modify this function so put this here.
+  // We don't have any fixups at the time of writing this function.
   llvm_unreachable("this is an AVR-LLVM bug");
 }
 

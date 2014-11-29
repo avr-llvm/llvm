@@ -20,6 +20,8 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 
+#define UNUSED_VARIABLE(x) (void)(x)
+
 using namespace llvm;
 
 namespace
@@ -91,7 +93,9 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
           .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
           .addReg(DstHiReg, getKillRegState(DstIsKill))
           .addReg(SrcHiReg, getKillRegState(SrcIsKill));
-
+      
+      UNUSED_VARIABLE(MIBLO);
+      
       if (ImpIsDead) MIBHI->getOperand(3).setIsDead();
       // SREG is always implicitly killed
       MIBHI->getOperand(4).setIsKill();
@@ -157,7 +161,9 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
           .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
           .addReg(DstHiReg, getKillRegState(DstIsKill))
           .addReg(SrcHiReg, getKillRegState(SrcIsKill));
-
+      
+      UNUSED_VARIABLE(MIBLO);
+      
       if (ImpIsDead) MIBHI->getOperand(3).setIsDead();
       // SREG is always implicitly killed
       MIBHI->getOperand(4).setIsKill();
@@ -490,6 +496,8 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
         BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(OpHi))
           .addReg(DstHiReg, getKillRegState(DstIsKill))
           .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+      
+      UNUSED_VARIABLE(MIBLO);
 
       if (ImpIsDead) MIBHI->getOperand(2).setIsDead();
       // SREG is always implicitly killed
@@ -991,6 +999,9 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
         BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(OpHi))
           .addReg(SrcHiReg, getKillRegState(SrcIsKill))
           .setMIFlags(Flags);
+      
+      UNUSED_VARIABLE(MIBLO);
+      UNUSED_VARIABLE(MIBHI);
 
       MI.eraseFromParent();
       return true;
@@ -1010,6 +1021,9 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
       MachineInstrBuilder MIBLO =
         BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(OpLo), DstLoReg)
           .setMIFlags(Flags);
+      
+      UNUSED_VARIABLE(MIBLO);
+      UNUSED_VARIABLE(MIBHI);
 
       MI.eraseFromParent();
       return true;
@@ -1034,6 +1048,8 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
           .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
           .addReg(DstHiReg, getKillRegState(DstIsKill));
 
+      UNUSED_VARIABLE(MIBLO);
+      
       if (ImpIsDead) MIBHI->getOperand(2).setIsDead();
       // SREG is always implicitly killed
       MIBHI->getOperand(3).setIsKill();
@@ -1060,7 +1076,9 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
         BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(OpLo))
           .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
           .addReg(DstLoReg, getKillRegState(DstIsKill));
-
+      
+      UNUSED_VARIABLE(MIBHI);
+      
       if (ImpIsDead) MIBLO->getOperand(2).setIsDead();
       // SREG is always implicitly killed
       MIBLO->getOperand(3).setIsKill();
@@ -1091,6 +1109,8 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
           .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
           .addReg(DstLoReg, getKillRegState(DstIsKill));
 
+      UNUSED_VARIABLE(MIBHI);
+      
       if (ImpIsDead) MIBLO->getOperand(2).setIsDead();
       // SREG is always implicitly killed
       MIBLO->getOperand(3).setIsKill();
@@ -1212,7 +1232,10 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
           .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
           .addImm(0x3e)
           .setMIFlags(Flags);
-
+      
+      UNUSED_VARIABLE(MIBLO);
+      UNUSED_VARIABLE(MIBHI);
+      
       MI.eraseFromParent();
       return true;
     }
