@@ -392,7 +392,7 @@ def MULRdRrP : Pseudo<(outs GPR8:$dst),
 // Multiplies Rd by Rr and places the result into Rd.
 let isCommutable = 1,
 Defs = [R1, R0, SREG],
-neverHasSideEffects = 1 in
+hasSideEffects = 0 in
 def MULRdRr : Mu1RdRr<(outs GPR8:$dst),
                       (ins GPR8:$src, GPR8:$src2),
                       "mul\t$src, $src2",
@@ -412,7 +412,7 @@ def MULWRdRr : Pseudo<(outs DREGS:$dst),
 // This instruction produces a 16bit result from two 8bit operands.
 let isCommutable = 1,
 Defs = [R1R0, SREG],
-neverHasSideEffects = 1 in
+hasSideEffects = 0 in
 def MUL16RdRr : Mu1RdRr<(outs DREGS:$dst),
                         (ins GPR8:$src, GPR8:$src2),
                         "mul\t$src, $src2",
@@ -653,10 +653,12 @@ def CPCWRdRr : Pseudo<(outs),
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
-def BREQk : Pseudo<(outs),
-                   (ins brtarget:$target),
-                   "breq\t$target",
-                   [(AVRbrcond bb:$target, AVR_COND_EQ)]>;
+def BREQk : FBRsk<0,
+                  0b001,
+                  (outs),
+                  (ins brtarget:$target),
+                  "breq\t$target",
+                  [(AVRbrcond bb:$target, AVR_COND_EQ)]>;
 
 let isBranch = 1,
 isTerminator = 1,
@@ -720,7 +722,7 @@ def BRLTk : Pseudo<(outs),
 // Data transfer instructions
 // __________________________
 
-let neverHasSideEffects = 1 in
+let hasSideEffects = 0 in
 def MOVRdRr : FRdRr<0b0010,
                     0b11,
                     (outs GPR8:$dst),
@@ -728,7 +730,7 @@ def MOVRdRr : FRdRr<0b0010,
                     "mov\t$dst, $src",
                     []>;
 
-let neverHasSideEffects = 1 in
+let hasSideEffects = 0 in
 def MOVWRdRr : FMOVWRdRr<(outs DREGS:$dst),
                          (ins DREGS:$src),
                          "movw\t$dst, $src",
@@ -780,7 +782,7 @@ def LDWRdPtr : Pseudo<(outs DREGS:$dst),
                       [(set DREGS:$dst, (load PTRDISPREGS:$src))]>;
 
 let mayLoad = 1,
-neverHasSideEffects = 1,
+hasSideEffects = 0,
 Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
 def LDRdPtrPi : Pseudo<(outs GPR8:$dst, PTRREGS:$base_wb),
                        (ins PTRREGS:$src),
@@ -788,7 +790,7 @@ def LDRdPtrPi : Pseudo<(outs GPR8:$dst, PTRREGS:$base_wb),
                        []>;
 
 let mayLoad = 1,
-neverHasSideEffects = 1,
+hasSideEffects = 0,
 Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
 def LDWRdPtrPi : Pseudo<(outs DREGS:$dst, PTRREGS:$base_wb),
                         (ins PTRREGS:$src),
@@ -796,7 +798,7 @@ def LDWRdPtrPi : Pseudo<(outs DREGS:$dst, PTRREGS:$base_wb),
                         []>;
 
 let mayLoad = 1,
-neverHasSideEffects = 1,
+hasSideEffects = 0,
 Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
 def LDRdPtrPd : Pseudo<(outs GPR8:$dst, PTRREGS:$base_wb),
                        (ins PTRREGS:$src),
@@ -804,7 +806,7 @@ def LDRdPtrPd : Pseudo<(outs GPR8:$dst, PTRREGS:$base_wb),
                        []>;
 
 let mayLoad = 1,
-neverHasSideEffects = 1,
+hasSideEffects = 0,
 Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
 def LDWRdPtrPd : Pseudo<(outs DREGS:$dst, PTRREGS:$base_wb),
                         (ins PTRREGS:$src),
@@ -830,7 +832,7 @@ def LDDWRdPtrQ : Pseudo<(outs DREGS:$dst),
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
 mayLoad = 1,
-neverHasSideEffects = 1 in
+hasSideEffects = 0 in
 def LDDWRdYQ : Pseudo<(outs DREGS:$dst),
                       (ins memri:$src),
                       "lddw\t$dst, $src",
@@ -917,7 +919,7 @@ def STDWPtrQRr : Pseudo<(outs),
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
-neverHasSideEffects = 1 in
+hasSideEffects = 0 in
 def LPMRdZ : Pseudo<(outs GPR8:$dst),
                     (ins),
                     "lpm\t$dst, Z",
@@ -925,7 +927,7 @@ def LPMRdZ : Pseudo<(outs GPR8:$dst),
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
-neverHasSideEffects = 1,
+hasSideEffects = 0,
 Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
 def LPMWRdZ : Pseudo<(outs DREGS:$dst, DREGS:$base_wb),
                      (ins DREGS:$src),
@@ -933,7 +935,7 @@ def LPMWRdZ : Pseudo<(outs DREGS:$dst, DREGS:$base_wb),
                      []>;
 
 let mayLoad = 1,
-neverHasSideEffects = 1,
+hasSideEffects = 0,
 Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
 def LPMRdZPi : Pseudo<(outs GPR8:$dst, DREGS:$base_wb),
                       (ins DREGS:$src),
@@ -941,7 +943,7 @@ def LPMRdZPi : Pseudo<(outs GPR8:$dst, DREGS:$base_wb),
                       []>;
 
 let mayLoad = 1,
-neverHasSideEffects = 1,
+hasSideEffects = 0,
 Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
 def LPMWRdZPi : Pseudo<(outs DREGS:$dst, DREGS:$base_wb),
                        (ins DREGS:$src),
@@ -974,7 +976,7 @@ def OUTWARr : Pseudo<(outs),
 
 let Defs = [SP],
 Uses = [SP],
-neverHasSideEffects = 1,
+hasSideEffects = 0,
 mayStore = 1 in
 def PUSHRr : FRd<0b1001,
                  0b0011111,
@@ -985,7 +987,7 @@ def PUSHRr : FRd<0b1001,
 
 let Defs = [SP],
 Uses = [SP],
-neverHasSideEffects = 1,
+hasSideEffects = 0,
 mayStore = 1 in
 def PUSHWRr : Pseudo<(outs),
                      (ins DREGS:$reg),
@@ -994,7 +996,7 @@ def PUSHWRr : Pseudo<(outs),
 
 let Defs = [SP],
 Uses = [SP],
-neverHasSideEffects = 1,
+hasSideEffects = 0,
 mayLoad = 1 in
 def POPRd : FRd<0b1001,
                 0b0001111,
@@ -1005,7 +1007,7 @@ def POPRd : FRd<0b1001,
 
 let Defs = [SP],
 Uses = [SP],
-neverHasSideEffects = 1,
+hasSideEffects = 0,
 mayLoad = 1 in
 def POPWRd : Pseudo<(outs DREGS:$reg),
                     (ins),
@@ -1157,7 +1159,7 @@ def ZEXT : Pseudo<(outs DREGS:$dst),
 
 // This pseudo gets expanded into a movw+adiw thus it clobbers SREG.
 let Defs = [SREG],
-neverHasSideEffects = 1 in
+hasSideEffects = 0 in
 def FRMIDX : Pseudo<(outs DLDREGS:$dst),
                     (ins DLDREGS:$src, i16imm:$src2),
                     "frmidx\t$dst, $src, $src2",
@@ -1180,14 +1182,14 @@ def STDWSPQRr : Pseudo<(outs),
                        [(store DREGS:$src, addr:$dst)]>;
 
 let Uses = [SP],
-neverHasSideEffects = 1 in
+hasSideEffects = 0 in
 def SPREAD : Pseudo<(outs DREGS:$dst),
                     (ins GPRSP:$src),
                     "spread\t$dst, $src",
                     []>;
 
 let Defs = [SP],
-neverHasSideEffects = 1 in
+hasSideEffects = 0 in
 def SPWRITE : Pseudo<(outs GPRSP:$dst),
                      (ins DREGS:$src),
                      "spwrite\t$dst, $src",
