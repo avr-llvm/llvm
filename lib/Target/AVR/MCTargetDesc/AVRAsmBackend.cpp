@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 //
 
+#include "MCTargetDesc/AVRFixupKinds.h"
 #include "MCTargetDesc/AVRAsmBackend.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 #include "llvm/MC/MCAsmBackend.h"
@@ -29,6 +30,38 @@
 using namespace llvm;
 
 
+// Prepare value for the target space for it
+static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
+                                 MCContext *Ctx = nullptr) {
+
+  unsigned Kind = Fixup.getKind();
+
+  // Add/subtract and shift
+  switch (Kind) {
+  default:
+    return 0;
+  case FK_Data_2:
+  case FK_GPRel_4:
+  case FK_Data_4:
+  case FK_Data_8:
+    break;
+  case AVR::fixup_brcond:
+
+    // We now check if Value can be encoded as a 7-bit signed immediate.
+    if (!isIntN(7, Value) && Ctx)
+      Ctx->FatalError(Fixup.getLoc(), "out of range brcond fixup");
+    
+    // Take the size of the current instruction away.
+    Value -= 2;
+    
+    Value <<= 2;
+    
+    break;
+  }
+
+  return Value;
+}
+
 MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_ostream &OS) const {
   return createAVRELFObjectWriter(OS,
     MCELFObjectTargetWriter::getOSABI(OSType),
@@ -42,8 +75,42 @@ void AVRAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
                                 unsigned DataSize, uint64_t Value,
                                 bool IsPCRel) const {
   
-  // We don't have any fixups at the time of writing this function.
-  llvm_unreachable("this is an AVR-LLVM bug");
+  unsigned NumBytes = 1;//getFixupKindNumBytes(Fixup.getKind());
+  if (!Value)
+    return; // Doesn't change encoding.
+  MCFixupKindInfo Info = getFixupKindInfo(Fixup.getKind());
+  // Apply any target-specific value adjustments.
+  Value = adjustFixupValue(Fixup, Value);
+
+  // Shift the value into position.
+  Value <<= Info.TargetOffset;
+
+  unsigned Offset = Fixup.getOffset();
+  assert(Offset + NumBytes <= DataSize && "Invalid fixup offset!");
+
+  // For each byte of the fragment that the fixup touches, mask in the
+  // bits from the fixup value.
+  for (unsigned i = 0; i != NumBytes; ++i)
+    Data[Offset + i] |= uint8_t((Value >> (i * 8)) & 0xff);
+}
+
+const MCFixupKindInfo &AVRAsmBackend::
+getFixupKindInfo(MCFixupKind Kind) const {
+  const static MCFixupKindInfo Infos[AVR::NumTargetFixupKinds] = {
+    // This table *must* be in same the order of fixup_* kinds in
+    // AVRFixupKinds.h.
+    //
+    // name                    offset  bits  flags
+    { "fixup_brcond",          0,      6,    MCFixupKindInfo::FKF_IsPCRel },
+  };
+
+  if (Kind < FirstTargetFixupKind)
+    return MCAsmBackend::getFixupKindInfo(Kind);
+
+  assert(unsigned(Kind - FirstTargetFixupKind) < getNumFixupKinds() &&
+          "Invalid kind!");
+
+  return Infos[Kind - FirstTargetFixupKind];
 }
 
 /// WriteNopData - Write an (optimal) nop sequence of Count bytes
@@ -66,6 +133,22 @@ bool AVRAsmBackend::writeNopData(uint64_t Count, MCObjectWriter *OW) const {
   for (uint64_t i = 0; i != NumNops; ++i)
     OW->Write32(0);
   return true;
+}
+
+/// processFixupValue - Target hook to process the literal value of a fixup
+/// if necessary.
+void AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
+                                      const MCAsmLayout &Layout,
+                                      const MCFixup &Fixup,
+                                      const MCFragment *DF,
+                                      const MCValue &Target,
+                                      uint64_t &Value,
+                                      bool &IsResolved) {
+  // At this point we'll ignore the value returned by adjustFixupValue as
+  // we are only checking if the fixup can be applied correctly. We have
+  // access to MCContext from here which allows us to report a fatal error
+  // with *possibly* a source code location.
+  (void)adjustFixupValue(Fixup, Value, &Asm.getContext());
 }
 
 MCAsmBackend *llvm::createAVRAsmBackendEL(const Target &T,

@@ -13,6 +13,7 @@
 //
 
 #include "AVRMCCodeEmitter.h"
+#include "MCTargetDesc/AVRFixupKinds.h"
 #include "MCTargetDesc/AVRMCExpr.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 #include "llvm/ADT/APFloat.h"
@@ -37,6 +38,7 @@ MCCodeEmitter *llvm::createAVRMCCodeEmitter(const MCInstrInfo &MCII,
                                          MCContext &Ctx) {
   return new AVRMCCodeEmitter(MCII, Ctx, false);
 }
+
 void AVRMCCodeEmitter::EmitByte(unsigned char C, raw_ostream &OS) const {
   OS << (char)C;
 }
@@ -129,13 +131,14 @@ AVRMCCodeEmitter::getBreakTargetEncoding(const MCInst &MI, unsigned OpNo,
   
   if (MO.isExpr())
   {
-    /*const MCOperand &MO = MI.getOperand(OpIdx);
+    const MCOperand &MO = MI.getOperand(OpNo);
 
     const MCExpr *Expr = MO.getExpr();
-    MCFixupKind Kind = MCFixupKind(FixupKind);
-    Fixups.push_back(MCFixup::Create(0, Expr, Kind, MI.getLoc()));*/
+    MCFixupKind Kind = MCFixupKind(AVR::fixup_brcond);
+    Fixups.push_back(MCFixup::Create(0, Expr, Kind, MI.getLoc()));
     
-    llvm_unreachable("will implement");
+    // All of the information is in the fixup.
+    return 0;
   } 
   else
     return (MO.getImm() >> 1);
