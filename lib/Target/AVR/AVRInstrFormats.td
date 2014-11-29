@@ -11,9 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-//:TODO: describe register and operands page 1 from inset.pdf
+// :TODO: set is isAsCheapAsAMove per format instead of per instruction??!
 
-// AVR generic instruction
+// A generic AVR instruction.
 class AVRInst<dag outs, dag ins, string asmstr, list<dag> pattern> : Instruction
 {
   let Namespace = "AVR";
@@ -24,29 +24,39 @@ class AVRInst<dag outs, dag ins, string asmstr, list<dag> pattern> : Instruction
   let Pattern = pattern;
 }
 
-//:TODO: hack to define 16 and 32 bit instructions, find a better way??!
+/// A 16-bit AVR instruction.
 class AVRInst16<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst<outs, ins, asmstr, pattern>
 {
   field bits<16> Inst;
+  
+  let Size = 2;
 }
 
+/// a 32-bit AVR instruction.
 class AVRInst32<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst<outs, ins, asmstr, pattern>
 {
   field bits<32> Inst;
+  
+  let Size = 4;
 }
 
-// Pseudo instructions
+// A class for pseudo instructions.
+// Psuedo instructions are not real AVR instructions. The DAG stores
+// psuedo instructions which are replaced by real AVR instructions by
+// AVRExpandPseudoInsts.cpp.
+//
+// For example, the ADDW (add wide, as in add 16 bit values) instruction is defined
+// as a pseudo instruction. In AVRExpandPseudoInsts.cpp, the instruction is then replaced
+// by two add instructions - one for each byte.
 class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
   let Pattern = pattern;
-  let Inst{15-0} = 0;
+  
+  let isPseudo = 1;
 }
-
-//:TODO: set is isAsCheapAsAMove per format instead of per instruction??!
-// :TODO:REMAT LDI!?
 
 //===----------------------------------------------------------------------===//
 // Register / register instruction: <|opcode|ffrd|dddd|rrrr|>
@@ -104,6 +114,45 @@ class FRd<bits<4> opcode, bits<7> f, dag outs, dag ins, string asmstr,
   let Inst{11-9} = f{6-4};
   let Inst{8-4} = d;
   let Inst{3-0} = f{3-0};
+}
+
+//===----------------------------------------------------------------------===//
+// STD P+q, Rr special encoding: <|10q0|qq1r|rrrr|pqqq>
+// q = displacement (6 bits)
+// r = register (5 bits)
+// p = pointer register (1 bit) [1 for Y, 0 for Z]
+//===----------------------------------------------------------------------===//
+// Caveat:
+// This format is a dirty, dirty hack. In AVRInstrInfo.td, there is an operand
+// type called `memri`, which describes a pointer register and an immediate.
+// This operand has a custom encoding function in AVRMCCodeEmitter.cpp. Ideally
+// we would expose the ptr register and the immediate as seperate operands,so
+// that we can assign their bits here (and wouldn't need an encoder function).
+// I couldn't find a way to do this without breaking pattern matching. Instead,
+// they are unified into one encoding function, which outputs <qqqqqqp>. The only
+// way I could get tablegen to create the correct instructions was to increase the
+// size of `bits<6> q` to `bits<7> q` and to increase all indices by one (because
+// all bits were off by one place). Thus, we ignore q{0}.
+//===----------------------------------------------------------------------===//
+class FSTDPqRr<dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  bit p;
+  bits<7> q;
+  bits<5> r;
+
+  let Inst{15-14} = 0b10;
+  let Inst{13} = q{6};
+  let Inst{12} = 0b0;
+  
+  let Inst{11-10} = q{5-4};
+  let Inst{9} = 0b1;
+  let Inst{8} = r{4};
+  
+  let Inst{7-4} = r{3-0};
+  
+  let Inst{3} = p;
+  let Inst{2-0} = q{3-1};
 }
 
 //===----------------------------------------------------------------------===//
@@ -179,23 +228,23 @@ class Mu3RdRr<bits<2> f, dag outs, dag ins, string asmstr, list<dag> pattern>
 }
 
 //===----------------------------------------------------------------------===//
-// Arithmetic word instructions (ADIW / SBIW): <|1001|011f|KKdd|KKKK|>
+// Arithmetic word instructions (ADIW / SBIW): <|1001|011f|kkdd|kkkk|>
 // f = secondary opcode = 1 bit
-// K = constant data = 6 bits
+// k = constant data = 6 bits
 // d = destination = 4 bits
 // (Only accepts r25:24 r27:26 r29:28 r31:30)
 //===----------------------------------------------------------------------===//
 class FWRdK<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<5> d;              // accept 5 bits but only encode bits 1 and 2
-  bits<6> K;
+  bits<5> dst;              // accept 5 bits but only encode bits 1 and 2
+  bits<6> k;
 
   let Inst{15-9} = 0b1001011;
   let Inst{8} = f;
-  let Inst{7-6} = K{5-4};
-  let Inst{5-4} = d{2-1};
-  let Inst{3-0} = K{3-0};
+  let Inst{7-6} = k{5-4};
+  let Inst{5-4} = dst{2-1};
+  let Inst{3-0} = k{3-0};
 }
 
 //===----------------------------------------------------------------------===//
@@ -240,10 +289,9 @@ class FIOARr<dag outs, dag ins, string asmstr, list<dag> pattern>
 // k = constant address = 7 bits
 // s = bit in status register = 3 bits
 //===----------------------------------------------------------------------===//
-class FBRsk<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
+class FBRsk<bit f, bits<3> s, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<3> s;
   bits<7> k;
 
   let Inst{15-11} = 0b11110;
@@ -256,6 +304,15 @@ class FBRsk<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
 // Branching instructions: <|opcode|>
 //===----------------------------------------------------------------------===//
 class FBR<bits<16> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  let Inst = opcode;
+}
+
+//===----------------------------------------------------------------------===//
+// Interrupt instructions: <|opcode|>
+//===----------------------------------------------------------------------===//
+class FI<bits<16> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
   let Inst = opcode;

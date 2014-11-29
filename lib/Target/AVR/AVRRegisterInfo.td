@@ -12,10 +12,12 @@
 //===----------------------------------------------------------------------===//
 
 // general purpose register definition
-class AVRReg<bits<6> num, string n, list<Register> subregs = []>
+class AVRReg<bits<16> num, string n, list<Register> subregs = []>
   : RegisterWithSubRegs<n, subregs>
 {
-  field bits<6> Num = num;
+  field bits<16> Num = num;
+  
+  let HWEncoding = num;
   let Namespace = "AVR";
   let SubRegs = subregs;
 }

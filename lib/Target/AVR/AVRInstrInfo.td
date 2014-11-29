@@ -141,6 +141,8 @@ def iobitposn8 : PatLeaf<(imm),
 def memri : Operand<iPTR>
 {
   let PrintMethod = "printMemriOperand";
+  let EncoderMethod = "getMemriEncoding";
+  
   let MIOperandInfo = (ops PTRDISPREGS, i8imm);
 }
 
@@ -154,6 +156,7 @@ def memspi : Operand<iPTR>
 def brtarget : Operand<OtherVT>
 {
   let PrintMethod = "print_pcrel_imm";
+  let EncoderMethod = "getBreakTargetEncoding";
 }
 
 // Addressing mode pattern reg+imm6
@@ -170,213 +173,7 @@ def AVR_COND_LO : PatLeaf<(i8 5)>;
 def AVR_COND_MI : PatLeaf<(i8 6)>;
 def AVR_COND_PL : PatLeaf<(i8 7)>;
 
-// :TODO: TEMPORARY INSTRUCTION LISTING, leave it here until we're done with it
-// Arithmetic instructions
-/*
-  ADD RD, RR
-  ADC RD, RR
-  ADIW RD, K
 
-  SUB RD, RR
-  SUBI RD, K
-  SBC RD, RR
-  SBCI RD, K
-  SBIW RD, K
-
-  INC RD
-  DEC RD
-
-  MUL RD, RR
-  MULS RD, RR
-  MULSU RD, RR
-  FMUL RD, RR
-  FMULS RD, RR
-  FMULSU RD, RR
-
-  DES??
-*/
-
-/*
-def ADDrr       0000 11rd dddd rrrr ok
-def ADCrr       0001 11rd dddd rrrr ok
-def ADIWri      1001 0110 KKdd KKKK ok
-
-def SUBrr       0001 10rd dddd rrrr ok
-def SUBIri      0101 KKKK dddd KKKK ok
-def SBCrr       0000 10rd dddd rrrr ok
-def SBCIri      0100 KKKK dddd KKKK ok
-def SBIWri      1001 0111 KKdd KKKK ok
-
-def INCr        1001 010d dddd 0011 ok
-def DECr        1001 010d dddd 1010 ok
-
-def MULrr       1001 11rd dddd rrrr ok
-def MULSrr      0000 0010 dddd rrrr ok
-def MULSUrr     0000 0011 0ddd 0rrr ok
-def FMULrr      0000 0011 0ddd 1rrr ok
-def FMULSrr     0000 0011 1ddd 0rrr ok
-def FMULSUrr    0000 0011 1ddd 1rrr ok
-*/
-//def DES :TODO:
-
-// Logic instructions
-/*
-  AND RD, RR
-  ANDI RD, K
-
-  OR RD, RR
-  ORI RD, K
-
-  EOR RD, RR
-
-  COM RD
-  NEG RD
-
-  SBR RD, K
-  CBR RD, K
-
-  TST RD
-
-  CLR RD
-
-  SER RD
-*/
-/*
-def ANDrr           0010 00rd dddd rrrr ok
-def ANDIri          0111 KKKK dddd KKKK ok
-def ORrr            0010 10rd dddd rrrr ok
-def ORIri           0110 KKKK dddd KKKK ok
-def EORrr           0010 01rd dddd rrrr ok
-def COMr            1001 010d dddd 0000 ok
-def NEGr            1001 010d dddd 0001 ok
-def SBRri           0110 KKKK dddd KKKK ok
-def CBRri           SAME AS   ANDI      ok
-def TSTr            0010 00dd dddd dddd (SAME AS AND RD, RD) ok
-def CLRr            0010 01dd dddd dddd (SAME AS EOR RD, RD) ok
-def SERr            1110 1111 dddd 1111 (SAME AS LDI RD, 0xFF) ok
-
-// Branch instructions
-def RJMPi           1100 kkkk kkkk kkkk ok  //:TODO: use a for addr instead of i?
-def IJMP            1001 0100 0000 1001 ok
-def JMPi            1001 010k kkkk 110k kkkk kkkk kkkk kkkk
-
-def RCALLi          1101 kkkk kkkk kkkk ok
-def ICALL           1001 0101 0000 1001 ok
-def EICALL          1001 0101 0001 1001 ok
-def CALLi           1001 010k kkkk 111k kkkk kkkk kkkk kkkk
-def RET             1001 0101 0000 1000 ok
-def RETI            1001 0101 0001 1000 ok
-
-def CPSErr          0001 00rd dddd rrrr ok
-def CPrr            0001 01rd dddd rrrr ok
-def CPCrr           0000 01rd dddd rrrr ok
-def CPIri           0011 kkkk dddd kkkk ok
-
-def SBRCrb          1111 110r rrrr 0bbb
-def SBRSrb          1111 111r rrrr 0bbb
-def SBICab          1001 1001 AAAA Abbb
-def SBISab          1001 1011 AAAA Abbb
-
-def BRBSsi          1111 00kk kkkk ksss ok
-def BRBCsi          1111 01kk kkkk ksss ok
-
-def BREQi           1111 00kk kkkk k001 ok
-def BRNEi           1111 01kk kkkk k001 ok
-def BRCSi           1111 00kk kkkk k000 ok  (SAME AS BRLO)
-def BRCCi           1111 01kk kkkk k000 ok  (SAME AS BRSH)
-def BRSHi           1111 01kk kkkk k000 ok
-def BRLOi           1111 00kk kkkk k000 ok
-def BRMIi           1111 00kk kkkk k010 ok
-def BRPLi           1111 01kk kkkk k010 ok
-def BRGEi           1111 01kk kkkk k100 ok
-def BRLTi           1111 00kk kkkk k100 ok
-def BRHSi           1111 00kk kkkk k101 ok
-def BRHCi           1111 01kk kkkk k101 ok
-def BRTSi           1111 00kk kkkk k110 ok
-def BRTCi           1111 01kk kkkk k110 ok
-def BRVSi           1111 00kk kkkk k011 ok
-def BRVCi           1111 01kk kkkk k011 ok
-def BRIEi           1111 00kk kkkk k111 ok
-def BRIDi           1111 01kk kkkk k111 ok
-
-// data transfer instructions
-def MOVrr           0010 11rd dddd rrrr ok
-def MOVWrr          0000 0001 dddd rrrr
-
-def LDIri           1110 kkkk dddd kkkk ok
-def LDSri           1001 000d dddd 0000 kkkk kkkk kkkk kkkk
-
-def LDrX            1001 000d dddd 1100
-def LDrXpi          1001 000d dddd 1101     //postinc
-def LDrXpd          1001 000d dddd 1110//predec
-
-def LDrY            1000 000d dddd 1000
-def LDrYpi          1001 000d dddd 1001
-def LDrYpd          1001 000d dddd 1010
-
-def LDDrYq          10q0 qq0d dddd 1qqq
-
-def LDrZ            1000 000d dddd 0000
-def LDrZpi          1001 000d dddd 0001
-def LDrZpd          1001 000d dddd 0010
-
-def LDDrZq          10q0 qq0d dddd 0qqq
-
-def STSir           1001 001d dddd 0000 kkkk kkkk kkkk kkkk
-def STXr            1001 001d dddd 1100     // watch out: r cant be X
-def STXpir          1001 001d dddd 1101
-def STXpdr          1001 001d dddd 1110
-
-def STYr            1000 001d dddd 1000     // watch out: r cant Y
-def STYpir          1001 001d dddd 1001
-def STYpdr          1001 001d dddd 1010
-def STDYqr          10q0 qq1d dddd 1qqq
-
-def STZr            1000 001d dddd 0000
-def STZpir          1001 001d dddd 0001
-def STZpdr          1001 001d dddd 0010
-def STDqr           10q0 qq1d dddd 0qqq
-
-def LPM             1001 0101 1100 1000     //(R0)<-(Z)
-def LPMrZ           1001 000d dddd 0100
-def LPMrZpi         1001 000d dddd 0101
-
-def ELPM            1001 0101 1101 1000
-def ELPMrZ          1001 000d dddd 0110
-def ELPMrZpi        1001 000d dddd 0111
-
-def SPM             //:TODO:
-def SPMZpi
-
-def INra            1011 0AAd dddd AAAA ok
-def OUTar           1011 1AAd dddd AAAA ok
-
-def PUSHr           1001 001d dddd 1111 ok
-def POPr            1001 000d dddd 1111 ok
-
-//bit and bit-test instructions
-def LSLr            0000 11dd dddd dddd   ok  (SAME AS ADD rd, rd)
-def LSRr            1001 010d dddd 0110   ok
-def ROLr            0001 11dd dddd dddd   ok  (SAME AS ADC rd, rd)
-def RORr            1001 010d dddd 0111   ok
-
-def ASRr            1001 010d dddd 0101  ok
-
-def SWAPr           1001 010d dddd 0010 ok
-
-def SBIab           1001 1010 AAAA Abbb
-def CBIab           1001 1000 AAAA Abbb
-
-def BSTrb           1111 101d dddd 0bbb
-def BLDrb           1111 100d dddd 0bbb
-
-def BSETs           1001 0100 0sss 1000
-def BCLRs           1001 0100 1sss 1000 // probably all the todo below comes from here
-//:TODO: all SREG instr manipulation (SEC, CLC, SEN, etc...)
-
-// MCU control instructions
-def NOP             0000 0000 0000 0000
-*/
 //__________________________________________________________________________________________
 //__________________________________________________________________________________________
 //__________________________________________________________________________________________
@@ -414,8 +211,10 @@ def ADJCALLSTACKUP : Pseudo<(outs),
                             [(AVRcallseq_end timm:$amt1, timm:$amt2)]>;
 }
 
-// Arithmetic
+// Arithmetic instructions
 
+// ADD Rd, Rr
+// Adds two 8-bit registers.
 let isCommutable = 1,
 Constraints = "$src = $dst",
 Defs = [SREG] in
@@ -427,6 +226,8 @@ def ADDRdRr : FRdRr<0b0000,
                     [(set GPR8:$dst, (add GPR8:$src, GPR8:$src2)),
                      (implicit SREG)]>;
 
+// ADDW Rd, Rr
+// Pseudo instruction to add four 8-bit registers as two 16-bit values.
 let isCommutable = 1,
 Constraints = "$src = $dst",
 Defs = [SREG] in
@@ -436,6 +237,8 @@ def ADDWRdRr : Pseudo<(outs DREGS:$dst),
                       [(set DREGS:$dst, (add DREGS:$src, DREGS:$src2)),
                        (implicit SREG)]>;
 
+// ADC Rd, Rr
+// Adds two 8-bit registers with carry.
 let isCommutable = 1,
 Constraints = "$src = $dst",
 Uses = [SREG],
@@ -448,6 +251,8 @@ def ADCRdRr : FRdRr<0b0001,
                     [(set GPR8:$dst, (adde GPR8:$src, GPR8:$src2)),
                      (implicit SREG)]>;
 
+// ADCW Rd, Rr
+// Pseudo instruction to add four 8-bit registers as two 16-bit values with carry.
 let isCommutable = 1,
 Constraints = "$src = $dst",
 Uses = [SREG],
@@ -458,15 +263,19 @@ def ADCWRdRr : Pseudo<(outs DREGS:$dst),
                       [(set DREGS:$dst, (adde DREGS:$src, DREGS:$src2)),
                        (implicit SREG)]>;
 
+// AIDW Rd, k
+// Adds an immediate 6-bit value K to Rd, placing the result in Rd.
 let Constraints = "$src = $dst",
 Defs = [SREG] in
 def ADIWRdK : FWRdK<0b0,
                     (outs IWREGS:$dst),
-                    (ins IWREGS:$src, i16imm:$src2),
-                    "adiw\t$dst, $src2",
-                    [(set IWREGS:$dst, (add IWREGS:$src, uimm6:$src2)),
+                    (ins IWREGS:$src, i16imm:$k),
+                    "adiw\t$dst, $k",
+                    [(set IWREGS:$dst, (add IWREGS:$src, uimm6:$k)),
                      (implicit SREG)]>;
 
+// SUB Rd, Rr
+// Subtracts the 8-bit value of Rr from Rd and places the value in Rd.
 let Constraints = "$src = $dst",
 Defs = [SREG] in
 def SUBRdRr : FRdRr<0b0001,
@@ -477,6 +286,8 @@ def SUBRdRr : FRdRr<0b0001,
                     [(set GPR8:$dst, (sub GPR8:$src, GPR8:$src2)),
                      (implicit SREG)]>;
 
+// SUBW Rd, Rr
+// Subtracts two 16-bit values and places the result into Rd.
 let Constraints = "$src = $dst",
 Defs = [SREG] in
 def SUBWRdRr : Pseudo<(outs DREGS:$dst),
@@ -545,9 +356,9 @@ let Constraints = "$src = $dst",
 Defs = [SREG] in
 def SBIWRdK : FWRdK<0b1,
                     (outs IWREGS:$dst),
-                    (ins IWREGS:$src, i16imm:$src2),
-                    "sbiw\t$dst, $src2",
-                    [(set IWREGS:$dst, (sub IWREGS:$src, uimm6:$src2)),
+                    (ins IWREGS:$src, i16imm:$k),
+                    "sbiw\t$dst, $k",
+                    [(set IWREGS:$dst, (sub IWREGS:$src, uimm6:$k)),
                      (implicit SREG)]>;
 
 let Constraints = "$src = $dst",
@@ -577,6 +388,8 @@ def MULRdRrP : Pseudo<(outs GPR8:$dst),
                       [(set GPR8:$dst, (mul GPR8:$src, GPR8:$src2)),
                        (implicit SREG)]>;
 
+// MUL Rd, Rr
+// Multiplies Rd by Rr and places the result into Rd.
 let isCommutable = 1,
 Defs = [R1, R0, SREG],
 neverHasSideEffects = 1 in
@@ -605,18 +418,11 @@ def MUL16RdRr : Mu1RdRr<(outs DREGS:$dst),
                         "mul\t$src, $src2",
                         []>;
 
-/*
-def MULSrr      0000 0010 dddd rrrr ok
-def MULSUrr     0000 0011 0ddd 0rrr ok
-def FMULrr      0000 0011 0ddd 1rrr ok
-def FMULSrr     0000 0011 1ddd 0rrr ok
-def FMULSUrr    0000 0011 1ddd 1rrr ok
-*/
-//def DES :TODO:
-
 //_______________________________________
-// logic instructions
+// Logic Instructions
+//_______________________________________
 
+/// AND Rd, Rr
 let isCommutable = 1,
 Constraints = "$src = $dst",
 Defs = [SREG] in
@@ -737,21 +543,11 @@ def NEGRd : FRd<0b1001,
                 "neg\t$dst",
                 [(set GPR8:$dst, (ineg GPR8:$src)), (implicit SREG)]>;
 
-/*
-def SBRri           0110 KKKK dddd KKKK ok
-def CBRri           SAME AS   ANDI      ok
-*/
-
 let Defs = [SREG] in
 def TSTRd : Pseudo<(outs),
                    (ins GPR8:$src),
                    "tst\t$src",
                    [(AVRtst GPR8:$src), (implicit SREG)]>;
-
-/*
-def CLRr            0010 01dd dddd dddd (SAME AS EOR RD, RD) ok
-def SERr            1110 1111 dddd 1111 (SAME AS LDI RD, 0xFF) ok
-*/
 
 // Branch instructions
 
@@ -782,10 +578,7 @@ def JMPk : F32BRk<0b110,
                   (ins brtarget:$target),
                   "jmp\t$target",
                   []>;
-/*
-def RCALLi          1101 kkkk kkkk kkkk ok
-*/
-
+                  
 let isCall = 1 in
   // SP is marked as a use to prevent stack-pointer assignments that appear
   // immediately before calls from potentially appearing dead.
@@ -798,9 +591,6 @@ let isCall = 1 in
                     []>;
   }
 
-/*
-def EICALL          1001 0101 0001 1001 ok
-*/
 
 let isCall = 1 in
   // SP is marked as a use to prevent stack-pointer assignments that appear
@@ -833,9 +623,7 @@ def RETI : FBR<0b1001010100011000,
                (ins),
                "reti",
                [(AVRretiflag)]>;
-/*
-def CPSErr          0001 00rd dddd rrrr ok
-*/
+
 let Defs = [SREG] in
 def CPRdRr : Pseudo<(outs),
                     (ins GPR8:$src, GPR8:$src2),
@@ -862,18 +650,6 @@ def CPCWRdRr : Pseudo<(outs),
                       "cpcw\t$src, $src2",
                       [(AVRcmpc DREGS:$src, DREGS:$src2), (implicit SREG)]>;
 
-/*
-def CPIri           0011 kkkk dddd kkkk ok
-
-def SBRCrb          1111 110r rrrr 0bbb
-def SBRSrb          1111 111r rrrr 0bbb
-def SBICab          1001 1001 AAAA Abbb
-def SBISab          1001 1011 AAAA Abbb
-
-def BRBSsi          1111 00kk kkkk ksss ok
-def BRBCsi          1111 01kk kkkk ksss ok
-*/
-
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
@@ -885,15 +661,14 @@ def BREQk : Pseudo<(outs),
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
-def BRNEk : Pseudo<(outs),
-                   (ins brtarget:$target),
-                   "brne\t$target",
-                   [(AVRbrcond bb:$target, AVR_COND_NE)]>;
+def BRNEk : FBRsk<1,
+                  0b001,
+                  (outs),
+                  (ins brtarget:$target),
+                  "brne\t$target",
+                  [(AVRbrcond bb:$target, AVR_COND_NE)]>;
 
-/*
-def BRCSi           1111 00kk kkkk k000 ok  (SAME AS BRLO)
-def BRCCi           1111 01kk kkkk k000 ok  (SAME AS BRSH)
-*/
+
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
@@ -941,17 +716,9 @@ def BRLTk : Pseudo<(outs),
                    (ins brtarget:$target),
                    "brlt\t$target",
                    [(AVRbrcond bb:$target, AVR_COND_LT)]>;
-/*
-def BRHSi           1111 00kk kkkk k101 ok
-def BRHCi           1111 01kk kkkk k101 ok
-def BRTSi           1111 00kk kkkk k110 ok
-def BRTCi           1111 01kk kkkk k110 ok
-def BRVSi           1111 00kk kkkk k011 ok
-def BRVCi           1111 01kk kkkk k011 ok
-def BRIEi           1111 00kk kkkk k111 ok
-def BRIDi           1111 01kk kkkk k111 ok
-*/
-// data transfer instructions
+// __________________________
+// Data transfer instructions
+// __________________________
 
 let neverHasSideEffects = 1 in
 def MOVRdRr : FRdRr<0b0010,
@@ -1079,16 +846,23 @@ def STSWKRr : Pseudo<(outs),
                      "stsw\t$dst, $src",
                      [(store DREGS:$src, imm:$dst)]>;
 
+// ST P, Rr
+// Stores the value of Rr into the location addressed by pointer P.
 def STPtrRr : Pseudo<(outs),
                      (ins PTRREGS:$dst, GPR8:$src),
                      "st\t$dst, $src",
                      [(store GPR8:$src, PTRREGS:$dst)]>;
 
+// STW P, Rr
+// Stores the value of Rr into the location addressed by pointer P.
 def STWPtrRr : Pseudo<(outs),
                       (ins PTRDISPREGS:$dst, DREGS:$src),
                       "stw\t$dst, $src",
                       [(store DREGS:$src, PTRDISPREGS:$dst)]>;
 
+// ST P+, Rr
+// Stores the value of Rr into the location addressed by pointer P.
+// Post increments P.
 let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
 def STPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
                        (ins PTRREGS:$dst, GPR8:$src, i8imm:$offs),
@@ -1096,6 +870,9 @@ def STPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
                        [(set PTRREGS:$base_wb,
                         (post_store GPR8:$src, PTRREGS:$dst, imm:$offs))]>;
 
+// STW P+, Rr
+// Stores the value of Rr into the location addressed by pointer P.
+// Post increments P.
 let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
 def STWPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
                         (ins PTRREGS:$dst, DREGS:$src, i8imm:$offs),
@@ -1103,6 +880,9 @@ def STWPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
                         [(set PTRREGS:$base_wb,
                          (post_store DREGS:$src, PTRREGS:$dst, imm:$offs))]>;
 
+// ST -P, Rr
+// Stores the value of Rr into the location addressed by pointer P.
+// Pre decrements P.
 let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
 def STPtrPdRr : Pseudo<(outs PTRREGS:$base_wb),
                        (ins PTRREGS:$dst, GPR8:$src, i8imm:$offs),
@@ -1110,6 +890,9 @@ def STPtrPdRr : Pseudo<(outs PTRREGS:$base_wb),
                        [(set PTRREGS:$base_wb,
                         (pre_store GPR8:$src, PTRREGS:$dst, imm:$offs))]>;
 
+// STW -P, Rr
+// Stores the value of Rr into the location addressed by pointer P.
+// Pre decrements P.
 let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
 def STWPtrPdRr : Pseudo<(outs PTRREGS:$base_wb),
                         (ins PTRREGS:$dst, DREGS:$src, i8imm:$offs),
@@ -1117,19 +900,20 @@ def STWPtrPdRr : Pseudo<(outs PTRREGS:$base_wb),
                         [(set PTRREGS:$base_wb,
                          (pre_store DREGS:$src, PTRREGS:$dst, imm:$offs))]>;
 
-def STDPtrQRr : Pseudo<(outs),
+/// STD P+q, Rr
+// Stores the value of Rr into the location addressed by pointer P with a displacement of q.
+// Does not modify P.
+def STDPtrQRr : FSTDPqRr<(outs),
                        (ins memri:$dst, GPR8:$src),
                        "std\t$dst, $src",
                        [(store GPR8:$src, addr:$dst)]>;
-
+/// STDW P+q, Rr
+// Stores the value of Rr into the location addressed by pointer P with a displacement of q.
+// Does not modify P.
 def STDWPtrQRr : Pseudo<(outs),
                         (ins memri:$dst, DREGS:$src),
                         "stdw\t$dst, $src",
                         [(store DREGS:$src, addr:$dst)]>;
-
-/*
-def LPM             1001 0101 1100 1000     //(R0)<-(Z)
-*/
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
@@ -1163,15 +947,6 @@ def LPMWRdZPi : Pseudo<(outs DREGS:$dst, DREGS:$base_wb),
                        (ins DREGS:$src),
                        "lpmw\t$dst, Z+",
                        []>;
-
-/*
-def ELPM            1001 0101 1101 1000
-def ELPMrZ          1001 000d dddd 0110
-def ELPMrZpi        1001 000d dddd 0111
-
-def SPM             //:TODO:
-def SPMZpi
-*/
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
@@ -1237,9 +1012,9 @@ def POPWRd : Pseudo<(outs DREGS:$reg),
                     "popw\t$reg",
                     []>;
 
-/*__________________________________________________________________________________
-bit and bit-test instructions
-*/
+// _______________________________
+// Bit and bit-test instructions
+// _______________________________
 
 let Constraints = "$src = $dst",
 Defs = [SREG] in
@@ -1349,48 +1124,17 @@ def CBIAb : Pseudo<(outs),
                    [(store (and (i8 (load lowioaddr8:$addr)), iobitposn8:$bit),
                      lowioaddr8:$addr)]>;
 
-/*
-def BSTrb           1111 101d dddd 0bbb
-def BLDrb           1111 100d dddd 0bbb
+def SEI : FI<0b1001010001111000,
+               (outs),
+               (ins),
+               "cli",
+               []>;
 
-def BSETs           1001 0100 0sss 1000
-def BCLRs           1001 0100 1sss 1000 // probably all the todo below comes from here
-*/
-//:TODO: all SREG instr manipulation (SEC, CLC, SEN, etc...)
-/*
-  SEC
-  CLC
-  SEN
-  CLN
-  SEZ
-  CLZ
- */
-
-def SEI : Pseudo<(outs),
-                 (ins),
-                 "sei",
-                 []>;
-
-def CLI : Pseudo<(outs),
-                 (ins),
-                 "cli",
-                 []>;
-
-/*
-  SES
-  CLS
-  SEV
-  CLV
-  SET
-  CLT
-  SEH
-  CLH
- */
-
-// MCU control instructions
-/*
-def NOP             0000 0000 0000 0000
-*/
+def CLI : FI<0b1001010011111000,
+               (outs),
+               (ins),
+               "cli",
+               []>;
 
 //===----------------------------------------------------------------------===//
 // Pseudo instructions for later expansion
@@ -1578,7 +1322,7 @@ def : Pat<(i16 (AVRWrapper tblockaddress:$dst)),
           (LDIWRdK tblockaddress:$dst)>;
 
 // hi-reg truncation : trunc(int16 >> 8)
-//:FIXME: i think it's better to emit an extract subreg node in the DAG that
+//:FIXME: i think it's better to emit an extract subreg node in the DAG than
 // all this mess once we get optimal shift code
 def : Pat<(i8 (trunc (AVRlsr (AVRlsr (AVRlsr (AVRlsr (AVRlsr (AVRlsr (AVRlsr
                      (AVRlsr DREGS:$src)))))))))),

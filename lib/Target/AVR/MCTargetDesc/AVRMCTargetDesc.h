@@ -14,12 +14,43 @@
 #ifndef __INCLUDE_AVRMCTARGETDESC_H__
 #define __INCLUDE_AVRMCTARGETDESC_H__
 
+#include "llvm/Support/DataTypes.h"
+
 namespace llvm
 {
+    class MCCodeEmitter;
+    class MCAsmBackend;
+    class MCRegisterInfo;
+    class MCObjectWriter;
+    class MCSubtargetInfo;
+    class MCInstrInfo;
+    class MCContext;
+    class StringRef;
+    class Target;
+    class raw_ostream;
 
-class Target;
+    extern Target TheAVRTarget;
 
-extern Target TheAVRTarget;
+
+    MCCodeEmitter *createAVRMCCodeEmitter(const MCInstrInfo &MCII,
+                                          const MCRegisterInfo &MRI,
+                                          const MCSubtargetInfo &STI,
+                                          MCContext &Ctx);
+    /*!
+     * \brief Creates a little endian AVR assembly backend.
+     */
+    MCAsmBackend *createAVRAsmBackendEL(const Target &T, const MCRegisterInfo &MRI,
+                                        StringRef TT, StringRef CPU);
+    
+    /*!
+     * \brief Creates a big endian AVR assembly backend.
+     */
+    MCAsmBackend *createAVRAsmBackendEB(const Target &T, const MCRegisterInfo &MRI,
+                                        StringRef TT, StringRef CPU);
+                                        
+    MCObjectWriter *createAVRELFObjectWriter(raw_ostream &OS,
+                                             uint8_t OSABI,
+                                             bool IsLittleEndian);
 
 } // end namespace llvm
 
