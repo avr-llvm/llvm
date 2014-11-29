@@ -55,7 +55,7 @@ class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
 {
   let Pattern = pattern;
   
-  //let isPseudo = 1;
+  let isPseudo = 1;
 }
 
 //===----------------------------------------------------------------------===//
