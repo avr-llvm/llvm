@@ -47,12 +47,12 @@ static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
     break;
   case AVR::fixup_brcond:
 
-    // We now check if Value can be encoded as a 7-bit signed immediate.
-    if (!isIntN(7, Value) && Ctx)
-      Ctx->FatalError(Fixup.getLoc(), "out of range brcond fixup");
-    
     // Take the size of the current instruction away.
     Value -= 2;
+
+    // We now check if Value can be encoded as a 7-bit signed immediate.
+    //if (!isIntN(7, Value) && Ctx)
+    //  Ctx->FatalError(Fixup.getLoc(), "out of range brcond fixup");
     
     Value <<= 2;
     
@@ -101,7 +101,7 @@ getFixupKindInfo(MCFixupKind Kind) const {
     // AVRFixupKinds.h.
     //
     // name                    offset  bits  flags
-    { "fixup_brcond",          0,      6,    MCFixupKindInfo::FKF_IsPCRel },
+    { "fixup_brcond",          0,      7,    MCFixupKindInfo::FKF_IsPCRel },
   };
 
   if (Kind < FirstTargetFixupKind)
