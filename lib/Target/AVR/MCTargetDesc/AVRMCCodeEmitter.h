@@ -65,6 +65,21 @@ public:
   unsigned getBreakTargetEncoding(const MCInst &MI, unsigned OpNo,
                                   SmallVectorImpl<MCFixup> &Fixups,
                                   const MCSubtargetInfo &STI) const;
+  
+  unsigned getRelCondBrTargetEncoding(unsigned size,
+                                   const MCInst &MI, unsigned OpNo,
+                                   SmallVectorImpl<MCFixup> &Fixups,
+                                   const MCSubtargetInfo &STI) const;
+  
+  /*!
+   * \brief Gets the encoding for a break target.
+   */
+  unsigned getRelCondBr7TargetEncoding(const MCInst &MI, unsigned OpNo,
+                                    SmallVectorImpl<MCFixup> &Fixups,
+                                    const MCSubtargetInfo &STI) const
+  {
+      return getRelCondBrTargetEncoding(7, MI, OpNo, Fixups, STI);
+  }
 
   // getBinaryCodeForInstr - TableGen'erated function for getting the
   // binary encoding for an instruction.

@@ -159,6 +159,12 @@ def brtarget : Operand<OtherVT>
   let EncoderMethod = "getBreakTargetEncoding";
 }
 
+def rel_condbr_7_target : Operand<OtherVT>
+{
+    let PrintMethod = "print_pcrel_imm";
+    let EncoderMethod = "getRelCondBr7TargetEncoding";
+}
+
 // Addressing mode pattern reg+imm6
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], [SDNPWantRoot]>;
 
@@ -657,7 +663,7 @@ Uses = [SREG] in
 def BREQk : FBRsk<0,
                   0b001,
                   (outs),
-                  (ins brtarget:$target),
+                  (ins rel_condbr_7_target:$target),
                   "breq\t$target",
                   [(AVRbrcond bb:$target, AVR_COND_EQ)]>;
 
@@ -667,7 +673,7 @@ Uses = [SREG] in
 def BRNEk : FBRsk<1,
                   0b001,
                   (outs),
-                  (ins brtarget:$target),
+                  (ins rel_condbr_7_target:$target),
                   "brne\t$target",
                   [(AVRbrcond bb:$target, AVR_COND_NE)]>;
 
@@ -678,7 +684,7 @@ Uses = [SREG] in
 def BRSHk : FBRsk<1,
                   0b000,
                   (outs),
-                  (ins brtarget:$target),
+                  (ins rel_condbr_7_target:$target),
                   "brsh\t$target",
                   [(AVRbrcond bb:$target, AVR_COND_SH)]>;
 
@@ -688,7 +694,7 @@ Uses = [SREG] in
 def BRLOk : FBRsk<0,
                   0b000,
                   (outs),
-                  (ins brtarget:$target),
+                  (ins rel_condbr_7_target:$target),
                   "brlo\t$target",
                   [(AVRbrcond bb:$target, AVR_COND_LO)]>;
 
@@ -698,7 +704,7 @@ Uses = [SREG] in
 def BRMIk : FBRsk<0,
                   0b010,
                   (outs),
-                  (ins brtarget:$target),
+                  (ins rel_condbr_7_target:$target),
                   "brmi\t$target",
                   [(AVRbrcond bb:$target, AVR_COND_MI)]>;
 
@@ -708,7 +714,7 @@ Uses = [SREG] in
 def BRPLk : FBRsk<1,
                   0b101,
                   (outs),
-                  (ins brtarget:$target),
+                  (ins rel_condbr_7_target:$target),
                   "brpl\t$target",
                   [(AVRbrcond bb:$target, AVR_COND_PL)]>;
 
@@ -718,7 +724,7 @@ Uses = [SREG] in
 def BRGEk : FBRsk<1,
                   0b100,
                   (outs),
-                  (ins brtarget:$target),
+                  (ins rel_condbr_7_target:$target),
                   "brge\t$target",
                   [(AVRbrcond bb:$target, AVR_COND_GE)]>;
 
@@ -728,7 +734,7 @@ Uses = [SREG] in
 def BRLTk : FBRsk<0,
                   0b100,
                   (outs),
-                  (ins brtarget:$target),
+                  (ins rel_condbr_7_target:$target),
                   "brlt\t$target",
                   [(AVRbrcond bb:$target, AVR_COND_LT)]>;
 // __________________________

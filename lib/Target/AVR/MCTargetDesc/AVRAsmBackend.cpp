@@ -29,6 +29,21 @@
 
 using namespace llvm;
 
+static unsigned adjustFixupRelCondbr(unsigned size,
+                                  const MCFixup &Fixup, uint64_t Value,
+                                  MCContext *Ctx = nullptr)
+{
+  // Take the size of the current instruction away.
+  Value -= 2;
+
+  // We now check if Value can be encoded as a 7-bit signed immediate.
+  if (!isIntN(size, Value) && Ctx)
+    Ctx->FatalError(Fixup.getLoc(), "out of range brcond fixup");
+    
+  Value <<= 2;
+  
+  return Value;
+}
 
 // Prepare value for the target space for it
 static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
@@ -45,16 +60,14 @@ static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
   case FK_Data_4:
   case FK_Data_8:
     break;
+  case AVR::fixup_rel_condbr_7:
+  {
+    Value = adjustFixupRelCondbr(7, Fixup, Value, Ctx);
+    break;
+  }
   case AVR::fixup_brcond:
 
-    // Take the size of the current instruction away.
-    Value -= 2;
-
-    // We now check if Value can be encoded as a 7-bit signed immediate.
-    //if (!isIntN(7, Value) && Ctx)
-    //  Ctx->FatalError(Fixup.getLoc(), "out of range brcond fixup");
-    
-    Value <<= 2;
+    Value = adjustFixupRelCondbr(7, Fixup, Value, Ctx);
     
     break;
   }
@@ -102,6 +115,7 @@ getFixupKindInfo(MCFixupKind Kind) const {
     //
     // name                    offset  bits  flags
     { "fixup_brcond",          0,      7,    MCFixupKindInfo::FKF_IsPCRel },
+    { "fixup_rel_brcond_7",    0,      7,    MCFixupKindInfo::FKF_IsPCRel },
   };
 
   if (Kind < FirstTargetFixupKind)
