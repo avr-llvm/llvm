@@ -952,10 +952,11 @@ def STDWPtrQRr : Pseudo<(outs),
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
 hasSideEffects = 0 in
-def LPMRdZ : Pseudo<(outs GPR8:$dst),
-                    (ins),
-                    "lpm\t$dst, Z",
-                    []>;
+def LPMRdZ : FLPM<0b100,
+                  (outs GPR8:$dst),
+                  (ins),
+                  "lpm\t$dst, Z",
+                  []>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
@@ -969,10 +970,11 @@ def LPMWRdZ : Pseudo<(outs DREGS:$dst, DREGS:$base_wb),
 let mayLoad = 1,
 hasSideEffects = 0,
 Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
-def LPMRdZPi : Pseudo<(outs GPR8:$dst, DREGS:$base_wb),
-                      (ins DREGS:$src),
-                      "lpm\t$dst, Z+",
-                      []>;
+def LPMRdZPi : FLPM<0b101,
+                    (outs GPR8:$dst, DREGS:$base_wb),
+                    (ins DREGS:$src),
+                    "lpm\t$dst, Z+",
+                    []>;
 
 let mayLoad = 1,
 hasSideEffects = 0,

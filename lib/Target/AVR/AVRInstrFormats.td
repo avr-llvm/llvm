@@ -219,6 +219,29 @@ class FTST<dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{3-0} = reg{3-0};
 }
 
+//===---------------------------------------------------------------------===//
+// Special format for the LPM instruction
+// LPM Rd, Z
+// <|1001|000d|dddd|0ttt>
+// d = destination register
+// t = type (0b100 for regular version, 0b101 for post-increment)
+//===---------------------------------------------------------------------===//
+class FLPM<bits<3> t, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+   bits<5> reg;
+   
+   let Inst{15-12} = 0b1001;
+   
+   let Inst{11-9} = 0b000;
+   let Inst{8} = reg{4};
+   
+   let Inst{7-4} = reg{3-0};
+
+   let Inst{3} = 0b0;
+   let Inst{2-0} = t;
+}
+
 //===----------------------------------------------------------------------===//
 // MOVWRdRr special encoding: <|0000|0001|dddd|rrrr|>
 // d = destination = 4 bits
