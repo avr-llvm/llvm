@@ -865,10 +865,11 @@ def LDDWRdYQ : Pseudo<(outs DREGS:$dst),
                       "lddw\t$dst, $src",
                       []>;
 
-def STSKRr : Pseudo<(outs),
-                    (ins i16imm:$dst, GPR8:$src),
-                    "sts\t$dst, $src",
-                    [(store GPR8:$src, imm:$dst)]>;
+def STSKRr : F32DM<0b0,
+                   (outs),
+                   (ins i16imm:$dst, GPR8:$src),
+                   "sts\t$dst, $src",
+                   [(store GPR8:$src, imm:$dst)]>;
 
 def STSWKRr : Pseudo<(outs),
                      (ins i16imm:$dst, DREGS:$src),

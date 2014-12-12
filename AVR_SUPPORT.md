@@ -91,7 +91,7 @@ LD Rr, P       x
 LD Rr, P+      x (untested)
 LD Rr, -P      x (untested)
 LDD            x
-STS            pseudo
+STS            x (untested)
 ST Ptr, Rd     x
 ST P+, Rr      x (untested)
 ST -P, Rr      x (untested)
