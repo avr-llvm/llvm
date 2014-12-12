@@ -928,10 +928,11 @@ def STWPtrPdRr : Pseudo<(outs PTRREGS:$base_wb),
 /// STD P+q, Rr
 // Stores the value of Rr into the location addressed by pointer P with a displacement of q.
 // Does not modify P.
-def STDPtrQRr : FSTDPqRr<(outs),
-                       (ins memri:$dst, GPR8:$src),
-                       "std\t$dst, $src",
-                       [(store GPR8:$src, addr:$dst)]>;
+def STDPtrQRr : FPqRr<0b1,
+                      (outs),
+                      (ins memri:$dst, GPR8:$src),
+                      "std\t$dst, $src",
+                      [(store GPR8:$src, addr:$dst)]>;
 /// STDW P+q, Rr
 // Stores the value of Rr into the location addressed by pointer P with a displacement of q.
 // Does not modify P.

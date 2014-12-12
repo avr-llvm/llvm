@@ -117,7 +117,8 @@ class FRd<bits<4> opcode, bits<7> f, dag outs, dag ins, string asmstr,
 }
 
 //===----------------------------------------------------------------------===//
-// STD P+q, Rr special encoding: <|10q0|qq1r|rrrr|pqqq>
+// [STD/LDD] P+q, Rr special encoding: <|10q0|qqtr|rrrr|pqqq>
+// t = type (1 for STD, 0 for LDD)
 // q = displacement (6 bits)
 // r = register (5 bits)
 // p = pointer register (1 bit) [1 for Y, 0 for Z]
@@ -134,7 +135,7 @@ class FRd<bits<4> opcode, bits<7> f, dag outs, dag ins, string asmstr,
 // size of `bits<6> q` to `bits<7> q` and to increase all indices by one (because
 // all bits were off by one place). Thus, we ignore q{0}.
 //===----------------------------------------------------------------------===//
-class FSTDPqRr<dag outs, dag ins, string asmstr, list<dag> pattern>
+class FPqRr<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
   bit p;
@@ -146,7 +147,7 @@ class FSTDPqRr<dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{12} = 0b0;
   
   let Inst{11-10} = q{5-4};
-  let Inst{9} = 0b1;
+  let Inst{9} = t;
   let Inst{8} = r{4};
   
   let Inst{7-4} = r{3-0};
