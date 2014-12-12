@@ -632,10 +632,12 @@ def RETI : FBR<0b1001010100011000,
                [(AVRretiflag)]>;
 
 let Defs = [SREG] in
-def CPRdRr : Pseudo<(outs),
-                    (ins GPR8:$src, GPR8:$src2),
-                    "cp\t$src, $src2",
-                    [(AVRcmp GPR8:$src, GPR8:$src2), (implicit SREG)]>;
+def CPRdRr : FRdRr<0b0001,
+                   0b01,
+                   (outs),
+                   (ins GPR8:$src, GPR8:$src2),
+                   "cp\t$src, $src2",
+                   [(AVRcmp GPR8:$src, GPR8:$src2), (implicit SREG)]>;
 
 let Defs = [SREG] in
 def CPWRdRr : Pseudo<(outs),
@@ -645,10 +647,12 @@ def CPWRdRr : Pseudo<(outs),
 
 let Defs = [SREG],
 Uses = [SREG] in
-def CPCRdRr : Pseudo<(outs),
-                     (ins GPR8:$src, GPR8:$src2),
-                     "cpc\t$src, $src2",
-                     [(AVRcmpc GPR8:$src, GPR8:$src2), (implicit SREG)]>;
+def CPCRdRr : FRdRr<0b0000,
+                    0b01,
+                    (outs),
+                    (ins GPR8:$src, GPR8:$src2),
+                    "cpc\t$src, $src2",
+                    [(AVRcmpc GPR8:$src, GPR8:$src2), (implicit SREG)]>;
 
 let Defs = [SREG],
 Uses = [SREG] in

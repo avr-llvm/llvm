@@ -52,8 +52,8 @@ CALL    x
 RET     x
 RETI    x
 CPSE    not implemented
-CP      pseudo
-CPC     pseudo
+CP      x
+CPC     x
 CPI     not implemented
 SBRC    not implemented
 SBRS    not implemented
