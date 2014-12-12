@@ -791,10 +791,11 @@ def LDSWRdK : Pseudo<(outs DREGS:$dst),
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
-def LDRdPtr : Pseudo<(outs GPR8:$dst),
-                     (ins PTRREGS:$src),
-                     "ld\t$dst, $src",
-                     [(set GPR8:$dst, (load PTRREGS:$src))]>;
+def LDRdPtr : FSTLDPtrReg<0b0,
+                          (outs GPR8:$dst),
+                          (ins PTRREGS:$src),
+                          "ld\t$dst, $src",
+                          [(set GPR8:$dst, (load PTRREGS:$src))]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
@@ -874,10 +875,11 @@ def STSWKRr : Pseudo<(outs),
 
 // ST P, Rr
 // Stores the value of Rr into the location addressed by pointer P.
-def STPtrRr : Pseudo<(outs),
-                     (ins PTRREGS:$dst, GPR8:$src),
-                     "st\t$dst, $src",
-                     [(store GPR8:$src, PTRREGS:$dst)]>;
+def STPtrRr : FSTLDPtrReg<0b1,
+                         (outs),
+                         (ins PTRREGS:$dst, GPR8:$src),
+                         "st\t$dst, $src",
+                         [(store GPR8:$src, PTRREGS:$dst)]>;
 
 // STW P, Rr
 // Stores the value of Rr into the location addressed by pointer P.

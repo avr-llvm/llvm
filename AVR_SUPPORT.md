@@ -87,12 +87,12 @@ MOV            x
 MOVW           x
 LDI            x
 LDS            x
-LD Rr, P       pseudo
+LD Rr, P       x
 LD Rr, P+      pseudo
 LD Rr, -P      pseudo
 LDD            x
 STS            pseudo
-ST Ptr, Rd     pseudo
+ST Ptr, Rd     x
 ST P+, Rr      pseudo
 ST -P, Rr      pseudo
 STD            x
