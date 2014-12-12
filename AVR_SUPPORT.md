@@ -88,13 +88,13 @@ MOVW           x
 LDI            x
 LDS            x
 LD Rr, P       x
-LD Rr, P+      pseudo
-LD Rr, -P      pseudo
+LD Rr, P+      x (untested)
+LD Rr, -P      x (untested)
 LDD            x
 STS            pseudo
 ST Ptr, Rd     x
-ST P+, Rr      pseudo
-ST -P, Rr      pseudo
+ST P+, Rr      x (untested)
+ST -P, Rr      x (untested)
 STD            x
 LPM            pseudo
 ELPM           not implemented
