@@ -96,7 +96,9 @@ ST Ptr, Rd     x
 ST P+, Rr      x (untested)
 ST -P, Rr      x (untested)
 STD            x
-LPM            pseudo
+LPM            not implemented (this variant implies Rd = r0)
+LPM Rd, Z      pseudo
+LPM Rd, Z+     pseudo
 ELPM           not implemented
 SPM            not implemented
 IN             x
