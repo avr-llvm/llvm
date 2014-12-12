@@ -83,22 +83,26 @@ BRID    not implemented
 
 ### Data Transfer Instructions
 ```
-MOV     x
-MOVW    x
-LDI     x
-LDS     x
-LD      pseudo
-LDD     x
-STS     pseudo
-ST      pseudo
-STD     x
-LPM     pseudo
-ELPM    not implemented
-SPM     not implemented
-IN      x
-OUT     x
-PUSH    x
-POP     x
+MOV            x
+MOVW           x
+LDI            x
+LDS            x
+LD Rr, P       pseudo
+LD Rr, P+      pseudo
+LD Rr, -P      pseudo
+LDD            x
+STS            pseudo
+ST Ptr, Rd     pseudo
+ST P+, Rr      pseudo
+ST -P, Rr      pseudo
+STD            x
+LPM            pseudo
+ELPM           not implemented
+SPM            not implemented
+IN             x
+OUT            x
+PUSH           x
+POP            x
 ```
 
 ### Bit and Bit-test instructions
