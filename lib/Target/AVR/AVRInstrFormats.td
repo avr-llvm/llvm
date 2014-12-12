@@ -157,12 +157,12 @@ class FPqRr<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
 }
 
 //===---------------------------------------------------------------------===//
-// A 'ST Ptr, Rr' or 'LD Rd, Ptr' instruction.
+// An ST/LD instruction.
 // <|1000|00tr|rrrr|p000>
 // t = type (1 for ST, 0 for LD)
 // p = pointer register
 //===---------------------------------------------------------------------===//
-class FSTLDPtrReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
+class FSTLD<bit t, bits<3> m, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
   bit p;
@@ -177,8 +177,27 @@ class FSTLDPtrReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{7-4} = reg{3-0};
   
   let Inst{3} = p;
-  let Inst{2-0} = 0b000;
+  let Inst{2-0} = m{2-0};
 }
+
+// A 'ST Ptr, Rr' or 'LD Rd, Ptr' instruction.
+class FSTLDPtrReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : FSTLD<t, 0b000, outs, ins, asmstr, pattern> { }
+
+//===---------------------------------------------------------------------===//
+// A 'ST Ptr+, Rr' or 'LD Rd, Ptr+' instruction.
+// Store with postincrement.
+//===---------------------------------------------------------------------===//
+class FSTLDPtrPiReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : FSTLD<t, 0b001, outs, ins, asmstr, pattern> { }
+
+//===---------------------------------------------------------------------===//
+// A 'ST -Ptr, Rr' or 'LD Rd, -Ptr' instruction.
+// Store with predecrement.
+//===---------------------------------------------------------------------===//
+class FSTLDPtrPdReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : FSTLD<t, 0b010, outs, ins, asmstr, pattern> { }
+
 
 //===----------------------------------------------------------------------===//
 // MOVWRdRr special encoding: <|0000|0001|dddd|rrrr|>
