@@ -88,7 +88,7 @@ MOVW    x
 LDI     x
 LDS     x
 LD      pseudo
-LDD     pseudo
+LDD     x
 STS     pseudo
 ST      pseudo
 STD     x

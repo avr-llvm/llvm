@@ -838,10 +838,11 @@ def LDWRdPtrPd : Pseudo<(outs DREGS:$dst, PTRREGS:$base_wb),
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
-def LDDRdPtrQ : Pseudo<(outs GPR8:$dst),
-                       (ins memri:$src),
-                       "ldd\t$dst, $src",
-                       [(set GPR8:$dst, (load addr:$src))]>;
+def LDDRdPtrQ : FPqRr<0b0,
+                      (outs GPR8:$dst),
+                      (ins memri:$src),
+                      "ldd\t$dst, $src",
+                      [(set GPR8:$dst, (load addr:$src))]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
