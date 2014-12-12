@@ -117,8 +117,8 @@ ASR    x
 SWAP   x
 BSET   not implemented
 BCLR   not implemented
-SBI    pseudo
-CBI    pseudo
+SBI    x (untested)
+CBI    x (untested)
 BST    not implemented
 BLD    not implemented
 SEC    not implemented

@@ -371,6 +371,31 @@ class FIOARr<dag outs, dag ins, string asmstr, list<dag> pattern>
 }
 
 //===----------------------------------------------------------------------===//
+// I/O bit instruction.
+// <|1001|10t0|AAAA|Abbb>
+// t = type (1 for SBI, 0 for CBI)
+// A = I/O location address (5 bits)
+// b = bit number
+//===----------------------------------------------------------------------===//
+class FIOBIT<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  bits<5> A;
+  bits<3> b;
+  
+  let Inst{15-12} = 0b1001;
+  
+  let Inst{11-10} = 0b10;
+  let Inst{9} = t;
+  let Inst{8} = 0;
+  
+  let Inst{7-4} = A{4-1};
+  
+  let Inst{3} = A{0};
+  let Inst{2-0} = b{2-0};
+}
+
+//===----------------------------------------------------------------------===//
 // Conditional Branching instructions: <|1111|0fkk|kkkk|ksss|>
 // f = secondary opcode = 1 bit
 // k = constant address = 7 bits

@@ -1148,13 +1148,15 @@ def SWAPRd : FRd<0b1001,
 //:TODO: add 16 bit versions of cbi/sbi
 //:TODO: add patterns when popcount(imm)==2 to be expanded with 2 sbi/cbi
 // instead of in+ori+out which requires one more instr.
-def SBIAb : Pseudo<(outs),
+def SBIAb : FIOBIT<0b1,
+                   (outs),
                    (ins i16imm:$addr, i8imm:$bit),
                    "sbi\t$addr, $bit",
                    [(store (or (i8 (load lowioaddr8:$addr)), iobitpos8:$bit),
                      lowioaddr8:$addr)]>;
 
-def CBIAb : Pseudo<(outs),
+def CBIAb : FIOBIT<0b0,
+                   (outs),
                    (ins i16imm:$addr, i8imm:$bit),
                    "cbi\t$addr, $bit",
                    [(store (and (i8 (load lowioaddr8:$addr)), iobitposn8:$bit),
