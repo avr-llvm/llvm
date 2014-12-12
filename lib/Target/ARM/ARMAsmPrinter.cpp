@@ -120,6 +120,23 @@ bool ARMAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   // Emit the rest of the function body.
   EmitFunctionBody();
 
+  // If we need V4T thumb mode Register Indirect Jump pads, emit them.
+  // These are created per function, rather than per TU, since it's
+  // relatively easy to exceed the thumb branch range within a TU.
+  if (! ThumbIndirectPads.empty()) {
+    OutStreamer.EmitAssemblerFlag(MCAF_Code16);
+    EmitAlignment(1);
+    for (unsigned i = 0, e = ThumbIndirectPads.size(); i < e; i++) {
+      OutStreamer.EmitLabel(ThumbIndirectPads[i].second);
+      EmitToStreamer(OutStreamer, MCInstBuilder(ARM::tBX)
+        .addReg(ThumbIndirectPads[i].first)
+        // Add predicate operands.
+        .addImm(ARMCC::AL)
+        .addReg(0));
+    }
+    ThumbIndirectPads.clear();
+  }
+
   // We didn't modify anything.
   return false;
 }
@@ -694,11 +711,44 @@ void ARMAsmPrinter::emitAttributes() {
 
   // Signal various FP modes.
   if (!TM.Options.UnsafeFPMath) {
-    ATS.emitAttribute(ARMBuildAttrs::ABI_FP_denormal, ARMBuildAttrs::Allowed);
+    ATS.emitAttribute(ARMBuildAttrs::ABI_FP_denormal,
+                      ARMBuildAttrs::IEEEDenormals);
     ATS.emitAttribute(ARMBuildAttrs::ABI_FP_exceptions,
                       ARMBuildAttrs::Allowed);
+
+    // If the user has permitted this code to choose the IEEE 754
+    // rounding at run-time, emit the rounding attribute.
+    if (TM.Options.HonorSignDependentRoundingFPMathOption)
+      ATS.emitAttribute(ARMBuildAttrs::ABI_FP_rounding,
+                        ARMBuildAttrs::Allowed);
+  } else {
+    if (!Subtarget->hasVFP2()) {
+      // When the target doesn't have an FPU (by design or
+      // intention), the assumptions made on the software support
+      // mirror that of the equivalent hardware support *if it
+      // existed*. For v7 and better we indicate that denormals are
+      // flushed preserving sign, and for V6 we indicate that
+      // denormals are flushed to positive zero.
+      if (Subtarget->hasV7Ops())
+        ATS.emitAttribute(ARMBuildAttrs::ABI_FP_denormal,
+                          ARMBuildAttrs::PreserveFPSign);
+    } else if (Subtarget->hasVFP3()) {
+      // In VFPv4, VFPv4U, VFPv3, or VFPv3U, it is preserved. That is,
+      // the sign bit of the zero matches the sign bit of the input or
+      // result that is being flushed to zero.
+      ATS.emitAttribute(ARMBuildAttrs::ABI_FP_denormal,
+                        ARMBuildAttrs::PreserveFPSign);
+    }
+    // For VFPv2 implementations it is implementation defined as
+    // to whether denormals are flushed to positive zero or to
+    // whatever the sign of zero is (ARM v7AR ARM 2.7.5). Historically
+    // LLVM has chosen to flush this to positive zero (most likely for
+    // GCC compatibility), so that's the chosen value here (the
+    // absence of its emission implies zero).
   }
 
+  // TM.Options.NoInfsFPMath && TM.Options.NoNaNsFPMath is the
+  // equivalent of GCC's -ffinite-math-only flag.
   if (TM.Options.NoInfsFPMath && TM.Options.NoNaNsFPMath)
     ATS.emitAttribute(ARMBuildAttrs::ABI_FP_number_model,
                       ARMBuildAttrs::Allowed);
@@ -748,7 +798,7 @@ void ARMAsmPrinter::emitAttributes() {
     if (const Module *SourceModule = MMI->getModule()) {
       // ABI_PCS_wchar_t to indicate wchar_t width
       // FIXME: There is no way to emit value 0 (wchar_t prohibited).
-      if (auto WCharWidthValue = cast_or_null<ConstantInt>(
+      if (auto WCharWidthValue = mdconst::extract_or_null<ConstantInt>(
               SourceModule->getModuleFlag("wchar_size"))) {
         int WCharWidth = WCharWidthValue->getZExtValue();
         assert((WCharWidth == 2 || WCharWidth == 4) &&
@@ -759,7 +809,7 @@ void ARMAsmPrinter::emitAttributes() {
       // ABI_enum_size to indicate enum width
       // FIXME: There is no way to emit value 0 (enums prohibited) or value 3
       //        (all enums contain a value needing 32 bits to encode).
-      if (auto EnumWidthValue = cast_or_null<ConstantInt>(
+      if (auto EnumWidthValue = mdconst::extract_or_null<ConstantInt>(
               SourceModule->getModuleFlag("min_enum_size"))) {
         int EnumWidth = EnumWidthValue->getZExtValue();
         assert((EnumWidth == 1 || EnumWidth == 4) &&
@@ -1251,18 +1301,34 @@ void ARMAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     return;
   }
   case ARM::tBX_CALL: {
-    EmitToStreamer(OutStreamer, MCInstBuilder(ARM::tMOVr)
-      .addReg(ARM::LR)
-      .addReg(ARM::PC)
-      // Add predicate operands.
-      .addImm(ARMCC::AL)
-      .addReg(0));
+    if (Subtarget->hasV5TOps())
+      llvm_unreachable("Expected BLX to be selected for v5t+");
 
-    EmitToStreamer(OutStreamer, MCInstBuilder(ARM::tBX)
-      .addReg(MI->getOperand(0).getReg())
-      // Add predicate operands.
-      .addImm(ARMCC::AL)
-      .addReg(0));
+    // On ARM v4t, when doing a call from thumb mode, we need to ensure
+    // that the saved lr has its LSB set correctly (the arch doesn't
+    // have blx).
+    // So here we generate a bl to a small jump pad that does bx rN.
+    // The jump pads are emitted after the function body.
+
+    unsigned TReg = MI->getOperand(0).getReg();
+    MCSymbol *TRegSym = nullptr;
+    for (unsigned i = 0, e = ThumbIndirectPads.size(); i < e; i++) {
+      if (ThumbIndirectPads[i].first == TReg) {
+        TRegSym = ThumbIndirectPads[i].second;
+        break;
+      }
+    }
+
+    if (!TRegSym) {
+      TRegSym = OutContext.CreateTempSymbol();
+      ThumbIndirectPads.push_back(std::make_pair(TReg, TRegSym));
+    }
+
+    // Create a link-saving branch to the Reg Indirect Jump Pad.
+    EmitToStreamer(OutStreamer, MCInstBuilder(ARM::tBL)
+        // Predicate comes first here.
+        .addImm(ARMCC::AL).addReg(0)
+        .addExpr(MCSymbolRefExpr::Create(TRegSym, OutContext)));
     return;
   }
   case ARM::BMOVPCRX_CALL: {

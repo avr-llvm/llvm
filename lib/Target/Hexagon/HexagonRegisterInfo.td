@@ -97,6 +97,12 @@ let Namespace = "Hexagon" in {
   def P2 : Rp<2, "p2">, DwarfRegNum<[65]>;
   def P3 : Rp<3, "p3">, DwarfRegNum<[66]>;
 
+  // Fake register to represent USR.OVF bit. Artihmetic/saturating instruc-
+  // tions modify this bit, and multiple such instructions are allowed in the
+  // same packet. We need to ignore output dependencies on this bit, but not
+  // on the entire USR.
+  def USR_OVF : Rc<?, "usr.ovf">;
+
   // Control registers.
   def SA0 : Rc<0, "sa0">, DwarfRegNum<[67]>;
   def LC0 : Rc<1, "lc0">, DwarfRegNum<[68]>;
@@ -138,3 +144,16 @@ def CRRegs : RegisterClass<"Hexagon", [i32], 32,
                                 (sequence "M%u", 0, 1), PC, GP)> {
   let Size = 32;
 }
+
+def VolatileV3 {
+  list<Register> Regs = [D0, D1, D2, D3, D4, D5, D6, D7,
+                         R28, R31,
+                         P0, P1, P2, P3,
+                         M0, M1,
+                         LC0, LC1, SA0, SA1, USR_OVF];
+}
+
+def PositiveHalfWord : PatLeaf<(i32 IntRegs:$a),
+[{
+  return isPositiveHalfWord(N);
+}]>;

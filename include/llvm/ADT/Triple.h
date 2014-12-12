@@ -140,7 +140,8 @@ public:
     Bitrig,
     AIX,
     CUDA,       // NVIDIA CUDA
-    NVCL        // NVIDIA OpenCL
+    NVCL,       // NVIDIA OpenCL
+    AMDHSA      // AMD HSA Runtime
   };
   enum EnvironmentType {
     UnknownEnvironment,

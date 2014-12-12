@@ -40,6 +40,7 @@ MCAsmInfo::MCAsmInfo() {
   LabelSuffix = ":";
   UseAssignmentForEHBegin = false;
   PrivateGlobalPrefix = "L";
+  PrivateLabelPrefix = PrivateGlobalPrefix;
   LinkerPrivateGlobalPrefix = "";
   InlineAsmStart = "APP";
   InlineAsmEnd = "NO_APP";
@@ -71,6 +72,7 @@ MCAsmInfo::MCAsmInfo() {
   HasSingleParameterDotFile = true;
   HasIdentDirective = false;
   HasNoDeadStrip = false;
+  WeakDirective = "\t.weak\t";
   WeakRefDirective = nullptr;
   HasWeakDefDirective = false;
   HasWeakDefCanBeHiddenDirective = false;

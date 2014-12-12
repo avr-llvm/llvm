@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/HexagonBaseInfo.h"
+#include "MCTargetDesc/HexagonMCInst.h"
 #include "MCTargetDesc/HexagonMCTargetDesc.h"
 
 #include "llvm/MC/MCContext.h"
@@ -60,6 +61,16 @@ static const uint16_t IntRegDecoderTable[] = {
 static const uint16_t PredRegDecoderTable[] = { Hexagon::P0, Hexagon::P1,
 Hexagon::P2, Hexagon::P3 };
 
+static DecodeStatus DecodeRegisterClass(MCInst &Inst, unsigned RegNo,
+  const uint16_t Table[], size_t Size) {
+  if (RegNo < Size) {
+    Inst.addOperand(MCOperand::CreateReg(Table[RegNo]));
+    return MCDisassembler::Success;
+  }
+  else
+    return MCDisassembler::Fail;
+}
+
 static DecodeStatus DecodeIntRegsRegisterClass(MCInst &Inst, unsigned RegNo,
   uint64_t /*Address*/,
   void const *Decoder) {
@@ -69,6 +80,20 @@ static DecodeStatus DecodeIntRegsRegisterClass(MCInst &Inst, unsigned RegNo,
   unsigned Register = IntRegDecoderTable[RegNo];
   Inst.addOperand(MCOperand::CreateReg(Register));
   return MCDisassembler::Success;
+}
+
+static DecodeStatus DecodeDoubleRegsRegisterClass(MCInst &Inst, unsigned RegNo,
+  uint64_t /*Address*/, const void *Decoder) {
+  static const uint16_t DoubleRegDecoderTable[] = {
+    Hexagon::D0, Hexagon::D1, Hexagon::D2, Hexagon::D3,
+    Hexagon::D4, Hexagon::D5, Hexagon::D6, Hexagon::D7,
+    Hexagon::D8, Hexagon::D9, Hexagon::D10, Hexagon::D11,
+    Hexagon::D12, Hexagon::D13, Hexagon::D14, Hexagon::D15
+  };
+
+  return (DecodeRegisterClass(Inst, RegNo >> 1,
+    DoubleRegDecoderTable,
+    sizeof (DoubleRegDecoderTable)));
 }
 
 static DecodeStatus DecodePredRegsRegisterClass(MCInst &Inst, unsigned RegNo,
@@ -110,5 +135,7 @@ DecodeStatus HexagonDisassembler::getInstruction(MCInst &MI, uint64_t &Size,
 
   // Remove parse bits.
   insn &= ~static_cast<uint32_t>(HexagonII::InstParseBits::INST_PARSE_MASK);
-  return decodeInstruction(DecoderTable32, MI, insn, Address, this, STI);
+  DecodeStatus Result = decodeInstruction(DecoderTable32, MI, insn, Address, this, STI);
+  HexagonMCInst::AppendImplicitOperands(MI);
+  return Result;
 }

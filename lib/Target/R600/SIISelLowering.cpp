@@ -489,7 +489,10 @@ SDValue SITargetLowering::LowerFormalArguments(
   // The pointer to the list of arguments is stored in SGPR0, SGPR1
 	// The pointer to the scratch buffer is stored in SGPR2, SGPR3
   if (Info->getShaderType() == ShaderType::COMPUTE) {
-    Info->NumUserSGPRs = 4;
+    if (Subtarget->isAmdHsaOS())
+      Info->NumUserSGPRs = 2;  // FIXME: Need to support scratch buffers.
+    else
+      Info->NumUserSGPRs = 4;
 
     unsigned InputPtrReg =
         TRI->getPreloadedValue(MF, SIRegisterInfo::INPUT_PTR);
@@ -2030,6 +2033,8 @@ static SDValue buildSMovImm32(SelectionDAG &DAG, SDLoc DL, uint64_t Val) {
 MachineSDNode *SITargetLowering::wrapAddr64Rsrc(SelectionDAG &DAG,
                                                 SDLoc DL,
                                                 SDValue Ptr) const {
+  const SIInstrInfo *TII = static_cast<const SIInstrInfo *>(
+      getTargetMachine().getSubtargetImpl()->getInstrInfo());
 #if 1
     // XXX - Workaround for moveToVALU not handling different register class
     // inserts for REG_SEQUENCE.
@@ -2039,7 +2044,7 @@ MachineSDNode *SITargetLowering::wrapAddr64Rsrc(SelectionDAG &DAG,
       DAG.getTargetConstant(AMDGPU::SGPR_64RegClassID, MVT::i32),
       buildSMovImm32(DAG, DL, 0),
       DAG.getTargetConstant(AMDGPU::sub0, MVT::i32),
-      buildSMovImm32(DAG, DL, AMDGPU::RSRC_DATA_FORMAT >> 32),
+      buildSMovImm32(DAG, DL, TII->getDefaultRsrcDataFormat() >> 32),
       DAG.getTargetConstant(AMDGPU::sub1, MVT::i32)
     };
 
@@ -2063,7 +2068,7 @@ MachineSDNode *SITargetLowering::wrapAddr64Rsrc(SelectionDAG &DAG,
       DAG.getTargetConstant(AMDGPU::sub0_sub1, MVT::i32),
       buildSMovImm32(DAG, DL, 0),
       DAG.getTargetConstant(AMDGPU::sub2, MVT::i32),
-      buildSMovImm32(DAG, DL, AMDGPU::RSRC_DATA_FORMAT >> 32),
+      buildSMovImm32(DAG, DL, TII->getDefaultRsrcFormat() >> 32),
       DAG.getTargetConstant(AMDGPU::sub3, MVT::i32)
     };
 
@@ -2110,7 +2115,9 @@ MachineSDNode *SITargetLowering::buildRSRC(SelectionDAG &DAG,
 MachineSDNode *SITargetLowering::buildScratchRSRC(SelectionDAG &DAG,
                                                   SDLoc DL,
                                                   SDValue Ptr) const {
-  uint64_t Rsrc = AMDGPU::RSRC_DATA_FORMAT | AMDGPU::RSRC_TID_ENABLE |
+  const SIInstrInfo *TII = static_cast<const SIInstrInfo *>(
+      getTargetMachine().getSubtargetImpl()->getInstrInfo());
+  uint64_t Rsrc = TII->getDefaultRsrcDataFormat() | AMDGPU::RSRC_TID_ENABLE |
                   0xffffffff; // Size
 
   return buildRSRC(DAG, DL, Ptr, 0, Rsrc);
@@ -2149,7 +2156,12 @@ MachineSDNode *SITargetLowering::AdjustRegClass(MachineSDNode *N,
     SmallVector<SDValue, 8> Ops;
     Ops.push_back(SDValue(RSrc, 0));
     Ops.push_back(N->getOperand(0));
-    Ops.push_back(DAG.getConstant(Offset->getSExtValue() << 2, MVT::i32));
+
+    // The immediate offset is in dwords on SI and in bytes on VI.
+    if (Subtarget->getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS)
+      Ops.push_back(DAG.getTargetConstant(Offset->getSExtValue(), MVT::i32));
+    else
+      Ops.push_back(DAG.getTargetConstant(Offset->getSExtValue() << 2, MVT::i32));
 
     // Copy remaining operands so we keep any chain and glue nodes that follow
     // the normal operands.

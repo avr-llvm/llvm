@@ -20,6 +20,7 @@
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/ValueTracking.h"
@@ -31,6 +32,7 @@
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/IR/ValueHandle.h"
+#include <algorithm>
 using namespace llvm;
 using namespace llvm::PatternMatch;
 
@@ -1009,6 +1011,10 @@ static Value *SimplifyDiv(Instruction::BinaryOps Opcode, Value *Op0, Value *Op1,
   if (match(Op1, m_Undef()))
     return Op1;
 
+  // X / 0 -> undef, we don't need to preserve faults!
+  if (match(Op1, m_Zero()))
+    return UndefValue::get(Op1->getType());
+
   // undef / X -> 0
   if (match(Op0, m_Undef()))
     return Constant::getNullValue(Op0->getType());
@@ -1381,8 +1387,10 @@ static Value *SimplifyLShrInst(Value *Op0, Value *Op1, bool isExact,
       return V;
 
   // undef >>l X -> 0
+  // undef >>l X -> undef (if it's exact)
   if (match(Op0, m_Undef()))
-    return Constant::getNullValue(Op0->getType());
+    return isExact ? UndefValue::get(Op0->getType())
+                   : Constant::getNullValue(Op0->getType());
 
   // (X << A) >> A -> X
   Value *X;
@@ -1414,9 +1422,11 @@ static Value *SimplifyAShrInst(Value *Op0, Value *Op1, bool isExact,
   if (match(Op0, m_AllOnes()))
     return Op0;
 
-  // undef >>a X -> all ones
+  // undef >>a X -> 0
+  // undef >>a X -> undef (if it's exact)
   if (match(Op0, m_Undef()))
-    return Constant::getAllOnesValue(Op0->getType());
+    return isExact ? UndefValue::get(Op0->getType())
+                   : Constant::getNullValue(Op0->getType());
 
   // (X << A) >> A -> X
   Value *X;
@@ -1441,12 +1451,57 @@ Value *llvm::SimplifyAShrInst(Value *Op0, Value *Op1, bool isExact,
                             RecursionLimit);
 }
 
+static Value *simplifyUnsignedRangeCheck(ICmpInst *ZeroICmp,
+                                         ICmpInst *UnsignedICmp, bool IsAnd) {
+  Value *X, *Y;
+
+  ICmpInst::Predicate EqPred;
+  if (!match(ZeroICmp, m_ICmp(EqPred, m_Value(Y), m_Zero())) ||
+      !ICmpInst::isEquality(EqPred))
+    return nullptr;
+
+  ICmpInst::Predicate UnsignedPred;
+  if (match(UnsignedICmp, m_ICmp(UnsignedPred, m_Value(X), m_Specific(Y))) &&
+      ICmpInst::isUnsigned(UnsignedPred))
+    ;
+  else if (match(UnsignedICmp,
+                 m_ICmp(UnsignedPred, m_Value(Y), m_Specific(X))) &&
+           ICmpInst::isUnsigned(UnsignedPred))
+    UnsignedPred = ICmpInst::getSwappedPredicate(UnsignedPred);
+  else
+    return nullptr;
+
+  // X < Y && Y != 0  -->  X < Y
+  // X < Y || Y != 0  -->  Y != 0
+  if (UnsignedPred == ICmpInst::ICMP_ULT && EqPred == ICmpInst::ICMP_NE)
+    return IsAnd ? UnsignedICmp : ZeroICmp;
+
+  // X >= Y || Y != 0  -->  true
+  // X >= Y || Y == 0  -->  X >= Y
+  if (UnsignedPred == ICmpInst::ICMP_UGE && !IsAnd) {
+    if (EqPred == ICmpInst::ICMP_NE)
+      return getTrue(UnsignedICmp->getType());
+    return UnsignedICmp;
+  }
+
+  // X < Y && Y == 0  -->  false
+  if (UnsignedPred == ICmpInst::ICMP_ULT && EqPred == ICmpInst::ICMP_EQ &&
+      IsAnd)
+    return getFalse(UnsignedICmp->getType());
+
+  return nullptr;
+}
+
 // Simplify (and (icmp ...) (icmp ...)) to true when we can tell that the range
 // of possible values cannot be satisfied.
 static Value *SimplifyAndOfICmps(ICmpInst *Op0, ICmpInst *Op1) {
   ICmpInst::Predicate Pred0, Pred1;
   ConstantInt *CI1, *CI2;
   Value *V;
+
+  if (Value *X = simplifyUnsignedRangeCheck(Op0, Op1, /*IsAnd=*/true))
+    return X;
+
   if (!match(Op0, m_ICmp(Pred0, m_Add(m_Value(V), m_ConstantInt(CI1)),
                          m_ConstantInt(CI2))))
    return nullptr;
@@ -1600,6 +1655,10 @@ static Value *SimplifyOrOfICmps(ICmpInst *Op0, ICmpInst *Op1) {
   ICmpInst::Predicate Pred0, Pred1;
   ConstantInt *CI1, *CI2;
   Value *V;
+
+  if (Value *X = simplifyUnsignedRangeCheck(Op0, Op1, /*IsAnd=*/false))
+    return X;
+
   if (!match(Op0, m_ICmp(Pred0, m_Add(m_Value(V), m_ConstantInt(CI1)),
                          m_ConstantInt(CI2))))
    return nullptr;
@@ -2007,6 +2066,50 @@ static Constant *computePointerICmp(const DataLayout *DL,
       return ConstantExpr::getICmp(Pred,
                                    ConstantExpr::getAdd(LHSOffset, LHSNoBound),
                                    ConstantExpr::getAdd(RHSOffset, RHSNoBound));
+
+    // If one side of the equality comparison must come from a noalias call
+    // (meaning a system memory allocation function), and the other side must
+    // come from a pointer that cannot overlap with dynamically-allocated
+    // memory within the lifetime of the current function (allocas, byval
+    // arguments, globals), then determine the comparison result here.
+    SmallVector<Value *, 8> LHSUObjs, RHSUObjs;
+    GetUnderlyingObjects(LHS, LHSUObjs, DL);
+    GetUnderlyingObjects(RHS, RHSUObjs, DL);
+
+    // Is the set of underlying objects all noalias calls?
+    auto IsNAC = [](SmallVectorImpl<Value *> &Objects) {
+      return std::all_of(Objects.begin(), Objects.end(),
+                         [](Value *V){ return isNoAliasCall(V); });
+    };
+
+    // Is the set of underlying objects all things which must be disjoint from
+    // noalias calls. For allocas, we consider only static ones (dynamic
+    // allocas might be transformed into calls to malloc not simultaneously
+    // live with the compared-to allocation). For globals, we exclude symbols
+    // that might be resolve lazily to symbols in another dynamically-loaded
+    // library (and, thus, could be malloc'ed by the implementation).
+    auto IsAllocDisjoint = [](SmallVectorImpl<Value *> &Objects) {
+      return std::all_of(Objects.begin(), Objects.end(),
+                         [](Value *V){
+                           if (const AllocaInst *AI = dyn_cast<AllocaInst>(V))
+                             return AI->getParent() && AI->getParent()->getParent() &&
+                                    AI->isStaticAlloca();
+                           if (const GlobalValue *GV = dyn_cast<GlobalValue>(V))
+                             return (GV->hasLocalLinkage() ||
+                                     GV->hasHiddenVisibility() ||
+                                     GV->hasProtectedVisibility() ||
+                                     GV->hasUnnamedAddr()) &&
+                                    !GV->isThreadLocal();
+                           if (const Argument *A = dyn_cast<Argument>(V))
+                             return A->hasByValAttr();
+                           return false;
+                         });
+    };
+
+    if ((IsNAC(LHSUObjs) && IsAllocDisjoint(RHSUObjs)) ||
+        (IsNAC(RHSUObjs) && IsAllocDisjoint(LHSUObjs)))
+        return ConstantInt::get(GetCompareTy(LHS),
+                                !CmpInst::isTrueWhenEqual(Pred));
   }
 
   // Otherwise, fail.

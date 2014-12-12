@@ -154,16 +154,11 @@ namespace llvm {
     bool shrinkToUses(LiveInterval *li,
                       SmallVectorImpl<MachineInstr*> *dead = nullptr);
 
-    /// \brief Walk the values in the given interval and compute which ones
-    /// are dead.  Dead values are not deleted, however:
-    /// - Dead PHIDef values are marked as unused.
-    /// - New dead machine instructions are added to the dead vector.
-    /// - CanSeparate is set to true if the interval may have been separated
-    ///   into multiple connected components.
-    void computeDeadValues(LiveInterval *li,
-                           LiveRange &LR,
-                           bool *CanSeparate,
-                           SmallVectorImpl<MachineInstr*> *dead);
+    /// Specialized version of
+    /// shrinkToUses(LiveInterval *li, SmallVectorImpl<MachineInstr*> *dead)
+    /// that works on a subregister live range and only looks at uses matching
+    /// the lane mask of the subregister range.
+    bool shrinkToUses(LiveInterval::SubRange &SR, unsigned Reg);
 
     /// extendToIndices - Extend the live range of LI to reach all points in
     /// Indices. The points in the Indices array must be jointly dominated by
@@ -175,14 +170,21 @@ namespace llvm {
     /// See also LiveRangeCalc::extend().
     void extendToIndices(LiveRange &LR, ArrayRef<SlotIndex> Indices);
 
-    /// pruneValue - If an LI value is live at Kill, prune its live range by
-    /// removing any liveness reachable from Kill. Add live range end points to
+
+    /// If @p LR has a live value at @p Kill, prune its live range by removing
+    /// any liveness reachable from Kill. Add live range end points to
     /// EndPoints such that extendToIndices(LI, EndPoints) will reconstruct the
     /// value's live range.
     ///
     /// Calling pruneValue() and extendToIndices() can be used to reconstruct
     /// SSA form after adding defs to a virtual register.
-    void pruneValue(LiveInterval *LI, SlotIndex Kill,
+    void pruneValue(LiveRange &LR, SlotIndex Kill,
+                    SmallVectorImpl<SlotIndex> *EndPoints);
+
+    /// Subregister aware variant of pruneValue(LiveRange &LR, SlotIndex Kill,
+    /// SmallVectorImpl<SlotIndex> &EndPoints). Prunes the value in the main
+    /// range and all sub ranges.
+    void pruneValue(LiveInterval &LI, SlotIndex Kill,
                     SmallVectorImpl<SlotIndex> *EndPoints);
 
     SlotIndexes *getSlotIndexes() const {
@@ -404,6 +406,18 @@ namespace llvm {
     /// Compute RegMaskSlots and RegMaskBits.
     void computeRegMasks();
 
+    /// \brief Walk the values in the @p LR live range and compute which ones
+    /// are dead in live range @p Segments.  Dead values are not deleted,
+    /// however:
+    /// - Dead PHIDef values are marked as unused.
+    /// - if @p dead != nullptr then dead operands are marked as such and
+    ///   completely dead machine instructions are added to the @p dead vector.
+    /// - CanSeparate is set to true if the interval may have been separated
+    ///   into multiple connected components.
+    void computeDeadValues(LiveRange &Segments, LiveRange &LR,
+                           bool *CanSeparate = nullptr, unsigned Reg = 0,
+                           SmallVectorImpl<MachineInstr*> *dead = nullptr);
+
     static LiveInterval* createInterval(unsigned Reg);
 
     void printInstrs(raw_ostream &O) const;
@@ -412,6 +426,16 @@ namespace llvm {
     void computeLiveInRegUnits();
     void computeRegUnitRange(LiveRange&, unsigned Unit);
     void computeVirtRegInterval(LiveInterval&);
+
+
+    /// Helper function for repairIntervalsInRange(), walks backwards and
+    /// creates/modifies live segments in @p LR to match the operands found.
+    /// Only full operands or operands with subregisters matching @p LaneMask
+    /// are considered.
+    void repairOldRegInRange(MachineBasicBlock::iterator Begin,
+                             MachineBasicBlock::iterator End,
+                             const SlotIndex endIdx, LiveRange &LR,
+                             unsigned Reg, unsigned LaneMask = ~0u);
 
     class HMEditor;
   };

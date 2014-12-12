@@ -17,6 +17,7 @@
 #define LLVM_LIB_TARGET_R600_SIINSTRINFO_H
 
 #include "AMDGPUInstrInfo.h"
+#include "SIDefines.h"
 #include "SIRegisterInfo.h"
 
 namespace llvm {
@@ -43,6 +44,8 @@ private:
                          MachineRegisterInfo &MRI,
                          const TargetRegisterClass *RC,
                          const MachineOperand &Op) const;
+
+  void swapOperands(MachineBasicBlock::iterator Inst) const;
 
   void splitScalar64BitUnaryOp(SmallVectorImpl<MachineInstr *> &Worklist,
                                MachineInstr *Inst, unsigned Opcode) const;
@@ -128,16 +131,74 @@ public:
   bool isMov(unsigned Opcode) const override;
 
   bool isSafeToMoveRegClassDefs(const TargetRegisterClass *RC) const override;
-  bool isDS(uint16_t Opcode) const;
-  bool isMIMG(uint16_t Opcode) const;
-  bool isSMRD(uint16_t Opcode) const;
-  bool isMUBUF(uint16_t Opcode) const;
-  bool isMTBUF(uint16_t Opcode) const;
-  bool isFLAT(uint16_t Opcode) const;
-  bool isVOP1(uint16_t Opcode) const;
-  bool isVOP2(uint16_t Opcode) const;
-  bool isVOP3(uint16_t Opcode) const;
-  bool isVOPC(uint16_t Opcode) const;
+
+  bool isSALU(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::SALU;
+  }
+
+  bool isVALU(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::VALU;
+  }
+
+  bool isSOP1(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::SOP1;
+  }
+
+  bool isSOP2(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::SOP2;
+  }
+
+  bool isSOPC(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::SOPC;
+  }
+
+  bool isSOPK(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::SOPK;
+  }
+
+  bool isSOPP(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::SOPP;
+  }
+
+  bool isVOP1(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::VOP1;
+  }
+
+  bool isVOP2(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::VOP2;
+  }
+
+  bool isVOP3(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::VOP3;
+  }
+
+  bool isVOPC(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::VOPC;
+  }
+
+  bool isMUBUF(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::MUBUF;
+  }
+
+  bool isMTBUF(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::MTBUF;
+  }
+
+  bool isSMRD(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::SMRD;
+  }
+
+  bool isDS(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::DS;
+  }
+
+  bool isMIMG(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::MIMG;
+  }
+
+  bool isFLAT(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::FLAT;
+  }
 
   bool isInlineConstant(const APInt &Imm) const;
   bool isInlineConstant(const MachineOperand &MO) const;
@@ -148,7 +209,7 @@ public:
 
   /// \brief Return true if the given offset Size in bytes can be folded into
   /// the immediate offsets of a memory instruction for the given address space.
-  static bool canFoldOffset(unsigned OffsetSize, unsigned AS) LLVM_READNONE;
+  bool canFoldOffset(unsigned OffsetSize, unsigned AS) const;
 
   /// \brief Return true if this 64-bit VALU instruction has a 32-bit encoding.
   /// This function will return false if you pass it a 32-bit instruction.
@@ -168,7 +229,6 @@ public:
   bool verifyInstruction(const MachineInstr *MI,
                          StringRef &ErrInfo) const override;
 
-  bool isSALUInstr(const MachineInstr &MI) const;
   static unsigned getVALUOp(const MachineInstr &MI);
 
   bool isSALUOpSupportedOnVALU(const MachineInstr &MI) const;
@@ -250,6 +310,9 @@ public:
                                         unsigned OpName) const {
     return getNamedOperand(const_cast<MachineInstr &>(MI), OpName);
   }
+
+  uint64_t getDefaultRsrcDataFormat() const;
+
 };
 
 namespace AMDGPU {

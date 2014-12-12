@@ -161,7 +161,7 @@ protected:
 
   /// True if unaligned 32-byte memory accesses are slow.
   bool IsUAMem32Slow;
-  
+
   /// HasVectorUAMem - True if SIMD operations can have unaligned memory
   /// operands. This may require setting a feature bit in the processor.
   bool HasVectorUAMem;
@@ -208,7 +208,7 @@ protected:
   /// For this to be profitable, the cost of FDIV must be
   /// substantially higher than normal FP ops like FADD and FMUL.
   bool UseReciprocalEst;
-  
+
   /// Processor has AVX-512 PreFetch Instructions
   bool HasPFI;
 
@@ -408,7 +408,7 @@ public:
 
   bool isTargetELF() const { return TargetTriple.isOSBinFormatELF(); }
   bool isTargetCOFF() const { return TargetTriple.isOSBinFormatCOFF(); }
-  bool isTargetMacho() const { return TargetTriple.isOSBinFormatMachO(); }
+  bool isTargetMachO() const { return TargetTriple.isOSBinFormatMachO(); }
 
   bool isTargetLinux() const { return TargetTriple.isOSLinux(); }
   bool isTargetNaCl() const { return TargetTriple.isOSNaCl(); }

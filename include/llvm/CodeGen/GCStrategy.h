@@ -51,18 +51,13 @@ namespace llvm {
   
   /// GCStrategy describes a garbage collector algorithm's code generation
   /// requirements, and provides overridable hooks for those needs which cannot
-  /// be abstractly described.
+  /// be abstractly described.  GCStrategy objects currently must be looked up
+  /// through the GCModuleInfo analysis pass.  They are owned by the analysis
+  /// pass and recreated every time that pass is invalidated.
   class GCStrategy {
-  public:
-    typedef std::vector<std::unique_ptr<GCFunctionInfo>> list_type;
-    typedef list_type::iterator iterator;
-    
   private:
     friend class GCModuleInfo;
-    const Module *M;
     std::string Name;
-    
-    list_type Functions;
     
   protected:
     unsigned NeededSafePoints; ///< Bitmask of required safe points.
@@ -83,10 +78,6 @@ namespace llvm {
     /// getName - The name of the GC strategy, for debugging.
     /// 
     const std::string &getName() const { return Name; }
-
-    /// getModule - The module within which the GC strategy is operating.
-    /// 
-    const Module &getModule() const { return *M; }
 
     /// needsSafePoitns - True if safe points of any kind are required. By
     //                    default, none are recorded.
@@ -129,15 +120,6 @@ namespace llvm {
     ///                the back-end (assembler, JIT, or otherwise).
     bool usesMetadata() const { return UsesMetadata; }
     
-    /// begin/end - Iterators for function metadata.
-    /// 
-    iterator begin() { return Functions.begin(); }
-    iterator end()   { return Functions.end();   }
-
-    /// insertFunctionMetadata - Creates metadata for a function.
-    /// 
-    GCFunctionInfo *insertFunctionInfo(const Function &F);
-
     /// initializeCustomLowering/performCustomLowering - If any of the actions
     /// are set to custom, performCustomLowering must be overriden to transform
     /// the corresponding actions to LLVM IR. initializeCustomLowering is

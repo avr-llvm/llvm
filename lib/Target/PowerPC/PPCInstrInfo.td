@@ -2072,6 +2072,12 @@ def MTSPR : XFXForm_1<31, 467, (outs), (ins i32imm:$SPR, gprc:$RT),
 def MFTB : XFXForm_1<31, 371, (outs gprc:$RT), (ins i32imm:$SPR),
                      "mftb $RT, $SPR", IIC_SprMFTB>, Deprecated<DeprecatedMFTB>;
 
+// A pseudo-instruction used to implement the read of the 64-bit cycle counter
+// on a 32-bit target.
+let hasSideEffects = 1, usesCustomInserter = 1 in
+def ReadTB : Pseudo<(outs gprc:$lo, gprc:$hi), (ins),
+                    "#ReadTB", []>;
+
 let Uses = [CTR] in {
 def MFCTR : XFXForm_1_ext<31, 339, 9, (outs gprc:$rT), (ins),
                           "mfctr $rT", IIC_SprMFSPR>,
@@ -3233,6 +3239,24 @@ def MTDCR : XFXForm_1<31, 451, (outs), (ins gprc:$RT, i32imm:$SPR),
                       "mtdcr $SPR, $RT", IIC_SprMTSPR>, Requires<[IsPPC4xx]>;
 
 def ATTN : XForm_attn<0, 256, (outs), (ins), "attn", IIC_BrB>;
+
+def LBZCIX : XForm_base_r3xo<31, 853, (outs gprc:$RST), (ins gprc:$A, gprc:$B),
+                             "lbzcix $RST, $A, $B", IIC_LdStLoad, []>;
+def LHZCIX : XForm_base_r3xo<31, 821, (outs gprc:$RST), (ins gprc:$A, gprc:$B),
+                             "lhzcix $RST, $A, $B", IIC_LdStLoad, []>;
+def LWZCIX : XForm_base_r3xo<31, 789, (outs gprc:$RST), (ins gprc:$A, gprc:$B),
+                             "lwzcix $RST, $A, $B", IIC_LdStLoad, []>;
+def LDCIX :  XForm_base_r3xo<31, 885, (outs gprc:$RST), (ins gprc:$A, gprc:$B),
+                             "ldcix $RST, $A, $B", IIC_LdStLoad, []>;
+
+def STBCIX : XForm_base_r3xo<31, 981, (outs), (ins gprc:$RST, gprc:$A, gprc:$B),
+                             "stbcix $RST, $A, $B", IIC_LdStLoad, []>;
+def STHCIX : XForm_base_r3xo<31, 949, (outs), (ins gprc:$RST, gprc:$A, gprc:$B),
+                             "sthcix $RST, $A, $B", IIC_LdStLoad, []>;
+def STWCIX : XForm_base_r3xo<31, 917, (outs), (ins gprc:$RST, gprc:$A, gprc:$B),
+                             "stwcix $RST, $A, $B", IIC_LdStLoad, []>;
+def STDCIX : XForm_base_r3xo<31, 1013, (outs), (ins gprc:$RST, gprc:$A, gprc:$B),
+                             "stdcix $RST, $A, $B", IIC_LdStLoad, []>;
 
 //===----------------------------------------------------------------------===//
 // PowerPC Assembler Instruction Aliases

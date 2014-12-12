@@ -1097,7 +1097,7 @@ private:
 
     for (unsigned i = 1, ie = LoopID->getNumOperands(); i < ie; ++i) {
       const MDString *S = nullptr;
-      SmallVector<Value*, 4> Args;
+      SmallVector<Metadata *, 4> Args;
 
       // The expected hint is either a MDString or a MDNode with the first
       // operand a MDString.
@@ -1123,12 +1123,12 @@ private:
   }
 
   /// Checks string hint with one operand and set value if valid.
-  void setHint(StringRef Name, Value *Arg) {
+  void setHint(StringRef Name, Metadata *Arg) {
     if (!Name.startswith(Prefix()))
       return;
     Name = Name.substr(Prefix().size(), StringRef::npos);
 
-    const ConstantInt *C = dyn_cast<ConstantInt>(Arg);
+    const ConstantInt *C = mdconst::dyn_extract<ConstantInt>(Arg);
     if (!C) return;
     unsigned Val = C->getZExtValue();
 
@@ -1147,9 +1147,10 @@ private:
   /// Create a new hint from name / value pair.
   MDNode *createHintMetadata(StringRef Name, unsigned V) const {
     LLVMContext &Context = TheLoop->getHeader()->getContext();
-    Value *Vals[] = {MDString::get(Context, Name),
-                     ConstantInt::get(Type::getInt32Ty(Context), V)};
-    return MDNode::get(Context, Vals);
+    Metadata *MDs[] = {MDString::get(Context, Name),
+                       ConstantAsMetadata::get(
+                           ConstantInt::get(Type::getInt32Ty(Context), V))};
+    return MDNode::get(Context, MDs);
   }
 
   /// Matches metadata with hint name.
@@ -1170,7 +1171,7 @@ private:
       return;
 
     // Reserve the first element to LoopID (see below).
-    SmallVector<Value*, 4> Vals(1);
+    SmallVector<Metadata *, 4> MDs(1);
     // If the loop already has metadata, then ignore the existing operands.
     MDNode *LoopID = TheLoop->getLoopID();
     if (LoopID) {
@@ -1178,24 +1179,21 @@ private:
         MDNode *Node = cast<MDNode>(LoopID->getOperand(i));
         // If node in update list, ignore old value.
         if (!matchesHintMetadataName(Node, HintTypes))
-          Vals.push_back(Node);
+          MDs.push_back(Node);
       }
     }
 
     // Now, add the missing hints.
     for (auto H : HintTypes)
-      Vals.push_back(
-          createHintMetadata(Twine(Prefix(), H.Name).str(), H.Value));
+      MDs.push_back(createHintMetadata(Twine(Prefix(), H.Name).str(), H.Value));
 
     // Replace current metadata node with new one.
     LLVMContext &Context = TheLoop->getHeader()->getContext();
-    MDNode *NewLoopID = MDNode::get(Context, Vals);
+    MDNode *NewLoopID = MDNode::get(Context, MDs);
     // Set operand 0 to refer to the loop id itself.
     NewLoopID->replaceOperandWith(0, NewLoopID);
 
     TheLoop->setLoopID(NewLoopID);
-    if (LoopID)
-      LoopID->replaceAllUsesWith(NewLoopID);
     LoopID = NewLoopID;
   }
 
@@ -2835,9 +2833,6 @@ void InnerLoopVectorizer::vectorizeLoop() {
     }
 
     // Fix the vector-loop phi.
-    // We created the induction variable so we know that the
-    // preheader is the first entry.
-    BasicBlock *VecPreheader = Induction->getIncomingBlock(0);
 
     // Reductions do not have to start at zero. They can start with
     // any loop invariant values.
@@ -2849,7 +2844,8 @@ void InnerLoopVectorizer::vectorizeLoop() {
       // Make sure to add the reduction stat value only to the
       // first unroll part.
       Value *StartVal = (part == 0) ? VectorStart : Identity;
-      cast<PHINode>(VecRdxPhi[part])->addIncoming(StartVal, VecPreheader);
+      cast<PHINode>(VecRdxPhi[part])->addIncoming(StartVal,
+                                                  LoopVectorPreHeader);
       cast<PHINode>(VecRdxPhi[part])->addIncoming(Val[part],
                                                   LoopVectorBody.back());
     }
@@ -3532,6 +3528,15 @@ bool LoopVectorizationLegality::canVectorize() {
 
   // We must have a single exiting block.
   if (!TheLoop->getExitingBlock()) {
+    emitAnalysis(
+        Report() << "loop control flow is not understood by vectorizer");
+    return false;
+  }
+
+  // We only handle bottom-tested loops, i.e. loop in which the condition is
+  // checked at the end of each iteration. With that we can assume that all
+  // instructions in the loop are executed the same number of times.
+  if (TheLoop->getExitingBlock() != TheLoop->getLoopLatch()) {
     emitAnalysis(
         Report() << "loop control flow is not understood by vectorizer");
     return false;

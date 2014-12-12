@@ -162,6 +162,7 @@ public:
   Instruction *visitUDiv(BinaryOperator &I);
   Instruction *visitSDiv(BinaryOperator &I);
   Instruction *visitFDiv(BinaryOperator &I);
+  Value *simplifyRangeCheck(ICmpInst *Cmp0, ICmpInst *Cmp1, bool Inverted);
   Value *FoldAndOfICmps(ICmpInst *LHS, ICmpInst *RHS);
   Value *FoldAndOfFCmps(FCmpInst *LHS, FCmpInst *RHS);
   Instruction *visitAnd(BinaryOperator &I);
@@ -330,6 +331,20 @@ public:
     return &I;
   }
 
+  /// Creates a result tuple for an overflow intrinsic \p II with a given
+  /// \p Result and a constant \p Overflow value. If \p ReUseName is true the
+  /// \p Result's name is taken from \p II.
+  Instruction *CreateOverflowTuple(IntrinsicInst *II, Value *Result,
+                                    bool Overflow, bool ReUseName = true) {
+    if (ReUseName)
+      Result->takeName(II);
+    Constant *V[] = { UndefValue::get(Result->getType()),
+                      Overflow ? Builder->getTrue() : Builder->getFalse() };
+    StructType *ST = cast<StructType>(II->getType());
+    Constant *Struct = ConstantStruct::get(ST, V);
+    return InsertValueInst::Create(Struct, Result, 0);
+  }
+        
   // EraseInstFromFunction - When dealing with an instruction that has side
   // effects or produces a void value, we can't rely on DCE to delete the
   // instruction.  Instead, visit methods should return the value returned by
@@ -401,6 +416,7 @@ private:
                                     APInt &UndefElts, unsigned Depth = 0);
 
   Value *SimplifyVectorOp(BinaryOperator &Inst);
+  Value *SimplifyBSwap(BinaryOperator &Inst);
 
   // FoldOpIntoPhi - Given a binary operator, cast instruction, or select
   // which has a PHI node as operand #0, see if we can fold the instruction

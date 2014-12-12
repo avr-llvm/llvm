@@ -24,7 +24,8 @@ using namespace llvm;
 void MachineRegisterInfo::Delegate::anchor() {}
 
 MachineRegisterInfo::MachineRegisterInfo(const MachineFunction *MF)
-  : MF(MF), TheDelegate(nullptr), IsSSA(true), TracksLiveness(true) {
+  : MF(MF), TheDelegate(nullptr), IsSSA(true), TracksLiveness(true),
+    TracksSubRegLiveness(false) {
   VRegInfo.reserve(256);
   RegAllocHints.reserve(256);
   UsedRegUnits.resize(getTargetRegisterInfo()->getNumRegUnits());
@@ -389,6 +390,14 @@ MachineRegisterInfo::EmitLiveInCopies(MachineBasicBlock *EntryMBB,
       // Add the register to the entry block live-in set.
       EntryMBB->addLiveIn(LiveIns[i].first);
     }
+}
+
+unsigned MachineRegisterInfo::getMaxLaneMaskForVReg(unsigned Reg) const
+{
+  // Lane masks are only defined for vregs.
+  assert(TargetRegisterInfo::isVirtualRegister(Reg));
+  const TargetRegisterClass &TRC = *getRegClass(Reg);
+  return TRC.getLaneMask();
 }
 
 #ifndef NDEBUG

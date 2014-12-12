@@ -83,6 +83,7 @@ namespace lltok {
     kw_inteldialect,
     kw_gc,
     kw_prefix,
+    kw_prologue,
     kw_c,
 
     kw_cc, kw_ccc, kw_fastcc, kw_coldcc,
@@ -96,6 +97,7 @@ namespace lltok {
     kw_x86_64_sysvcc, kw_x86_64_win64cc,
     kw_webkit_jscc, kw_anyregcc,
     kw_preserve_mostcc, kw_preserve_allcc,
+    kw_ghccc,
 
     // Attributes:
     kw_attributes,

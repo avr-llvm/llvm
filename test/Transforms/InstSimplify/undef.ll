@@ -160,3 +160,59 @@ define <4 x i8> @test19(<4 x i8> %a) {
   %b = shl <4 x i8> %a, <i8 8, i8 9, i8 undef, i8 -1>
   ret <4 x i8> %b
 }
+
+; CHECK-LABEL: @test20
+; CHECK: ret i32 undef
+define i32 @test20(i32 %a) {
+  %b = udiv i32 %a, 0
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test21
+; CHECK: ret i32 undef
+define i32 @test21(i32 %a) {
+  %b = sdiv i32 %a, 0
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test22
+; CHECK: ret i32 undef
+define i32 @test22(i32 %a) {
+  %b = ashr exact i32 undef, %a
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test23
+; CHECK: ret i32 undef
+define i32 @test23(i32 %a) {
+  %b = lshr exact i32 undef, %a
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test24
+; CHECK: ret i32 undef
+define i32 @test24(i32 %a) {
+  %b = udiv i32 undef, 0
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test25
+; CHECK: ret i32 undef
+define i32 @test25(i32 %a) {
+  %b = lshr i32 0, undef
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test26
+; CHECK: ret i32 undef
+define i32 @test26(i32 %a) {
+  %b = ashr i32 0, undef
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test27
+; CHECK: ret i32 undef
+define i32 @test27(i32 %a) {
+  %b = shl i32 0, undef
+  ret i32 %b
+}

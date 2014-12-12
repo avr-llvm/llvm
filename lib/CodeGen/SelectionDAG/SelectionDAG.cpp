@@ -2683,6 +2683,8 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL,
       return getConstantFP(apf, VT);
     }
     case ISD::BITCAST:
+      if (VT == MVT::f16 && C->getValueType(0) == MVT::i16)
+        return getConstantFP(APFloat(APFloat::IEEEhalf, Val), VT);
       if (VT == MVT::f32 && C->getValueType(0) == MVT::i32)
         return getConstantFP(APFloat(APFloat::IEEEsingle, Val), VT);
       else if (VT == MVT::f64 && C->getValueType(0) == MVT::i64)
@@ -2756,7 +2758,9 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL,
       return getConstant(api, VT);
     }
     case ISD::BITCAST:
-      if (VT == MVT::i32 && C->getValueType(0) == MVT::f32)
+      if (VT == MVT::i16 && C->getValueType(0) == MVT::f16)
+        return getConstant((uint16_t)V.bitcastToAPInt().getZExtValue(), VT);
+      else if (VT == MVT::i32 && C->getValueType(0) == MVT::f32)
         return getConstant((uint32_t)V.bitcastToAPInt().getZExtValue(), VT);
       else if (VT == MVT::i64 && C->getValueType(0) == MVT::f64)
         return getConstant(V.bitcastToAPInt().getZExtValue(), VT);
@@ -4912,6 +4916,60 @@ SelectionDAG::getIndexedStore(SDValue OrigStore, SDLoc dl, SDValue Base,
                                               ST->isTruncatingStore(),
                                               ST->getMemoryVT(),
                                               ST->getMemOperand());
+  CSEMap.InsertNode(N, IP);
+  InsertNode(N);
+  return SDValue(N, 0);
+}
+
+SDValue
+SelectionDAG::getMaskedLoad(EVT VT, SDLoc dl, SDValue Chain,
+                            SDValue Ptr, SDValue Mask, SDValue Src0,
+                            MachineMemOperand *MMO) {
+
+  SDVTList VTs = getVTList(VT, MVT::Other);
+  SDValue Ops[] = { Chain, Ptr, Mask, Src0 };
+  FoldingSetNodeID ID;
+  AddNodeIDNode(ID, ISD::MLOAD, VTs, Ops);
+  ID.AddInteger(VT.getRawBits());
+  ID.AddInteger(encodeMemSDNodeFlags(ISD::NON_EXTLOAD, ISD::UNINDEXED,
+                                     MMO->isVolatile(),
+                                     MMO->isNonTemporal(),
+                                     MMO->isInvariant()));
+  ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
+  void *IP = nullptr;
+  if (SDNode *E = CSEMap.FindNodeOrInsertPos(ID, IP)) {
+    cast<MaskedLoadSDNode>(E)->refineAlignment(MMO);
+    return SDValue(E, 0);
+  }
+  SDNode *N = new (NodeAllocator) MaskedLoadSDNode(dl.getIROrder(),
+                                             dl.getDebugLoc(), Ops, 4, VTs,
+                                             VT, MMO);
+  CSEMap.InsertNode(N, IP);
+  InsertNode(N);
+  return SDValue(N, 0);
+}
+
+SDValue SelectionDAG::getMaskedStore(SDValue Chain, SDLoc dl, SDValue Val,
+                               SDValue Ptr, SDValue Mask, MachineMemOperand *MMO) {
+  assert(Chain.getValueType() == MVT::Other &&
+        "Invalid chain type");
+  EVT VT = Val.getValueType();
+  SDVTList VTs = getVTList(MVT::Other);
+  SDValue Ops[] = { Chain, Ptr, Mask, Val };
+  FoldingSetNodeID ID;
+  AddNodeIDNode(ID, ISD::MSTORE, VTs, Ops);
+  ID.AddInteger(VT.getRawBits());
+  ID.AddInteger(encodeMemSDNodeFlags(false, ISD::UNINDEXED, MMO->isVolatile(),
+                                     MMO->isNonTemporal(), MMO->isInvariant()));
+  ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
+  void *IP = nullptr;
+  if (SDNode *E = CSEMap.FindNodeOrInsertPos(ID, IP)) {
+    cast<MaskedStoreSDNode>(E)->refineAlignment(MMO);
+    return SDValue(E, 0);
+  }
+  SDNode *N = new (NodeAllocator) MaskedStoreSDNode(dl.getIROrder(),
+                                                    dl.getDebugLoc(), Ops, 4,
+                                                    VTs, VT, MMO);
   CSEMap.InsertNode(N, IP);
   InsertNode(N);
   return SDValue(N, 0);

@@ -27,6 +27,7 @@
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/DIBuilder.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InlineAsm.h"
@@ -36,6 +37,7 @@
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
+#include "llvm/MC/MCSectionMachO.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/Debug.h"
@@ -218,8 +220,10 @@ struct LocationMetadata {
     assert(MDN->getNumOperands() == 3);
     MDString *MDFilename = cast<MDString>(MDN->getOperand(0));
     Filename = MDFilename->getString();
-    LineNo = cast<ConstantInt>(MDN->getOperand(1))->getLimitedValue();
-    ColumnNo = cast<ConstantInt>(MDN->getOperand(2))->getLimitedValue();
+    LineNo =
+        mdconst::extract<ConstantInt>(MDN->getOperand(1))->getLimitedValue();
+    ColumnNo =
+        mdconst::extract<ConstantInt>(MDN->getOperand(2))->getLimitedValue();
   }
 };
 
@@ -247,23 +251,22 @@ class GlobalsMetadata {
     for (auto MDN : Globals->operands()) {
       // Metadata node contains the global and the fields of "Entry".
       assert(MDN->getNumOperands() == 5);
-      Value *V = MDN->getOperand(0);
+      auto *GV = mdconst::extract_or_null<GlobalVariable>(MDN->getOperand(0));
       // The optimizer may optimize away a global entirely.
-      if (!V)
+      if (!GV)
         continue;
-      GlobalVariable *GV = cast<GlobalVariable>(V);
       // We can already have an entry for GV if it was merged with another
       // global.
       Entry &E = Entries[GV];
-      if (Value *Loc = MDN->getOperand(1))
-        E.SourceLoc.parse(cast<MDNode>(Loc));
-      if (Value *Name = MDN->getOperand(2)) {
-        MDString *MDName = cast<MDString>(Name);
-        E.Name = MDName->getString();
-      }
-      ConstantInt *IsDynInit = cast<ConstantInt>(MDN->getOperand(3));
+      if (auto *Loc = cast_or_null<MDNode>(MDN->getOperand(1)))
+        E.SourceLoc.parse(Loc);
+      if (auto *Name = cast_or_null<MDString>(MDN->getOperand(2)))
+        E.Name = Name->getString();
+      ConstantInt *IsDynInit =
+          mdconst::extract<ConstantInt>(MDN->getOperand(3));
       E.IsDynInit |= IsDynInit->isOne();
-      ConstantInt *IsBlacklisted = cast<ConstantInt>(MDN->getOperand(4));
+      ConstantInt *IsBlacklisted =
+          mdconst::extract<ConstantInt>(MDN->getOperand(4));
       E.IsBlacklisted |= IsBlacklisted->isOne();
     }
   }
@@ -287,8 +290,7 @@ struct ShadowMapping {
   bool OrShadowOffset;
 };
 
-static ShadowMapping getShadowMapping(const Module &M, int LongSize) {
-  llvm::Triple TargetTriple(M.getTargetTriple());
+static ShadowMapping getShadowMapping(Triple &TargetTriple, int LongSize) {
   bool IsAndroid = TargetTriple.getEnvironment() == llvm::Triple::Android;
   bool IsIOS = TargetTriple.isiOS();
   bool IsFreeBSD = TargetTriple.isOSFreeBSD();
@@ -348,9 +350,14 @@ static size_t RedzoneSizeForScale(int MappingScale) {
 
 /// AddressSanitizer: instrument the code in module to find memory bugs.
 struct AddressSanitizer : public FunctionPass {
-  AddressSanitizer() : FunctionPass(ID) {}
+  AddressSanitizer() : FunctionPass(ID) {
+    initializeAddressSanitizerPass(*PassRegistry::getPassRegistry());
+  }
   const char *getPassName() const override {
     return "AddressSanitizerFunctionPass";
+  }
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.addRequired<DominatorTreeWrapperPass>();
   }
   void instrumentMop(Instruction *I, bool UseCalls);
   void instrumentPointerComparisonOrSubtraction(Instruction *I);
@@ -369,6 +376,8 @@ struct AddressSanitizer : public FunctionPass {
   bool doInitialization(Module &M) override;
   static char ID;  // Pass identification, replacement for typeid
 
+  DominatorTree &getDominatorTree() const { return *DT; }
+
  private:
   void initializeCallbacks(Module &M);
 
@@ -377,9 +386,11 @@ struct AddressSanitizer : public FunctionPass {
 
   LLVMContext *C;
   const DataLayout *DL;
+  Triple TargetTriple;
   int LongSize;
   Type *IntptrTy;
   ShadowMapping Mapping;
+  DominatorTree *DT;
   Function *AsanCtorFunction;
   Function *AsanInitFunction;
   Function *AsanHandleNoReturnFunc;
@@ -421,6 +432,7 @@ class AddressSanitizerModule : public ModulePass {
   Type *IntptrTy;
   LLVMContext *C;
   const DataLayout *DL;
+  Triple TargetTriple;
   ShadowMapping Mapping;
   Function *AsanPoisonGlobals;
   Function *AsanUnpoisonGlobals;
@@ -471,10 +483,11 @@ struct FunctionStackPoisoner : public InstVisitor<FunctionStackPoisoner> {
     AllocaInst *AI;
     Value *LeftRzAddr;
     Value *RightRzAddr;
+    bool Poison;
     explicit DynamicAllocaCall(AllocaInst *AI,
                       Value *LeftRzAddr = nullptr,
                       Value *RightRzAddr = nullptr)
-      : AI(AI), LeftRzAddr(LeftRzAddr), RightRzAddr(RightRzAddr)
+      : AI(AI), LeftRzAddr(LeftRzAddr), RightRzAddr(RightRzAddr), Poison(true)
     {}
   };
   SmallVector<DynamicAllocaCall, 1> DynamicAllocaVec;
@@ -484,9 +497,9 @@ struct FunctionStackPoisoner : public InstVisitor<FunctionStackPoisoner> {
   AllocaForValueMapTy AllocaForValue;
 
   FunctionStackPoisoner(Function &F, AddressSanitizer &ASan)
-      : F(F), ASan(ASan), DIB(*F.getParent()), C(ASan.C),
-        IntptrTy(ASan.IntptrTy), IntptrPtrTy(PointerType::get(IntptrTy, 0)),
-        Mapping(ASan.Mapping),
+      : F(F), ASan(ASan), DIB(*F.getParent(), /*AllowUnresolved*/ false),
+        C(ASan.C), IntptrTy(ASan.IntptrTy),
+        IntptrPtrTy(PointerType::get(IntptrTy, 0)), Mapping(ASan.Mapping),
         StackAlignment(1 << Mapping.Scale) {}
 
   bool runOnFunction() {
@@ -520,6 +533,8 @@ struct FunctionStackPoisoner : public InstVisitor<FunctionStackPoisoner> {
 
   // Unpoison dynamic allocas redzones.
   void unpoisonDynamicAlloca(DynamicAllocaCall &AllocaCall) {
+    if (!AllocaCall.Poison)
+      return;
     for (auto Ret : RetVec) {
       IRBuilder<> IRBRet(Ret);
       PointerType *Int32PtrTy = PointerType::getUnqual(IRBRet.getInt32Ty());
@@ -605,6 +620,14 @@ struct FunctionStackPoisoner : public InstVisitor<FunctionStackPoisoner> {
   // ---------------------- Helpers.
   void initializeCallbacks(Module &M);
 
+  bool doesDominateAllExits(const Instruction *I) const {
+    for (auto Ret : RetVec) {
+      if (!ASan.getDominatorTree().dominates(I, Ret))
+        return false;
+    }
+    return true;
+  }
+
   bool isDynamicAlloca(AllocaInst &AI) const {
     return AI.isArrayAllocation() || !AI.isStaticAlloca();
   }
@@ -634,7 +657,11 @@ struct FunctionStackPoisoner : public InstVisitor<FunctionStackPoisoner> {
 }  // namespace
 
 char AddressSanitizer::ID = 0;
-INITIALIZE_PASS(AddressSanitizer, "asan",
+INITIALIZE_PASS_BEGIN(AddressSanitizer, "asan",
+    "AddressSanitizer: detects use-after-free and out-of-bounds bugs.",
+    false, false)
+INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
+INITIALIZE_PASS_END(AddressSanitizer, "asan",
     "AddressSanitizer: detects use-after-free and out-of-bounds bugs.",
     false, false)
 FunctionPass *llvm::createAddressSanitizerFunctionPass() {
@@ -1018,37 +1045,47 @@ bool AddressSanitizerModule::ShouldInstrumentGlobal(GlobalVariable *G) {
 
   if (G->hasSection()) {
     StringRef Section(G->getSection());
-    // Ignore the globals from the __OBJC section. The ObjC runtime assumes
-    // those conform to /usr/lib/objc/runtime.h, so we can't add redzones to
-    // them.
-    if (Section.startswith("__OBJC,") ||
-        Section.startswith("__DATA, __objc_")) {
-      DEBUG(dbgs() << "Ignoring ObjC runtime global: " << *G << "\n");
-      return false;
-    }
-    // See http://code.google.com/p/address-sanitizer/issues/detail?id=32
-    // Constant CFString instances are compiled in the following way:
-    //  -- the string buffer is emitted into
-    //     __TEXT,__cstring,cstring_literals
-    //  -- the constant NSConstantString structure referencing that buffer
-    //     is placed into __DATA,__cfstring
-    // Therefore there's no point in placing redzones into __DATA,__cfstring.
-    // Moreover, it causes the linker to crash on OS X 10.7
-    if (Section.startswith("__DATA,__cfstring")) {
-      DEBUG(dbgs() << "Ignoring CFString: " << *G << "\n");
-      return false;
-    }
-    // The linker merges the contents of cstring_literals and removes the
-    // trailing zeroes.
-    if (Section.startswith("__TEXT,__cstring,cstring_literals")) {
-      DEBUG(dbgs() << "Ignoring a cstring literal: " << *G << "\n");
-      return false;
-    }
-    if (Section.startswith("__TEXT,__objc_methname,cstring_literals")) {
-      DEBUG(dbgs() << "Ignoring objc_methname cstring global: " << *G << "\n");
-      return false;
-    }
 
+    if (TargetTriple.isOSBinFormatMachO()) {
+      StringRef ParsedSegment, ParsedSection;
+      unsigned TAA = 0, StubSize = 0;
+      bool TAAParsed;
+      std::string ErrorCode =
+        MCSectionMachO::ParseSectionSpecifier(Section, ParsedSegment,
+                                              ParsedSection, TAA, TAAParsed,
+                                              StubSize);
+      if (!ErrorCode.empty()) {
+        report_fatal_error("Invalid section specifier '" + ParsedSection +
+                           "': " + ErrorCode + ".");
+      }
+
+      // Ignore the globals from the __OBJC section. The ObjC runtime assumes
+      // those conform to /usr/lib/objc/runtime.h, so we can't add redzones to
+      // them.
+      if (ParsedSegment == "__OBJC" ||
+          (ParsedSegment == "__DATA" && ParsedSection.startswith("__objc_"))) {
+        DEBUG(dbgs() << "Ignoring ObjC runtime global: " << *G << "\n");
+        return false;
+      }
+      // See http://code.google.com/p/address-sanitizer/issues/detail?id=32
+      // Constant CFString instances are compiled in the following way:
+      //  -- the string buffer is emitted into
+      //     __TEXT,__cstring,cstring_literals
+      //  -- the constant NSConstantString structure referencing that buffer
+      //     is placed into __DATA,__cfstring
+      // Therefore there's no point in placing redzones into __DATA,__cfstring.
+      // Moreover, it causes the linker to crash on OS X 10.7
+      if (ParsedSegment == "__DATA" && ParsedSection == "__cfstring") {
+        DEBUG(dbgs() << "Ignoring CFString: " << *G << "\n");
+        return false;
+      }
+      // The linker merges the contents of cstring_literals and removes the
+      // trailing zeroes.
+      if (ParsedSegment == "__TEXT" && (TAA & MachO::S_CSTRING_LITERALS)) {
+        DEBUG(dbgs() << "Ignoring a cstring literal: " << *G << "\n");
+        return false;
+      }
+    }
 
     // Callbacks put into the CRT initializer/terminator sections
     // should not be instrumented.
@@ -1232,7 +1269,8 @@ bool AddressSanitizerModule::runOnModule(Module &M) {
   C = &(M.getContext());
   int LongSize = DL->getPointerSizeInBits();
   IntptrTy = Type::getIntNTy(*C, LongSize);
-  Mapping = getShadowMapping(M, LongSize);
+  TargetTriple = Triple(M.getTargetTriple());
+  Mapping = getShadowMapping(TargetTriple, LongSize);
   initializeCallbacks(M);
 
   bool Changed = false;
@@ -1314,6 +1352,7 @@ bool AddressSanitizer::doInitialization(Module &M) {
   C = &(M.getContext());
   LongSize = DL->getPointerSizeInBits();
   IntptrTy = Type::getIntNTy(*C, LongSize);
+  TargetTriple = Triple(M.getTargetTriple());
 
   AsanCtorFunction = Function::Create(
       FunctionType::get(Type::getVoidTy(*C), false),
@@ -1326,7 +1365,7 @@ bool AddressSanitizer::doInitialization(Module &M) {
   AsanInitFunction->setLinkage(Function::ExternalLinkage);
   IRB.CreateCall(AsanInitFunction);
 
-  Mapping = getShadowMapping(M, LongSize);
+  Mapping = getShadowMapping(TargetTriple, LongSize);
 
   appendToGlobalCtors(M, AsanCtorFunction, kAsanCtorAndDtorPriority);
   return true;
@@ -1353,6 +1392,8 @@ bool AddressSanitizer::runOnFunction(Function &F) {
   if (F.getLinkage() == GlobalValue::AvailableExternallyLinkage) return false;
   DEBUG(dbgs() << "ASAN instrumenting:\n" << F << "\n");
   initializeCallbacks(*F.getParent());
+
+  DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
 
   // If needed, insert __asan_init before checking for SanitizeAddress attr.
   maybeInsertAsanInitAtFunctionEntry(F);
@@ -1825,6 +1866,12 @@ Value *FunctionStackPoisoner::computePartialRzMagic(Value *PartialSize,
 void FunctionStackPoisoner::handleDynamicAllocaCall(
     DynamicAllocaCall &AllocaCall) {
   AllocaInst *AI = AllocaCall.AI;
+  if (!doesDominateAllExits(AI)) {
+    // We do not yet handle complex allocas
+    AllocaCall.Poison = false;
+    return;
+  }
+
   IRBuilder<> IRB(AI);
 
   PointerType *Int32PtrTy = PointerType::getUnqual(IRB.getInt32Ty());

@@ -240,6 +240,8 @@ For API clients and LLVM developers.
    InAlloca
    BigEndianNEON
    CoverageMappingFormat
+   Statepoints
+   MergeFunctions
 
 :doc:`WritingAnLLVMPass`
    Information on how to write LLVM transformations and analyses.
@@ -331,6 +333,13 @@ For API clients and LLVM developers.
 
 :doc:`CoverageMappingFormat`
   This describes the format and encoding used for LLVM’s code coverage mapping.
+
+:doc:`Statepoints`
+  This describes a set of experimental extensions for garbage
+  collection support.
+
+:doc:`MergeFunctions`
+  Describes functions merging optimization.
 
 Development Process Documentation
 =================================

@@ -2207,6 +2207,25 @@ static uint64_t Choose(uint64_t n, uint64_t k, bool &Overflow) {
   return r;
 }
 
+/// Determine if any of the operands in this SCEV are a constant or if
+/// any of the add or multiply expressions in this SCEV contain a constant.
+static bool containsConstantSomewhere(const SCEV *StartExpr) {
+  SmallVector<const SCEV *, 4> Ops;
+  Ops.push_back(StartExpr);
+  while (!Ops.empty()) {
+    const SCEV *CurrentExpr = Ops.pop_back_val();
+    if (isa<SCEVConstant>(*CurrentExpr))
+      return true;
+
+    if (isa<SCEVAddExpr>(*CurrentExpr) || isa<SCEVMulExpr>(*CurrentExpr)) {
+      const auto *CurrentNAry = cast<SCEVNAryExpr>(CurrentExpr);
+      for (const SCEV *Operand : CurrentNAry->operands())
+        Ops.push_back(Operand);
+    }
+  }
+  return false;
+}
+
 /// getMulExpr - Get a canonical multiply expression, or something simpler if
 /// possible.
 const SCEV *ScalarEvolution::getMulExpr(SmallVectorImpl<const SCEV *> &Ops,
@@ -2246,11 +2265,13 @@ const SCEV *ScalarEvolution::getMulExpr(SmallVectorImpl<const SCEV *> &Ops,
 
     // C1*(C2+V) -> C1*C2 + C1*V
     if (Ops.size() == 2)
-      if (const SCEVAddExpr *Add = dyn_cast<SCEVAddExpr>(Ops[1]))
-        if (Add->getNumOperands() == 2 &&
-            isa<SCEVConstant>(Add->getOperand(0)))
-          return getAddExpr(getMulExpr(LHSC, Add->getOperand(0)),
-                            getMulExpr(LHSC, Add->getOperand(1)));
+        if (const SCEVAddExpr *Add = dyn_cast<SCEVAddExpr>(Ops[1]))
+          // If any of Add's ops are Adds or Muls with a constant,
+          // apply this transformation as well.
+          if (Add->getNumOperands() == 2)
+            if (containsConstantSomewhere(Add))
+              return getAddExpr(getMulExpr(LHSC, Add->getOperand(0)),
+                                getMulExpr(LHSC, Add->getOperand(1)));
 
     ++Idx;
     while (const SCEVConstant *RHSC = dyn_cast<SCEVConstant>(Ops[Idx])) {
@@ -3729,8 +3750,10 @@ static Optional<ConstantRange> GetRangeFromMetadata(Value *V) {
       assert(NumRanges >= 1);
 
       for (unsigned i = 0; i < NumRanges; ++i) {
-        ConstantInt *Lower = cast<ConstantInt>(MD->getOperand(2*i + 0));
-        ConstantInt *Upper = cast<ConstantInt>(MD->getOperand(2*i + 1));
+        ConstantInt *Lower =
+            mdconst::extract<ConstantInt>(MD->getOperand(2 * i + 0));
+        ConstantInt *Upper =
+            mdconst::extract<ConstantInt>(MD->getOperand(2 * i + 1));
         ConstantRange Range(Lower->getValue(), Upper->getValue());
         TotalRange = TotalRange.unionWith(Range);
       }
@@ -6138,16 +6161,14 @@ ScalarEvolution::HowFarToZero(const SCEV *V, const Loop *L, bool ControlsExit) {
     return ExitLimit(Distance, MaxBECount);
   }
 
-  // If the step exactly divides the distance then unsigned divide computes the
-  // backedge count.
-  const SCEV *Q, *R;
-  ScalarEvolution &SE = *const_cast<ScalarEvolution *>(this);
-  SCEVUDivision::divide(SE, Distance, Step, &Q, &R);
-  if (R->isZero()) {
-    const SCEV *Exact =
-        getUDivExactExpr(Distance, CountDown ? getNegativeSCEV(Step) : Step);
-    return ExitLimit(Exact, Exact);
-  }
+  // If Step is a power of two that evenly divides Start we know that the loop
+  // will always terminate.  Start may not be a constant so we just have the
+  // number of trailing zeros available.  This is safe even in presence of
+  // overflow as the recurrence will overflow to exactly 0.
+  const APInt &StepV = StepC->getValue()->getValue();
+  if (StepV.isPowerOf2() &&
+      GetMinTrailingZeros(getNegativeSCEV(Start)) >= StepV.countTrailingZeros())
+    return getUDivExactExpr(Distance, CountDown ? getNegativeSCEV(Step) : Step);
 
   // If the condition controls loop exit (the loop exits only if the expression
   // is true) and the addition is no-wrap we can use unsigned divide to

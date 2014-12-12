@@ -13,6 +13,7 @@ def simm12 : Operand<i32> {
 
 def uimm5_lsl2 : Operand<OtherVT> {
   let EncoderMethod = "getUImm5Lsl2Encoding";
+  let DecoderMethod = "DecodeUImm5lsl2";
 }
 
 def uimm6_lsl2 : Operand<i32> {
@@ -22,6 +23,7 @@ def uimm6_lsl2 : Operand<i32> {
 
 def simm9_addiusp : Operand<i32> {
   let EncoderMethod = "getSImm9AddiuspValue";
+  let DecoderMethod = "DecodeSimm9SP";
 }
 
 def uimm3_shift : Operand<i32> {
@@ -35,6 +37,7 @@ def simm3_lsa2 : Operand<i32> {
 
 def uimm4_andi : Operand<i32> {
   let EncoderMethod = "getUImm4AndValue";
+  let DecoderMethod = "DecodeANDI16Imm";
 }
 
 def immSExtAddiur2 : ImmLeaf<i32, [{return Imm == 1 || Imm == -1 ||
@@ -710,4 +713,6 @@ def : MipsPat<(srl GPR32:$src, immZExt5:$imm),
 //===----------------------------------------------------------------------===//
 
   def : MipsInstAlias<"wait", (WAIT_MM 0x0), 1>;
+  def : MipsInstAlias<"nop", (SLL_MM ZERO, ZERO, 0), 1>;
+  def : MipsInstAlias<"nop", (MOVE16_MM ZERO, ZERO), 1>;
 }

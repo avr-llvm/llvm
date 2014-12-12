@@ -320,38 +320,38 @@ static unsigned doesIntrinsicContainPredicate(unsigned ID)
     default:
       return 0;
     case Intrinsic::hexagon_C2_tfrpr:
-      return Hexagon::TFR_RsPd;
+      return Hexagon::C2_tfrpr;
     case Intrinsic::hexagon_C2_and:
-      return Hexagon::AND_pp;
+      return Hexagon::C2_and;
     case Intrinsic::hexagon_C2_xor:
-      return Hexagon::XOR_pp;
+      return Hexagon::C2_xor;
     case Intrinsic::hexagon_C2_or:
-      return Hexagon::OR_pp;
+      return Hexagon::C2_or;
     case Intrinsic::hexagon_C2_not:
-      return Hexagon::NOT_p;
+      return Hexagon::C2_not;
     case Intrinsic::hexagon_C2_any8:
-      return Hexagon::ANY_pp;
+      return Hexagon::C2_any8;
     case Intrinsic::hexagon_C2_all8:
-      return Hexagon::ALL_pp;
+      return Hexagon::C2_all8;
     case Intrinsic::hexagon_C2_vitpack:
-      return Hexagon::VITPACK_pp;
+      return Hexagon::C2_vitpack;
     case Intrinsic::hexagon_C2_mask:
-      return Hexagon::MASK_p;
+      return Hexagon::C2_mask;
     case Intrinsic::hexagon_C2_mux:
       return Hexagon::C2_mux;
 
       // Mapping hexagon_C2_muxir to MUX_pri.  This is pretty weird - but
       // that's how it's mapped in q6protos.h.
     case Intrinsic::hexagon_C2_muxir:
-      return Hexagon::MUX_ri;
+      return Hexagon::C2_muxri;
 
       // Mapping hexagon_C2_muxri to MUX_pir.  This is pretty weird - but
       // that's how it's mapped in q6protos.h.
     case Intrinsic::hexagon_C2_muxri:
-      return Hexagon::MUX_ir;
+      return Hexagon::C2_muxir;
 
     case Intrinsic::hexagon_C2_muxii:
-      return Hexagon::MUX_ii;
+      return Hexagon::C2_muxii;
     case Intrinsic::hexagon_C2_vmux:
       return Hexagon::VMUX_prr64;
     case Intrinsic::hexagon_S2_valignrb:
@@ -521,9 +521,9 @@ SDNode *HexagonDAGToDAGISel::SelectIndexedLoadZeroExtend64(LoadSDNode *LD,
       SDNode *Result_1 = CurDAG->getMachineNode(Opcode, dl, MVT::i32,
                                                 MVT::i32, MVT::Other, Base,
                                                 TargetConstVal, Chain);
-      SDNode *Result_2 = CurDAG->getMachineNode(Hexagon::TFRI, dl, MVT::i32,
+      SDNode *Result_2 = CurDAG->getMachineNode(Hexagon::A2_tfrsi, dl, MVT::i32,
                                                 TargetConst0);
-      SDNode *Result_3 = CurDAG->getMachineNode(Hexagon::COMBINE_rr, dl,
+      SDNode *Result_3 = CurDAG->getMachineNode(Hexagon::A2_combinew, dl,
                                                 MVT::i64, MVT::Other,
                                                 SDValue(Result_2,0),
                                                 SDValue(Result_1,0));
@@ -548,9 +548,9 @@ SDNode *HexagonDAGToDAGISel::SelectIndexedLoadZeroExtend64(LoadSDNode *LD,
     SDNode *Result_1 = CurDAG->getMachineNode(Opcode, dl, MVT::i32,
                                               MVT::Other,
                                               Base, TargetConst0, Chain);
-    SDNode *Result_2 = CurDAG->getMachineNode(Hexagon::TFRI, dl, MVT::i32,
+    SDNode *Result_2 = CurDAG->getMachineNode(Hexagon::A2_tfrsi, dl, MVT::i32,
                                               TargetConst0);
-    SDNode *Result_3 = CurDAG->getMachineNode(Hexagon::COMBINE_rr, dl,
+    SDNode *Result_3 = CurDAG->getMachineNode(Hexagon::A2_combinew, dl,
                                               MVT::i64, MVT::Other,
                                               SDValue(Result_2,0),
                                               SDValue(Result_1,0));
@@ -936,7 +936,7 @@ SDNode *HexagonDAGToDAGISel::SelectSelect(SDNode *N) {
                 N00.getNode()->getValueType(N00.getResNo()) == MVT::i32) {
               SDNode *SextNode = CurDAG->getMachineNode(Hexagon::A2_sxth, dl,
                                                         MVT::i32, N000);
-              SDNode *Result = CurDAG->getMachineNode(Hexagon::MAXw_rr, dl,
+              SDNode *Result = CurDAG->getMachineNode(Hexagon::A2_max, dl,
                                                       MVT::i32,
                                                       SDValue(SextNode, 0),
                                                       N1);
@@ -960,7 +960,7 @@ SDNode *HexagonDAGToDAGISel::SelectSelect(SDNode *N) {
                 N00.getNode()->getValueType(N00.getResNo()) == MVT::i32) {
               SDNode *SextNode = CurDAG->getMachineNode(Hexagon::A2_sxth, dl,
                                                         MVT::i32, N000);
-              SDNode *Result = CurDAG->getMachineNode(Hexagon::MINw_rr, dl,
+              SDNode *Result = CurDAG->getMachineNode(Hexagon::A2_min, dl,
                                                       MVT::i32,
                                                       SDValue(SextNode, 0),
                                                       N1);
@@ -1177,13 +1177,13 @@ SDNode *HexagonDAGToDAGISel::SelectZeroExtend(SDNode *N) {
       if (N->getValueType(0) == MVT::i64) {
         // Convert the zero_extend to Rs = Pd followed by COMBINE_rr(0,Rs).
         SDValue TargetConst0 = CurDAG->getTargetConstant(0, MVT::i32);
-        SDNode *Result_1 = CurDAG->getMachineNode(Hexagon::TFR_RsPd, dl,
+        SDNode *Result_1 = CurDAG->getMachineNode(Hexagon::C2_tfrpr, dl,
                                                   MVT::i32,
                                                   SDValue(IsIntrinsic, 0));
-        SDNode *Result_2 = CurDAG->getMachineNode(Hexagon::TFRI, dl,
+        SDNode *Result_2 = CurDAG->getMachineNode(Hexagon::A2_tfrsi, dl,
                                                   MVT::i32,
                                                   TargetConst0);
-        SDNode *Result_3 = CurDAG->getMachineNode(Hexagon::COMBINE_rr, dl,
+        SDNode *Result_3 = CurDAG->getMachineNode(Hexagon::A2_combinew, dl,
                                                   MVT::i64, MVT::Other,
                                                   SDValue(Result_2, 0),
                                                   SDValue(Result_1, 0));
@@ -1192,7 +1192,7 @@ SDNode *HexagonDAGToDAGISel::SelectZeroExtend(SDNode *N) {
       }
       if (N->getValueType(0) == MVT::i32) {
         // Convert the zero_extend to Rs = Pd
-        SDNode* RsPd = CurDAG->getMachineNode(Hexagon::TFR_RsPd, dl,
+        SDNode* RsPd = CurDAG->getMachineNode(Hexagon::C2_tfrpr, dl,
                                               MVT::i32,
                                               SDValue(IsIntrinsic, 0));
         ReplaceUses(N, RsPd);
@@ -1236,7 +1236,7 @@ SDNode *HexagonDAGToDAGISel::SelectIntrinsicWOChain(SDNode *N) {
         Ops.push_back(SDValue(Arg, 0));
       } else if (RC == &Hexagon::PredRegsRegClass) {
         // Do the transfer.
-        SDNode *PdRs = CurDAG->getMachineNode(Hexagon::TFR_PdRs, dl, MVT::i1,
+        SDNode *PdRs = CurDAG->getMachineNode(Hexagon::C2_tfrrp, dl, MVT::i1,
                                               SDValue(Arg, 0));
         Ops.push_back(SDValue(PdRs,0));
       } else if (!RC && (dyn_cast<ConstantSDNode>(Arg) != nullptr)) {
@@ -1289,19 +1289,19 @@ SDNode *HexagonDAGToDAGISel::SelectConstant(SDNode *N) {
     if (Val == -1) {
       // Create the IntReg = 1 node.
       SDNode* IntRegTFR =
-        CurDAG->getMachineNode(Hexagon::TFRI, dl, MVT::i32,
+        CurDAG->getMachineNode(Hexagon::A2_tfrsi, dl, MVT::i32,
                                CurDAG->getTargetConstant(0, MVT::i32));
 
       // Pd = IntReg
-      SDNode* Pd = CurDAG->getMachineNode(Hexagon::TFR_PdRs, dl, MVT::i1,
+      SDNode* Pd = CurDAG->getMachineNode(Hexagon::C2_tfrrp, dl, MVT::i1,
                                           SDValue(IntRegTFR, 0));
 
       // not(Pd)
-      SDNode* NotPd = CurDAG->getMachineNode(Hexagon::NOT_p, dl, MVT::i1,
+      SDNode* NotPd = CurDAG->getMachineNode(Hexagon::C2_not, dl, MVT::i1,
                                              SDValue(Pd, 0));
 
       // xor(not(Pd))
-      Result = CurDAG->getMachineNode(Hexagon::XOR_pp, dl, MVT::i1,
+      Result = CurDAG->getMachineNode(Hexagon::C2_xor, dl, MVT::i1,
                                       SDValue(Pd, 0), SDValue(NotPd, 0));
 
       // We have just built:

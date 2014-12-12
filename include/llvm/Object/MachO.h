@@ -200,6 +200,7 @@ public:
 
   // MachO specific.
   std::error_code getIndirectName(DataRefImpl Symb, StringRef &Res) const;
+  unsigned getSectionType(SectionRef Sec) const;
 
   std::error_code getSymbolAddress(DataRefImpl Symb,
                                    uint64_t &Res) const override;
@@ -223,10 +224,7 @@ public:
   bool isSectionText(DataRefImpl Sec) const override;
   bool isSectionData(DataRefImpl Sec) const override;
   bool isSectionBSS(DataRefImpl Sec) const override;
-  bool isSectionRequiredForExecution(DataRefImpl Sec) const override;
   bool isSectionVirtual(DataRefImpl Sec) const override;
-  bool isSectionZeroInit(DataRefImpl Sec) const override;
-  bool isSectionReadOnlyData(DataRefImpl Sec) const override;
   bool sectionContainsSymbol(DataRefImpl Sec, DataRefImpl Symb) const override;
   relocation_iterator section_rel_begin(DataRefImpl Sec) const override;
   relocation_iterator section_rel_end(DataRefImpl Sec) const override;
@@ -360,6 +358,8 @@ public:
   getDylinkerCommand(const LoadCommandInfo &L) const;
   MachO::uuid_command
   getUuidCommand(const LoadCommandInfo &L) const;
+  MachO::rpath_command
+  getRpathCommand(const LoadCommandInfo &L) const;
   MachO::source_version_command
   getSourceVersionCommand(const LoadCommandInfo &L) const;
   MachO::entry_point_command

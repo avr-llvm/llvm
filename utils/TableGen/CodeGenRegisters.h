@@ -24,6 +24,7 @@
 #include "llvm/TableGen/Record.h"
 #include "llvm/TableGen/SetTheory.h"
 #include <cstdlib>
+#include <list>
 #include <map>
 #include <set>
 #include <string>
@@ -32,6 +33,20 @@
 
 namespace llvm {
   class CodeGenRegBank;
+
+  /// Used to encode a step in a register lane mask transformation.
+  /// Mask the bits specified in Mask, then rotate them Rol bits to the left
+  /// assuming a wraparound at 32bits.
+  struct MaskRolPair {
+    unsigned Mask;
+    uint8_t RotateLeft;
+    bool operator==(const MaskRolPair Other) {
+      return Mask == Other.Mask && RotateLeft == Other.RotateLeft;
+    }
+    bool operator!=(const MaskRolPair Other) {
+      return Mask != Other.Mask || RotateLeft != Other.RotateLeft;
+    }
+  };
 
   /// CodeGenSubRegIndex - Represents a sub-register index.
   class CodeGenSubRegIndex {
@@ -44,6 +59,7 @@ namespace llvm {
     uint16_t Offset;
     const unsigned EnumValue;
     mutable unsigned LaneMask;
+    mutable SmallVector<MaskRolPair,1> CompositionLaneMaskTransform;
 
     // Are all super-registers containing this SubRegIndex covered by their
     // sub-registers?
@@ -182,6 +198,7 @@ namespace llvm {
 
     // List of register units in ascending order.
     typedef SmallVector<unsigned, 16> RegUnitList;
+    typedef SmallVector<unsigned, 16> RegUnitLaneMaskList;
 
     // How many entries in RegUnitList are native?
     unsigned NumNativeRegUnits;
@@ -190,9 +207,17 @@ namespace llvm {
     // This is only valid after computeSubRegs() completes.
     const RegUnitList &getRegUnits() const { return RegUnits; }
 
+    ArrayRef<unsigned> getRegUnitLaneMasks() const {
+      return makeArrayRef(RegUnitLaneMasks).slice(0, NumNativeRegUnits);
+    }
+
     // Get the native register units. This is a prefix of getRegUnits().
     ArrayRef<unsigned> getNativeRegUnits() const {
       return makeArrayRef(RegUnits).slice(0, NumNativeRegUnits);
+    }
+
+    void setRegUnitLaneMasks(const RegUnitLaneMaskList &LaneMasks) {
+      RegUnitLaneMasks = LaneMasks;
     }
 
     // Inherit register units from subregisters.
@@ -237,6 +262,7 @@ namespace llvm {
     SuperRegList SuperRegs;
     DenseMap<const CodeGenRegister*, CodeGenSubRegIndex*> SubReg2Idx;
     RegUnitList RegUnits;
+    RegUnitLaneMaskList RegUnitLaneMasks;
   };
 
 
@@ -282,6 +308,8 @@ namespace llvm {
     int CopyCost;
     bool Allocatable;
     std::string AltOrderSelect;
+    /// Contains the combination of the lane masks of all subregisters.
+    unsigned LaneMask;
 
     // Return the Record that defined this class, or NULL if the class was
     // created by TableGen.
@@ -459,7 +487,7 @@ namespace llvm {
     ConcatIdxMap ConcatIdx;
 
     // Registers.
-    std::vector<CodeGenRegister*> Registers;
+    std::deque<CodeGenRegister> Registers;
     StringMap<CodeGenRegister*> RegistersByName;
     DenseMap<Record*, CodeGenRegister*> Def2Reg;
     unsigned NumNativeRegUnits;
@@ -470,7 +498,7 @@ namespace llvm {
     SmallVector<RegUnit, 8> RegUnits;
 
     // Register classes.
-    std::vector<CodeGenRegisterClass*> RegClasses;
+    std::list<CodeGenRegisterClass> RegClasses;
     DenseMap<Record*, CodeGenRegisterClass*> Def2RC;
     typedef std::map<CodeGenRegisterClass::Key, CodeGenRegisterClass*> RCKeyMap;
     RCKeyMap Key2RC;
@@ -503,8 +531,13 @@ namespace llvm {
     void computeInferredRegisterClasses();
     void inferCommonSubClass(CodeGenRegisterClass *RC);
     void inferSubClassWithSubReg(CodeGenRegisterClass *RC);
-    void inferMatchingSuperRegClass(CodeGenRegisterClass *RC,
-                                    unsigned FirstSubRegRC = 0);
+    void inferMatchingSuperRegClass(CodeGenRegisterClass *RC) {
+      inferMatchingSuperRegClass(RC, RegClasses.begin());
+    }
+
+    void inferMatchingSuperRegClass(
+        CodeGenRegisterClass *RC,
+        std::list<CodeGenRegisterClass>::iterator FirstSubRegRC);
 
     // Iteratively prune unit sets.
     void pruneUnitSets();
@@ -519,11 +552,14 @@ namespace llvm {
     void computeComposites();
 
     // Compute a lane mask for each sub-register index.
-    void computeSubRegIndexLaneMasks();
+    void computeSubRegLaneMasks();
+
+    /// Computes a lane mask for each register unit enumerated by a physical
+    /// register.
+    void computeRegUnitLaneMasks();
 
   public:
     CodeGenRegBank(RecordKeeper&);
-    ~CodeGenRegBank();
 
     SetTheory &getSets() { return Sets; }
 
@@ -552,7 +588,7 @@ namespace llvm {
       ConcatIdx.insert(std::make_pair(Parts, Idx));
     }
 
-    const std::vector<CodeGenRegister*> &getRegisters() { return Registers; }
+    const std::deque<CodeGenRegister> &getRegisters() { return Registers; }
     const StringMap<CodeGenRegister*> &getRegistersByName() {
       return RegistersByName;
     }
@@ -609,7 +645,9 @@ namespace llvm {
     RegUnit &getRegUnit(unsigned RUID) { return RegUnits[RUID]; }
     const RegUnit &getRegUnit(unsigned RUID) const { return RegUnits[RUID]; }
 
-    ArrayRef<CodeGenRegisterClass*> getRegClasses() const {
+    std::list<CodeGenRegisterClass> &getRegClasses() { return RegClasses; }
+
+    const std::list<CodeGenRegisterClass> &getRegClasses() const {
       return RegClasses;
     }
 

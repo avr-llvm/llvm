@@ -39,7 +39,8 @@ public:
     EVERGREEN,
     NORTHERN_ISLANDS,
     SOUTHERN_ISLANDS,
-    SEA_ISLANDS
+    SEA_ISLANDS,
+    VOLCANIC_ISLANDS,
   };
 
 private:
@@ -68,6 +69,7 @@ private:
   std::unique_ptr<AMDGPUTargetLowering> TLInfo;
   std::unique_ptr<AMDGPUInstrInfo> InstrInfo;
   InstrItineraryData InstrItins;
+  Triple TargetTriple;
 
 public:
   AMDGPUSubtarget(StringRef TT, StringRef CPU, StringRef FS, TargetMachine &TM);
@@ -198,6 +200,8 @@ public:
     return LocalMemorySize;
   }
 
+  unsigned getAmdKernelCodeChipID() const;
+
   bool enableMachineScheduler() const override {
     return getGeneration() <= NORTHERN_ISLANDS;
   }
@@ -216,6 +220,9 @@ public:
   }
   bool r600ALUEncoding() const {
     return R600ALUInst;
+  }
+  bool isAmdHsaOS() const {
+    return TargetTriple.getOS() == Triple::AMDHSA;
   }
 };
 

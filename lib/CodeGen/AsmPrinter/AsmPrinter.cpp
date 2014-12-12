@@ -210,7 +210,7 @@ bool AsmPrinter::doInitialization(Module &M) {
   assert(MI && "AsmPrinter didn't require GCModuleInfo?");
   for (auto &I : *MI)
     if (GCMetadataPrinter *MP = GetOrCreateGCPrinter(*I))
-      MP->beginAssembly(*this);
+      MP->beginAssembly(M, *MI, *this);
 
   // Emit module-level inline asm if it exists.
   if (!M.getModuleInlineAsm().empty()) {
@@ -511,6 +511,10 @@ void AsmPrinter::EmitFunctionHeader() {
     OutStreamer.GetCommentOS() << '\n';
   }
 
+  // Emit the prefix data.
+  if (F->hasPrefixData())
+    EmitGlobalConstant(F->getPrefixData());
+
   // Emit the CurrentFnSym.  This is a virtual function to allow targets to
   // do their wild and crazy things as required.
   EmitFunctionEntryLabel();
@@ -531,9 +535,9 @@ void AsmPrinter::EmitFunctionHeader() {
     HI.Handler->beginFunction(MF);
   }
 
-  // Emit the prefix data.
-  if (F->hasPrefixData())
-    EmitGlobalConstant(F->getPrefixData());
+  // Emit the prologue data.
+  if (F->hasPrologueData())
+    EmitGlobalConstant(F->getPrologueData());
 }
 
 /// EmitFunctionEntryLabel - Emit the label that is the entrypoint for the
@@ -984,7 +988,7 @@ bool AsmPrinter::doFinalization(Module &M) {
   assert(MI && "AsmPrinter didn't require GCModuleInfo?");
   for (GCModuleInfo::iterator I = MI->end(), E = MI->begin(); I != E; )
     if (GCMetadataPrinter *MP = GetOrCreateGCPrinter(**--I))
-      MP->finishAssembly(*this);
+      MP->finishAssembly(M, *MI, *this);
 
   // Emit llvm.ident metadata in an '.ident' directive.
   EmitModuleIdents(M);

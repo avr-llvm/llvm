@@ -184,7 +184,7 @@ bool HexagonPeephole::runOnMachineFunction(MachineFunction &MF) {
 
       // Look for P=NOT(P).
       if (!DisablePNotP &&
-          (MI->getOpcode() == Hexagon::NOT_p)) {
+          (MI->getOpcode() == Hexagon::C2_not)) {
         assert (MI->getNumOperands() == 2);
         MachineOperand &Dst = MI->getOperand(0);
         MachineOperand &Src  = MI->getOperand(1);
@@ -270,7 +270,7 @@ bool HexagonPeephole::runOnMachineFunction(MachineFunction &MF) {
 
           switch (Op) {
             case Hexagon::C2_mux:
-            case Hexagon::MUX_ii:
+            case Hexagon::C2_muxii:
             case Hexagon::TFR_condset_ii:
               NewOp = Op;
               break;
@@ -280,11 +280,11 @@ bool HexagonPeephole::runOnMachineFunction(MachineFunction &MF) {
             case Hexagon::TFR_condset_ir:
               NewOp = Hexagon::TFR_condset_ri;
               break;
-            case Hexagon::MUX_ri:
-              NewOp = Hexagon::MUX_ir;
+            case Hexagon::C2_muxri:
+              NewOp = Hexagon::C2_muxir;
               break;
-            case Hexagon::MUX_ir:
-              NewOp = Hexagon::MUX_ri;
+            case Hexagon::C2_muxir:
+              NewOp = Hexagon::C2_muxri;
               break;
           }
           if (NewOp) {

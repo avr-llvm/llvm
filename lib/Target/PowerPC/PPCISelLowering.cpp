@@ -599,10 +599,10 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM)
     }
   }
 
-  if (Subtarget.has64BitSupport()) {
+  if (Subtarget.has64BitSupport())
     setOperationAction(ISD::PREFETCH, MVT::Other, Legal);
-    setOperationAction(ISD::READCYCLECOUNTER, MVT::i64, Legal);
-  }
+
+  setOperationAction(ISD::READCYCLECOUNTER, MVT::i64, isPPC64 ? Legal : Custom);
 
   if (!isPPC64) {
     setOperationAction(ISD::ATOMIC_LOAD,  MVT::i64, Expand);
@@ -639,6 +639,8 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM)
     setTargetDAGCombine(ISD::BRCOND);
   setTargetDAGCombine(ISD::BSWAP);
   setTargetDAGCombine(ISD::INTRINSIC_WO_CHAIN);
+  setTargetDAGCombine(ISD::INTRINSIC_W_CHAIN);
+  setTargetDAGCombine(ISD::INTRINSIC_VOID);
 
   setTargetDAGCombine(ISD::SIGN_EXTEND);
   setTargetDAGCombine(ISD::ZERO_EXTEND);
@@ -776,6 +778,7 @@ const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PPCISD::MTCTR:           return "PPCISD::MTCTR";
   case PPCISD::BCTRL:           return "PPCISD::BCTRL";
   case PPCISD::RET_FLAG:        return "PPCISD::RET_FLAG";
+  case PPCISD::READ_TIME_BASE:  return "PPCISD::READ_TIME_BASE";
   case PPCISD::EH_SJLJ_SETJMP:  return "PPCISD::EH_SJLJ_SETJMP";
   case PPCISD::EH_SJLJ_LONGJMP: return "PPCISD::EH_SJLJ_LONGJMP";
   case PPCISD::MFOCRF:          return "PPCISD::MFOCRF";
@@ -6497,6 +6500,15 @@ void PPCTargetLowering::ReplaceNodeResults(SDNode *N,
   switch (N->getOpcode()) {
   default:
     llvm_unreachable("Do not know how to custom type legalize this operation!");
+  case ISD::READCYCLECOUNTER: {
+    SDVTList VTs = DAG.getVTList(MVT::i32, MVT::i32, MVT::Other);
+    SDValue RTB = DAG.getNode(PPCISD::READ_TIME_BASE, dl, VTs, N->getOperand(0));
+
+    Results.push_back(RTB);
+    Results.push_back(RTB.getValue(1));
+    Results.push_back(RTB.getValue(2));
+    break;
+  }
   case ISD::INTRINSIC_W_CHAIN: {
     if (cast<ConstantSDNode>(N->getOperand(1))->getZExtValue() !=
         Intrinsic::ppc_is_decremented_ctr_nonzero)
@@ -7149,6 +7161,51 @@ PPCTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
             TII->get(PPC::PHI), MI->getOperand(0).getReg())
       .addReg(MI->getOperand(3).getReg()).addMBB(copy0MBB)
       .addReg(MI->getOperand(2).getReg()).addMBB(thisMBB);
+  } else if (MI->getOpcode() == PPC::ReadTB) {
+    // To read the 64-bit time-base register on a 32-bit target, we read the
+    // two halves. Should the counter have wrapped while it was being read, we
+    // need to try again.
+    // ...
+    // readLoop:
+    // mfspr Rx,TBU # load from TBU
+    // mfspr Ry,TB  # load from TB
+    // mfspr Rz,TBU # load from TBU
+    // cmpw crX,Rx,Rz # check if ‘old’=’new’
+    // bne readLoop   # branch if they're not equal
+    // ...
+
+    MachineBasicBlock *readMBB = F->CreateMachineBasicBlock(LLVM_BB);
+    MachineBasicBlock *sinkMBB = F->CreateMachineBasicBlock(LLVM_BB);
+    DebugLoc dl = MI->getDebugLoc();
+    F->insert(It, readMBB);
+    F->insert(It, sinkMBB);
+
+    // Transfer the remainder of BB and its successor edges to sinkMBB.
+    sinkMBB->splice(sinkMBB->begin(), BB,
+                    std::next(MachineBasicBlock::iterator(MI)), BB->end());
+    sinkMBB->transferSuccessorsAndUpdatePHIs(BB);
+
+    BB->addSuccessor(readMBB);
+    BB = readMBB;
+
+    MachineRegisterInfo &RegInfo = F->getRegInfo();
+    unsigned ReadAgainReg = RegInfo.createVirtualRegister(&PPC::GPRCRegClass);
+    unsigned LoReg = MI->getOperand(0).getReg();
+    unsigned HiReg = MI->getOperand(1).getReg();
+
+    BuildMI(BB, dl, TII->get(PPC::MFSPR), HiReg).addImm(269);
+    BuildMI(BB, dl, TII->get(PPC::MFSPR), LoReg).addImm(268);
+    BuildMI(BB, dl, TII->get(PPC::MFSPR), ReadAgainReg).addImm(269);
+
+    unsigned CmpReg = RegInfo.createVirtualRegister(&PPC::CRRCRegClass);
+
+    BuildMI(BB, dl, TII->get(PPC::CMPW), CmpReg)
+      .addReg(HiReg).addReg(ReadAgainReg);
+    BuildMI(BB, dl, TII->get(PPC::BCC))
+      .addImm(PPC::PRED_NE).addReg(CmpReg).addMBB(readMBB);
+
+    BB->addSuccessor(readMBB);
+    BB->addSuccessor(sinkMBB);
   }
   else if (MI->getOpcode() == PPC::ATOMIC_LOAD_ADD_I8)
     BB = EmitPartwordAtomicBinary(MI, BB, true, PPC::ADD4);
@@ -8246,6 +8303,105 @@ SDValue PPCTargetLowering::DAGCombineExtBoolTrunc(SDNode *N,
                                  N->getOperand(0), ShiftCst), ShiftCst);
 }
 
+// expandVSXLoadForLE - Convert VSX loads (which may be intrinsics for
+// builtins) into loads with swaps.
+SDValue PPCTargetLowering::expandVSXLoadForLE(SDNode *N,
+                                              DAGCombinerInfo &DCI) const {
+  SelectionDAG &DAG = DCI.DAG;
+  SDLoc dl(N);
+  SDValue Chain;
+  SDValue Base;
+  MachineMemOperand *MMO;
+
+  switch (N->getOpcode()) {
+  default:
+    llvm_unreachable("Unexpected opcode for little endian VSX load");
+  case ISD::LOAD: {
+    LoadSDNode *LD = cast<LoadSDNode>(N);
+    Chain = LD->getChain();
+    Base = LD->getBasePtr();
+    MMO = LD->getMemOperand();
+    // If the MMO suggests this isn't a load of a full vector, leave
+    // things alone.  For a built-in, we have to make the change for
+    // correctness, so if there is a size problem that will be a bug.
+    if (MMO->getSize() < 16)
+      return SDValue();
+    break;
+  }
+  case ISD::INTRINSIC_W_CHAIN: {
+    MemIntrinsicSDNode *Intrin = cast<MemIntrinsicSDNode>(N);
+    Chain = Intrin->getChain();
+    Base = Intrin->getBasePtr();
+    MMO = Intrin->getMemOperand();
+    break;
+  }
+  }
+
+  MVT VecTy = N->getValueType(0).getSimpleVT();
+  SDValue LoadOps[] = { Chain, Base };
+  SDValue Load = DAG.getMemIntrinsicNode(PPCISD::LXVD2X, dl,
+                                         DAG.getVTList(VecTy, MVT::Other),
+                                         LoadOps, VecTy, MMO);
+  DCI.AddToWorklist(Load.getNode());
+  Chain = Load.getValue(1);
+  SDValue Swap = DAG.getNode(PPCISD::XXSWAPD, dl,
+                             DAG.getVTList(VecTy, MVT::Other), Chain, Load);
+  DCI.AddToWorklist(Swap.getNode());
+  return Swap;
+}
+
+// expandVSXStoreForLE - Convert VSX stores (which may be intrinsics for
+// builtins) into stores with swaps.
+SDValue PPCTargetLowering::expandVSXStoreForLE(SDNode *N,
+                                               DAGCombinerInfo &DCI) const {
+  SelectionDAG &DAG = DCI.DAG;
+  SDLoc dl(N);
+  SDValue Chain;
+  SDValue Base;
+  unsigned SrcOpnd;
+  MachineMemOperand *MMO;
+
+  switch (N->getOpcode()) {
+  default:
+    llvm_unreachable("Unexpected opcode for little endian VSX store");
+  case ISD::STORE: {
+    StoreSDNode *ST = cast<StoreSDNode>(N);
+    Chain = ST->getChain();
+    Base = ST->getBasePtr();
+    MMO = ST->getMemOperand();
+    SrcOpnd = 1;
+    // If the MMO suggests this isn't a store of a full vector, leave
+    // things alone.  For a built-in, we have to make the change for
+    // correctness, so if there is a size problem that will be a bug.
+    if (MMO->getSize() < 16)
+      return SDValue();
+    break;
+  }
+  case ISD::INTRINSIC_VOID: {
+    MemIntrinsicSDNode *Intrin = cast<MemIntrinsicSDNode>(N);
+    Chain = Intrin->getChain();
+    // Intrin->getBasePtr() oddly does not get what we want.
+    Base = Intrin->getOperand(3);
+    MMO = Intrin->getMemOperand();
+    SrcOpnd = 2;
+    break;
+  }
+  }
+
+  SDValue Src = N->getOperand(SrcOpnd);
+  MVT VecTy = Src.getValueType().getSimpleVT();
+  SDValue Swap = DAG.getNode(PPCISD::XXSWAPD, dl,
+                             DAG.getVTList(VecTy, MVT::Other), Chain, Src);
+  DCI.AddToWorklist(Swap.getNode());
+  Chain = Swap.getValue(1);
+  SDValue StoreOps[] = { Chain, Swap, Base };
+  SDValue Store = DAG.getMemIntrinsicNode(PPCISD::STXVD2X, dl,
+                                          DAG.getVTList(MVT::Other),
+                                          StoreOps, VecTy, MMO);
+  DCI.AddToWorklist(Store.getNode());
+  return Store;
+}
+
 SDValue PPCTargetLowering::PerformDAGCombine(SDNode *N,
                                              DAGCombinerInfo &DCI) const {
   const TargetMachine &TM = getTargetMachine();
@@ -8311,7 +8467,7 @@ SDValue PPCTargetLowering::PerformDAGCombine(SDNode *N,
       }
     }
     break;
-  case ISD::STORE:
+  case ISD::STORE: {
     // Turn STORE (FP_TO_SINT F) -> STFIWX(FCTIWZ(F)).
     if (TM.getSubtarget<PPCSubtarget>().hasSTFIWX() &&
         !cast<StoreSDNode>(N)->isTruncatingStore() &&
@@ -8362,10 +8518,33 @@ SDValue PPCTargetLowering::PerformDAGCombine(SDNode *N,
                                 Ops, cast<StoreSDNode>(N)->getMemoryVT(),
                                 cast<StoreSDNode>(N)->getMemOperand());
     }
+
+    // For little endian, VSX stores require generating xxswapd/lxvd2x.
+    EVT VT = N->getOperand(1).getValueType();
+    if (VT.isSimple()) {
+      MVT StoreVT = VT.getSimpleVT();
+      if (TM.getSubtarget<PPCSubtarget>().hasVSX() &&
+          TM.getSubtarget<PPCSubtarget>().isLittleEndian() &&
+          (StoreVT == MVT::v2f64 || StoreVT == MVT::v2i64 ||
+           StoreVT == MVT::v4f32 || StoreVT == MVT::v4i32))
+        return expandVSXStoreForLE(N, DCI);
+    }
     break;
+  }
   case ISD::LOAD: {
     LoadSDNode *LD = cast<LoadSDNode>(N);
     EVT VT = LD->getValueType(0);
+
+    // For little endian, VSX loads require generating lxvd2x/xxswapd.
+    if (VT.isSimple()) {
+      MVT LoadVT = VT.getSimpleVT();
+      if (TM.getSubtarget<PPCSubtarget>().hasVSX() &&
+          TM.getSubtarget<PPCSubtarget>().isLittleEndian() &&
+          (LoadVT == MVT::v2f64 || LoadVT == MVT::v2i64 ||
+           LoadVT == MVT::v4f32 || LoadVT == MVT::v4i32))
+        return expandVSXLoadForLE(N, DCI);
+    }
+
     Type *Ty = LD->getMemoryVT().getTypeForEVT(*DAG.getContext());
     unsigned ABIAlignment = getDataLayout()->getABITypeAlignment(Ty);
     if (ISD::isNON_EXTLoad(N) && VT.isVector() &&
@@ -8514,6 +8693,34 @@ SDValue PPCTargetLowering::PerformDAGCombine(SDNode *N,
     }
 
     break;
+  case ISD::INTRINSIC_W_CHAIN: {
+    // For little endian, VSX loads require generating lxvd2x/xxswapd.
+    if (TM.getSubtarget<PPCSubtarget>().hasVSX() &&
+        TM.getSubtarget<PPCSubtarget>().isLittleEndian()) {
+      switch (cast<ConstantSDNode>(N->getOperand(1))->getZExtValue()) {
+      default:
+        break;
+      case Intrinsic::ppc_vsx_lxvw4x:
+      case Intrinsic::ppc_vsx_lxvd2x:
+        return expandVSXLoadForLE(N, DCI);
+      }
+    }
+    break;
+  }
+  case ISD::INTRINSIC_VOID: {
+    // For little endian, VSX stores require generating xxswapd/stxvd2x.
+    if (TM.getSubtarget<PPCSubtarget>().hasVSX() &&
+        TM.getSubtarget<PPCSubtarget>().isLittleEndian()) {
+      switch (cast<ConstantSDNode>(N->getOperand(1))->getZExtValue()) {
+      default:
+        break;
+      case Intrinsic::ppc_vsx_stxvw4x:
+      case Intrinsic::ppc_vsx_stxvd2x:
+        return expandVSXStoreForLE(N, DCI);
+      }
+    }
+    break;
+  }
   case ISD::BSWAP:
     // Turn BSWAP (LOAD) -> lhbrx/lwbrx.
     if (ISD::isNON_EXTLoad(N->getOperand(0).getNode()) &&
@@ -8904,6 +9111,12 @@ PPCTargetLowering::getRegForInlineAsmConstraint(const std::string &Constraint,
                           &PPC::G8RCRegClass);
   }
 
+  // GCC accepts 'cc' as an alias for 'cr0', and we need to do the same.
+  if (!R.second && StringRef("{cc}").equals_lower(Constraint)) {
+    R.first = PPC::CR0;
+    R.second = &PPC::CRRCRegClass;
+  }
+
   return R;
 }
 
@@ -8932,37 +9145,42 @@ void PPCTargetLowering::LowerAsmOperandForConstraint(SDValue Op,
   case 'P': {
     ConstantSDNode *CST = dyn_cast<ConstantSDNode>(Op);
     if (!CST) return; // Must be an immediate to match.
-    unsigned Value = CST->getZExtValue();
+    int64_t Value = CST->getSExtValue();
+    EVT TCVT = MVT::i64; // All constants taken to be 64 bits so that negative
+                         // numbers are printed as such.
     switch (Letter) {
     default: llvm_unreachable("Unknown constraint letter!");
     case 'I':  // "I" is a signed 16-bit constant.
-      if ((short)Value == (int)Value)
-        Result = DAG.getTargetConstant(Value, Op.getValueType());
+      if (isInt<16>(Value))
+        Result = DAG.getTargetConstant(Value, TCVT);
       break;
     case 'J':  // "J" is a constant with only the high-order 16 bits nonzero.
+      if (isShiftedUInt<16, 16>(Value))
+        Result = DAG.getTargetConstant(Value, TCVT);
+      break;
     case 'L':  // "L" is a signed 16-bit constant shifted left 16 bits.
-      if ((short)Value == 0)
-        Result = DAG.getTargetConstant(Value, Op.getValueType());
+      if (isShiftedInt<16, 16>(Value))
+        Result = DAG.getTargetConstant(Value, TCVT);
       break;
     case 'K':  // "K" is a constant with only the low-order 16 bits nonzero.
-      if ((Value >> 16) == 0)
-        Result = DAG.getTargetConstant(Value, Op.getValueType());
+      if (isUInt<16>(Value))
+        Result = DAG.getTargetConstant(Value, TCVT);
       break;
     case 'M':  // "M" is a constant that is greater than 31.
       if (Value > 31)
-        Result = DAG.getTargetConstant(Value, Op.getValueType());
+        Result = DAG.getTargetConstant(Value, TCVT);
       break;
     case 'N':  // "N" is a positive constant that is an exact power of two.
-      if ((int)Value > 0 && isPowerOf2_32(Value))
-        Result = DAG.getTargetConstant(Value, Op.getValueType());
+      if (Value > 0 && isPowerOf2_64(Value))
+        Result = DAG.getTargetConstant(Value, TCVT);
       break;
     case 'O':  // "O" is the constant zero.
       if (Value == 0)
-        Result = DAG.getTargetConstant(Value, Op.getValueType());
+        Result = DAG.getTargetConstant(Value, TCVT);
       break;
     case 'P':  // "P" is a constant whose negation is a signed 16-bit constant.
-      if ((short)-Value == (int)-Value)
-        Result = DAG.getTargetConstant(Value, Op.getValueType());
+      if (isInt<16>(-Value))
+        Result = DAG.getTargetConstant(Value, TCVT);
       break;
     }
     break;

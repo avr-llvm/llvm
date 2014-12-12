@@ -313,7 +313,6 @@ external mdkind_id : llcontext -> string -> llmdkind = "llvm_mdkind_id"
 (*===-- Modules -----------------------------------------------------------===*)
 external create_module : llcontext -> string -> llmodule = "llvm_create_module"
 external dispose_module : llmodule -> unit = "llvm_dispose_module"
-external clone_module : llmodule -> llmodule = "LLVMCloneModule"
 external target_triple: llmodule -> string
                       = "llvm_target_triple"
 external set_target_triple: string -> llmodule -> unit
@@ -460,6 +459,7 @@ external clear_metadata : llvalue -> llmdkind -> unit = "llvm_clear_metadata"
 (*--... Operations on metadata .......,.....................................--*)
 external mdstring : llcontext -> string -> llvalue = "llvm_mdstring"
 external mdnode : llcontext -> llvalue array -> llvalue = "llvm_mdnode"
+external mdnull : llcontext -> llvalue = "llvm_mdnull"
 external get_mdstring : llvalue -> string option = "llvm_get_mdstring"
 external get_named_metadata : llmodule -> string -> llvalue array
                             = "llvm_get_namedmd"
