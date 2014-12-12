@@ -37,8 +37,8 @@ static unsigned adjustFixupRelCondbr(unsigned size,
   Value -= 2;
 
   // We now check if Value can be encoded as a 7-bit signed immediate.
-  if (!isIntN(size, Value) && Ctx)
-    Ctx->FatalError(Fixup.getLoc(), "out of range brcond fixup");
+  //if (!isIntN(size, Value) && Ctx)
+  //  Ctx->FatalError(Fixup.getLoc(), "out of range brcond fixup");
     
   Value <<= 2;
   
