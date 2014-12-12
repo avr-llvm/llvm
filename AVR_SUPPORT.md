@@ -28,7 +28,7 @@ CBR    not implemented
 INC    x
 DEC    x
 DEC    x
-TST    pseudo
+TST    x (untested)
 CLR    not implemented
 SER    not implemented
 MUL    x

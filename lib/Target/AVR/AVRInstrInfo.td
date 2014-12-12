@@ -550,10 +550,10 @@ def NEGRd : FRd<0b1001,
                 [(set GPR8:$dst, (ineg GPR8:$src)), (implicit SREG)]>;
 
 let Defs = [SREG] in
-def TSTRd : Pseudo<(outs),
-                   (ins GPR8:$src),
-                   "tst\t$src",
-                   [(AVRtst GPR8:$src), (implicit SREG)]>;
+def TSTRd : FTST<(outs),
+                 (ins GPR8:$src),
+                 "tst\t$src",
+                 [(AVRtst GPR8:$src), (implicit SREG)]>;
 
 // Branch instructions
 

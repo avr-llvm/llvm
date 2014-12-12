@@ -198,6 +198,26 @@ class FSTLDPtrPiReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
 class FSTLDPtrPdReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
   : FSTLD<t, 0b010, outs, ins, asmstr, pattern> { }
 
+//===--------------------------------------------------------------------------------------------===//
+// Special format for the TST instruction.
+// TST Rd
+// `TST Rd` is semantically equivalent to `AND Rd, Rd` and shares the same binary representation.
+// <|0010|00rd|dddd|rrrr> (where Rd = Rr)
+//===--------------------------------------------------------------------------------------------===//
+class FTST<dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  bits<5> reg;
+  
+  let Inst{15-12} = 0b0010;
+  
+  let Inst{11-10} = 0b00;
+  let Inst{9} = reg{4};
+  let Inst{8} = reg{4};
+  
+  let Inst{7-4} = reg{3-0};
+  let Inst{3-0} = reg{3-0};
+}
 
 //===----------------------------------------------------------------------===//
 // MOVWRdRr special encoding: <|0000|0001|dddd|rrrr|>
