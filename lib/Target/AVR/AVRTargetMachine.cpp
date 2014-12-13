@@ -46,10 +46,10 @@ public:
     return getTM<AVRTargetMachine>();
   }
 
-  bool addInstSelector();
-  bool addPreSched2();
-  bool addPreRegAlloc();
-  bool addPreEmitPass();
+  bool addInstSelector() override;
+  void addPreSched2() override;
+  void addPreRegAlloc() override;
+  void addPreEmitPass() override;
   FunctionPass *createTargetRegisterAllocator(bool Optimized);
 };
 } // namespace
@@ -82,27 +82,21 @@ bool AVRPassConfig::addInstSelector()
   return false;
 }
 
-bool AVRPassConfig::addPreRegAlloc()
+void AVRPassConfig::addPreRegAlloc()
 {
   // Create the dynalloc SP save/restore pass to handle variable sized allocas.
   addPass(createAVRDynAllocaSRPass());
-
-  return false;
 }
 
-bool AVRPassConfig::addPreSched2()
+void AVRPassConfig::addPreSched2()
 {
   addPass(createAVRExpandPseudoPass());
-
-  return true;
 }
 
-bool AVRPassConfig::addPreEmitPass()
+void AVRPassConfig::addPreEmitPass()
 {
   // Must run branch selection immediately preceding the asm printer.
   addPass(createAVRBranchSelectionPass());
-
-  return false;
 }
 
 FunctionPass *AVRPassConfig::createTargetRegisterAllocator(bool Optimized)
