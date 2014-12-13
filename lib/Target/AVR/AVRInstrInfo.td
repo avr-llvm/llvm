@@ -447,7 +447,8 @@ hasSideEffects = 0 in
 def MULRdRr : Mu1RdRr<(outs GPR8:$dst),
                       (ins GPR8:$src, GPR8:$src2),
                       "mul\t$src, $src2",
-                      []>;
+                      []>,
+              Requires<[HasMUL]>;
 
 // The earlyclobber flag is required because the pseudo expansion needs $dst
 // and $src to have different registers.
@@ -458,7 +459,8 @@ def MULWRdRr : Pseudo<(outs DREGS:$dst),
                       (ins DREGS:$src, DREGS:$src2),
                       "mulw\t$dst, $src, $src2",
                       [(set DREGS:$dst, (mul DREGS:$src, DREGS:$src2)),
-                       (implicit SREG)]>;
+                       (implicit SREG)]>,
+               Requires<[HasMUL]>;
 
 // This instruction produces a 16bit result from two 8bit operands.
 let isCommutable = 1,
@@ -467,7 +469,8 @@ hasSideEffects = 0 in
 def MUL16RdRr : Mu1RdRr<(outs DREGS:$dst),
                         (ins GPR8:$src, GPR8:$src2),
                         "mul\t$src, $src2",
-                        []>;
+                        []>,
+                Requires<[HasMUL]>;
 
 //_______________________________________
 // Logic Instructions
@@ -802,7 +805,8 @@ let hasSideEffects = 0 in
 def MOVWRdRr : FMOVWRdRr<(outs DREGS:$dst),
                          (ins DREGS:$src),
                          "movw\t$dst, $src",
-                         []>;
+                         []>,
+               Requires<[HasMOVW]>;
 
 let isReMaterializable = 1,
 isAsCheapAsAMove = 1 in
@@ -1001,7 +1005,8 @@ def LPMRdZ : FLPM<0b100,
                   (outs GPR8:$dst),
                   (ins),
                   "lpm\t$dst, Z",
-                  []>;
+                  []>,
+             Requires<[HasLPMX]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
