@@ -172,7 +172,7 @@ def FeatureAVRTiny      : PseudoSubtargetFeature<"avrtiny", "The device belongs 
 class Device<string Name, list<SubtargetFeature> Features>
   : Processor<Name, NoItineraries, Features>;
 
-def : Device<"generic", []>;
+def : Device<"avr1", [FeatureAVR1]>;
 
 //:FIXME: list here all mcu models
 
