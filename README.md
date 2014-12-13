@@ -8,6 +8,12 @@ a production-quality compiler backend, so bugs will not be tolerated.
 
 See `AVR_SUPPORT.md` for a list of supported instructions.
 
+## Features
+* Machine code generation
+* Subtarget features (not completely finished)
+* Support for most instructions
+* ELF object outputting
+
 ## Development
 Take a look at the issues page for goals and bugs that currently exist. Pull requests are very welcome!
 
