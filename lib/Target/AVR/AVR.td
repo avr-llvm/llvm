@@ -110,7 +110,7 @@ def FeatureM161         : PseudoSubtargetFeature<"m161", "sadsf",
                             [FeatureM603, FeatureIMUL, FeatureIMOVW,
                              FeatureILPMX ,FeatureISPM]>;
 
-def FeatureM94K         : PseudoSubtargetFeature<"m94k", "sadsf",
+def Feature94K         : PseudoSubtargetFeature<"94k", "sadsf",
                             [FeatureM603,FeatureIMUL,
                              FeatureIMOVW,FeatureILPMX]>;
 
@@ -283,7 +283,6 @@ def : Device<"at90pwm3",    [FeatureAVR4]>;
 def : Device<"at90pwm3b",    [FeatureAVR4]>;
 def : Device<"at90pwm81",    [FeatureAVR4]>;
 
-def : Device<"at90pwm161",    [FeatureAVR5]>;
 def : Device<"ata5790",    [FeatureAVR5]>;
 def : Device<"ata5795",    [FeatureAVR5]>;
 def : Device<"atmega16",    [FeatureAVR5]>;
@@ -335,8 +334,6 @@ def : Device<"atmega3290a",    [FeatureAVR5]>;
 def : Device<"atmega3290p",    [FeatureAVR5]>;
 def : Device<"atmega3290pa",    [FeatureAVR5]>;
 def : Device<"atmega406",    [FeatureAVR5]>;
-def : Device<"atmega64rfr2",    [FeatureAVR5]>;
-def : Device<"atmega644rfr2",    [FeatureAVR5]>;
 def : Device<"atmega64",    [FeatureAVR5]>;
 def : Device<"atmega64a",    [FeatureAVR5]>;
 def : Device<"atmega640",    [FeatureAVR5]>;
@@ -382,10 +379,10 @@ def : Device<"atmega32u4",    [FeatureAVR5]>;
 
 def : Device<"atmega32u6",    [FeatureAVR5]>;
 def : Device<"at90usb646",    [FeatureAVR5]>;
-def : Device<"at90usb646",    [FeatureAVR5]>;
+def : Device<"at90usb647",    [FeatureAVR5]>;
 def : Device<"at90scr100",    [FeatureAVR5]>;
 
-def : Device<"at94k",    [FeatureM94K]>;
+def : Device<"at94k",    [Feature94K]>;
 
 def : Device<"m3000",    [FeatureAVR5]>;
 
