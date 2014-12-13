@@ -1,11 +1,10 @@
 # AVR-LLVM
 An LLVM backend for the Atmel [AVR](http://en.wikipedia.org/wiki/Atmel_AVR) microprocessor architecture.
 
-Currently AVR-LLVM can generate assembly files. Machine code generation and ELF support is almost complete, barring a few instruction encoding errors that are being rectified.
+Currently AVR-LLVM can generate assembly files and ELF object files.
 
 Subtarget features are not implemented (yet), and so generated code will be incompatible to most AVR models except the higher end ones (which support the entire AVR instruction set).
-Currently, all possible instructions are used, forbidding use of AVR-LLVM in chips that don't support everything. Specific CPU support is goal number 2, with machine code generation
-being placed first.
+This is being worked on.
 
 As the project is still very much in development, it is likely that you will encounter bugs. If you think you've found one, submit an issue - we're aiming for AVR-LLVM to eventually be
 a production-quality compiler backend, so bugs will not be tolerated.
