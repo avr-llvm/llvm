@@ -19,10 +19,6 @@ include "llvm/Target/Target.td"
 // AVR Subtarget Features.
 //===----------------------------------------------------------------------===//
 
-//:FIXME: IMPLEMENT and list all features
-def FeatureAsmOnly
-  : SubtargetFeature<"asmonly","IsAsmOnly", "true",
-                     "Device is assembler only">;
 
 //===----------------------------------------------------------------------===//
 // AVR microcontrollers supported.
