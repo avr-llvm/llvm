@@ -23,9 +23,7 @@ namespace AVR {
   // in MipsAsmBackend.cpp.
   //
   enum Fixups {
-    // Branch fixups resulting in R_MIPS_16.
-    fixup_brcond = FirstTargetFixupKind,
-    fixup_7_pcrel,
+    fixup_7_pcrel = FirstTargetFixupKind,
 
     // Marker
     LastTargetFixupKind,

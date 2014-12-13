@@ -123,28 +123,6 @@ AVRMCCodeEmitter::getMemriEncoding(const MCInst &MI, unsigned OpNo,
 }
 
 unsigned
-AVRMCCodeEmitter::getBreakTargetEncoding(const MCInst &MI, unsigned OpNo,
-                                         SmallVectorImpl<MCFixup> &Fixups,
-                                         const MCSubtargetInfo &STI) const {
-                                   
-  const MCOperand MO = MI.getOperand(OpNo);
-  
-  if (MO.isExpr())
-  {
-    const MCOperand &MO = MI.getOperand(OpNo);
-
-    const MCExpr *Expr = MO.getExpr();
-    MCFixupKind Kind = MCFixupKind(AVR::fixup_brcond);
-    Fixups.push_back(MCFixup::Create(0, Expr, Kind, MI.getLoc()));
-    
-    // All of the information is in the fixup.
-    return 0;
-  } 
-  else
-    return (MO.getImm() >> 1);
-}
-
-unsigned
 AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
                                           const MCInst &MI, unsigned OpNo,
                                           SmallVectorImpl<MCFixup> &Fixups,

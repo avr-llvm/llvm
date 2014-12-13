@@ -156,7 +156,6 @@ def memspi : Operand<iPTR>
 def brtarget : Operand<OtherVT>
 {
   let PrintMethod = "print_pcrel_imm";
-  let EncoderMethod = "getBreakTargetEncoding";
 }
 
 def rel_condbr_7_target : Operand<OtherVT>

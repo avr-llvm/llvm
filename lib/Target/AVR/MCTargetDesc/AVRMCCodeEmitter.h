@@ -58,14 +58,6 @@ public:
   unsigned getMemriEncoding(const MCInst &MI, unsigned OpNo,
                             SmallVectorImpl<MCFixup> &Fixups,
                             const MCSubtargetInfo &STI) const;
-  
-  /*!
-   * \brief Gets the encoding for a break target.
-   */
-  unsigned getBreakTargetEncoding(const MCInst &MI, unsigned OpNo,
-                                  SmallVectorImpl<MCFixup> &Fixups,
-                                  const MCSubtargetInfo &STI) const;
-  
   unsigned getRelCondBrTargetEncoding(unsigned size,
                                    const MCInst &MI, unsigned OpNo,
                                    SmallVectorImpl<MCFixup> &Fixups,

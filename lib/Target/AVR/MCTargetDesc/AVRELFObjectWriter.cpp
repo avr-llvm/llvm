@@ -7,6 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/AVRFixupKinds.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCELFObjectWriter.h"
@@ -45,8 +46,21 @@ unsigned AVRELFObjectWriter::GetRelocType(const MCValue &Target,
   unsigned Kind = (unsigned)Fixup.getKind();
 
   switch (Kind) {
-  default:
-    llvm_unreachable("invalid fixup kind!");
+    default:
+      llvm_unreachable("invalid fixup kind!");
+      break;
+    case FK_Data_1:
+      Type = ELF::R_AVR_8;
+      break;
+    case FK_Data_2:
+      Type = ELF::R_AVR_16;
+      break;
+    case FK_Data_4:
+      Type = ELF::R_AVR_32;
+      break;
+    case AVR::fixup_7_pcrel:
+      Type = ELF::R_AVR_7_PCREL;
+      break;
   }
   return Type;
 }

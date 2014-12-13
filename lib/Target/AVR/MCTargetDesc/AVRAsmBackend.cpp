@@ -65,11 +65,6 @@ static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
     Value = adjustFixupRelCondbr(7, Fixup, Value, Ctx);
     break;
   }
-  case AVR::fixup_brcond:
-
-    Value = adjustFixupRelCondbr(7, Fixup, Value, Ctx);
-    
-    break;
   }
 
   return Value;
@@ -114,7 +109,6 @@ getFixupKindInfo(MCFixupKind Kind) const {
     // AVRFixupKinds.h.
     //
     // name                    offset  bits  flags
-    { "fixup_brcond",          0,      7,    MCFixupKindInfo::FKF_IsPCRel },
     { "fixup_7_pcrel",         0,      7,    MCFixupKindInfo::FKF_IsPCRel },
   };
 
@@ -158,11 +152,13 @@ void AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
                                       const MCValue &Target,
                                       uint64_t &Value,
                                       bool &IsResolved) {
+  IsResolved = false;
+  
   // At this point we'll ignore the value returned by adjustFixupValue as
   // we are only checking if the fixup can be applied correctly. We have
   // access to MCContext from here which allows us to report a fatal error
   // with *possibly* a source code location.
-  (void)adjustFixupValue(Fixup, Value, &Asm.getContext());
+  Value = adjustFixupValue(Fixup, Value, &Asm.getContext());
 }
 
 MCAsmBackend *llvm::createAVRAsmBackendEL(const Target &T,
