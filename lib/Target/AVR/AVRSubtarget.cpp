@@ -46,7 +46,6 @@ AVRSubtarget::AVRSubtarget(const std::string &TT, const std::string &CPU,
   // Other features
   HasSRAM(false),
   HasEIND(false),
-  SupportsDES(false),
   IsTiny(false),
   IsMega(false)
 {

@@ -65,8 +65,8 @@ def FeatureRMW          : SubtargetFeature<"rmw", "HasRMW", "true",
 def FeatureSRAM         : SubtargetFeature<"sram", "HasSRAM", "true",
                                 "The device has SRAM">;
 
-def FeatureDES          : SubtargetFeature<"des", "SupportsDES", "true",
-                                "The device supports special DES instructions">;
+def FeatureDES          : SubtargetFeature<"des", "HasDES", "true",
+                                "Enable the `des` instruction">;
 
 // Device has >128K program memory.
 def FeatureEIND         : SubtargetFeature<"eind", "HasEIND", "true",
