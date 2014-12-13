@@ -3,9 +3,6 @@ An LLVM backend for the Atmel [AVR](http://en.wikipedia.org/wiki/Atmel_AVR) micr
 
 Currently AVR-LLVM can generate assembly files and ELF object files.
 
-Subtarget features are not implemented (yet), and so generated code will be incompatible to most AVR models except the higher end ones (which support the entire AVR instruction set).
-This is being worked on.
-
 As the project is still very much in development, it is likely that you will encounter bugs. If you think you've found one, submit an issue - we're aiming for AVR-LLVM to eventually be
 a production-quality compiler backend, so bugs will not be tolerated.
 
