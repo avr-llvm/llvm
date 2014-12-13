@@ -33,7 +33,7 @@ class AVRDAGToDAGISel : public SelectionDAGISel
 {
 public:
   explicit AVRDAGToDAGISel(AVRTargetMachine &tm, CodeGenOpt::Level OptLevel) :
-    SelectionDAGISel(tm, OptLevel) {}
+    SelectionDAGISel(tm, OptLevel), Subtarget(&tm.getSubtarget<AVRSubtarget>()) {}
 
   const char *getPassName() const
   {
@@ -55,6 +55,8 @@ public:
 
 private:
   SDNode *Select(SDNode *N);
+  
+  const AVRSubtarget *Subtarget;
 };
 
 } // end of anonymous namespace

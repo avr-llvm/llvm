@@ -173,6 +173,46 @@ def rel_condbr_12_target : Operand<OtherVT>
 // Addressing mode pattern reg+imm6
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], [SDNPWantRoot]>;
 
+//===----------------------------------------------------------------------===//
+// AVR predicates for subtarget features
+//===----------------------------------------------------------------------===//
+
+def HasLPM       :     Predicate<"Subtarget->hasLPM()">,
+                         AssemblerPredicate<"FeatureILPM">;
+
+def HasLPMX      :     Predicate<"Subtarget->hasLPMX()">,
+                         AssemblerPredicate<"FeatureILPMX">;
+
+def HasELPM      :     Predicate<"Subtarget->hasELPM()">,
+                         AssemblerPredicate<"FeatureIELPM">;
+
+def HasELPMX     :     Predicate<"Subtarget->hasELPMX()">,
+                         AssemblerPredicate<"FeatureIELPMX">;
+
+def HasMUL       :     Predicate<"Subtarget->hasMUL()">,
+                         AssemblerPredicate<"FeatureIMUL">;
+
+def HasFMUL      :     Predicate<"Subtarget->hasFMUL()">,
+                         AssemblerPredicate<"FeatureIFMUL">;
+
+def HasMOVW      :    Predicate<"Subtarget->hasMOVW()">,
+                         AssemblerPredicate<"FeatureIMOVW">;
+
+def HasDES       :    Predicate<"Subtarget->hasDES()">,
+                         AssemblerPredicate<"FeatureIDES">;
+
+def HasBREAK     :    Predicate<"Subtarget->hasBREAK()">,
+                         AssemblerPredicate<"FeatureIBREAK">;
+
+def SupportsRMW  :    Predicate<"Subtarget->supportsRMW()">,
+                         AssemblerPredicate<"FeatureRMW">;
+
+def HasSRAM      :    Predicate<"Subtarget->hasSRAM()">,
+                         AssemblerPredicate<"FeatureSRAM">;
+
+def HasEIND      :    Predicate<"Subtarget->hasEIND()">,
+                         AssemblerPredicate<"FeatureEIND">;
+
 // AVR specific condition code. These correspond to AVR_*_COND in
 // AVRInstrInfo.td. They must be kept in synch.
 def AVR_COND_EQ : PatLeaf<(i8 0)>;
