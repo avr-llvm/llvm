@@ -33,12 +33,25 @@ AVRSubtarget::AVRSubtarget(const std::string &TT, const std::string &CPU,
   InstrInfo(),
   FrameLowering(),
   TLInfo(TM),
-  TSInfo(TM)
+  TSInfo(TM),
+  
+  // Supported instructions
+  HasLPM(false), HasLPMX(false), HasELPM(false), HasELPMX(false),
+  HasSPM(false), HasSPMX(false),
+  HasMUL(false), HasFMUL(false),
+  HasMOVW(false),
+  HasDES(false),
+  HasBREAK(false),
+  HasRMW(false),
+  
+  // Other features
+  HasSRAM(false),
+  HasEIND(false),
+  SupportsDES(false),
+  IsTiny(false),
+  IsMega(false)
 {
-  //:FIXME: implement all subtarget stuff here
-  //std::string CPU = "generic";
-
   // Parse features string.
-  //ParseSubtargetFeatures(FS, CPU);
+  ParseSubtargetFeatures(FS, CPU);
 }
 

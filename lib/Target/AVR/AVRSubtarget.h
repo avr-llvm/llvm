@@ -64,6 +64,56 @@ private:
   AVRFrameLowering FrameLowering;
   AVRTargetLowering TLInfo;
   AVRSelectionDAGInfo TSInfo;
+  
+  // Supported instructions
+  bool HasLPM;
+  bool HasLPMX;
+  bool HasELPM;
+  bool HasELPMX;
+  bool HasSPM;
+  bool HasSPMX;
+  bool HasMUL;
+  bool HasFMUL;
+  bool HasMOVW;
+  bool HasDES;
+  bool HasBREAK;
+  bool HasRMW;
+  
+  // Other features
+  bool HasSRAM;
+  bool HasEIND;
+  bool SupportsDES;
+  bool IsTiny;
+  bool IsMega;
+  
+  // dummy (these aren't set in the constructor).
+  bool SupportsTiny1;
+  bool Supports2xxx;
+  bool Supports2xxe;
+  bool SupportsAVR1;
+  bool SupportsAVR2;
+  bool SupportsAVR25;
+  bool SupportsAVR3;
+  bool SupportsAVR31;
+  bool SupportsAVR35;
+  bool SupportsAVR3_ALL;
+  bool SupportsAVR4;
+  bool SupportsAVR5;
+  bool SupportsAVR6;
+  bool SupportsTiny;
+  bool SupportsM8;
+  bool SupportsM94k;
+  bool SupportsM103;
+  bool SupportsM128;
+  bool SupportsM161;
+  bool SupportsM256;
+  bool SupportsM323;
+  bool SupportsM603;
+  bool SupportsPWMx;
+  bool SupportsRF401;
+  bool SupportsTiny2;
+  bool SupportsXMEGA;
+  bool SupportsXMEGAU;
 };
 
 } // end namespace llvm
