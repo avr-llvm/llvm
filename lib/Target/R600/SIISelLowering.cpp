@@ -61,21 +61,6 @@ SITargetLowering::SITargetLowering(TargetMachine &TM) :
 
   computeRegisterProperties();
 
-  // Condition Codes
-  setCondCodeAction(ISD::SETONE, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETUEQ, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETUGE, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETUGT, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETULE, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETULT, MVT::f32, Expand);
-
-  setCondCodeAction(ISD::SETONE, MVT::f64, Expand);
-  setCondCodeAction(ISD::SETUEQ, MVT::f64, Expand);
-  setCondCodeAction(ISD::SETUGE, MVT::f64, Expand);
-  setCondCodeAction(ISD::SETUGT, MVT::f64, Expand);
-  setCondCodeAction(ISD::SETULE, MVT::f64, Expand);
-  setCondCodeAction(ISD::SETULT, MVT::f64, Expand);
-
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v8i32, Expand);
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v8f32, Expand);
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16i32, Expand);
@@ -108,8 +93,6 @@ SITargetLowering::SITargetLowering(TargetMachine &TM) :
   setOperationAction(ISD::STORE, MVT::v2i32, Custom);
   setOperationAction(ISD::STORE, MVT::v4i32, Custom);
 
-  setOperationAction(ISD::SELECT, MVT::f32, Promote);
-  AddPromotedToType(ISD::SELECT, MVT::f32, MVT::i32);
   setOperationAction(ISD::SELECT, MVT::i64, Custom);
   setOperationAction(ISD::SELECT, MVT::f64, Promote);
   AddPromotedToType(ISD::SELECT, MVT::f64, MVT::i64);

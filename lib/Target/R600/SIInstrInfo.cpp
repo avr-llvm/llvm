@@ -1107,10 +1107,18 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr *MI,
 
   // Verify VOP*
   if (isVOP1(Opcode) || isVOP2(Opcode) || isVOP3(Opcode) || isVOPC(Opcode)) {
+    // Only look at the true operands. Only a real operand can use the constant
+    // bus, and we don't want to check pseudo-operands like the source modifier
+    // flags.
+    const int OpIndices[] = { Src0Idx, Src1Idx, Src2Idx };
+
     unsigned ConstantBusCount = 0;
     unsigned SGPRUsed = AMDGPU::NoRegister;
-    for (int i = 0, e = MI->getNumOperands(); i != e; ++i) {
-      const MachineOperand &MO = MI->getOperand(i);
+    for (int OpIdx : OpIndices) {
+      if (OpIdx == -1)
+        break;
+
+      const MachineOperand &MO = MI->getOperand(OpIdx);
       if (usesConstantBus(MRI, MO)) {
         if (MO.isReg()) {
           if (MO.getReg() != SGPRUsed)
@@ -1234,8 +1242,13 @@ const TargetRegisterClass *SIInstrInfo::getOpRegClass(const MachineInstr &MI,
   const MachineRegisterInfo &MRI = MI.getParent()->getParent()->getRegInfo();
   const MCInstrDesc &Desc = get(MI.getOpcode());
   if (MI.isVariadic() || OpNo >= Desc.getNumOperands() ||
-      Desc.OpInfo[OpNo].RegClass == -1)
-    return MRI.getRegClass(MI.getOperand(OpNo).getReg());
+      Desc.OpInfo[OpNo].RegClass == -1) {
+    unsigned Reg = MI.getOperand(OpNo).getReg();
+
+    if (TargetRegisterInfo::isVirtualRegister(Reg))
+      return MRI.getRegClass(Reg);
+    return RI.getRegClass(Reg);
+  }
 
   unsigned RCID = Desc.OpInfo[OpNo].RegClass;
   return RI.getRegClass(RCID);

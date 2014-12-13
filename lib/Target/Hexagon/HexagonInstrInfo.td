@@ -1541,7 +1541,7 @@ def : Pat < (i64 (load ADDRriS11_3:$addr)),
 
 
 // Load - Base with Immediate offset addressing mode
-multiclass LD_Idxd_Pbase<string mnemonic, RegisterClass RC, Operand predImmOp,
+multiclass LD_Idxd_Pbase2<string mnemonic, RegisterClass RC, Operand predImmOp,
                         bit isNot, bit isPredNew> {
   let isPredicatedNew = isPredNew in
   def NAME : LDInst2<(outs RC:$dst),
@@ -1551,17 +1551,17 @@ multiclass LD_Idxd_Pbase<string mnemonic, RegisterClass RC, Operand predImmOp,
             []>;
 }
 
-multiclass LD_Idxd_Pred<string mnemonic, RegisterClass RC, Operand predImmOp,
+multiclass LD_Idxd_Pred2<string mnemonic, RegisterClass RC, Operand predImmOp,
                         bit PredNot> {
   let isPredicatedFalse = PredNot in {
-    defm _c#NAME : LD_Idxd_Pbase<mnemonic, RC, predImmOp, PredNot, 0>;
+    defm _c#NAME : LD_Idxd_Pbase2<mnemonic, RC, predImmOp, PredNot, 0>;
     // Predicate new
-    defm _cdn#NAME : LD_Idxd_Pbase<mnemonic, RC, predImmOp, PredNot, 1>;
+    defm _cdn#NAME : LD_Idxd_Pbase2<mnemonic, RC, predImmOp, PredNot, 1>;
   }
 }
 
 let isExtendable = 1, hasSideEffects = 0 in
-multiclass LD_Idxd<string mnemonic, string CextOp, RegisterClass RC,
+multiclass LD_Idxd2<string mnemonic, string CextOp, RegisterClass RC,
                    Operand ImmOp, Operand predImmOp, bits<5> ImmBits,
                    bits<5> PredImmBits> {
 
@@ -1574,31 +1574,31 @@ multiclass LD_Idxd<string mnemonic, string CextOp, RegisterClass RC,
 
     let opExtendable = 3, isExtentSigned = 0, opExtentBits = PredImmBits,
         isPredicated = 1 in {
-      defm Pt : LD_Idxd_Pred<mnemonic, RC, predImmOp, 0 >;
-      defm NotPt : LD_Idxd_Pred<mnemonic, RC, predImmOp, 1 >;
+      defm Pt : LD_Idxd_Pred2<mnemonic, RC, predImmOp, 0 >;
+      defm NotPt : LD_Idxd_Pred2<mnemonic, RC, predImmOp, 1 >;
     }
   }
 }
 
 let addrMode = BaseImmOffset in {
   let accessSize = ByteAccess in {
-    defm LDrib_indexed: LD_Idxd <"memb", "LDrib", IntRegs, s11_0Ext, u6_0Ext,
+    defm LDrib_indexed: LD_Idxd2 <"memb", "LDrib", IntRegs, s11_0Ext, u6_0Ext,
                                   11, 6>, AddrModeRel;
-    defm LDriub_indexed: LD_Idxd <"memub" , "LDriub", IntRegs, s11_0Ext, u6_0Ext,
+    defm LDriub_indexed: LD_Idxd2 <"memub" , "LDriub", IntRegs, s11_0Ext, u6_0Ext,
                                    11, 6>, AddrModeRel;
   }
   let accessSize = HalfWordAccess in {
-    defm LDrih_indexed: LD_Idxd <"memh", "LDrih", IntRegs, s11_1Ext, u6_1Ext,
+    defm LDrih_indexed: LD_Idxd2 <"memh", "LDrih", IntRegs, s11_1Ext, u6_1Ext,
                                  12, 7>, AddrModeRel;
-    defm LDriuh_indexed: LD_Idxd <"memuh", "LDriuh", IntRegs, s11_1Ext, u6_1Ext,
+    defm LDriuh_indexed: LD_Idxd2 <"memuh", "LDriuh", IntRegs, s11_1Ext, u6_1Ext,
                                   12, 7>, AddrModeRel;
   }
   let accessSize = WordAccess in
-    defm LDriw_indexed: LD_Idxd <"memw", "LDriw", IntRegs, s11_2Ext, u6_2Ext,
+    defm LDriw_indexed: LD_Idxd2 <"memw", "LDriw", IntRegs, s11_2Ext, u6_2Ext,
                                  13, 8>, AddrModeRel;
 
   let accessSize = DoubleWordAccess in
-    defm LDrid_indexed: LD_Idxd <"memd", "LDrid", DoubleRegs, s11_3Ext, u6_3Ext,
+    defm LDrid_indexed: LD_Idxd2 <"memd", "LDrid", DoubleRegs, s11_3Ext, u6_3Ext,
                                  14, 9>, AddrModeRel;
 }
 
@@ -2200,11 +2200,34 @@ def NOT_rr64 : ALU64_rr<(outs DoubleRegs:$dst), (ins DoubleRegs:$src1),
                "$dst = not($src1)",
                [(set (i64 DoubleRegs:$dst), (not (i64 DoubleRegs:$src1)))]>;
 
+let hasSideEffects = 0 in
+class T_S2op_1 <string mnemonic, bits<4> RegTyBits, RegisterClass RCOut,
+                RegisterClass RCIn, bits<2> MajOp, bits<3> MinOp, bit isSat>
+  : SInst <(outs RCOut:$dst), (ins RCIn:$src),
+  "$dst = "#mnemonic#"($src)"#!if(isSat, ":sat", ""),
+  [], "", S_2op_tc_1_SLOT23 > {
+    bits<5> dst;
+    bits<5> src;
 
-// Sign extend word to doubleword.
-def SXTW : ALU64_rr<(outs DoubleRegs:$dst), (ins IntRegs:$src1),
-           "$dst = sxtw($src1)",
-           [(set (i64 DoubleRegs:$dst), (sext (i32 IntRegs:$src1)))]>;
+    let IClass = 0b1000;
+
+    let Inst{27-24} = RegTyBits;
+    let Inst{23-22} = MajOp;
+    let Inst{21} = 0b0;
+    let Inst{20-16} = src;
+    let Inst{7-5} = MinOp;
+    let Inst{4-0} = dst;
+  }
+
+class T_S2op_1_di <string mnemonic, bits<2> MajOp, bits<3> MinOp>
+  : T_S2op_1 <mnemonic, 0b0100, DoubleRegs, IntRegs, MajOp, MinOp, 0>;
+
+// Sign extend word to doubleword
+let isCodeGenOnly = 0 in
+def A2_sxtw   : T_S2op_1_di <"sxtw", 0b01, 0b000>;
+
+def: Pat <(i64 (sext I32:$src)), (A2_sxtw I32:$src)>;
+
 //===----------------------------------------------------------------------===//
 // STYPE/ALU -
 //===----------------------------------------------------------------------===//
@@ -2803,18 +2826,18 @@ let AddedComplexity = 10 in
 def : Pat <(i32 (zextloadi1 ADDRriS11_0:$addr)),
       (i32 (A2_and (i32 (LDrib ADDRriS11_0:$addr)), (A2_tfrsi 0x1)))>;
 
-// Map from Rdd = sign_extend_inreg(Rss, i32) -> Rdd = SXTW(Rss.lo).
+// Map from Rdd = sign_extend_inreg(Rss, i32) -> Rdd = A2_sxtw(Rss.lo).
 def : Pat <(i64 (sext_inreg (i64 DoubleRegs:$src1), i32)),
-      (i64 (SXTW (i32 (EXTRACT_SUBREG (i64 DoubleRegs:$src1), subreg_loreg))))>;
+      (i64 (A2_sxtw (i32 (EXTRACT_SUBREG (i64 DoubleRegs:$src1), subreg_loreg))))>;
 
-// Map from Rdd = sign_extend_inreg(Rss, i16) -> Rdd = SXTW(SXTH(Rss.lo)).
+// Map from Rdd = sign_extend_inreg(Rss, i16) -> Rdd = A2_sxtw(SXTH(Rss.lo)).
 def : Pat <(i64 (sext_inreg (i64 DoubleRegs:$src1), i16)),
-      (i64 (SXTW (i32 (A2_sxth (i32 (EXTRACT_SUBREG (i64 DoubleRegs:$src1),
+      (i64 (A2_sxtw (i32 (A2_sxth (i32 (EXTRACT_SUBREG (i64 DoubleRegs:$src1),
                                                  subreg_loreg))))))>;
 
-// Map from Rdd = sign_extend_inreg(Rss, i8) -> Rdd = SXTW(SXTB(Rss.lo)).
+// Map from Rdd = sign_extend_inreg(Rss, i8) -> Rdd = A2_sxtw(SXTB(Rss.lo)).
 def : Pat <(i64 (sext_inreg (i64 DoubleRegs:$src1), i8)),
-      (i64 (SXTW (i32 (A2_sxtb (i32 (EXTRACT_SUBREG (i64 DoubleRegs:$src1),
+      (i64 (A2_sxtw (i32 (A2_sxtb (i32 (EXTRACT_SUBREG (i64 DoubleRegs:$src1),
                                                  subreg_loreg))))))>;
 
 // We want to prevent emitting pnot's as much as possible.
@@ -2927,11 +2950,11 @@ def : Pat<(store (i1 -1), ADDRriS11_2:$addr),
 def : Pat<(store (i1 PredRegs:$src1), ADDRriS11_2:$addr),
       (STrib ADDRriS11_2:$addr, (i32 (C2_muxii (i1 PredRegs:$src1), 1, 0)) )>;
 
-// Map Rdd = anyext(Rs) -> Rdd = sxtw(Rs).
+// Map Rdd = anyext(Rs) -> Rdd = A2_sxtw(Rs).
 // Hexagon_TODO: We can probably use combine but that will cost 2 instructions.
 // Better way to do this?
 def : Pat<(i64 (anyext (i32 IntRegs:$src1))),
-      (i64 (SXTW (i32 IntRegs:$src1)))>;
+      (i64 (A2_sxtw (i32 IntRegs:$src1)))>;
 
 // Map cmple -> cmpgt.
 // rs <= rt -> !(rs > rt).
@@ -3054,22 +3077,22 @@ def : Pat <(i64 (sext (i1 PredRegs:$src1))),
 // Convert sign-extended load back to load and sign extend.
 // i8 -> i64
 def:  Pat <(i64 (sextloadi8 ADDRriS11_0:$src1)),
-      (i64 (SXTW (LDrib ADDRriS11_0:$src1)))>;
+      (i64 (A2_sxtw (LDrib ADDRriS11_0:$src1)))>;
 
 // Convert any-extended load back to load and sign extend.
 // i8 -> i64
 def:  Pat <(i64 (extloadi8 ADDRriS11_0:$src1)),
-      (i64 (SXTW (LDrib ADDRriS11_0:$src1)))>;
+      (i64 (A2_sxtw (LDrib ADDRriS11_0:$src1)))>;
 
 // Convert sign-extended load back to load and sign extend.
 // i16 -> i64
 def:  Pat <(i64 (sextloadi16 ADDRriS11_1:$src1)),
-      (i64 (SXTW (LDrih ADDRriS11_1:$src1)))>;
+      (i64 (A2_sxtw (LDrih ADDRriS11_1:$src1)))>;
 
 // Convert sign-extended load back to load and sign extend.
 // i32 -> i64
 def:  Pat <(i64 (sextloadi32 ADDRriS11_2:$src1)),
-      (i64 (SXTW (LDriw ADDRriS11_2:$src1)))>;
+      (i64 (A2_sxtw (LDriw ADDRriS11_2:$src1)))>;
 
 
 // Zero extends.
@@ -3146,9 +3169,9 @@ def : Pat <(i32 (zext (i1 PredRegs:$src1))),
 def : Pat <(i32 (anyext (i1 PredRegs:$src1))),
       (i32 (C2_muxii (i1 PredRegs:$src1), 1, 0))>;
 
-// Map from Rss = Pd to Rdd = sxtw (mux(Pd, #1, #0))
+// Map from Rss = Pd to Rdd = A2_sxtw (mux(Pd, #1, #0))
 def : Pat <(i64 (anyext (i1 PredRegs:$src1))),
-      (i64 (SXTW (i32 (C2_muxii (i1 PredRegs:$src1), 1, 0))))>;
+      (i64 (A2_sxtw (i32 (C2_muxii (i1 PredRegs:$src1), 1, 0))))>;
 
 
 let AddedComplexity = 100 in

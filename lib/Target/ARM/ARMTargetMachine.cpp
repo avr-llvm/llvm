@@ -197,9 +197,9 @@ public:
   void addIRPasses() override;
   bool addPreISel() override;
   bool addInstSelector() override;
-  bool addPreRegAlloc() override;
-  bool addPreSched2() override;
-  bool addPreEmitPass() override;
+  void addPreRegAlloc() override;
+  void addPreSched2() override;
+  void addPreEmitPass() override;
 };
 } // namespace
 
@@ -241,7 +241,7 @@ bool ARMPassConfig::addInstSelector() {
   return false;
 }
 
-bool ARMPassConfig::addPreRegAlloc() {
+void ARMPassConfig::addPreRegAlloc() {
   if (getOptLevel() != CodeGenOpt::None)
     addPass(createARMLoadStoreOptimizationPass(true));
   if (getOptLevel() != CodeGenOpt::None && getARMSubtarget().isCortexA9())
@@ -252,13 +252,11 @@ bool ARMPassConfig::addPreRegAlloc() {
     getARMSubtarget().hasNEON() && !DisableA15SDOptimization) {
     addPass(createA15SDOptimizerPass());
   }
-  return true;
 }
 
-bool ARMPassConfig::addPreSched2() {
+void ARMPassConfig::addPreSched2() {
   if (getOptLevel() != CodeGenOpt::None) {
     addPass(createARMLoadStoreOptimizationPass());
-    printAndVerify("After ARM load / store optimizer");
 
     if (getARMSubtarget().hasNEON())
       addPass(createExecutionDependencyFixPass(&ARM::DPRRegClass));
@@ -279,11 +277,9 @@ bool ARMPassConfig::addPreSched2() {
   }
   if (getARMSubtarget().isThumb2())
     addPass(createThumb2ITBlockPass());
-
-  return true;
 }
 
-bool ARMPassConfig::addPreEmitPass() {
+void ARMPassConfig::addPreEmitPass() {
   if (getARMSubtarget().isThumb2()) {
     if (!getARMSubtarget().prefers32BitThumb())
       addPass(createThumb2SizeReductionPass());
@@ -294,6 +290,4 @@ bool ARMPassConfig::addPreEmitPass() {
 
   addPass(createARMOptimizeBarriersPass());
   addPass(createARMConstantIslandPass());
-
-  return true;
 }

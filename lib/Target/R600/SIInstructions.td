@@ -506,16 +506,16 @@ defm V_CMP_LT_F32 : VOPC_F32 <vopc<0x1, 0x41>, "v_cmp_lt_f32", COND_OLT>;
 defm V_CMP_EQ_F32 : VOPC_F32 <vopc<0x2, 0x42>, "v_cmp_eq_f32", COND_OEQ>;
 defm V_CMP_LE_F32 : VOPC_F32 <vopc<0x3, 0x43>, "v_cmp_le_f32", COND_OLE>;
 defm V_CMP_GT_F32 : VOPC_F32 <vopc<0x4, 0x44>, "v_cmp_gt_f32", COND_OGT>;
-defm V_CMP_LG_F32 : VOPC_F32 <vopc<0x5, 0x45>, "v_cmp_lg_f32">;
+defm V_CMP_LG_F32 : VOPC_F32 <vopc<0x5, 0x45>, "v_cmp_lg_f32", COND_ONE>;
 defm V_CMP_GE_F32 : VOPC_F32 <vopc<0x6, 0x46>, "v_cmp_ge_f32", COND_OGE>;
 defm V_CMP_O_F32 : VOPC_F32 <vopc<0x7, 0x47>, "v_cmp_o_f32", COND_O>;
 defm V_CMP_U_F32 : VOPC_F32 <vopc<0x8, 0x48>, "v_cmp_u_f32", COND_UO>;
-defm V_CMP_NGE_F32 : VOPC_F32 <vopc<0x9, 0x49>, "v_cmp_nge_f32">;
-defm V_CMP_NLG_F32 : VOPC_F32 <vopc<0xa, 0x4a>, "v_cmp_nlg_f32">;
-defm V_CMP_NGT_F32 : VOPC_F32 <vopc<0xb, 0x4b>, "v_cmp_ngt_f32">;
-defm V_CMP_NLE_F32 : VOPC_F32 <vopc<0xc, 0x4c>, "v_cmp_nle_f32">;
+defm V_CMP_NGE_F32 : VOPC_F32 <vopc<0x9, 0x49>, "v_cmp_nge_f32",  COND_ULT>;
+defm V_CMP_NLG_F32 : VOPC_F32 <vopc<0xa, 0x4a>, "v_cmp_nlg_f32", COND_UEQ>;
+defm V_CMP_NGT_F32 : VOPC_F32 <vopc<0xb, 0x4b>, "v_cmp_ngt_f32", COND_ULE>;
+defm V_CMP_NLE_F32 : VOPC_F32 <vopc<0xc, 0x4c>, "v_cmp_nle_f32", COND_UGT>;
 defm V_CMP_NEQ_F32 : VOPC_F32 <vopc<0xd, 0x4d>, "v_cmp_neq_f32", COND_UNE>;
-defm V_CMP_NLT_F32 : VOPC_F32 <vopc<0xe, 0x4e>, "v_cmp_nlt_f32">;
+defm V_CMP_NLT_F32 : VOPC_F32 <vopc<0xe, 0x4e>, "v_cmp_nlt_f32", COND_UGE>;
 defm V_CMP_TRU_F32 : VOPC_F32 <vopc<0xf, 0x4f>, "v_cmp_tru_f32">;
 
 let hasSideEffects = 1 in {
@@ -544,16 +544,16 @@ defm V_CMP_LT_F64 : VOPC_F64 <vopc<0x21, 0x61>, "v_cmp_lt_f64", COND_OLT>;
 defm V_CMP_EQ_F64 : VOPC_F64 <vopc<0x22, 0x62>, "v_cmp_eq_f64", COND_OEQ>;
 defm V_CMP_LE_F64 : VOPC_F64 <vopc<0x23, 0x63>, "v_cmp_le_f64", COND_OLE>;
 defm V_CMP_GT_F64 : VOPC_F64 <vopc<0x24, 0x64>, "v_cmp_gt_f64", COND_OGT>;
-defm V_CMP_LG_F64 : VOPC_F64 <vopc<0x25, 0x65>, "v_cmp_lg_f64">;
+defm V_CMP_LG_F64 : VOPC_F64 <vopc<0x25, 0x65>, "v_cmp_lg_f64", COND_ONE>;
 defm V_CMP_GE_F64 : VOPC_F64 <vopc<0x26, 0x66>, "v_cmp_ge_f64", COND_OGE>;
 defm V_CMP_O_F64 : VOPC_F64 <vopc<0x27, 0x67>, "v_cmp_o_f64", COND_O>;
 defm V_CMP_U_F64 : VOPC_F64 <vopc<0x28, 0x68>, "v_cmp_u_f64", COND_UO>;
-defm V_CMP_NGE_F64 : VOPC_F64 <vopc<0x29, 0x69>, "v_cmp_nge_f64">;
-defm V_CMP_NLG_F64 : VOPC_F64 <vopc<0x2a, 0x6a>, "v_cmp_nlg_f64">;
-defm V_CMP_NGT_F64 : VOPC_F64 <vopc<0x2b, 0x6b>, "v_cmp_ngt_f64">;
-defm V_CMP_NLE_F64 : VOPC_F64 <vopc<0x2c, 0x6c>, "v_cmp_nle_f64">;
+defm V_CMP_NGE_F64 : VOPC_F64 <vopc<0x29, 0x69>, "v_cmp_nge_f64", COND_ULT>;
+defm V_CMP_NLG_F64 : VOPC_F64 <vopc<0x2a, 0x6a>, "v_cmp_nlg_f64", COND_UEQ>;
+defm V_CMP_NGT_F64 : VOPC_F64 <vopc<0x2b, 0x6b>, "v_cmp_ngt_f64", COND_ULE>;
+defm V_CMP_NLE_F64 : VOPC_F64 <vopc<0x2c, 0x6c>, "v_cmp_nle_f64", COND_UGT>;
 defm V_CMP_NEQ_F64 : VOPC_F64 <vopc<0x2d, 0x6d>, "v_cmp_neq_f64", COND_UNE>;
-defm V_CMP_NLT_F64 : VOPC_F64 <vopc<0x2e, 0x6e>, "v_cmp_nlt_f64">;
+defm V_CMP_NLT_F64 : VOPC_F64 <vopc<0x2e, 0x6e>, "v_cmp_nlt_f64", COND_UGE>;
 defm V_CMP_TRU_F64 : VOPC_F64 <vopc<0x2f, 0x6f>, "v_cmp_tru_f64">;
 
 let hasSideEffects = 1 in {
@@ -1514,6 +1514,7 @@ let isCommutable = 1 in {
 defm V_MAC_LEGACY_F32 : VOP2Inst <vop2<0x6>, "v_mac_legacy_f32",
   VOP_F32_F32_F32
 >;
+} // End isCommutable = 1
 
 defm V_MIN_LEGACY_F32 : VOP2Inst <vop2<0xd>, "v_min_legacy_f32",
   VOP_F32_F32_F32, AMDGPUfmin_legacy
@@ -1522,6 +1523,7 @@ defm V_MAX_LEGACY_F32 : VOP2Inst <vop2<0xe>, "v_max_legacy_f32",
   VOP_F32_F32_F32, AMDGPUfmax_legacy
 >;
 
+let isCommutable = 1 in {
 defm V_LSHR_B32 : VOP2Inst <vop2<0x15>, "v_lshr_b32", VOP_I32_I32_I32, srl>;
 defm V_ASHR_I32 : VOP2Inst <vop2<0x17>, "v_ashr_i32",
   VOP_I32_I32_I32, sra
@@ -3182,6 +3184,11 @@ def : Pat <
   (V_BFI_B32 (S_MOV_B32 0x00ff00ff),
              (V_ALIGNBIT_B32 $a, $a, 24),
              (V_ALIGNBIT_B32 $a, $a, 8))
+>;
+
+def : Pat <
+  (f32 (select i1:$src2, f32:$src1, f32:$src0)),
+  (V_CNDMASK_B32_e64 $src0, $src1, $src2)
 >;
 
 //============================================================================//

@@ -1115,7 +1115,8 @@ std::error_code BitcodeReader::ParseMetadata() {
       }
       break;
     }
-    case bitc::METADATA_FN_NODE: {
+    case bitc::METADATA_OLD_FN_NODE: {
+      // FIXME: Remove in 4.0.
       // This is a LocalAsMetadata record, the only type of function-local
       // metadata.
       if (Record.size() % 2 == 1)
@@ -1142,7 +1143,8 @@ std::error_code BitcodeReader::ParseMetadata() {
           NextMDValueNo++);
       break;
     }
-    case bitc::METADATA_NODE: {
+    case bitc::METADATA_OLD_NODE: {
+      // FIXME: Remove in 4.0.
       if (Record.size() % 2 == 1)
         return Error(BitcodeError::InvalidRecord);
 
@@ -1163,6 +1165,27 @@ std::error_code BitcodeReader::ParseMetadata() {
         } else
           Elts.push_back(nullptr);
       }
+      MDValueList.AssignValue(MDNode::get(Context, Elts), NextMDValueNo++);
+      break;
+    }
+    case bitc::METADATA_VALUE: {
+      if (Record.size() != 2)
+        return Error(BitcodeError::InvalidRecord);
+
+      Type *Ty = getTypeByID(Record[0]);
+      if (Ty->isMetadataTy() || Ty->isVoidTy())
+        return Error(BitcodeError::InvalidRecord);
+
+      MDValueList.AssignValue(
+          ValueAsMetadata::get(ValueList.getValueFwdRef(Record[1], Ty)),
+          NextMDValueNo++);
+      break;
+    }
+    case bitc::METADATA_NODE: {
+      SmallVector<Metadata *, 8> Elts;
+      Elts.reserve(Record.size());
+      for (unsigned ID : Record)
+        Elts.push_back(ID ? MDValueList.getValueFwdRef(ID - 1) : nullptr);
       MDValueList.AssignValue(MDNode::get(Context, Elts), NextMDValueNo++);
       break;
     }
