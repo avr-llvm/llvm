@@ -41,7 +41,7 @@ AVRSubtarget::AVRSubtarget(const std::string &TT, const std::string &CPU,
   HasMOVW(false),
   HasDES(false),
   HasBREAK(false),
-  HasRMW(false),
+  SupportsRMW(false),
   
   // Other features
   HasSRAM(false),

@@ -63,7 +63,7 @@ def FeatureISPM         : SubtargetFeature<"spm", "HasSPM", "true",
 def FeatureISPMX        : SubtargetFeature<"spmx", "HasSPMX", "true",
                                 "Enable 'spm Z[+]' instruction">;
 
-def FeatureRMW          : SubtargetFeature<"rmw", "HasRMW", "true",
+def FeatureRMW          : SubtargetFeature<"rmw", "SupportsRMW", "true",
                                 "Enable xch,lac,las,lat instructions">;
 
 def FeatureSRAM         : SubtargetFeature<"sram", "HasSRAM", "true",

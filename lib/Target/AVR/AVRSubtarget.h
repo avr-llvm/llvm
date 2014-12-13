@@ -70,7 +70,7 @@ public:
   bool hasMOVW() const { return this->HasMOVW; }
   bool hasDES() const { return this->HasDES; }
   bool hasBREAK() const { return this->HasBREAK; }
-  bool hasRMW() const { return this->HasRMW; }
+  bool supportsRMW() const { return this->SupportsRMW; }
   
   bool hasSRAM() const { return this->HasSRAM; }
   bool hasEIND() const { return this->HasEIND; }
@@ -98,7 +98,7 @@ private:
   bool HasMOVW;
   bool HasDES;
   bool HasBREAK;
-  bool HasRMW;
+  bool SupportsRMW;
   
   // Other features
   bool HasSRAM;
