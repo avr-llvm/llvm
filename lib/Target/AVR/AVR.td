@@ -46,8 +46,12 @@ def FeatureIMUL         : SubtargetFeature<"mul", "HasMUL", "true",
 def FeatureIFMUL        : SubtargetFeature<"fmul", "HasFMUL", "true",
                                 "Enable 'fmul Rd, Rr' instruction">;
 
-def FeatureIMOVW         : SubtargetFeature<"movw", "HasMOVW", "true",
+def FeatureIMOVW        : SubtargetFeature<"movw", "HasMOVW", "true",
                                 "Enable 'movw Rd:Rd+1, Rr:Rr+1' instruction">;
+
+def FeatureIDES         : SubtargetFeature<"des", "HasDES", "true",
+                                "Enable the 'des' instruction">;
+
 
 def FeatureIBREAK       : SubtargetFeature<"break", "HasBREAK", "true",
                                 "Enable 'break' instruction">;
@@ -64,9 +68,6 @@ def FeatureRMW          : SubtargetFeature<"rmw", "HasRMW", "true",
 
 def FeatureSRAM         : SubtargetFeature<"sram", "HasSRAM", "true",
                                 "The device has SRAM">;
-
-def FeatureDES          : SubtargetFeature<"des", "HasDES", "true",
-                                "Enable the `des` instruction">;
 
 // Device has >128K program memory.
 def FeatureEIND         : SubtargetFeature<"eind", "HasEIND", "true",
@@ -124,7 +125,7 @@ def FeatureM256         : PseudoSubtargetFeature<"m256", "sadsf",
                             [FeatureM128, FeatureEIND]>;
 
 def FeatureXMEGA        : PseudoSubtargetFeature<"xmega", "The device belongs to the XMEGA family",
-                            [FeatureM256, FeatureISPMX, FeatureDES]>;
+                            [FeatureM256, FeatureISPMX, FeatureIDES]>;
 
 def FeatureXMEGAU       : PseudoSubtargetFeature<"xmegau", "dsaf",
                             [FeatureXMEGA, FeatureRMW]>;
