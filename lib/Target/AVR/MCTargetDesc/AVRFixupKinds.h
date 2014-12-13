@@ -25,7 +25,7 @@ namespace AVR {
   enum Fixups {
     // Branch fixups resulting in R_MIPS_16.
     fixup_brcond = FirstTargetFixupKind,
-    fixup_rel_condbr_7,
+    fixup_7_pcrel,
 
     // Marker
     LastTargetFixupKind,

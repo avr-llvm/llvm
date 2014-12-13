@@ -60,7 +60,7 @@ static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
   case FK_Data_4:
   case FK_Data_8:
     break;
-  case AVR::fixup_rel_condbr_7:
+  case AVR::fixup_7_pcrel:
   {
     Value = adjustFixupRelCondbr(7, Fixup, Value, Ctx);
     break;
@@ -115,7 +115,7 @@ getFixupKindInfo(MCFixupKind Kind) const {
     //
     // name                    offset  bits  flags
     { "fixup_brcond",          0,      7,    MCFixupKindInfo::FKF_IsPCRel },
-    { "fixup_rel_brcond_7",    0,      7,    MCFixupKindInfo::FKF_IsPCRel },
+    { "fixup_7_pcrel",         0,      7,    MCFixupKindInfo::FKF_IsPCRel },
   };
 
   if (Kind < FirstTargetFixupKind)

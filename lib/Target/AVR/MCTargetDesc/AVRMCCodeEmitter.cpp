@@ -162,7 +162,7 @@ AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
     {
         case 7:
         {
-          Kind = AVR::fixup_rel_condbr_7;
+          Kind = AVR::fixup_7_pcrel;
           break;
         }
         default:
