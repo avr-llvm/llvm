@@ -24,6 +24,7 @@ namespace AVR {
   //
   enum Fixups {
     fixup_7_pcrel = FirstTargetFixupKind,
+    fixup_12_pcrel,
 
     // Marker
     LastTargetFixupKind,

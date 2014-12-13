@@ -28,6 +28,9 @@ namespace {
 
     unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
                           bool IsPCRel) const override;
+    
+    bool needsRelocateWithSymbol(const MCSymbolData &SD,
+                                 unsigned Type) const override;
   };
 }
 
@@ -61,8 +64,20 @@ unsigned AVRELFObjectWriter::GetRelocType(const MCValue &Target,
     case AVR::fixup_7_pcrel:
       Type = ELF::R_AVR_7_PCREL;
       break;
+    case AVR::fixup_12_pcrel:
+      Type = ELF::R_AVR_13_PCREL;
+      break;
   }
   return Type;
+}
+
+bool
+AVRELFObjectWriter::needsRelocateWithSymbol(const MCSymbolData &SD,
+                                            unsigned Type) const {
+  switch (Type) {
+  default:
+    return true;
+  }
 }
 
 MCObjectWriter *llvm::createAVRELFObjectWriter(raw_ostream &OS,

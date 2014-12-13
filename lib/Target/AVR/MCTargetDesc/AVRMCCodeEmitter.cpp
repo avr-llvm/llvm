@@ -143,6 +143,11 @@ AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
           Kind = AVR::fixup_7_pcrel;
           break;
         }
+        case 12:
+        {
+          Kind = AVR::fixup_12_pcrel;
+          break;
+        }
         default:
         {
           llvm_unreachable("unknown size");

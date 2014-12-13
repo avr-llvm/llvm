@@ -164,6 +164,12 @@ def rel_condbr_7_target : Operand<OtherVT>
     let EncoderMethod = "getRelCondBr7TargetEncoding";
 }
 
+def rel_condbr_12_target : Operand<OtherVT>
+{
+    let PrintMethod = "print_pcrel_imm";
+    let EncoderMethod = "getRelCondBr12TargetEncoding";
+}
+
 // Addressing mode pattern reg+imm6
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], [SDNPWantRoot]>;
 
@@ -561,7 +567,7 @@ isBranch = 1,
 isTerminator = 1 in
 def RJMPk : FBRk<0,
                  (outs),
-                 (ins brtarget:$target),
+                 (ins rel_condbr_12_target:$target),
                  "rjmp\t$target",
                  [(br bb:$target)]>;
 

@@ -72,6 +72,13 @@ public:
   {
       return getRelCondBrTargetEncoding(7, MI, OpNo, Fixups, STI);
   }
+  
+  unsigned getRelCondBr12TargetEncoding(const MCInst &MI, unsigned OpNo,
+                                    SmallVectorImpl<MCFixup> &Fixups,
+                                    const MCSubtargetInfo &STI) const
+  {
+      return getRelCondBrTargetEncoding(12, MI, OpNo, Fixups, STI);
+  }
 
   // getBinaryCodeForInstr - TableGen'erated function for getting the
   // binary encoding for an instruction.
