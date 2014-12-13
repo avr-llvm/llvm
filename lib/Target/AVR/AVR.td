@@ -19,6 +19,14 @@ include "llvm/Target/Target.td"
 // AVR Subtarget Features.
 //===----------------------------------------------------------------------===//
 
+// A pseudo subtarget feature aggregates features, grouping them. We don't want
+// to create a new member in AVRSubtarget (to store a value) for each group because
+// we do not care if the group is supported, only the subfeatures inside the group.
+// We fix this by simply setting a dummy member for each pseudo feature, which is
+// then ignored.
+class PseudoSubtargetFeature<string name, string desc, list<SubtargetFeature> i>
+  : SubtargetFeature<name, "DummyFeature", "true", desc, i> { }
+
 // The device has the `LPM` instruction (with implied operand being r0).
 def FeatureILPM         : SubtargetFeature<"lpm", "HasLPM", "true",
                                 "Enable 'lmp' instruction">;
@@ -60,7 +68,7 @@ def FeatureSRAM         : SubtargetFeature<"sram", "HasSRAM", "true",
 def FeatureDES          : SubtargetFeature<"des", "SupportsDES", "true",
                                 "The device supports special DES instructions">;
 
-// Device has >128K program memory (none yet).
+// Device has >128K program memory.
 def FeatureEIND         : SubtargetFeature<"eind", "HasEIND", "true",
                                 "The device has more than 128K program memory">;
 
@@ -70,90 +78,92 @@ def FeatureTiny         : SubtargetFeature<"tiny", "IsTiny", "true",
 def FeatureMega         : SubtargetFeature<"mega", "IsMega", "true",
                                 "The device belongs to the Mega family">;
 
-def FeatureTiny1        : SubtargetFeature<"tiny1", "SupportsTiny1", "true",
-                                "gredsf", [FeatureILPM]>;
+def FeatureTiny1        : PseudoSubtargetFeature<"tiny1", "gredsf",
+                            [FeatureILPM]>;
 
-def Feature2xxx         : SubtargetFeature<"2xxx", "Supports2xxx", "true",
-                                "sadasds", [FeatureTiny1,FeatureSRAM]>;
+def Feature2xxx         : PseudoSubtargetFeature<"2xxx", "sadasds",
+                            [FeatureTiny1, FeatureSRAM]>;
 
-def Feature2xxe         : SubtargetFeature<"2xxe", "Supports2xxe", "true",
-                                "asdsd", [Feature2xxx,FeatureILPMX]>;
+def Feature2xxe         : PseudoSubtargetFeature<"2xxe", "asdsd",
+                            [Feature2xxx, FeatureILPMX]>;
 
-def FeatureRF401        : SubtargetFeature<"rf401", "SupportsRF401", "true",
-                                "adssd", [Feature2xxx,FeatureIMOVW,FeatureILPMX]>;
+def FeatureRF401        : PseudoSubtargetFeature<"rf401", "adssd",
+                            [Feature2xxx, FeatureIMOVW, FeatureILPMX]>;
 
-def FeatureTiny2        : SubtargetFeature<"tiny2", "SupportsTiny2", "true",
-                                "greyge", [Feature2xxx, FeatureIMOVW, FeatureILPMX, FeatureISPM, FeatureIBREAK]>;
+def FeatureTiny2        : PseudoSubtargetFeature<"tiny2", "greyge",
+                            [Feature2xxx, FeatureIMOVW, FeatureILPMX, FeatureISPM, FeatureIBREAK]>;
 
-def FeatureM603         : SubtargetFeature<"m603", "SupportsM603", "true",
-                                "sadsf", [Feature2xxx,FeatureMega]>;
+def FeatureM603         : PseudoSubtargetFeature<"m603", "sadsf",
+                            [Feature2xxx, FeatureMega]>;
 
-def FeatureM103         : SubtargetFeature<"m103", "SupportsM103", "true",
-                                "sadsf", [FeatureM603,FeatureIELPM]>;
+def FeatureM103         : PseudoSubtargetFeature<"m103", "sadsf",
+                            [FeatureM603, FeatureIELPM]>;
 
-def FeatureM8           : SubtargetFeature<"m8", "SupportsM8", "true",
-                                "sadsf", [Feature2xxx,FeatureIMUL,FeatureIMOVW,FeatureILPMX,FeatureISPM]>;
+def FeatureM8           : PseudoSubtargetFeature<"m8", "sadsf",
+                            [Feature2xxx,  FeatureIMUL, FeatureIMOVW,
+                             FeatureILPMX, FeatureISPM]>;
 
-def FeaturePWMx         : SubtargetFeature<"pwmx", "SupportsPWMx", "true",
-                                "sadsf", [FeatureM8,FeatureIBREAK]>;
+def FeaturePWMx         : PseudoSubtargetFeature<"pwmx", "sadsf",
+                            [FeatureM8, FeatureIBREAK]>;
 
-def FeatureM161         : SubtargetFeature<"m161", "SupportsM161", "true",
-                                "sadsf", [FeatureM603,FeatureIMUL,FeatureIMOVW,FeatureILPMX,FeatureISPM]>;
+def FeatureM161         : PseudoSubtargetFeature<"m161", "sadsf",
+                            [FeatureM603, FeatureIMUL, FeatureIMOVW,
+                             FeatureILPMX ,FeatureISPM]>;
 
-def FeatureM94K         : SubtargetFeature<"m94k", "SupportsM94k", "true",
-                                "sadsf", [FeatureM603,FeatureIMUL,FeatureIMOVW,FeatureILPMX]>;
+def FeatureM94K         : PseudoSubtargetFeature<"m94k", "sadsf",
+                            [FeatureM603,FeatureIMUL,
+                             FeatureIMOVW,FeatureILPMX]>;
 
-def FeatureM323         : SubtargetFeature<"m323", "SupportsM323", "true",
-                                "sadsf", [FeatureM161,FeatureIBREAK]>;
+def FeatureM323         : PseudoSubtargetFeature<"m323", "sadsf",
+                            [FeatureM161, FeatureIBREAK]>;
 
-def FeatureM128         : SubtargetFeature<"m128", "SupportsM128", "true",
-                                "sadsf", [FeatureM323,FeatureIELPM,FeatureIELPMX]>;
+def FeatureM128         : PseudoSubtargetFeature<"m128", "sadsf",
+                            [FeatureM323, FeatureIELPM, FeatureIELPMX]>;
 
-def FeatureM256         : SubtargetFeature<"m256", "SupportsM256", "true",
-                                "sadsf", [FeatureM128,FeatureEIND]>;
+def FeatureM256         : PseudoSubtargetFeature<"m256", "sadsf",
+                            [FeatureM128, FeatureEIND]>;
 
-def FeatureXMEGA        : SubtargetFeature<"xmega", "SupportsXMEGA", "true",
-                                "The device belongs to the XMEGA family", [FeatureM256,FeatureISPMX,FeatureDES]>;
+def FeatureXMEGA        : PseudoSubtargetFeature<"xmega", "The device belongs to the XMEGA family",
+                            [FeatureM256, FeatureISPMX, FeatureDES]>;
 
-def FeatureXMEGAU       : SubtargetFeature<"xmegau", "SupportsXMEGAU", "true",
-                                "dsaf", [FeatureXMEGA,FeatureRMW]>;
+def FeatureXMEGAU       : PseudoSubtargetFeature<"xmegau", "dsaf",
+                            [FeatureXMEGA, FeatureRMW]>;
 
-def FeatureAVR1         : SubtargetFeature<"avr1", "SupportsAVR1", "true",
-                                "The device supports AVR architecture 1", [FeatureTiny1]>;
+def FeatureAVR1         : PseudoSubtargetFeature<"avr1", "The device supports AVR architecture 1",
+                            [FeatureTiny1]>;
 
-def FeatureAVR2         : SubtargetFeature<"avr2", "SupportsAVR2", "true",
-                                "The device supports AVR architecture 2", [Feature2xxx]>;
+def FeatureAVR2         : PseudoSubtargetFeature<"avr2", "The device supports AVR architecture 2",
+                            [Feature2xxx]>;
 
-def FeatureAVR25        : SubtargetFeature<"avr25", "SupportsAVR25", "true",
-                                "The device supports AVR architecture 25", [FeatureTiny2]>;
+def FeatureAVR25        : PseudoSubtargetFeature<"avr25", "The device supports AVR architecture 25",
+                            [FeatureTiny2]>;
 
-def FeatureAVR3         : SubtargetFeature<"avr3", "SupportsAVR3", "true",
-                                "The device supports AVR architecture 3", [FeatureM603]>;
+def FeatureAVR3         : PseudoSubtargetFeature<"avr3", "The device supports AVR architecture 3",
+                            [FeatureM603]>;
 
-def FeatureAVR31        : SubtargetFeature<"avr31", "SupportsAVR31", "true",
-                                "The device supports AVR architecture 31", [FeatureM103]>;
+def FeatureAVR31        : PseudoSubtargetFeature<"avr31", "The device supports AVR architecture 31",
+                            [FeatureM103]>;
 
-def FeatureAVR35        : SubtargetFeature<"avr35", "SupportsAVR35", "true",
-                                "The device supports AVR architecture 35", [FeatureAVR3,FeatureIMOVW,FeatureILPMX,FeatureISPM,FeatureIBREAK]>;
+def FeatureAVR35        : PseudoSubtargetFeature<"avr35", "The device supports AVR architecture 35",
+                            [FeatureAVR3, FeatureIMOVW, FeatureILPMX,
+                             FeatureISPM, FeatureIBREAK]>;
 
-def FeatureAVR3_ALL     : SubtargetFeature<"avr3_all", "SupportsAVR3_ALL", "true",
-                                "The device supports AVR architecture 3,31 and 35", [FeatureAVR3,FeatureAVR31,FeatureAVR35]>;
+def FeatureAVR3_ALL     : PseudoSubtargetFeature<"avr3_all", "The device supports AVR architecture 3,31 and 35",
+                            [FeatureAVR3, FeatureAVR31, FeatureAVR35]>;
 
-def FeatureAVR4         : SubtargetFeature<"avr4", "SupportsAVR4", "true",
-                                "The device supports AVR architecture 4", [FeaturePWMx]>;
+def FeatureAVR4         : PseudoSubtargetFeature<"avr4", "The device supports AVR architecture 4",
+                            [FeaturePWMx]>;
 
-def FeatureAVR5         : SubtargetFeature<"avr5", "SupportsAVR5", "true",
-                                "The device supports AVR architecture 5", [FeatureM323]>;
+def FeatureAVR5         : PseudoSubtargetFeature<"avr5", "The device supports AVR architecture 5",
+                            [FeatureM323]>;
 
-def FeatureAVR6         : SubtargetFeature<"avr6", "SupportsAVR6", "true",
-                                "The device supports AVR architecture 6",
-                                [FeatureILPM,FeatureILPMX,FeatureSRAM,FeatureMega,
-                                 FeatureIMUL,FeatureIELPM,FeatureIELPMX,FeatureISPM,
-                                 FeatureIBREAK,FeatureEIND,FeatureIMOVW]>;
+def FeatureAVR6         : PseudoSubtargetFeature<"avr6", "The device supports AVR architecture 6",
+                            [FeatureILPM,   FeatureILPMX, FeatureSRAM,   FeatureMega,
+                             FeatureIMUL,   FeatureIELPM, FeatureIELPMX, FeatureISPM,
+                             FeatureIBREAK, FeatureEIND,  FeatureIMOVW]>;
 
-def FeatureAVRTiny      : SubtargetFeature<"avrtiny", "SupportsTiny", "true",
-                                "The device belongs to the Tiny family",
-                                [FeatureIBREAK,FeatureSRAM,FeatureTiny]>;
+def FeatureAVRTiny      : PseudoSubtargetFeature<"avrtiny", "The device belongs to the Tiny family",
+                            [FeatureIBREAK, FeatureSRAM, FeatureTiny]>;
 
 //===----------------------------------------------------------------------===//
 // AVR microcontrollers supported.
