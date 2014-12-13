@@ -1570,6 +1570,13 @@ void X86TargetLowering::resetOperationActions() {
     setOperationAction(ISD::SETCC,              MVT::v4i1, Custom);
     setOperationAction(ISD::SETCC,              MVT::v2i1, Custom);
     setOperationAction(ISD::INSERT_SUBVECTOR,   MVT::v8i1, Legal);
+
+    setOperationAction(ISD::AND,                MVT::v8i32, Legal);
+    setOperationAction(ISD::OR,                 MVT::v8i32, Legal);
+    setOperationAction(ISD::XOR,                MVT::v8i32, Legal);
+    setOperationAction(ISD::AND,                MVT::v4i32, Legal);
+    setOperationAction(ISD::OR,                 MVT::v4i32, Legal);
+    setOperationAction(ISD::XOR,                MVT::v4i32, Legal);
   }
 
   // SIGN_EXTEND_INREGs are evaluated by the extend type. Handle the expansion
@@ -22606,6 +22613,21 @@ matchIntegerMINMAX(SDValue Cond, EVT VT, SDValue LHS, SDValue RHS,
   bool NeedSplit = false;
   switch (VT.getSimpleVT().SimpleTy) {
   default: return std::make_pair(0, false);
+  case MVT::v4i64:
+  case MVT::v2i64:
+    if (!Subtarget->hasVLX())
+      return std::make_pair(0, false);
+    break;
+  case MVT::v64i8:
+  case MVT::v32i16:
+    if (!Subtarget->hasBWI())
+      return std::make_pair(0, false);
+    break;
+  case MVT::v16i32:
+  case MVT::v8i64:
+    if (!Subtarget->hasAVX512())
+      return std::make_pair(0, false);
+    break;
   case MVT::v32i8:
   case MVT::v16i16:
   case MVT::v8i32:

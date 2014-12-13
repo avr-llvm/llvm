@@ -2852,7 +2852,7 @@ multiclass PDI_binop_rm<bits<8> opc, string OpcodeStr, SDNode OpNode,
 multiclass PDI_binop_all<bits<8> opc, string OpcodeStr, SDNode Opcode,
                          ValueType OpVT128, ValueType OpVT256,
                          OpndItins itins, bit IsCommutable = 0> {
-let Predicates = [HasAVX] in
+let Predicates = [HasAVX, NoVLX] in
   defm V#NAME : PDI_binop_rm<opc, !strconcat("v", OpcodeStr), Opcode, OpVT128,
                     VR128, loadv2i64, i128mem, itins, IsCommutable, 0>, VEX_4V;
 
@@ -2860,7 +2860,7 @@ let Constraints = "$src1 = $dst" in
   defm NAME : PDI_binop_rm<opc, OpcodeStr, Opcode, OpVT128, VR128,
                            memopv2i64, i128mem, itins, IsCommutable, 1>;
 
-let Predicates = [HasAVX2] in
+let Predicates = [HasAVX2, NoVLX] in
   defm V#NAME#Y : PDI_binop_rm<opc, !strconcat("v", OpcodeStr), Opcode,
                                OpVT256, VR256, loadv4i64, i256mem, itins,
                                IsCommutable, 0>, VEX_4V, VEX_L;
@@ -2922,6 +2922,7 @@ let isCodeGenOnly = 1 in {
 ///
 multiclass sse12_fp_packed_logical<bits<8> opc, string OpcodeStr,
                                    SDNode OpNode> {
+  let Predicates = [HasAVX, NoVLX] in {
   defm V#NAME#PSY : sse12_fp_packed_logical_rm<opc, VR256, SSEPackedSingle,
         !strconcat(OpcodeStr, "ps"), f256mem,
         [(set VR256:$dst, (v4i64 (OpNode VR256:$src1, VR256:$src2)))],
@@ -2952,6 +2953,7 @@ multiclass sse12_fp_packed_logical<bits<8> opc, string OpcodeStr,
        [(set VR128:$dst, (OpNode (bc_v2i64 (v2f64 VR128:$src1)),
                                  (loadv2i64 addr:$src2)))], 0>,
                                                  PD, VEX_4V;
+  }
 
   let Constraints = "$src1 = $dst" in {
     defm PS : sse12_fp_packed_logical_rm<opc, VR128, SSEPackedSingle,
@@ -7100,7 +7102,7 @@ multiclass SS48I_binop_rm2<bits<8> opc, string OpcodeStr, SDNode OpNode,
        Sched<[itins.Sched.Folded, ReadAfterLd]>;
 }
 
-let Predicates = [HasAVX] in {
+let Predicates = [HasAVX, NoVLX] in {
   let isCommutable = 0 in
   defm VPMINSB   : SS48I_binop_rm<0x38, "vpminsb", X86smin, v16i8, VR128,
                                   loadv2i64, i128mem, 0, SSE_INTALU_ITINS_P>,
@@ -7131,7 +7133,7 @@ let Predicates = [HasAVX] in {
                                    SSE_INTMUL_ITINS_P, 1, 0>, VEX_4V;
 }
 
-let Predicates = [HasAVX2] in {
+let Predicates = [HasAVX2, NoVLX] in {
   let isCommutable = 0 in
   defm VPMINSBY  : SS48I_binop_rm<0x38, "vpminsb", X86smin, v32i8, VR256,
                                   loadv4i64, i256mem, 0, SSE_INTALU_ITINS_P>,

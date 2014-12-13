@@ -286,11 +286,8 @@ std::error_code rename(const Twine &from, const Twine &to) {
   return std::error_code();
 }
 
-std::error_code resize_file(const Twine &path, uint64_t size) {
-  SmallString<128> path_storage;
-  StringRef p = path.toNullTerminatedStringRef(path_storage);
-
-  if (::truncate(p.begin(), size) == -1)
+std::error_code resize_file(int FD, uint64_t Size) {
+  if (::ftruncate(FD, Size) == -1)
     return std::error_code(errno, std::generic_category());
 
   return std::error_code();
@@ -417,25 +414,10 @@ std::error_code setLastModificationAndAccessTime(int FD, TimeValue Time) {
 
 std::error_code mapped_file_region::init(int FD, uint64_t Offset,
                                          mapmode Mode) {
-  // Figure out how large the file is.
-  struct stat FileInfo;
-  if (fstat(FD, &FileInfo) == -1)
-    return std::error_code(errno, std::generic_category());
-  uint64_t FileSize = FileInfo.st_size;
-
-  if (Size == 0)
-    Size = FileSize;
-  else if (FileSize < Size) {
-    // We need to grow the file.
-    if (ftruncate(FD, Size) == -1)
-      return std::error_code(errno, std::generic_category());
-  }
+  assert(Size != 0);
 
   int flags = (Mode == readwrite) ? MAP_SHARED : MAP_PRIVATE;
   int prot = (Mode == readonly) ? PROT_READ : (PROT_READ | PROT_WRITE);
-#ifdef MAP_FILE
-  flags |= MAP_FILE;
-#endif
   Mapping = ::mmap(nullptr, Size, prot, flags, FD, Offset);
   if (Mapping == MAP_FAILED)
     return std::error_code(errno, std::generic_category());
