@@ -157,6 +157,9 @@ def FeatureAVR4         : PseudoSubtargetFeature<"avr4", "The device supports AV
 def FeatureAVR5         : PseudoSubtargetFeature<"avr5", "The device supports AVR architecture 5",
                             [FeatureM323]>;
 
+def FeatureAVR51        : PseudoSubtargetFeature<"avr51", "The device supports AVR architecture 51",
+                            [FeatureM128]>;
+
 def FeatureAVR6         : PseudoSubtargetFeature<"avr6", "The device supports AVR architecture 6",
                             [FeatureILPM,   FeatureILPMX, FeatureSRAM,   FeatureMega,
                              FeatureIMUL,   FeatureIELPM, FeatureIELPMX, FeatureISPM,
@@ -180,7 +183,7 @@ def : Device<"avr31", [FeatureAVR31]>;
 def : Device<"avr35", [FeatureAVR35]>;
 def : Device<"avr4",  [FeatureAVR4]>;
 def : Device<"avr5",  [FeatureAVR5]>;
-//def : Device<"avr51", [FeatureAVR51>;
+def : Device<"avr51", [FeatureAVR51]>;
 def : Device<"avr6",  [FeatureAVR6]>;
 
 //:FIXME: list here all mcu models
