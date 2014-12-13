@@ -36,8 +36,6 @@ class StringRef;
 class AVRSubtarget : public AVRGenSubtargetInfo
 {
   virtual void anchor();
-protected:
-  bool IsAsmOnly;
 public:
   /// This constructor initializes the data members to match that
   /// of the specified triple.
