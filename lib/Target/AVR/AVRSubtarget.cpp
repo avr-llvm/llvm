@@ -50,6 +50,6 @@ AVRSubtarget::AVRSubtarget(const std::string &TT, const std::string &CPU,
   IsMega(false)
 {
   // Parse features string.
-  ParseSubtargetFeatures(FS, CPU);
+  ParseSubtargetFeatures(CPU, FS);
 }
 
