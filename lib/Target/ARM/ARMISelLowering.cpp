@@ -9142,7 +9142,8 @@ static SDValue PerformLOADCombine(SDNode *N,
   EVT VT = N->getValueType(0);
 
   // If this is a legal vector load, try to combine it into a VLD1_UPD.
-  if (VT.isVector() && DCI.DAG.getTargetLoweringInfo().isTypeLegal(VT))
+  if (ISD::isNormalLoad(N) && VT.isVector() &&
+      DCI.DAG.getTargetLoweringInfo().isTypeLegal(VT))
     return CombineBaseUpdate(N, DCI);
 
   return SDValue();
@@ -9289,7 +9290,8 @@ static SDValue PerformSTORECombine(SDNode *N,
   }
 
   // If this is a legal vector store, try to combine it into a VST1_UPD.
-  if (VT.isVector() && DCI.DAG.getTargetLoweringInfo().isTypeLegal(VT))
+  if (ISD::isNormalStore(N) && VT.isVector() &&
+      DCI.DAG.getTargetLoweringInfo().isTypeLegal(VT))
     return CombineBaseUpdate(N, DCI);
 
   return SDValue();

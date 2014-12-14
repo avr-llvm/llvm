@@ -182,3 +182,31 @@ define <2 x i64> @load_v2i64_update(<2 x i64>** %ptr) {
         store <2 x i64>* %inc, <2 x i64>** %ptr
 	ret <2 x i64> %lA
 }
+
+; Make sure we don't break smaller-than-dreg extloads.
+define <4 x i32> @zextload_v8i8tov8i32(<4 x i8>** %ptr) {
+;CHECK-LABEL: zextload_v8i8tov8i32:
+;CHECK: vld1.32 {{{d[0-9]+}}[0]}, [{{r[0-9]+}}:32]
+;CHECK: vmovl.u8        {{q[0-9]+}}, {{d[0-9]+}}
+;CHECK: vmovl.u16       {{q[0-9]+}}, {{d[0-9]+}}
+	%A = load <4 x i8>** %ptr
+	%lA = load <4 x i8>* %A, align 1
+        %zlA = zext <4 x i8> %lA to <4 x i32>
+	ret <4 x i32> %zlA
+}
+
+define <4 x i32> @zextload_v8i8tov8i32_fake_update(<4 x i8>** %ptr) {
+;CHECK-LABEL: zextload_v8i8tov8i32_fake_update:
+;CHECK: ldr.w   r[[PTRREG:[0-9]+]], [r0]
+;CHECK: vld1.32 {{{d[0-9]+}}[0]}, [r[[PTRREG]]:32]
+;CHECK: add.w   r[[INCREG:[0-9]+]], r[[PTRREG]], #16
+;CHECK: str.w   r[[INCREG]], [r0]
+;CHECK: vmovl.u8        {{q[0-9]+}}, {{d[0-9]+}}
+;CHECK: vmovl.u16       {{q[0-9]+}}, {{d[0-9]+}}
+	%A = load <4 x i8>** %ptr
+	%lA = load <4 x i8>* %A, align 4
+	%inc = getelementptr <4 x i8>* %A, i38 4
+        store <4 x i8>* %inc, <4 x i8>** %ptr
+        %zlA = zext <4 x i8> %lA to <4 x i32>
+	ret <4 x i32> %zlA
+}
