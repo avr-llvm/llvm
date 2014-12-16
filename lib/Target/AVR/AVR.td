@@ -130,21 +130,27 @@ def FeatureXMEGA        : PseudoSubtargetFeature<"xmega", "The device belongs to
 def FeatureXMEGAU       : PseudoSubtargetFeature<"xmegau", "dsaf",
                             [FeatureXMEGA, FeatureRMW]>;
 
+// Simple CPU core, only assembler support
 def FeatureAVR1         : PseudoSubtargetFeature<"avr1", "The device supports AVR architecture 1",
                             [FeatureTiny1]>;
 
+// "Classic" CPU core, up to 8 KB of ROM
 def FeatureAVR2         : PseudoSubtargetFeature<"avr2", "The device supports AVR architecture 2",
                             [Feature2xxx]>;
 
+// "Classic" CPU core with 'MOVW' and 'LPM Rx, Z[+]' instruction, up to 8 KB of ROM
 def FeatureAVR25        : PseudoSubtargetFeature<"avr25", "The device supports AVR architecture 25",
                             [FeatureTiny2]>;
 
+// "Classic" CPU core, 16 KB to 64 KB of ROM
 def FeatureAVR3         : PseudoSubtargetFeature<"avr3", "The device supports AVR architecture 3",
                             [FeatureM603]>;
 
+// "Classic" CPU core, 128 KB of ROM
 def FeatureAVR31        : PseudoSubtargetFeature<"avr31", "The device supports AVR architecture 31",
                             [FeatureM103]>;
 
+// "Classic" CPU core with 'MOVW' and 'LPM Rx, Z[+]' instruction, 16 KB to 64 KB of ROM
 def FeatureAVR35        : PseudoSubtargetFeature<"avr35", "The device supports AVR architecture 35",
                             [FeatureAVR3, FeatureIMOVW, FeatureILPMX,
                              FeatureISPM, FeatureIBREAK]>;
@@ -152,15 +158,19 @@ def FeatureAVR35        : PseudoSubtargetFeature<"avr35", "The device supports A
 def FeatureAVR3_ALL     : PseudoSubtargetFeature<"avr3_all", "The device supports AVR architecture 3,31 and 35",
                             [FeatureAVR3, FeatureAVR31, FeatureAVR35]>;
 
+// "Enhanced" CPU core, up to 8 KB of ROM
 def FeatureAVR4         : PseudoSubtargetFeature<"avr4", "The device supports AVR architecture 4",
                             [FeaturePWMx]>;
 
+// "Enhanced" CPU core, 16 KB to 64 KB of ROM
 def FeatureAVR5         : PseudoSubtargetFeature<"avr5", "The device supports AVR architecture 5",
                             [FeatureM323]>;
 
+// "Enhanced" CPU core, 128 KB of ROM
 def FeatureAVR51        : PseudoSubtargetFeature<"avr51", "The device supports AVR architecture 51",
                             [FeatureM128]>;
 
+// "Enhanced" CPU core, 256 KB of ROM
 def FeatureAVR6         : PseudoSubtargetFeature<"avr6", "The device supports AVR architecture 6",
                             [FeatureILPM,   FeatureILPMX, FeatureSRAM,   FeatureMega,
                              FeatureIMUL,   FeatureIELPM, FeatureIELPMX, FeatureISPM,
