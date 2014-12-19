@@ -8577,7 +8577,10 @@ static SDValue PerformBFICombine(SDNode *N,
     unsigned InvMask = cast<ConstantSDNode>(N->getOperand(2))->getZExtValue();
     unsigned LSB = countTrailingZeros(~InvMask);
     unsigned Width = (32 - countLeadingZeros(~InvMask)) - LSB;
-    unsigned Mask = (1 << Width)-1;
+    assert(Width <
+               static_cast<unsigned>(std::numeric_limits<unsigned>::digits) &&
+           "undefined behavior");
+    unsigned Mask = (1u << Width) - 1;
     unsigned Mask2 = N11C->getZExtValue();
     if ((Mask & (~Mask2)) == 0)
       return DCI.DAG.getNode(ARMISD::BFI, SDLoc(N), N->getValueType(0),
@@ -9353,16 +9356,18 @@ static SDValue PerformVCVTCombine(SDNode *N,
 
   MVT FloatTy = Op.getSimpleValueType().getVectorElementType();
   MVT IntTy = N->getSimpleValueType(0).getVectorElementType();
-  if (FloatTy.getSizeInBits() != 32 || IntTy.getSizeInBits() > 32) {
+  unsigned NumLanes = Op.getValueType().getVectorNumElements();
+  if (FloatTy.getSizeInBits() != 32 || IntTy.getSizeInBits() > 32 ||
+      NumLanes > 4) {
     // These instructions only exist converting from f32 to i32. We can handle
     // smaller integers by generating an extra truncate, but larger ones would
-    // be lossy.
+    // be lossy. We also can't handle more then 4 lanes, since these intructions
+    // only support v2i32/v4i32 types.
     return SDValue();
   }
 
   unsigned IntrinsicOpcode = isSigned ? Intrinsic::arm_neon_vcvtfp2fxs :
     Intrinsic::arm_neon_vcvtfp2fxu;
-  unsigned NumLanes = Op.getValueType().getVectorNumElements();
   SDValue FixConv =  DAG.getNode(ISD::INTRINSIC_WO_CHAIN, SDLoc(N),
                                  NumLanes == 2 ? MVT::v2i32 : MVT::v4i32,
                                  DAG.getConstant(IntrinsicOpcode, MVT::i32), N0,

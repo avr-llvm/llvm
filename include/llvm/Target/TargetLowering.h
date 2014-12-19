@@ -264,6 +264,11 @@ public:
     return MaskAndBranchFoldingIsLegal;
   }
 
+  /// \brief Return true if the target wants to use the optimization that
+  /// turns ext(promotableInst1(...(promotableInstN(load)))) into
+  /// promotedInst1(...(promotedInstN(ext(load)))).
+  bool enableExtLdPromotion() const { return EnableExtLdPromotion; }
+
   /// Return true if the target can combine store(extractelement VectorTy,
   /// Idx).
   /// \p Cost[out] gives the cost of that transformation when this is true.
@@ -1526,6 +1531,15 @@ public:
                                                  Type *Ty) const {
     return false;
   }
+
+  /// Return true if EXTRACT_SUBVECTOR is cheap for this result type
+  /// with this index. This is needed because EXTRACT_SUBVECTOR usually
+  /// has custom lowering that depends on the index of the first element,
+  /// and only the target knows which lowering is cheap.
+  virtual bool isExtractSubvectorCheap(EVT ResVT, unsigned Index) const {
+    return false;
+  }
+
   //===--------------------------------------------------------------------===//
   // Runtime Library hooks
   //
@@ -1953,6 +1967,9 @@ protected:
   /// MaskAndBranchFoldingIsLegal - Indicates if the target supports folding
   /// a mask of a single bit, a compare, and a branch into a single instruction.
   bool MaskAndBranchFoldingIsLegal;
+
+  /// \see enableExtLdPromotion.
+  bool EnableExtLdPromotion;
 
 protected:
   /// Return true if the value types that can be represented by the specified

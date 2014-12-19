@@ -460,14 +460,13 @@ std::error_code setLastModificationAndAccessTime(int FD, TimeValue Time) {
 
 std::error_code mapped_file_region::init(int FD, uint64_t Offset,
                                          mapmode Mode) {
-  FileDescriptor = FD;
   // Make sure that the requested size fits within SIZE_T.
-  if (Size > std::numeric_limits<SIZE_T>::max()) {
-    if (FileDescriptor) {
-    } else
-      ::CloseHandle(FileHandle);
+  if (Size > std::numeric_limits<SIZE_T>::max())
     return make_error_code(errc::invalid_argument);
-  }
+
+  HANDLE FileHandle = reinterpret_cast<HANDLE>(_get_osfhandle(FD));
+  if (FileHandle == INVALID_HANDLE_VALUE)
+    return make_error_code(errc::bad_file_descriptor);
 
   DWORD flprotect;
   switch (Mode) {
@@ -476,16 +475,13 @@ std::error_code mapped_file_region::init(int FD, uint64_t Offset,
   case priv:      flprotect = PAGE_WRITECOPY; break;
   }
 
-  FileMappingHandle =
+  HANDLE FileMappingHandle =
       ::CreateFileMappingW(FileHandle, 0, flprotect,
                            (Offset + Size) >> 32,
                            (Offset + Size) & 0xffffffff,
                            0);
   if (FileMappingHandle == NULL) {
     std::error_code ec = windows_error(GetLastError());
-    if (FileDescriptor) {
-    } else
-      ::CloseHandle(FileHandle);
     return ec;
   }
 
@@ -503,9 +499,6 @@ std::error_code mapped_file_region::init(int FD, uint64_t Offset,
   if (Mapping == NULL) {
     std::error_code ec = windows_error(GetLastError());
     ::CloseHandle(FileMappingHandle);
-    if (FileDescriptor) {
-    } else
-      ::CloseHandle(FileHandle);
     return ec;
   }
 
@@ -516,9 +509,6 @@ std::error_code mapped_file_region::init(int FD, uint64_t Offset,
       std::error_code ec = windows_error(GetLastError());
       ::UnmapViewOfFile(Mapping);
       ::CloseHandle(FileMappingHandle);
-      if (FileDescriptor) {
-      } else
-        ::CloseHandle(FileHandle);
       return ec;
     }
     Size = mbi.RegionSize;
@@ -527,29 +517,15 @@ std::error_code mapped_file_region::init(int FD, uint64_t Offset,
   // Close all the handles except for the view. It will keep the other handles
   // alive.
   ::CloseHandle(FileMappingHandle);
-  if (FileDescriptor) {
-  } else
-    ::CloseHandle(FileHandle);
   return std::error_code();
 }
 
 mapped_file_region::mapped_file_region(int fd, mapmode mode, uint64_t length,
                                        uint64_t offset, std::error_code &ec)
-    : Size(length), Mapping(), FileDescriptor(fd),
-      FileHandle(INVALID_HANDLE_VALUE), FileMappingHandle() {
-  FileHandle = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
-  if (FileHandle == INVALID_HANDLE_VALUE) {
-    FileDescriptor = 0;
-    ec = make_error_code(errc::bad_file_descriptor);
-    return;
-  }
-
-  ec = init(FileDescriptor, offset, mode);
-  if (ec) {
-    Mapping = FileMappingHandle = 0;
-    FileHandle = INVALID_HANDLE_VALUE;
-    FileDescriptor = 0;
-  }
+    : Size(length), Mapping() {
+  ec = init(fd, offset, mode);
+  if (ec)
+    Mapping = 0;
 }
 
 mapped_file_region::~mapped_file_region() {

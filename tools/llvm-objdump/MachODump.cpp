@@ -2999,8 +2999,8 @@ static void PrintSegmentCommand(uint32_t cmd, uint32_t cmdsize,
     outs() << "   vmaddr " << format("0x%016" PRIx64, vmaddr) << "\n";
     outs() << "   vmsize " << format("0x%016" PRIx64, vmsize) << "\n";
   } else {
-    outs() << "   vmaddr " << format("0x%08" PRIx32, vmaddr) << "\n";
-    outs() << "   vmsize " << format("0x%08" PRIx32, vmsize) << "\n";
+    outs() << "   vmaddr " << format("0x%08" PRIx64, vmaddr) << "\n";
+    outs() << "   vmsize " << format("0x%08" PRIx64, vmsize) << "\n";
   }
   outs() << "  fileoff " << fileoff;
   if (fileoff > object_size)
@@ -3103,8 +3103,8 @@ static void PrintSection(const char *sectname, const char *segname,
     outs() << "      addr " << format("0x%016" PRIx64, addr) << "\n";
     outs() << "      size " << format("0x%016" PRIx64, size);
   } else {
-    outs() << "      addr " << format("0x%08" PRIx32, addr) << "\n";
-    outs() << "      size " << format("0x%08" PRIx32, size);
+    outs() << "      addr " << format("0x%08" PRIx64, addr) << "\n";
+    outs() << "      size " << format("0x%08" PRIx64, size);
   }
   if ((flags & MachO::S_ZEROFILL) != 0 && offset + size > object_size)
     outs() << " (past end of file)\n";
@@ -3558,7 +3558,7 @@ static void PrintVersionMinLoadCommand(MachO::version_min_command vd) {
     outs() << "." << (vd.version & 0xff);
   outs() << "\n";
   if (vd.sdk == 0)
-    outs() << "      sdk n/a\n";
+    outs() << "      sdk n/a";
   else {
     outs() << "      sdk " << ((vd.sdk >> 16) & 0xffff) << "."
            << ((vd.sdk >> 8) & 0xff);
@@ -3599,6 +3599,111 @@ static void PrintEntryPointCommand(MachO::entry_point_command ep) {
     outs() << "\n";
   outs() << "  entryoff " << ep.entryoff << "\n";
   outs() << " stacksize " << ep.stacksize << "\n";
+}
+
+static void PrintEncryptionInfoCommand(MachO::encryption_info_command ec,
+                                       uint32_t object_size) {
+  outs() << "          cmd LC_ENCRYPTION_INFO\n";
+  outs() << "      cmdsize " << ec.cmdsize;
+  if (ec.cmdsize != sizeof(struct MachO::encryption_info_command))
+    outs() << " Incorrect size\n";
+  else
+    outs() << "\n";
+  outs() << "     cryptoff " << ec.cryptoff;
+  if (ec.cryptoff > object_size)
+    outs() << " (past end of file)\n";
+  else
+    outs() << "\n";
+  outs() << "    cryptsize " << ec.cryptsize;
+  if (ec.cryptsize > object_size)
+    outs() << " (past end of file)\n";
+  else
+    outs() << "\n";
+  outs() << "      cryptid " << ec.cryptid << "\n";
+}
+
+static void PrintEncryptionInfoCommand64(MachO::encryption_info_command_64 ec,
+                                       uint32_t object_size) {
+  outs() << "          cmd LC_ENCRYPTION_INFO_64\n";
+  outs() << "      cmdsize " << ec.cmdsize;
+  if (ec.cmdsize != sizeof(struct MachO::encryption_info_command_64))
+    outs() << " Incorrect size\n";
+  else
+    outs() << "\n";
+  outs() << "     cryptoff " << ec.cryptoff;
+  if (ec.cryptoff > object_size)
+    outs() << " (past end of file)\n";
+  else
+    outs() << "\n";
+  outs() << "    cryptsize " << ec.cryptsize;
+  if (ec.cryptsize > object_size)
+    outs() << " (past end of file)\n";
+  else
+    outs() << "\n";
+  outs() << "      cryptid " << ec.cryptid << "\n";
+  outs() << "          pad " << ec.pad << "\n";
+}
+
+static void PrintLinkerOptionCommand(MachO::linker_option_command lo,
+                                     const char *Ptr) {
+  outs() << "     cmd LC_LINKER_OPTION\n";
+  outs() << " cmdsize " << lo.cmdsize;
+  if (lo.cmdsize < sizeof(struct MachO::linker_option_command))
+    outs() << " Incorrect size\n";
+  else
+    outs() << "\n";
+  outs() << "   count " << lo.count << "\n";
+  const char *string = Ptr + sizeof(struct MachO::linker_option_command);
+  uint32_t left = lo.cmdsize - sizeof(struct MachO::linker_option_command);
+  uint32_t i = 0;
+  while (left > 0) {
+    while (*string == '\0' && left > 0) {
+      string++;
+      left--;
+    }
+    if (left > 0) {
+      i++;
+      outs() << "  string #" << i << " " << format("%.*s\n", left, string);
+      uint32_t len = strnlen(string, left) + 1;
+      string += len;
+      left -= len;
+    }
+  }
+  if (lo.count != i)
+    outs() << "   count " << lo.count  << " does not match number of strings " << i
+           << "\n";
+}
+
+static void PrintSubFrameworkCommand(MachO::sub_framework_command sub,
+                                     const char *Ptr) {
+  outs() << "          cmd LC_SUB_FRAMEWORK\n";
+  outs() << "      cmdsize " << sub.cmdsize;
+  if (sub.cmdsize < sizeof(struct MachO::sub_framework_command))
+    outs() << " Incorrect size\n";
+  else
+    outs() << "\n";
+  if (sub.umbrella < sub.cmdsize) {
+    const char *P = Ptr + sub.umbrella;
+    outs() << "     umbrella " << P << " (offset " << sub.umbrella << ")\n";
+  } else {
+    outs() << "     umbrella ?(bad offset " << sub.umbrella << ")\n";
+  }
+}
+
+static void PrintSubUmbrellaCommand(MachO::sub_umbrella_command sub,
+                                    const char *Ptr) {
+  outs() << "          cmd LC_SUB_UMBRELLA\n";
+  outs() << "      cmdsize " << sub.cmdsize;
+  if (sub.cmdsize < sizeof(struct MachO::sub_umbrella_command))
+    outs() << " Incorrect size\n";
+  else
+    outs() << "\n";
+  if (sub.sub_umbrella < sub.cmdsize) {
+    const char *P = Ptr + sub.sub_umbrella;
+    outs() << " sub_umbrella " << P << " (offset " << sub.sub_umbrella << ")\n";
+  } else {
+    outs() << " sub_umbrella ?(bad offset " << sub.sub_umbrella << ")\n";
+  }
 }
 
 static void PrintDylibCommand(MachO::dylib_command dl, const char *Ptr) {
@@ -3696,7 +3801,7 @@ static void PrintLoadCommands(const MachOObjectFile *Obj, uint32_t ncmds,
                           SLC.initprot, SLC.nsects, SLC.flags, Buf.size(),
                           verbose);
       for (unsigned j = 0; j < SLC.nsects; j++) {
-        MachO::section_64 S = Obj->getSection64(Command, j);
+        MachO::section S = Obj->getSection(Command, j);
         PrintSection(S.sectname, S.segname, S.addr, S.size, S.offset, S.align,
                      S.reloff, S.nreloc, S.flags, S.reserved1, S.reserved2,
                      SLC.cmd, sg_segname, filetype, Buf.size(), verbose);
@@ -3738,7 +3843,8 @@ static void PrintLoadCommands(const MachOObjectFile *Obj, uint32_t ncmds,
     } else if (Command.C.cmd == MachO::LC_RPATH) {
       MachO::rpath_command Rpath = Obj->getRpathCommand(Command);
       PrintRpathLoadCommand(Rpath, Command.Ptr);
-    } else if (Command.C.cmd == MachO::LC_VERSION_MIN_MACOSX) {
+    } else if (Command.C.cmd == MachO::LC_VERSION_MIN_MACOSX ||
+               Command.C.cmd == MachO::LC_VERSION_MIN_IPHONEOS) {
       MachO::version_min_command Vd = Obj->getVersionMinLoadCommand(Command);
       PrintVersionMinLoadCommand(Vd);
     } else if (Command.C.cmd == MachO::LC_SOURCE_VERSION) {
@@ -3747,6 +3853,21 @@ static void PrintLoadCommands(const MachOObjectFile *Obj, uint32_t ncmds,
     } else if (Command.C.cmd == MachO::LC_MAIN) {
       MachO::entry_point_command Ep = Obj->getEntryPointCommand(Command);
       PrintEntryPointCommand(Ep);
+    } else if (Command.C.cmd == MachO::LC_ENCRYPTION_INFO) {
+      MachO::encryption_info_command Ei = Obj->getEncryptionInfoCommand(Command);
+      PrintEncryptionInfoCommand(Ei, Buf.size());
+    } else if (Command.C.cmd == MachO::LC_ENCRYPTION_INFO_64) {
+      MachO::encryption_info_command_64 Ei = Obj->getEncryptionInfoCommand64(Command);
+      PrintEncryptionInfoCommand64(Ei, Buf.size());
+    } else if (Command.C.cmd == MachO::LC_LINKER_OPTION) {
+      MachO::linker_option_command Lo = Obj->getLinkerOptionLoadCommand(Command);
+      PrintLinkerOptionCommand(Lo, Command.Ptr);
+    } else if (Command.C.cmd == MachO::LC_SUB_FRAMEWORK) {
+      MachO::sub_framework_command Sf = Obj->getSubFrameworkCommand(Command);
+      PrintSubFrameworkCommand(Sf, Command.Ptr);
+    } else if (Command.C.cmd == MachO::LC_SUB_UMBRELLA) {
+      MachO::sub_umbrella_command Sf = Obj->getSubUmbrellaCommand(Command);
+      PrintSubUmbrellaCommand(Sf, Command.Ptr);
     } else if (Command.C.cmd == MachO::LC_LOAD_DYLIB ||
                Command.C.cmd == MachO::LC_ID_DYLIB ||
                Command.C.cmd == MachO::LC_LOAD_WEAK_DYLIB ||

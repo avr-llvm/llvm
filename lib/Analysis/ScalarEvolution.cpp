@@ -6094,14 +6094,19 @@ ScalarEvolution::HowFarToZero(const SCEV *V, const Loop *L, bool ControlsExit) {
     return ExitLimit(Distance, MaxBECount);
   }
 
-  // If Step is a power of two that evenly divides Start we know that the loop
-  // will always terminate.  Start may not be a constant so we just have the
-  // number of trailing zeros available.  This is safe even in presence of
-  // overflow as the recurrence will overflow to exactly 0.
-  const APInt &StepV = StepC->getValue()->getValue();
-  if (StepV.isPowerOf2() &&
-      GetMinTrailingZeros(getNegativeSCEV(Start)) >= StepV.countTrailingZeros())
-    return getUDivExactExpr(Distance, CountDown ? getNegativeSCEV(Step) : Step);
+  // As a special case, handle the instance where Step is a positive power of
+  // two. In this case, determining whether Step divides Distance evenly can be
+  // done by counting and comparing the number of trailing zeros of Step and
+  // Distance.
+  if (!CountDown) {
+    const APInt &StepV = StepC->getValue()->getValue();
+    // StepV.isPowerOf2() returns true if StepV is an positive power of two.  It
+    // also returns true if StepV is maximally negative (eg, INT_MIN), but that
+    // case is not handled as this code is guarded by !CountDown.
+    if (StepV.isPowerOf2() &&
+        GetMinTrailingZeros(Distance) >= StepV.countTrailingZeros())
+      return getUDivExactExpr(Distance, Step);
+  }
 
   // If the condition controls loop exit (the loop exits only if the expression
   // is true) and the addition is no-wrap we can use unsigned divide to
@@ -6881,6 +6886,85 @@ bool ScalarEvolution::isImpliedCondOperands(ICmpInst::Predicate Pred,
                                      getNotSCEV(FoundLHS));
 }
 
+
+/// If Expr computes ~A, return A else return nullptr
+static const SCEV *MatchNotExpr(const SCEV *Expr) {
+  const SCEVAddExpr *Add = dyn_cast<SCEVAddExpr>(Expr);
+  if (!Add || Add->getNumOperands() != 2) return nullptr;
+
+  const SCEVConstant *AddLHS = dyn_cast<SCEVConstant>(Add->getOperand(0));
+  if (!(AddLHS && AddLHS->getValue()->getValue().isAllOnesValue()))
+    return nullptr;
+
+  const SCEVMulExpr *AddRHS = dyn_cast<SCEVMulExpr>(Add->getOperand(1));
+  if (!AddRHS || AddRHS->getNumOperands() != 2) return nullptr;
+
+  const SCEVConstant *MulLHS = dyn_cast<SCEVConstant>(AddRHS->getOperand(0));
+  if (!(MulLHS && MulLHS->getValue()->getValue().isAllOnesValue()))
+    return nullptr;
+
+  return AddRHS->getOperand(1);
+}
+
+
+/// Is MaybeMaxExpr an SMax or UMax of Candidate and some other values?
+template<typename MaxExprType>
+static bool IsMaxConsistingOf(const SCEV *MaybeMaxExpr,
+                              const SCEV *Candidate) {
+  const MaxExprType *MaxExpr = dyn_cast<MaxExprType>(MaybeMaxExpr);
+  if (!MaxExpr) return false;
+
+  auto It = std::find(MaxExpr->op_begin(), MaxExpr->op_end(), Candidate);
+  return It != MaxExpr->op_end();
+}
+
+
+/// Is MaybeMinExpr an SMin or UMin of Candidate and some other values?
+template<typename MaxExprType>
+static bool IsMinConsistingOf(ScalarEvolution &SE,
+                              const SCEV *MaybeMinExpr,
+                              const SCEV *Candidate) {
+  const SCEV *MaybeMaxExpr = MatchNotExpr(MaybeMinExpr);
+  if (!MaybeMaxExpr)
+    return false;
+
+  return IsMaxConsistingOf<MaxExprType>(MaybeMaxExpr, SE.getNotSCEV(Candidate));
+}
+
+
+/// Is LHS `Pred` RHS true on the virtue of LHS or RHS being a Min or Max
+/// expression?
+static bool IsKnownPredicateViaMinOrMax(ScalarEvolution &SE,
+                                        ICmpInst::Predicate Pred,
+                                        const SCEV *LHS, const SCEV *RHS) {
+  switch (Pred) {
+  default:
+    return false;
+
+  case ICmpInst::ICMP_SGE:
+    std::swap(LHS, RHS);
+    // fall through
+  case ICmpInst::ICMP_SLE:
+    return
+      // min(A, ...) <= A
+      IsMinConsistingOf<SCEVSMaxExpr>(SE, LHS, RHS) ||
+      // A <= max(A, ...)
+      IsMaxConsistingOf<SCEVSMaxExpr>(RHS, LHS);
+
+  case ICmpInst::ICMP_UGE:
+    std::swap(LHS, RHS);
+    // fall through
+  case ICmpInst::ICMP_ULE:
+    return
+      // min(A, ...) <= A
+      IsMinConsistingOf<SCEVUMaxExpr>(SE, LHS, RHS) ||
+      // A <= max(A, ...)
+      IsMaxConsistingOf<SCEVUMaxExpr>(RHS, LHS);
+  }
+
+  llvm_unreachable("covered switch fell through?!");
+}
+
 /// isImpliedCondOperandsHelper - Test whether the condition described by
 /// Pred, LHS, and RHS is true whenever the condition described by Pred,
 /// FoundLHS, and FoundRHS is true.
@@ -6889,6 +6973,12 @@ ScalarEvolution::isImpliedCondOperandsHelper(ICmpInst::Predicate Pred,
                                              const SCEV *LHS, const SCEV *RHS,
                                              const SCEV *FoundLHS,
                                              const SCEV *FoundRHS) {
+  auto IsKnownPredicateFull =
+      [this](ICmpInst::Predicate Pred, const SCEV *LHS, const SCEV *RHS) {
+    return isKnownPredicateWithRanges(Pred, LHS, RHS) ||
+        IsKnownPredicateViaMinOrMax(*this, Pred, LHS, RHS);
+  };
+
   switch (Pred) {
   default: llvm_unreachable("Unexpected ICmpInst::Predicate value!");
   case ICmpInst::ICMP_EQ:
@@ -6898,26 +6988,26 @@ ScalarEvolution::isImpliedCondOperandsHelper(ICmpInst::Predicate Pred,
     break;
   case ICmpInst::ICMP_SLT:
   case ICmpInst::ICMP_SLE:
-    if (isKnownPredicateWithRanges(ICmpInst::ICMP_SLE, LHS, FoundLHS) &&
-        isKnownPredicateWithRanges(ICmpInst::ICMP_SGE, RHS, FoundRHS))
+    if (IsKnownPredicateFull(ICmpInst::ICMP_SLE, LHS, FoundLHS) &&
+        IsKnownPredicateFull(ICmpInst::ICMP_SGE, RHS, FoundRHS))
       return true;
     break;
   case ICmpInst::ICMP_SGT:
   case ICmpInst::ICMP_SGE:
-    if (isKnownPredicateWithRanges(ICmpInst::ICMP_SGE, LHS, FoundLHS) &&
-        isKnownPredicateWithRanges(ICmpInst::ICMP_SLE, RHS, FoundRHS))
+    if (IsKnownPredicateFull(ICmpInst::ICMP_SGE, LHS, FoundLHS) &&
+        IsKnownPredicateFull(ICmpInst::ICMP_SLE, RHS, FoundRHS))
       return true;
     break;
   case ICmpInst::ICMP_ULT:
   case ICmpInst::ICMP_ULE:
-    if (isKnownPredicateWithRanges(ICmpInst::ICMP_ULE, LHS, FoundLHS) &&
-        isKnownPredicateWithRanges(ICmpInst::ICMP_UGE, RHS, FoundRHS))
+    if (IsKnownPredicateFull(ICmpInst::ICMP_ULE, LHS, FoundLHS) &&
+        IsKnownPredicateFull(ICmpInst::ICMP_UGE, RHS, FoundRHS))
       return true;
     break;
   case ICmpInst::ICMP_UGT:
   case ICmpInst::ICMP_UGE:
-    if (isKnownPredicateWithRanges(ICmpInst::ICMP_UGE, LHS, FoundLHS) &&
-        isKnownPredicateWithRanges(ICmpInst::ICMP_ULE, RHS, FoundRHS))
+    if (IsKnownPredicateFull(ICmpInst::ICMP_UGE, LHS, FoundLHS) &&
+        IsKnownPredicateFull(ICmpInst::ICMP_ULE, RHS, FoundRHS))
       return true;
     break;
   }

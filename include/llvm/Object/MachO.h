@@ -346,8 +346,8 @@ public:
   getSegmentLoadCommand(const LoadCommandInfo &L) const;
   MachO::segment_command_64
   getSegment64LoadCommand(const LoadCommandInfo &L) const;
-  MachO::linker_options_command
-  getLinkerOptionsLoadCommand(const LoadCommandInfo &L) const;
+  MachO::linker_option_command
+  getLinkerOptionLoadCommand(const LoadCommandInfo &L) const;
   MachO::version_min_command
   getVersionMinLoadCommand(const LoadCommandInfo &L) const;
   MachO::dylib_command
@@ -364,6 +364,14 @@ public:
   getSourceVersionCommand(const LoadCommandInfo &L) const;
   MachO::entry_point_command
   getEntryPointCommand(const LoadCommandInfo &L) const;
+  MachO::encryption_info_command
+  getEncryptionInfoCommand(const LoadCommandInfo &L) const;
+  MachO::encryption_info_command_64
+  getEncryptionInfoCommand64(const LoadCommandInfo &L) const;
+  MachO::sub_framework_command
+  getSubFrameworkCommand(const LoadCommandInfo &L) const;
+  MachO::sub_umbrella_command
+  getSubUmbrellaCommand(const LoadCommandInfo &L) const;
 
   MachO::any_relocation_info getRelocation(DataRefImpl Rel) const;
   MachO::data_in_code_entry getDice(DataRefImpl Rel) const;

@@ -216,3 +216,52 @@ define i32 @test27() {
   %b = shl i32 0, undef
   ret i32 %b
 }
+
+; CHECK-LABEL: @test28
+; CHECK: ret i32 undef
+define i32 @test28(i32 %a) {
+  %b = shl nsw i32 undef, %a
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test29
+; CHECK: ret i32 undef
+define i32 @test29(i32 %a) {
+  %b = shl nuw i32 undef, %a
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test30
+; CHECK: ret i32 undef
+define i32 @test30(i32 %a) {
+  %b = shl nsw nuw i32 undef, %a
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test31
+; CHECK: ret i32 0
+define i32 @test31(i32 %a) {
+  %b = shl i32 undef, %a
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test32
+; CHECK: ret i32 undef
+define i32 @test32(i32 %a) {
+  %b = shl i32 undef, 0
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test33
+; CHECK: ret i32 undef
+define i32 @test33(i32 %a) {
+  %b = ashr i32 undef, 0
+  ret i32 %b
+}
+
+; CHECK-LABEL: @test34
+; CHECK: ret i32 undef
+define i32 @test34(i32 %a) {
+  %b = lshr i32 undef, 0
+  ret i32 %b
+}
