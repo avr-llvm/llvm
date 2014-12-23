@@ -8,6 +8,9 @@ a production-quality compiler backend, so bugs will not be tolerated.
 
 See `AVR_SUPPORT.md` for a list of supported instructions.
 
+## AVR clang fork
+4ntoine hosts a work in progress fork of clang, aimed to be a drop-in command-line replacement for AVR-GCC. It can be found [here](https://github.com/4ntoine/clang).
+
 ## Features
 * Machine code generation
 * Subtarget features (not completely finished)
