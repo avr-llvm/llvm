@@ -541,10 +541,22 @@ def SSECC : Operand<i8> {
   let OperandType = "OPERAND_IMMEDIATE";
 }
 
+def i8immZExt3 : ImmLeaf<i8, [{
+  return Imm >= 0 && Imm < 8;
+}]>;
+
 def AVXCC : Operand<i8> {
   let PrintMethod = "printAVXCC";
   let OperandType = "OPERAND_IMMEDIATE";
 }
+
+def i8immZExt5 : ImmLeaf<i8, [{
+  return Imm >= 0 && Imm < 32;
+}]>;
+// AVX-512 uses a 32-bit immediate in their intrinsics
+def i32immZExt5 : ImmLeaf<i32, [{
+  return Imm >= 0 && Imm < 32;
+}]>;
 
 class ImmSExtAsmOperandClass : AsmOperandClass {
   let SuperClasses = [ImmAsmOperand];
@@ -1241,57 +1253,57 @@ let hasSideEffects = 0 in {
 let SchedRW = [WriteALU] in {
 let mayLoad = 1 in {
 let Defs = [AL] in
-def MOV8o8a : Ii32 <0xA0, RawFrmMemOffs, (outs), (ins offset8:$src),
+def MOV8o8a : Ii32<0xA0, RawFrmMemOffs, (outs), (ins offset8:$src),
                    "mov{b}\t{$src, %al|al, $src}", [], IIC_MOV_MEM>,
-                   Requires<[In32BitMode]>;
+                   AdSize32, Requires<[In32BitMode]>;
 let Defs = [AX] in
-def MOV16o16a : Ii32 <0xA1, RawFrmMemOffs, (outs), (ins offset16:$src),
-                      "mov{w}\t{$src, %ax|ax, $src}", [], IIC_MOV_MEM>,
-                      OpSize16, Requires<[In32BitMode]>;
+def MOV16o16a : Ii32<0xA1, RawFrmMemOffs, (outs), (ins offset16:$src),
+                     "mov{w}\t{$src, %ax|ax, $src}", [], IIC_MOV_MEM>,
+                     OpSize16, AdSize32, Requires<[In32BitMode]>;
 let Defs = [EAX] in
-def MOV32o32a : Ii32 <0xA1, RawFrmMemOffs, (outs), (ins offset32:$src),
-                      "mov{l}\t{$src, %eax|eax, $src}", [], IIC_MOV_MEM>,
-                      OpSize32, Requires<[In32BitMode]>;
+def MOV32o32a : Ii32<0xA1, RawFrmMemOffs, (outs), (ins offset32:$src),
+                     "mov{l}\t{$src, %eax|eax, $src}", [], IIC_MOV_MEM>,
+                     OpSize32, AdSize32, Requires<[In32BitMode]>;
 
 let Defs = [AL] in
-def MOV8o8a_16 : Ii16 <0xA0, RawFrmMemOffs, (outs), (ins offset8:$src),
-                   "mov{b}\t{$src, %al|al, $src}", [], IIC_MOV_MEM>,
-                   AdSize, Requires<[In16BitMode]>;
+def MOV8o8a_16 : Ii16<0xA0, RawFrmMemOffs, (outs), (ins offset8:$src),
+                      "mov{b}\t{$src, %al|al, $src}", [], IIC_MOV_MEM>,
+                      AdSize16, Requires<[In16BitMode]>;
 let Defs = [AX] in
-def MOV16o16a_16 : Ii16 <0xA1, RawFrmMemOffs, (outs), (ins offset16:$src),
-                      "mov{w}\t{$src, %ax|ax, $src}", [], IIC_MOV_MEM>,
-                      OpSize16, AdSize, Requires<[In16BitMode]>;
+def MOV16o16a_16 : Ii16<0xA1, RawFrmMemOffs, (outs), (ins offset16:$src),
+                        "mov{w}\t{$src, %ax|ax, $src}", [], IIC_MOV_MEM>,
+                        OpSize16, AdSize16, Requires<[In16BitMode]>;
 let Defs = [EAX] in
-def MOV32o32a_16 : Ii16 <0xA1, RawFrmMemOffs, (outs), (ins offset32:$src),
-                      "mov{l}\t{$src, %eax|eax, $src}", [], IIC_MOV_MEM>,
-                      AdSize, OpSize32, Requires<[In16BitMode]>;
+def MOV32o32a_16 : Ii16<0xA1, RawFrmMemOffs, (outs), (ins offset32:$src),
+                        "mov{l}\t{$src, %eax|eax, $src}", [], IIC_MOV_MEM>,
+                        AdSize16, OpSize32, Requires<[In16BitMode]>;
 }
 let mayStore = 1 in {
 let Uses = [AL] in
-def MOV8ao8 : Ii32 <0xA2, RawFrmMemOffs, (outs offset8:$dst), (ins),
+def MOV8ao8 : Ii32<0xA2, RawFrmMemOffs, (outs offset8:$dst), (ins),
                    "mov{b}\t{%al, $dst|$dst, al}", [], IIC_MOV_MEM>,
-                  Requires<[In32BitMode]>;
+                   AdSize32, Requires<[In32BitMode]>;
 let Uses = [AX] in
-def MOV16ao16 : Ii32 <0xA3, RawFrmMemOffs, (outs offset16:$dst), (ins),
-                      "mov{w}\t{%ax, $dst|$dst, ax}", [], IIC_MOV_MEM>,
-                      OpSize16, Requires<[In32BitMode]>;
+def MOV16ao16 : Ii32<0xA3, RawFrmMemOffs, (outs offset16:$dst), (ins),
+                     "mov{w}\t{%ax, $dst|$dst, ax}", [], IIC_MOV_MEM>,
+                     OpSize16, AdSize32, Requires<[In32BitMode]>;
 let Uses = [EAX] in
-def MOV32ao32 : Ii32 <0xA3, RawFrmMemOffs, (outs offset32:$dst), (ins),
-                      "mov{l}\t{%eax, $dst|$dst, eax}", [], IIC_MOV_MEM>,
-                     OpSize32, Requires<[In32BitMode]>;
+def MOV32ao32 : Ii32<0xA3, RawFrmMemOffs, (outs offset32:$dst), (ins),
+                     "mov{l}\t{%eax, $dst|$dst, eax}", [], IIC_MOV_MEM>,
+                     OpSize32, AdSize32, Requires<[In32BitMode]>;
 
 let Uses = [AL] in
-def MOV8ao8_16 : Ii16 <0xA2, RawFrmMemOffs, (outs offset8:$dst), (ins),
-                   "mov{b}\t{%al, $dst|$dst, al}", [], IIC_MOV_MEM>,
-                  AdSize, Requires<[In16BitMode]>;
+def MOV8ao8_16 : Ii16<0xA2, RawFrmMemOffs, (outs offset8:$dst), (ins),
+                      "mov{b}\t{%al, $dst|$dst, al}", [], IIC_MOV_MEM>,
+                      AdSize16, Requires<[In16BitMode]>;
 let Uses = [AX] in
-def MOV16ao16_16 : Ii16 <0xA3, RawFrmMemOffs, (outs offset16:$dst), (ins),
-                      "mov{w}\t{%ax, $dst|$dst, ax}", [], IIC_MOV_MEM>,
-                      OpSize16, AdSize, Requires<[In16BitMode]>;
+def MOV16ao16_16 : Ii16<0xA3, RawFrmMemOffs, (outs offset16:$dst), (ins),
+                        "mov{w}\t{%ax, $dst|$dst, ax}", [], IIC_MOV_MEM>,
+                        OpSize16, AdSize16, Requires<[In16BitMode]>;
 let Uses = [EAX] in
-def MOV32ao32_16 : Ii16 <0xA3, RawFrmMemOffs, (outs offset32:$dst), (ins),
-                      "mov{l}\t{%eax, $dst|$dst, eax}", [], IIC_MOV_MEM>,
-                     OpSize32, AdSize, Requires<[In16BitMode]>;
+def MOV32ao32_16 : Ii16<0xA3, RawFrmMemOffs, (outs offset32:$dst), (ins),
+                        "mov{l}\t{%eax, $dst|$dst, eax}", [], IIC_MOV_MEM>,
+                        OpSize32, AdSize16, Requires<[In16BitMode]>;
 }
 }
 
@@ -1301,38 +1313,38 @@ let mayLoad = 1 in {
 let Defs = [AL] in
 def MOV64o8a : RIi64_NOREX<0xA0, RawFrmMemOffs, (outs), (ins offset8:$src),
                      "movabs{b}\t{$src, %al|al, $src}", []>,
-                     Requires<[In64BitMode]>;
+                     AdSize64, Requires<[In64BitMode]>;
 let Defs = [AX] in
 def MOV64o16a : RIi64_NOREX<0xA1, RawFrmMemOffs, (outs), (ins offset16:$src),
                      "movabs{w}\t{$src, %ax|ax, $src}", []>, OpSize16,
-                     Requires<[In64BitMode]>;
+                     AdSize64, Requires<[In64BitMode]>;
 let Defs = [EAX] in
 def MOV64o32a : RIi64_NOREX<0xA1, RawFrmMemOffs, (outs), (ins offset32:$src),
                      "movabs{l}\t{$src, %eax|eax, $src}", []>, OpSize32,
-                     Requires<[In64BitMode]>;
+                     AdSize64, Requires<[In64BitMode]>;
 let Defs = [RAX] in
 def MOV64o64a : RIi64<0xA1, RawFrmMemOffs, (outs), (ins offset64:$src),
                      "movabs{q}\t{$src, %rax|rax, $src}", []>,
-                     Requires<[In64BitMode]>;
+                     AdSize64, Requires<[In64BitMode]>;
 }
 
 let mayStore = 1 in {
 let Uses = [AL] in
 def MOV64ao8 : RIi64_NOREX<0xA2, RawFrmMemOffs, (outs offset8:$dst), (ins),
                      "movabs{b}\t{%al, $dst|$dst, al}", []>,
-                     Requires<[In64BitMode]>;
+                     AdSize64, Requires<[In64BitMode]>;
 let Uses = [AX] in
 def MOV64ao16 : RIi64_NOREX<0xA3, RawFrmMemOffs, (outs offset16:$dst), (ins),
                      "movabs{w}\t{%ax, $dst|$dst, ax}", []>, OpSize16,
-                     Requires<[In64BitMode]>;
+                     AdSize64, Requires<[In64BitMode]>;
 let Uses = [EAX] in
 def MOV64ao32 : RIi64_NOREX<0xA3, RawFrmMemOffs, (outs offset32:$dst), (ins),
                      "movabs{l}\t{%eax, $dst|$dst, eax}", []>, OpSize32,
-                     Requires<[In64BitMode]>;
+                     AdSize64, Requires<[In64BitMode]>;
 let Uses = [RAX] in
 def MOV64ao64 : RIi64<0xA3, RawFrmMemOffs, (outs offset64:$dst), (ins),
                      "movabs{q}\t{%rax, $dst|$dst, rax}", []>,
-                     Requires<[In64BitMode]>;
+                     AdSize64, Requires<[In64BitMode]>;
 }
 } // hasSideEffects = 0
 
@@ -2711,28 +2723,28 @@ def : InstAlias<"fnstsw"     , (FNSTSW16r)>;
 // this is compatible with what GAS does.
 def : InstAlias<"lcall $seg, $off", (FARCALL32i i32imm:$off, i16imm:$seg), 0>, Requires<[Not16BitMode]>;
 def : InstAlias<"ljmp $seg, $off",  (FARJMP32i  i32imm:$off, i16imm:$seg), 0>, Requires<[Not16BitMode]>;
-def : InstAlias<"lcall *$dst",      (FARCALL32m opaque48mem:$dst), 0>, Requires<[Not16BitMode]>;
-def : InstAlias<"ljmp *$dst",       (FARJMP32m  opaque48mem:$dst), 0>, Requires<[Not16BitMode]>;
+def : InstAlias<"lcall {*}$dst",    (FARCALL32m opaque48mem:$dst), 0>, Requires<[Not16BitMode]>;
+def : InstAlias<"ljmp {*}$dst",     (FARJMP32m  opaque48mem:$dst), 0>, Requires<[Not16BitMode]>;
 def : InstAlias<"lcall $seg, $off", (FARCALL16i i16imm:$off, i16imm:$seg), 0>, Requires<[In16BitMode]>;
 def : InstAlias<"ljmp $seg, $off",  (FARJMP16i  i16imm:$off, i16imm:$seg), 0>, Requires<[In16BitMode]>;
-def : InstAlias<"lcall *$dst",      (FARCALL16m opaque32mem:$dst), 0>, Requires<[In16BitMode]>;
-def : InstAlias<"ljmp *$dst",       (FARJMP16m  opaque32mem:$dst), 0>, Requires<[In16BitMode]>;
+def : InstAlias<"lcall {*}$dst",    (FARCALL16m opaque32mem:$dst), 0>, Requires<[In16BitMode]>;
+def : InstAlias<"ljmp {*}$dst",     (FARJMP16m  opaque32mem:$dst), 0>, Requires<[In16BitMode]>;
 
-def : InstAlias<"call *$dst",       (CALL64m i64mem:$dst), 0>, Requires<[In64BitMode]>;
-def : InstAlias<"jmp *$dst",        (JMP64m  i64mem:$dst), 0>, Requires<[In64BitMode]>;
-def : InstAlias<"call *$dst",       (CALL32m i32mem:$dst), 0>, Requires<[In32BitMode]>;
-def : InstAlias<"jmp *$dst",        (JMP32m  i32mem:$dst), 0>, Requires<[In32BitMode]>;
-def : InstAlias<"call *$dst",       (CALL16m i16mem:$dst), 0>, Requires<[In16BitMode]>;
-def : InstAlias<"jmp *$dst",        (JMP16m  i16mem:$dst), 0>, Requires<[In16BitMode]>;
+def : InstAlias<"call {*}$dst",     (CALL64m i64mem:$dst), 0>, Requires<[In64BitMode]>;
+def : InstAlias<"jmp {*}$dst",      (JMP64m  i64mem:$dst), 0>, Requires<[In64BitMode]>;
+def : InstAlias<"call {*}$dst",     (CALL32m i32mem:$dst), 0>, Requires<[In32BitMode]>;
+def : InstAlias<"jmp {*}$dst",      (JMP32m  i32mem:$dst), 0>, Requires<[In32BitMode]>;
+def : InstAlias<"call {*}$dst",     (CALL16m i16mem:$dst), 0>, Requires<[In16BitMode]>;
+def : InstAlias<"jmp {*}$dst",      (JMP16m  i16mem:$dst), 0>, Requires<[In16BitMode]>;
 
 
 // "imul <imm>, B" is an alias for "imul <imm>, B, B".
-def : InstAlias<"imulw $imm, $r", (IMUL16rri  GR16:$r, GR16:$r, i16imm:$imm)>;
-def : InstAlias<"imulw $imm, $r", (IMUL16rri8 GR16:$r, GR16:$r, i16i8imm:$imm)>;
-def : InstAlias<"imull $imm, $r", (IMUL32rri  GR32:$r, GR32:$r, i32imm:$imm)>;
-def : InstAlias<"imull $imm, $r", (IMUL32rri8 GR32:$r, GR32:$r, i32i8imm:$imm)>;
-def : InstAlias<"imulq $imm, $r",(IMUL64rri32 GR64:$r, GR64:$r,i64i32imm:$imm)>;
-def : InstAlias<"imulq $imm, $r", (IMUL64rri8 GR64:$r, GR64:$r, i64i8imm:$imm)>;
+def : InstAlias<"imulw {$imm, $r|$r, $imm}", (IMUL16rri  GR16:$r, GR16:$r, i16imm:$imm), 0>;
+def : InstAlias<"imulw {$imm, $r|$r, $imm}", (IMUL16rri8 GR16:$r, GR16:$r, i16i8imm:$imm), 0>;
+def : InstAlias<"imull {$imm, $r|$r, $imm}", (IMUL32rri  GR32:$r, GR32:$r, i32imm:$imm), 0>;
+def : InstAlias<"imull {$imm, $r|$r, $imm}", (IMUL32rri8 GR32:$r, GR32:$r, i32i8imm:$imm), 0>;
+def : InstAlias<"imulq {$imm, $r|$r, $imm}", (IMUL64rri32 GR64:$r, GR64:$r, i64i32imm:$imm), 0>;
+def : InstAlias<"imulq {$imm, $r|$r, $imm}", (IMUL64rri8 GR64:$r, GR64:$r, i64i8imm:$imm), 0>;
 
 // inb %dx -> inb %al, %dx
 def : InstAlias<"inb\t{%dx|dx}", (IN8rr), 0>;
@@ -2756,34 +2768,34 @@ def : InstAlias<"jmpl $seg, $off",  (FARJMP32i  i32imm:$off, i16imm:$seg)>;
 // Force mov without a suffix with a segment and mem to prefer the 'l' form of
 // the move.  All segment/mem forms are equivalent, this has the shortest
 // encoding.
-def : InstAlias<"mov $mem, $seg", (MOV32sm SEGMENT_REG:$seg, i32mem:$mem), 0>;
-def : InstAlias<"mov $seg, $mem", (MOV32ms i32mem:$mem, SEGMENT_REG:$seg), 0>;
+def : InstAlias<"mov {$mem, $seg|$seg, $mem}", (MOV32sm SEGMENT_REG:$seg, i32mem:$mem), 0>;
+def : InstAlias<"mov {$seg, $mem|$mem, $seg}", (MOV32ms i32mem:$mem, SEGMENT_REG:$seg), 0>;
 
 // Match 'movq <largeimm>, <reg>' as an alias for movabsq.
-def : InstAlias<"movq $imm, $reg", (MOV64ri GR64:$reg, i64imm:$imm), 0>;
+def : InstAlias<"movq {$imm, $reg|$reg, $imm}", (MOV64ri GR64:$reg, i64imm:$imm), 0>;
 
 // Match 'movq GR64, MMX' as an alias for movd.
-def : InstAlias<"movq $src, $dst",
+def : InstAlias<"movq {$src, $dst|$dst, $src}",
                 (MMX_MOVD64to64rr VR64:$dst, GR64:$src), 0>;
-def : InstAlias<"movq $src, $dst",
+def : InstAlias<"movq {$src, $dst|$dst, $src}",
                 (MMX_MOVD64from64rr GR64:$dst, VR64:$src), 0>;
 
 // movsx aliases
-def : InstAlias<"movsx $src, $dst", (MOVSX16rr8 GR16:$dst, GR8:$src), 0>;
-def : InstAlias<"movsx $src, $dst", (MOVSX16rm8 GR16:$dst, i8mem:$src), 0>;
-def : InstAlias<"movsx $src, $dst", (MOVSX32rr8 GR32:$dst, GR8:$src), 0>;
-def : InstAlias<"movsx $src, $dst", (MOVSX32rr16 GR32:$dst, GR16:$src), 0>;
-def : InstAlias<"movsx $src, $dst", (MOVSX64rr8 GR64:$dst, GR8:$src), 0>;
-def : InstAlias<"movsx $src, $dst", (MOVSX64rr16 GR64:$dst, GR16:$src), 0>;
-def : InstAlias<"movsx $src, $dst", (MOVSX64rr32 GR64:$dst, GR32:$src), 0>;
+def : InstAlias<"movsx {$src, $dst|$dst, $src}", (MOVSX16rr8 GR16:$dst, GR8:$src), 0>;
+def : InstAlias<"movsx {$src, $dst|$dst, $src}", (MOVSX16rm8 GR16:$dst, i8mem:$src), 0>;
+def : InstAlias<"movsx {$src, $dst|$dst, $src}", (MOVSX32rr8 GR32:$dst, GR8:$src), 0>;
+def : InstAlias<"movsx {$src, $dst|$dst, $src}", (MOVSX32rr16 GR32:$dst, GR16:$src), 0>;
+def : InstAlias<"movsx {$src, $dst|$dst, $src}", (MOVSX64rr8 GR64:$dst, GR8:$src), 0>;
+def : InstAlias<"movsx {$src, $dst|$dst, $src}", (MOVSX64rr16 GR64:$dst, GR16:$src), 0>;
+def : InstAlias<"movsx {$src, $dst|$dst, $src}", (MOVSX64rr32 GR64:$dst, GR32:$src), 0>;
 
 // movzx aliases
-def : InstAlias<"movzx $src, $dst", (MOVZX16rr8 GR16:$dst, GR8:$src), 0>;
-def : InstAlias<"movzx $src, $dst", (MOVZX16rm8 GR16:$dst, i8mem:$src), 0>;
-def : InstAlias<"movzx $src, $dst", (MOVZX32rr8 GR32:$dst, GR8:$src), 0>;
-def : InstAlias<"movzx $src, $dst", (MOVZX32rr16 GR32:$dst, GR16:$src), 0>;
-def : InstAlias<"movzx $src, $dst", (MOVZX64rr8_Q GR64:$dst, GR8:$src), 0>;
-def : InstAlias<"movzx $src, $dst", (MOVZX64rr16_Q GR64:$dst, GR16:$src), 0>;
+def : InstAlias<"movzx {$src, $dst|$dst, $src}", (MOVZX16rr8 GR16:$dst, GR8:$src), 0>;
+def : InstAlias<"movzx {$src, $dst|$dst, $src}", (MOVZX16rm8 GR16:$dst, i8mem:$src), 0>;
+def : InstAlias<"movzx {$src, $dst|$dst, $src}", (MOVZX32rr8 GR32:$dst, GR8:$src), 0>;
+def : InstAlias<"movzx {$src, $dst|$dst, $src}", (MOVZX32rr16 GR32:$dst, GR16:$src), 0>;
+def : InstAlias<"movzx {$src, $dst|$dst, $src}", (MOVZX64rr8_Q GR64:$dst, GR8:$src), 0>;
+def : InstAlias<"movzx {$src, $dst|$dst, $src}", (MOVZX64rr16_Q GR64:$dst, GR16:$src), 0>;
 // Note: No GR32->GR64 movzx form.
 
 // outb %dx -> outb %al, %dx

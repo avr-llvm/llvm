@@ -404,10 +404,10 @@ SDNode *HexagonDAGToDAGISel::SelectBaseOffsetLoad(LoadSDNode *LD, SDLoc dl) {
                                                dl, PointerTy,
                                                TargAddr);
       // Figure out base + offset opcode
-      if (LoadedVT == MVT::i64) Opcode = Hexagon::LDrid_indexed;
-      else if (LoadedVT == MVT::i32) Opcode = Hexagon::LDriw_indexed;
-      else if (LoadedVT == MVT::i16) Opcode = Hexagon::LDrih_indexed;
-      else if (LoadedVT == MVT::i8) Opcode = Hexagon::LDrib_indexed;
+      if (LoadedVT == MVT::i64) Opcode = Hexagon::L2_loadrd_io;
+      else if (LoadedVT == MVT::i32) Opcode = Hexagon::L2_loadri_io;
+      else if (LoadedVT == MVT::i16) Opcode = Hexagon::L2_loadrh_io;
+      else if (LoadedVT == MVT::i8) Opcode = Hexagon::L2_loadrb_io;
       else llvm_unreachable("unknown memory type");
 
       // Build indexed load.
@@ -595,24 +595,24 @@ SDNode *HexagonDAGToDAGISel::SelectIndexedLoad(LoadSDNode *LD, SDLoc dl) {
       TM.getSubtargetImpl()->getInstrInfo());
   if (LoadedVT == MVT::i64) {
     if (TII->isValidAutoIncImm(LoadedVT, Val))
-      Opcode = Hexagon::POST_LDrid;
+      Opcode = Hexagon::L2_loadrd_pi;
     else
-      Opcode = Hexagon::LDrid;
+      Opcode = Hexagon::L2_loadrd_io;
   } else if (LoadedVT == MVT::i32) {
     if (TII->isValidAutoIncImm(LoadedVT, Val))
-      Opcode = Hexagon::POST_LDriw;
+      Opcode = Hexagon::L2_loadri_pi;
     else
-      Opcode = Hexagon::LDriw;
+      Opcode = Hexagon::L2_loadri_io;
   } else if (LoadedVT == MVT::i16) {
     if (TII->isValidAutoIncImm(LoadedVT, Val))
-      Opcode = zextval ? Hexagon::POST_LDriuh : Hexagon::POST_LDrih;
+      Opcode = zextval ? Hexagon::L2_loadruh_pi : Hexagon::L2_loadrh_pi;
     else
-      Opcode = zextval ? Hexagon::LDriuh : Hexagon::LDrih;
+      Opcode = zextval ? Hexagon::L2_loadruh_io : Hexagon::L2_loadrh_io;
   } else if (LoadedVT == MVT::i8) {
     if (TII->isValidAutoIncImm(LoadedVT, Val))
-      Opcode = zextval ? Hexagon::POST_LDriub : Hexagon::POST_LDrib;
+      Opcode = zextval ? Hexagon::L2_loadrub_pi : Hexagon::L2_loadrb_pi;
     else
-      Opcode = zextval ? Hexagon::LDriub : Hexagon::LDrib;
+      Opcode = zextval ? Hexagon::L2_loadrub_io : Hexagon::L2_loadrb_io;
   } else
     llvm_unreachable("unknown memory type");
 
@@ -865,7 +865,7 @@ SDNode *HexagonDAGToDAGISel::SelectMul(SDNode *N) {
 
       SDValue Chain = LD->getChain();
       SDValue TargetConst0 = CurDAG->getTargetConstant(0, MVT::i32);
-      OP0 = SDValue (CurDAG->getMachineNode(Hexagon::LDriw, dl, MVT::i32,
+      OP0 = SDValue(CurDAG->getMachineNode(Hexagon::L2_loadri_io, dl, MVT::i32,
                                             MVT::Other,
                                             LD->getBasePtr(), TargetConst0,
                                             Chain), 0);
@@ -891,7 +891,7 @@ SDNode *HexagonDAGToDAGISel::SelectMul(SDNode *N) {
 
       SDValue Chain = LD->getChain();
       SDValue TargetConst0 = CurDAG->getTargetConstant(0, MVT::i32);
-      OP1 = SDValue (CurDAG->getMachineNode(Hexagon::LDriw, dl, MVT::i32,
+      OP1 = SDValue(CurDAG->getMachineNode(Hexagon::L2_loadri_io, dl, MVT::i32,
                                             MVT::Other,
                                             LD->getBasePtr(), TargetConst0,
                                             Chain), 0);
@@ -1045,7 +1045,7 @@ SDNode *HexagonDAGToDAGISel::SelectTruncate(SDNode *N) {
 
         SDValue Chain = LD->getChain();
         SDValue TargetConst0 = CurDAG->getTargetConstant(0, MVT::i32);
-        OP0 = SDValue (CurDAG->getMachineNode(Hexagon::LDriw, dl, MVT::i32,
+        OP0 = SDValue(CurDAG->getMachineNode(Hexagon::L2_loadri_io, dl, MVT::i32,
                                               MVT::Other,
                                               LD->getBasePtr(),
                                               TargetConst0, Chain), 0);
@@ -1070,7 +1070,7 @@ SDNode *HexagonDAGToDAGISel::SelectTruncate(SDNode *N) {
 
         SDValue Chain = LD->getChain();
         SDValue TargetConst0 = CurDAG->getTargetConstant(0, MVT::i32);
-        OP1 = SDValue (CurDAG->getMachineNode(Hexagon::LDriw, dl, MVT::i32,
+        OP1 = SDValue(CurDAG->getMachineNode(Hexagon::L2_loadri_io, dl, MVT::i32,
                                               MVT::Other,
                                               LD->getBasePtr(),
                                               TargetConst0, Chain), 0);
@@ -1334,7 +1334,7 @@ SDNode *HexagonDAGToDAGISel::SelectAdd(SDNode *N) {
 
   // Build Rd = Rd' + asr(Rs, Rt). The machine constraints will ensure that
   // Rd and Rd' are assigned to the same register
-  SDNode* Result = CurDAG->getMachineNode(Hexagon::ASR_ADD_rr, dl, MVT::i32,
+  SDNode* Result = CurDAG->getMachineNode(Hexagon::S2_asr_r_r_acc, dl, MVT::i32,
                                           N->getOperand(1),
                                           Src1->getOperand(0),
                                           Src1->getOperand(1));

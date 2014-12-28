@@ -3152,36 +3152,57 @@ static Value *SimplifySelectInst(Value *CondVal, Value *TrueVal,
   if (isa<UndefValue>(FalseVal))   // select C, X, undef -> X
     return TrueVal;
 
-  if (const auto *ICI = dyn_cast<ICmpInst>(CondVal)) {
+  const auto *ICI = dyn_cast<ICmpInst>(CondVal);
+  unsigned BitWidth = TrueVal->getType()->getScalarSizeInBits();
+  if (ICI && BitWidth) {
+    ICmpInst::Predicate Pred = ICI->getPredicate();
+    APInt MinSignedValue = APInt::getSignBit(BitWidth);
     Value *X;
     const APInt *Y;
-    if (ICI->isEquality() &&
+    bool TrueWhenUnset;
+    bool IsBitTest = false;
+    if (ICmpInst::isEquality(Pred) &&
         match(ICI->getOperand(0), m_And(m_Value(X), m_APInt(Y))) &&
         match(ICI->getOperand(1), m_Zero())) {
-      ICmpInst::Predicate Pred = ICI->getPredicate();
+      IsBitTest = true;
+      TrueWhenUnset = Pred == ICmpInst::ICMP_EQ;
+    } else if (Pred == ICmpInst::ICMP_SLT &&
+               match(ICI->getOperand(1), m_Zero())) {
+      X = ICI->getOperand(0);
+      Y = &MinSignedValue;
+      IsBitTest = true;
+      TrueWhenUnset = false;
+    } else if (Pred == ICmpInst::ICMP_SGT &&
+               match(ICI->getOperand(1), m_AllOnes())) {
+      X = ICI->getOperand(0);
+      Y = &MinSignedValue;
+      IsBitTest = true;
+      TrueWhenUnset = true;
+    }
+    if (IsBitTest) {
       const APInt *C;
       // (X & Y) == 0 ? X & ~Y : X  --> X
       // (X & Y) != 0 ? X & ~Y : X  --> X & ~Y
       if (FalseVal == X && match(TrueVal, m_And(m_Specific(X), m_APInt(C))) &&
           *Y == ~*C)
-        return Pred == ICmpInst::ICMP_EQ ? FalseVal : TrueVal;
+        return TrueWhenUnset ? FalseVal : TrueVal;
       // (X & Y) == 0 ? X : X & ~Y  --> X & ~Y
       // (X & Y) != 0 ? X : X & ~Y  --> X
       if (TrueVal == X && match(FalseVal, m_And(m_Specific(X), m_APInt(C))) &&
           *Y == ~*C)
-        return Pred == ICmpInst::ICMP_EQ ? FalseVal : TrueVal;
+        return TrueWhenUnset ? FalseVal : TrueVal;
 
       if (Y->isPowerOf2()) {
         // (X & Y) == 0 ? X | Y : X  --> X | Y
         // (X & Y) != 0 ? X | Y : X  --> X
         if (FalseVal == X && match(TrueVal, m_Or(m_Specific(X), m_APInt(C))) &&
             *Y == *C)
-          return Pred == ICmpInst::ICMP_EQ ? TrueVal : FalseVal;
+          return TrueWhenUnset ? TrueVal : FalseVal;
         // (X & Y) == 0 ? X : X | Y  --> X
         // (X & Y) != 0 ? X : X | Y  --> X | Y
         if (TrueVal == X && match(FalseVal, m_Or(m_Specific(X), m_APInt(C))) &&
             *Y == *C)
-          return Pred == ICmpInst::ICMP_EQ ? TrueVal : FalseVal;
+          return TrueWhenUnset ? TrueVal : FalseVal;
       }
     }
   }

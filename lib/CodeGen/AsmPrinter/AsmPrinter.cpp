@@ -222,12 +222,25 @@ bool AsmPrinter::doInitialization(Module &M) {
   }
 
   if (MAI->doesSupportDebugInformation()) {
-    if (Triple(TM.getTargetTriple()).isKnownWindowsMSVCEnvironment())
+    bool skip_dwarf = false;
+    if (Triple(TM.getTargetTriple()).isKnownWindowsMSVCEnvironment()) {
       Handlers.push_back(HandlerInfo(new WinCodeViewLineTables(this),
                                      DbgTimerName,
                                      CodeViewLineTablesGroupName));
-    DD = new DwarfDebug(this, &M);
-    Handlers.push_back(HandlerInfo(DD, DbgTimerName, DWARFGroupName));
+      // FIXME: Don't emit DWARF debug info if there's at least one function
+      // with AddressSanitizer instrumentation.
+      // This is a band-aid fix for PR22032.
+      for (auto &F : M.functions()) {
+        if (F.hasFnAttribute(Attribute::SanitizeAddress)) {
+          skip_dwarf = true;
+          break;
+        }
+      }
+    }
+    if (!skip_dwarf) {
+      DD = new DwarfDebug(this, &M);
+      Handlers.push_back(HandlerInfo(DD, DbgTimerName, DWARFGroupName));
+    }
   }
 
   EHStreamer *ES = nullptr;
@@ -242,6 +255,7 @@ bool AsmPrinter::doInitialization(Module &M) {
     ES = new ARMException(this);
     break;
   case ExceptionHandling::ItaniumWinEH:
+  case ExceptionHandling::MSVC:
     switch (MAI->getWinEHEncodingType()) {
     default: llvm_unreachable("unsupported unwinding information encoding");
     case WinEH::EncodingType::Itanium:
@@ -335,6 +349,11 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
 
   if (!GV->hasInitializer())   // External globals require no extra code.
     return;
+
+  GVSym->redefineIfPossible();
+  if (GVSym->isDefined() || GVSym->isVariable())
+    report_fatal_error("symbol '" + Twine(GVSym->getName()) +
+                       "' is already defined");
 
   if (MAI->hasDotTypeDotSizeDirective())
     OutStreamer.EmitSymbolAttribute(GVSym, MCSA_ELF_TypeObject);
@@ -543,13 +562,18 @@ void AsmPrinter::EmitFunctionHeader() {
 /// EmitFunctionEntryLabel - Emit the label that is the entrypoint for the
 /// function.  This can be overridden by targets as required to do custom stuff.
 void AsmPrinter::EmitFunctionEntryLabel() {
+  CurrentFnSym->redefineIfPossible();
+
   // The function label could have already been emitted if two symbols end up
   // conflicting due to asm renaming.  Detect this and emit an error.
-  if (CurrentFnSym->isUndefined())
-    return OutStreamer.EmitLabel(CurrentFnSym);
+  if (CurrentFnSym->isVariable())
+    report_fatal_error("'" + Twine(CurrentFnSym->getName()) +
+                       "' is a protected alias");
+  if (CurrentFnSym->isDefined())
+    report_fatal_error("'" + Twine(CurrentFnSym->getName()) +
+                       "' label emitted multiple times to assembly file");
 
-  report_fatal_error("'" + Twine(CurrentFnSym->getName()) +
-                     "' label emitted multiple times to assembly file");
+  return OutStreamer.EmitLabel(CurrentFnSym);
 }
 
 /// emitComments - Pretty-print comments for instructions.
@@ -708,8 +732,7 @@ AsmPrinter::CFIMoveType AsmPrinter::needsCFIMoves() {
 }
 
 bool AsmPrinter::needsSEHMoves() {
-  return MAI->getExceptionHandlingType() == ExceptionHandling::ItaniumWinEH &&
-         MF->getFunction()->needsUnwindTableEntry();
+  return MAI->usesWindowsCFI() && MF->getFunction()->needsUnwindTableEntry();
 }
 
 void AsmPrinter::emitCFIInstruction(const MachineInstr &MI) {

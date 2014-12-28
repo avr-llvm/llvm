@@ -1070,10 +1070,6 @@ SDValue AMDGPUTargetLowering::CombineFMinMaxLegacy(SDLoc DL,
     break;
   case ISD::SETULE:
   case ISD::SETULT: {
-    // Unordered.
-    //
-    // We will allow this before legalization since we expand unordered compares
-    // ordinarily.
     if (LHS == True)
       return DAG.getNode(AMDGPUISD::FMIN_LEGACY, DL, VT, RHS, LHS);
     return DAG.getNode(AMDGPUISD::FMAX_LEGACY, DL, VT, LHS, RHS);
@@ -2300,7 +2296,7 @@ SDValue AMDGPUTargetLowering::PerformDAGCombine(SDNode *N,
     }
   case ISD::SELECT: {
     SDValue Cond = N->getOperand(0);
-    if (Cond.getOpcode() == ISD::SETCC) {
+    if (Cond.getOpcode() == ISD::SETCC && Cond.hasOneUse()) {
       SDLoc DL(N);
       EVT VT = N->getValueType(0);
       SDValue LHS = Cond.getOperand(0);
