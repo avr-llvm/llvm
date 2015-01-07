@@ -4,6 +4,7 @@ tablegen(LLVM AVRGenRegisterInfo.inc -gen-register-info)
 tablegen(LLVM AVRGenInstrInfo.inc -gen-instr-info)
 tablegen(LLVM AVRGenMCCodeEmitter.inc -gen-emitter)
 tablegen(LLVM AVRGenAsmWriter.inc -gen-asm-writer)
+tablegen(LLVM AVRGenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM AVRGenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM AVRGenCallingConv.inc -gen-callingconv)
 tablegen(LLVM AVRGenSubtargetInfo.inc -gen-subtarget)
@@ -28,6 +29,7 @@ add_llvm_target(AVRCodeGen
 
 add_dependencies(LLVMAVRCodeGen intrinsics_gen)
 
+add_subdirectory(AsmParser)
 add_subdirectory(InstPrinter)
 add_subdirectory(TargetInfo)
 add_subdirectory(MCTargetDesc)

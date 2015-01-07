@@ -860,7 +860,7 @@ Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
 def LDRdPtrPi : FSTLDPtrPiReg<0b0,
                               (outs GPR8:$dst, PTRREGS:$base_wb),
                               (ins PTRREGS:$src),
-                              "ld\t$dst, $src+",
+                              "ld\t$dst, $src +",
                               []>;
 
 let mayLoad = 1,
@@ -868,7 +868,7 @@ hasSideEffects = 0,
 Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
 def LDWRdPtrPi : Pseudo<(outs DREGS:$dst, PTRREGS:$base_wb),
                         (ins PTRREGS:$src),
-                        "ldw\t$dst, $src+",
+                        "ldw\t$dst, $src +",
                         []>;
 
 let mayLoad = 1,
@@ -947,7 +947,7 @@ let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
 def STPtrPiRr : FSTLDPtrPiReg<0b1,
                               (outs PTRREGS:$base_wb),
                               (ins PTRREGS:$dst, GPR8:$src, i8imm:$offs),
-                              "st\t$dst+, $src",
+                              "st\t$dst +, $src",
                               [(set PTRREGS:$base_wb,
                               (post_store GPR8:$src, PTRREGS:$dst, imm:$offs))]>;
 
@@ -957,7 +957,7 @@ def STPtrPiRr : FSTLDPtrPiReg<0b1,
 let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
 def STWPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
                         (ins PTRREGS:$dst, DREGS:$src, i8imm:$offs),
-                        "stw\t$dst+, $src",
+                        "stw\t$dst +, $src",
                         [(set PTRREGS:$base_wb,
                          (post_store DREGS:$src, PTRREGS:$dst, imm:$offs))]>;
 

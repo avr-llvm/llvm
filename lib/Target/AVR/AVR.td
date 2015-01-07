@@ -476,6 +476,21 @@ def AVRAsmWriter : AsmWriter
 }
 
 //===----------------------------------------------------------------------===//
+// Assembly Parsers
+//===----------------------------------------------------------------------===//
+
+def AVRAsmParser : AsmParser {
+  let ShouldEmitMatchRegisterName = 0;
+}
+
+def AVRAsmParserVariant : AsmParserVariant {
+  int Variant = 0;
+
+  // Recognize hard coded registers.
+  string RegisterPrefix = "$";
+}
+
+//===----------------------------------------------------------------------===//
 // Target Declaration
 //===----------------------------------------------------------------------===//
 
@@ -483,4 +498,7 @@ def AVR : Target
 {
   let InstructionSet = AVRInstrInfo;
   let AssemblyWriters = [AVRAsmWriter];
+  
+  let AssemblyParsers = [AVRAsmParser];
+  let AssemblyParserVariants = [AVRAsmParserVariant];
 }
