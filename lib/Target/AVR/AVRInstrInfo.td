@@ -137,11 +137,17 @@ def iobitposn8 : PatLeaf<(imm),
   return isPowerOf2_32(uint8_t(~N->getZExtValue()));
 }], iobitposn8_XFORM>;
 
+def AVRMemAsmOperand : AsmOperandClass {
+  let Name = "Mem";
+  let ParserMethod = "parseMemOperand";
+}
+
 // Address operand for reg+imm
 def memri : Operand<iPTR>
 {
   let PrintMethod = "printMemriOperand";
   let EncoderMethod = "getMemriEncoding";
+  let ParserMatchClass = AVRMemAsmOperand;
   
   let MIOperandInfo = (ops PTRDISPREGS, i8imm);
 }
