@@ -378,6 +378,9 @@ int AVRAsmParser::matchRegisterName(StringRef Name) {
       .Case("SPL", AVR::SPL)
       .Case("SPH", AVR::SPH)
       .Case("SP",  AVR::SP)
+      .Case("X",   AVR::R27R26)
+      .Case("Y",   AVR::R29R28)
+      .Case("Z",   AVR::R31R30)
       
       .Default(-1);
 
@@ -394,7 +397,7 @@ unsigned AVRAsmParser::getReg(int RC,int RegNo) {
 int AVRAsmParser::matchRegisterByNumber(unsigned RegNum, StringRef Mnemonic) {
   if (RegNum > 31)
     return -1;
-  
+  llvm_unreachable("this function is not used (I think), but needs to be implemented properly");
   // TODO[urgent]: 0 is probably not the correct register class
   return getReg(0, RegNum);
 }

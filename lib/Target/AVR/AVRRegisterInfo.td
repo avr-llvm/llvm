@@ -171,7 +171,9 @@ def IWREGS : RegisterClass<"AVR", [i16], 8,
 // aka x, y, z
 def PTRREGS : RegisterClass<"AVR", [i16], 8,
   (
-    add R31R30, R27R26, R29R28
+    add R27R26, // X
+        R29R28, // Y
+        R31R30  // Z
   )>;
 
 // 16 bit register class for the ldd and std instructions
