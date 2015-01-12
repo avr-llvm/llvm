@@ -340,7 +340,9 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
 }
 
 int AVRAsmParser::matchRegisterName(StringRef Name) {
-
+   
+   // Note that the register name is in lower-case.
+   
    int CC;
     CC = StringSwitch<unsigned>(Name)
       .Case("r0",  AVR::R0)
@@ -375,12 +377,12 @@ int AVRAsmParser::matchRegisterName(StringRef Name) {
       .Case("r29", AVR::R29)
       .Case("r30", AVR::R30)
       .Case("r31", AVR::R31)
-      .Case("SPL", AVR::SPL)
-      .Case("SPH", AVR::SPH)
-      .Case("SP",  AVR::SP)
-      .Case("X",   AVR::R27R26)
-      .Case("Y",   AVR::R29R28)
-      .Case("Z",   AVR::R31R30)
+      .Case("spl", AVR::SPL)
+      .Case("sph", AVR::SPH)
+      .Case("sp",  AVR::SP)
+      .Case("x",   AVR::R27R26)
+      .Case("y",   AVR::R29R28)
+      .Case("z",   AVR::R31R30)
       
       .Default(-1);
 
