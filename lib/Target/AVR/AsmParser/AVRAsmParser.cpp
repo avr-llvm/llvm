@@ -268,7 +268,36 @@ public:
   SMLoc getEndLoc() const { return EndLoc; }
 
   virtual void print(raw_ostream &OS) const {
-    llvm_unreachable("unimplemented!");
+    OS << "AVROperand = ";
+    
+    switch(Kind) {
+      case k_Token:
+        OS << "Token(\"" << Tok.Data << "\")";
+        break;
+      case k_Register:
+        OS << "Register(Num = " << Reg.RegNum << ")";
+        break;
+      case k_Immediate:
+        OS << "Immediate(Expr = ";
+        
+        Imm.Val->print(OS);
+        
+        OS << ")";
+        
+        break;
+      case k_Memory:
+        OS << "Memory(Base = " << Mem.Base << ", Offset = ";
+
+        Mem.Off->print(OS);
+        
+        OS << ")";
+        break;
+      default:
+        llvm_unreachable("unimplemented");
+        break;
+    }
+    
+    OS << "\n";
   }
 };
 }
