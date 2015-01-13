@@ -462,24 +462,7 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
     Parser.Lex(); // Eat dollar token.
     // parse register operand
     if (!tryParseRegisterOperand(Operands, Mnemonic)) {
-      if (getLexer().is(AsmToken::LParen)) {
-        // check if it is indexed addressing operand
-        Operands.push_back(AVROperand::CreateToken("(", S));
-        Parser.Lex(); // eat parenthesis
-        if (getLexer().isNot(AsmToken::Dollar))
-          return true;
 
-        Parser.Lex(); // eat dollar
-        if (tryParseRegisterOperand(Operands, Mnemonic))
-          return true;
-
-        if (!getLexer().is(AsmToken::RParen))
-          return true;
-
-        S = Parser.getTok().getLoc();
-        Operands.push_back(AVROperand::CreateToken(")", S));
-        Parser.Lex();
-      }
       return false;
     }
     // maybe it is a symbol reference
@@ -504,14 +487,26 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
   case AsmToken::Plus:
   case AsmToken::Integer:
   case AsmToken::String: {
-     // quoted label names
-    const MCExpr *IdVal;
-    SMLoc S = Parser.getTok().getLoc();
-    if (getParser().parseExpression(IdVal))
-      return true;
-    SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-    Operands.push_back(AVROperand::CreateImm(IdVal, S, E));
-    return false;
+  
+    // try parse the operand as a register
+    if(!tryParseRegisterOperand(Operands, Mnemonic)) {
+      return false;
+      
+    } else { // the operand not a register
+      
+      // quoted label names
+      const MCExpr *IdVal;
+      SMLoc S = Parser.getTok().getLoc();
+      
+      if (getParser().parseExpression(IdVal))
+        return true;
+      
+      SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+      Operands.push_back(AVROperand::CreateImm(IdVal, S, E));
+      return false;
+    }
+  
+    
   }
   case AsmToken::Percent: {
     // it is a symbol reference or constant expression
