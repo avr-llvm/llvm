@@ -847,60 +847,60 @@ def LDSWRdK : Pseudo<(outs DREGS:$dst),
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
 def LDRdPtr : FSTLDPtrReg<0b0,
-                          (outs GPR8:$dst),
-                          (ins PTRREGS:$src),
-                          "ld\t$dst, $src",
-                          [(set GPR8:$dst, (load PTRREGS:$src))]>;
+                          (outs GPR8:$reg),
+                          (ins PTRREGS:$ptrreg),
+                          "ld\t$reg, $ptrreg",
+                          [(set GPR8:$reg, (load PTRREGS:$ptrreg))]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
-Constraints = "@earlyclobber $dst" in
-def LDWRdPtr : Pseudo<(outs DREGS:$dst),
-                      (ins PTRDISPREGS:$src),
-                      "ldw\t$dst, $src",
-                      [(set DREGS:$dst, (load PTRDISPREGS:$src))]>;
+Constraints = "@earlyclobber $ptrreg" in
+def LDWRdPtr : Pseudo<(outs DREGS:$reg),
+                      (ins PTRDISPREGS:$ptrreg),
+                      "ldw\t$reg, $ptrreg",
+                      [(set DREGS:$reg, (load PTRDISPREGS:$ptrreg))]>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
-Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
+Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
 def LDRdPtrPi : FSTLDPtrPiReg<0b0,
-                              (outs GPR8:$dst, PTRREGS:$base_wb),
-                              (ins PTRREGS:$src),
-                              "ld\t$dst, $src +",
+                              (outs GPR8:$reg, PTRREGS:$base_wb),
+                              (ins PTRREGS:$ptrreg),
+                              "ld\t$reg, $ptrreg +",
                               []>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
-Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
-def LDWRdPtrPi : Pseudo<(outs DREGS:$dst, PTRREGS:$base_wb),
-                        (ins PTRREGS:$src),
-                        "ldw\t$dst, $src +",
+Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
+def LDWRdPtrPi : Pseudo<(outs DREGS:$reg, PTRREGS:$base_wb),
+                        (ins PTRREGS:$ptrreg),
+                        "ldw\t$reg, $ptrreg +",
                         []>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
-Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
+Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
 def LDRdPtrPd : FSTLDPtrPdReg<0b0,
-                              (outs GPR8:$dst, PTRREGS:$base_wb),
-                              (ins PTRREGS:$src),
-                              "ld\t$dst, -$src",
+                              (outs GPR8:$reg, PTRREGS:$base_wb),
+                              (ins PTRREGS:$ptrreg),
+                              "ld\t$reg, -$ptrreg",
                               []>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
-Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
-def LDWRdPtrPd : Pseudo<(outs DREGS:$dst, PTRREGS:$base_wb),
-                        (ins PTRREGS:$src),
-                        "ldw\t$dst, -$src",
+Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
+def LDWRdPtrPd : Pseudo<(outs DREGS:$reg, PTRREGS:$base_wb),
+                        (ins PTRREGS:$ptrreg),
+                        "ldw\t$reg, -$ptrreg",
                         []>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
 def LDDRdPtrQ : FPqRr<0b0,
-                      (outs GPR8:$dst),
-                      (ins memri:$src),
-                      "ldd\t$dst, $src",
-                      [(set GPR8:$dst, (load addr:$src))]>;
+                      (outs GPR8:$reg),
+                      (ins memri:$ptrreg),
+                      "ldd\t$reg, $ptrreg",
+                      [(set GPR8:$reg, (load addr:$ptrreg))]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
@@ -935,58 +935,58 @@ def STSWKRr : Pseudo<(outs),
 // Stores the value of Rr into the location addressed by pointer P.
 def STPtrRr : FSTLDPtrReg<0b1,
                          (outs),
-                         (ins PTRREGS:$dst, GPR8:$src),
-                         "st\t$dst, $src",
-                         [(store GPR8:$src, PTRREGS:$dst)]>;
+                         (ins PTRREGS:$ptrreg, GPR8:$reg),
+                         "st\t$ptrreg, $reg",
+                         [(store GPR8:$reg, PTRREGS:$ptrreg)]>;
 
 // STW P, Rr
 // Stores the value of Rr into the location addressed by pointer P.
 def STWPtrRr : Pseudo<(outs),
-                      (ins PTRDISPREGS:$dst, DREGS:$src),
-                      "stw\t$dst, $src",
-                      [(store DREGS:$src, PTRDISPREGS:$dst)]>;
+                      (ins PTRDISPREGS:$ptrreg, DREGS:$reg),
+                      "stw\t$ptrreg, $reg",
+                      [(store DREGS:$reg, PTRDISPREGS:$ptrreg)]>;
 
 // ST P+, Rr
 // Stores the value of Rr into the location addressed by pointer P.
 // Post increments P.
-let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
+let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
 def STPtrPiRr : FSTLDPtrPiReg<0b1,
                               (outs PTRREGS:$base_wb),
-                              (ins PTRREGS:$dst, GPR8:$src, i8imm:$offs),
-                              "st\t$dst +, $src",
+                              (ins PTRREGS:$ptrreg, GPR8:$reg, i8imm:$offs),
+                              "st\t$ptrreg +, $reg",
                               [(set PTRREGS:$base_wb,
-                              (post_store GPR8:$src, PTRREGS:$dst, imm:$offs))]>;
+                              (post_store GPR8:$reg, PTRREGS:$ptrreg, imm:$offs))]>;
 
 // STW P+, Rr
 // Stores the value of Rr into the location addressed by pointer P.
 // Post increments P.
-let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
+let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
 def STWPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
-                        (ins PTRREGS:$dst, DREGS:$src, i8imm:$offs),
-                        "stw\t$dst +, $src",
+                        (ins PTRREGS:$ptrreg, DREGS:$trh, i8imm:$offs),
+                        "stw\t$ptrreg +, $trh",
                         [(set PTRREGS:$base_wb,
-                         (post_store DREGS:$src, PTRREGS:$dst, imm:$offs))]>;
+                         (post_store DREGS:$trh, PTRREGS:$ptrreg, imm:$offs))]>;
 
 // ST -P, Rr
 // Stores the value of Rr into the location addressed by pointer P.
 // Pre decrements P.
-let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
+let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
 def STPtrPdRr : FSTLDPtrPdReg<0b1,
                               (outs PTRREGS:$base_wb),
-                              (ins PTRREGS:$dst, GPR8:$src, i8imm:$offs),
-                              "st\t-$dst, $src",
+                              (ins PTRREGS:$ptrreg, GPR8:$reg, i8imm:$offs),
+                              "st\t-$ptrreg, $reg",
                               [(set PTRREGS:$base_wb,
-                              (pre_store GPR8:$src, PTRREGS:$dst, imm:$offs))]>;
+                              (pre_store GPR8:$reg, PTRREGS:$ptrreg, imm:$offs))]>;
 
 // STW -P, Rr
 // Stores the value of Rr into the location addressed by pointer P.
 // Pre decrements P.
-let Constraints = "$dst = $base_wb,@earlyclobber $base_wb" in
+let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
 def STWPtrPdRr : Pseudo<(outs PTRREGS:$base_wb),
-                        (ins PTRREGS:$dst, DREGS:$src, i8imm:$offs),
-                        "stw\t-$dst, $src",
+                        (ins PTRREGS:$ptrreg, DREGS:$reg, i8imm:$offs),
+                        "stw\t-$ptrreg, $reg",
                         [(set PTRREGS:$base_wb,
-                         (pre_store DREGS:$src, PTRREGS:$dst, imm:$offs))]>;
+                         (pre_store DREGS:$reg, PTRREGS:$ptrreg, imm:$offs))]>;
 
 /// STD P+q, Rr
 // Stores the value of Rr into the location addressed by pointer P with a displacement of q.

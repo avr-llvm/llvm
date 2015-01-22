@@ -158,45 +158,48 @@ class FPqRr<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
 
 //===---------------------------------------------------------------------===//
 // An ST/LD instruction.
-// <|1000|00tr|rrrr|p000>
+// <|100p|00tr|rrrr|ppaa|>
 // t = type (1 for ST, 0 for LD)
+// a = regular/postinc/predec (reg = 0b00, postinc = 0b01, predec = 0b10)
 // p = pointer register
+// r = src/dst register
 //===---------------------------------------------------------------------===//
-class FSTLD<bit t, bits<3> m, dag outs, dag ins, string asmstr, list<dag> pattern>
+class FSTLD<bit type, bits<2> mode, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bit p;
+  bits<3> ptrreg;
   bits<5> reg;
   
-  let Inst{15-12} = 0b1000;
+  let Inst{15-13} = 0b100;
+  let Inst{12} = ptrreg{2};
   
   let Inst{11-10} = 0b00;
-  let Inst{9} = t;
+  let Inst{9} = type;
   let Inst{8} = reg{4};
   
   let Inst{7-4} = reg{3-0};
   
-  let Inst{3} = p;
-  let Inst{2-0} = m{2-0};
+  let Inst{3-2} = ptrreg{1-0};
+  let Inst{1-0} = mode{1-0};
 }
 
 // A 'ST Ptr, Rr' or 'LD Rd, Ptr' instruction.
 class FSTLDPtrReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
-  : FSTLD<t, 0b000, outs, ins, asmstr, pattern> { }
+  : FSTLD<t, 0b00, outs, ins, asmstr, pattern> { }
 
 //===---------------------------------------------------------------------===//
 // A 'ST Ptr+, Rr' or 'LD Rd, Ptr+' instruction.
 // Store with postincrement.
 //===---------------------------------------------------------------------===//
 class FSTLDPtrPiReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
-  : FSTLD<t, 0b001, outs, ins, asmstr, pattern> { }
+  : FSTLD<t, 0b01, outs, ins, asmstr, pattern> { }
 
 //===---------------------------------------------------------------------===//
 // A 'ST -Ptr, Rr' or 'LD Rd, -Ptr' instruction.
 // Store with predecrement.
 //===---------------------------------------------------------------------===//
 class FSTLDPtrPdReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
-  : FSTLD<t, 0b010, outs, ins, asmstr, pattern> { }
+  : FSTLD<t, 0b10, outs, ins, asmstr, pattern> { }
 
 //===--------------------------------------------------------------------------------------------===//
 // Special format for the TST instruction.
