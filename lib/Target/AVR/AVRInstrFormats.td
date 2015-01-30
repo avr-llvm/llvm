@@ -434,6 +434,22 @@ class FI<bits<16> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
 }
 
 //===----------------------------------------------------------------------===//
+// Special, opcode only instructions: <|opcode|>
+//===----------------------------------------------------------------------===//
+
+class F16<bits<16> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  let Inst = opcode;
+}
+
+class F32<bits<32> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst32<outs, ins, asmstr, pattern>
+{
+  let Inst = opcode;
+}
+
+//===----------------------------------------------------------------------===//
 // Branching instructions with immediate12: <|110f|kkkk|kkkk|kkkk|>
 // f = secondary opcode = 1 bit
 // k = constant address = 12 bits

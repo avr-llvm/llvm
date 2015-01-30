@@ -141,8 +141,8 @@ CLH    not implemented
 
 ### MCU Control Instructions
 ```
-BREAK    not implemented
-NOP      not implemented
-SLEEP    not implemented
-WDR      not implemented
+BREAK    x (untested)
+NOP      x (untested)
+SLEEP    x (untested)
+WDR      x (untested)
 ```
