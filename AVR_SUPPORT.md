@@ -63,8 +63,8 @@ BRBS    not implemented
 BRBC    not implemented
 BREQ    x
 BRNE    x
-BRCS    not implemented
-BRCC    not implemented
+BRCS    x (untested)
+BRCC    x (untested)
 BRSH    x
 BRLO    x
 BRMI    x
