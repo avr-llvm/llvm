@@ -1375,17 +1375,138 @@ def SERRd : FRd<0b1110,
                 "ser\t$dst",
                 []>;
 
-def SEI : FI<0b1001010001111000,
-               (outs),
-               (ins),
-               "cli",
-               []>;
+//===----------------------------------------------------------------------===//
+// Status register instructions
+//
+// Instructions derive from format FFL (FL as in flag)
+// <|1001|0100|bfff|1000>
+//
+// Where b = 0 if we are setting the flag
+//   and b = 1 if we are clearing the flag
+//   and f is the flag mask
+//
+// Flag masks:
+// C - 000 (carry)
+// Z - 001 (zero)
+// N - 010 (negative)
+// V - 011 (overflow)
+// S - 100 (signed)
+// H - 101 (half carry)
+// T - 110 (T flag)
+// I - 111 (interrupt)
+//===----------------------------------------------------------------------===//
 
-def CLI : FI<0b1001010011111000,
-               (outs),
-               (ins),
-               "cli",
-               []>;
+def SEC : FFL<0,
+              0b000,
+              (outs),
+              (ins),
+              "sec",
+              []>;
+
+def CLC : FFL<1,
+              0b000,
+              (outs),
+              (ins),
+              "clc",
+              []>;
+
+def SEZ : FFL<0,
+              0b001,
+              (outs),
+              (ins),
+              "sez",
+              []>;
+
+def CLZ : FFL<1,
+              0b001,
+              (outs),
+              (ins),
+              "clz",
+              []>;
+
+def SEN : FFL<0,
+              0b010,
+              (outs),
+              (ins),
+              "sen",
+              []>;
+
+def CLN : FFL<1,
+              0b010,
+              (outs),
+              (ins),
+              "cln",
+              []>;
+
+def SEV : FFL<0,
+              0b011,
+              (outs),
+              (ins),
+              "sev",
+              []>;
+
+def CLV : FFL<1,
+              0b011,
+              (outs),
+              (ins),
+              "clv",
+              []>;
+
+def SES : FFL<0,
+              0b100,
+              (outs),
+              (ins),
+              "ses",
+              []>;
+
+def CLS : FFL<1,
+              0b100,
+              (outs),
+              (ins),
+              "cls",
+              []>;
+
+def SEH : FFL<0,
+              0b101,
+              (outs),
+              (ins),
+              "seh",
+              []>;
+
+def CLH : FFL<1,
+              0b101,
+              (outs),
+              (ins),
+              "clh",
+              []>;
+
+def SET : FFL<0,
+              0b110,
+              (outs),
+              (ins),
+              "set",
+              []>;
+
+def CLT : FFL<1,
+              0b110,
+              (outs),
+              (ins),
+              "clt",
+              []>;
+
+def SEI : FFL<0,
+              0b111,
+              (outs),
+              (ins),
+              "sei",
+              []>;
+
+def CLI : FFL<1,
+              0b111,
+              (outs),
+              (ins),
+              "cli",
+              []>;
 
 //===----------------------------------------------------------------------===//
 // Special/Control instructions

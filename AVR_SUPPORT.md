@@ -121,22 +121,22 @@ SBI    x (untested)
 CBI    x (untested)
 BST    not implemented
 BLD    not implemented
-SEC    not implemented
-CLC    not implemented
-SEN    not implemented
-CLN    not implemented
-SEZ    not implemented
-CLZ    not implemented
-SEI    x
-CLI    x
-SES    not implemented
-CLS    not implemented
-SEV    not implemented
-CLV    not implemented
-SET    not implemented
-CLT    not implemented
-SEH    not implemented
-CLH    not implemented
+SEC    x (untested)
+CLC    x (untested)
+SEN    x (untested)
+CLN    x (untested)
+SEZ    x (untested)
+CLZ    x (untested)
+SEI    x (untested)
+CLI    x (untested)
+SES    x (untested)
+CLS    x (untested)
+SEV    x (untested)
+CLV    x (untested)
+SET    x (untested)
+CLT    x (untested)
+SEH    x (untested)
+CLH    x (untested)
 ```
 
 ### MCU Control Instructions

@@ -499,3 +499,21 @@ class F32DM<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{19-16} = 0b0000;
   let Inst{15-0} = k{15-0};
 }
+
+//===----------------------------------------------------------------------===//
+// 16 bits flag set/clear instruction: <|1001|0100|bfff|1000>
+// b = mode (0 for set, 1 for clear)
+// f = flag
+//===----------------------------------------------------------------------===//
+class FFL<bit b, bits<3> f, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  let Inst{15-12} = 0b1001;
+  
+  let Inst{11-8} = 0b0100;
+  
+  let Inst{7} = b;
+  let Inst{6-4} = f;
+  
+  let Inst{3-0} = 0b1000;
+}
