@@ -795,6 +795,127 @@ def BRLTk : FBRsk<0,
                   (ins rel_condbr_7_target:$target),
                   "brlt\t$target",
                   [(AVRbrcond bb:$target, AVR_COND_LT)]>;
+
+// BRCS k
+// Branch if carry flag is set
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRCSk : FBRsk<0,
+                  0b000,
+                  (outs),
+                  (ins rel_condbr_7_target:$target),
+                  "brcs\t$target",
+                  []>;
+
+// BRCC k
+// Branch if carry flag is clear
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRCCk : FBRsk<1,
+                  0b000,
+                  (outs),
+                  (ins rel_condbr_7_target:$target),
+                  "brcc\t$target",
+                  []>;
+
+// BRHS k
+// Branch if half carry flag is set
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRHSk : FBRsk<0,
+                  0b101,
+                  (outs),
+                  (ins rel_condbr_7_target:$target),
+                  "brhs\t$target",
+                  []>;
+
+// BRHC k
+// Branch if half carry flag is clear
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRHCk : FBRsk<1,
+                  0b101,
+                  (outs),
+                  (ins rel_condbr_7_target:$target),
+                  "brhc\t$target",
+                  []>;
+
+// BRTS k
+// Branch if the T flag is set
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRTSk : FBRsk<0,
+                  0b110,
+                  (outs),
+                  (ins rel_condbr_7_target:$target),
+                  "brts\t$target",
+                  []>;
+
+// BRTC k
+// Branch if the T flag is clear
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRTCk : FBRsk<1,
+                  0b110,
+                  (outs),
+                  (ins rel_condbr_7_target:$target),
+                  "brtc\t$target",
+                  []>;
+
+// BRVS k
+// Branch if the overflow flag is set
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRVSk : FBRsk<0,
+                  0b011,
+                  (outs),
+                  (ins rel_condbr_7_target:$target),
+                  "brvs\t$target",
+                  []>;
+
+// BRVC k
+// Branch if the overflow flag is clear
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRVCk : FBRsk<1,
+                  0b011,
+                  (outs),
+                  (ins rel_condbr_7_target:$target),
+                  "brvc\t$target",
+                  []>;
+
+// BRIE k
+// Branch if the global interrupt flag is enabled
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRIEk : FBRsk<0,
+                  0b111,
+                  (outs),
+                  (ins rel_condbr_7_target:$target),
+                  "brie\t$target",
+                  []>;
+
+// BRID k
+// Branch if the global interrupt flag is disabled
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRIDk : FBRsk<1,
+                  0b111,
+                  (outs),
+                  (ins rel_condbr_7_target:$target),
+                  "brid\t$target",
+                  []>;
+
 // __________________________
 // Data transfer instructions
 // __________________________

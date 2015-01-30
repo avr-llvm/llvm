@@ -71,14 +71,14 @@ BRMI    x
 BRPL    x
 BRGE    x
 BRLT    x
-BRHS    not implemented
-BRHC    not implemented
-BRTS    not implemented
-BRTC    not implemented
-BRVS    not implemented
-BRVC    not implemented
-BRIE    not implemented
-BRID    not implemented
+BRHS    x (untested)
+BRHC    x (untested)
+BRTS    x (untested)
+BRTC    x (untested)
+BRVS    x (untested)
+BRVC    x (untested)
+BRIE    x (untested)
+BRID    x (untested)
 ```
 
 ### Data Transfer Instructions
