@@ -1218,6 +1218,42 @@ def CBIAb : FIOBIT<0b0,
                    [(store (and (i8 (load lowioaddr8:$addr)), iobitposn8:$bit),
                      lowioaddr8:$addr)]>;
 
+// SBR Rd, K
+// Alias for ORI Rd, K
+let Constraints = "$src = $dst",
+Defs = [SREG] in
+def SBRRdK : FRdK<0b0110,
+                  (outs LD8:$dst),
+                  (ins LD8:$src, i8imm:$src2),
+                  "sbr\t$dst, $src2",
+                  [(set LD8:$dst, (or LD8:$src, imm:$src2)),
+                   (implicit SREG)]>;
+
+// CLR Rd
+// Alias for EOR Rd, Rd
+// -------------
+// Clears all bits in a register.
+let Constraints = "$src = $dst, $dst = $src2",
+Defs = [SREG] in
+def CLRRd : FRdRr<0b0010,
+                  0b01,
+                  (outs GPR8:$dst),
+                  (ins GPR8:$src, GPR8:$src2),
+                  "clr\t$dst",
+                  []>;
+
+// SER Rd
+// ---------
+// Sets all bits in a register.
+let Constraints = "$src = $dst",
+Defs = [SREG] in
+def SERRd : FRd<0b1110,
+                0b1111111,
+                (outs GPR8:$dst),
+                (ins GPR8:$src),
+                "ser\t$dst",
+                []>;
+
 def SEI : FI<0b1001010001111000,
                (outs),
                (ins),

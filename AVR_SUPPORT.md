@@ -23,14 +23,14 @@ ORI    x
 EOR    x
 COM    x
 NEG    x
-SBR    not implemented
+SBR    x (untested)
 CBR    not implemented
 INC    x
 DEC    x
 DEC    x
 TST    x (untested)
-CLR    not implemented
-SER    not implemented
+CLR    x (untested)
+SER    x (untested)
 MUL    x
 MULS   not implemented
 MULSU  not implemented
