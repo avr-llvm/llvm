@@ -21,11 +21,17 @@
 
 using namespace llvm;
 
+namespace
+{
+    // The default CPU to choose if an empty string is passed.
+    const char* DefaultCPU = "avr2";
+}
+
 AVRTargetMachine::AVRTargetMachine(const Target &T, StringRef TT, StringRef CPU,
                                    StringRef FS, const TargetOptions &Options,
                                    Reloc::Model RM, CodeModel::Model CM,
                                    CodeGenOpt::Level OL) :
-  LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
+  LLVMTargetMachine(T, TT, CPU.empty() ? DefaultCPU : CPU, FS, Options, RM, CM, OL),
   SubTarget(TT, CPU, FS, *this)
 {
   this->TLOF = make_unique<AVRTargetObjectFile>();
