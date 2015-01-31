@@ -25,6 +25,7 @@ COM    x
 NEG    x
 SBR    x (untested)
 CBR    not implemented
+  * (I'm fairly sure we need to add a pseudo instruction and lower into compliment and ANDI)
 INC    x
 DEC    x
 DEC    x
@@ -42,7 +43,7 @@ FMULSU not implemented
 ### Branch Instructions
 ```
 RJMP    x
-IJMP    not implemented
+IJMP    x (untested)
 EIJMP   not implemented
 JMP     x
 RCALL   x (untested)
