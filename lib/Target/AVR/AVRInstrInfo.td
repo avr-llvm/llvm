@@ -731,6 +731,17 @@ def CPCWRdRr : Pseudo<(outs),
                       "cpcw\t$src, $src2",
                       [(AVRcmpc DREGS:$src, DREGS:$src2), (implicit SREG)]>;
 
+// CPI Rd, K
+// -----
+// Compares a register with an 8 bit immediate.
+let Defs = [SREG],
+Uses = [SREG] in
+def CPIRdK : FRdK<0b0011,
+                  (outs LD8:$src2),
+                  (ins GPR8:$src),
+                  "cpi\t$src, $src2",
+                  []>;
+
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in

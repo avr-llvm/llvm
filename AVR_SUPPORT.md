@@ -55,7 +55,7 @@ RETI    x
 CPSE    not implemented
 CP      x
 CPC     x
-CPI     not implemented
+CPI     x (untested)
 SBRC    not implemented
 SBRS    not implemented
 SBIC    not implemented
