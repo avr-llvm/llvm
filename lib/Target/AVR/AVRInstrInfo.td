@@ -602,12 +602,16 @@ def NEGRd : FRd<0b1001,
                 (ins GPR8:$src),
                 "neg\t$dst",
                 [(set GPR8:$dst, (ineg GPR8:$src)), (implicit SREG)]>;
-
-let Defs = [SREG] in
-def TSTRd : FTST<(outs),
-                 (ins GPR8:$src),
-                 "tst\t$src",
-                 [(AVRtst GPR8:$src), (implicit SREG)]>;
+/// TST Rd
+let Constraints = "$src = $dst",
+Defs = [SREG] in
+def TSTRd : FRdRr<0b0010,
+                  0b00,
+                  (outs GPR8:$dst),
+                  (ins GPR8:$src, GPR8:$src2),
+                  "tst\t$dst",
+                  [(set GPR8:$dst, (and GPR8:$src, GPR8:$src2)),
+                  (implicit SREG)]>;
 
 // Branch instructions
 
