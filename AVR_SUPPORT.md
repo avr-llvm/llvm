@@ -45,7 +45,7 @@ RJMP    x
 IJMP    not implemented
 EIJMP   not implemented
 JMP     x
-RCALL   not implemented
+RCALL   x (untested)
 ICALL   x
 EICALL  not implemented
 CALL    x

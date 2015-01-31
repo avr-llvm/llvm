@@ -656,6 +656,18 @@ let isCall = 1 in
                     []>;
   }
 
+let isCall = 1 in
+  // SP is marked as a use to prevent stack-pointer assignments that appear
+  // immediately before calls from potentially appearing dead.
+  let Uses = [SP] in
+  {
+    def RCALL : FBRk<1,
+                     (outs),
+                     (ins rel_condbr_12_target:$target),
+                     "rcall\t$target",
+                     []>;
+  }
+
 
 let isCall = 1 in
   // SP is marked as a use to prevent stack-pointer assignments that appear
