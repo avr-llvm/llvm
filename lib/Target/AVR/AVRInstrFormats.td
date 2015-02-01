@@ -159,10 +159,44 @@ class FPqRr<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
 //===---------------------------------------------------------------------===//
 // An ST/LD instruction.
 // <|100p|00tr|rrrr|ppaa|>
-// t = type (1 for ST, 0 for LD)
+// t = type (1 for store, 0 for load)
 // a = regular/postinc/predec (reg = 0b00, postinc = 0b01, predec = 0b10)
-// p = pointer register
+// p = pointer register (and inconsistent bit).
 // r = src/dst register
+//===---------------------------------------------------------------------===//
+// TODO: List encodings of LDD/STD instructions
+// 
+// The encoding of this format of instruction is inconsistent w.r.t
+// the pointer register and the addressing mode.
+//
+// The permutations of the format are as followed:
+// ld Rd, X    `1001 000d dddd 1100`
+// ld Rd, X+   `1001 000d dddd 1101`
+// ld Rd, -X   `1001 000d dddd 1110`
+//
+// ld Rd, Y    `1000 000d dddd 1000`
+// ld Rd, Y+   `1001 000d dddd 1001`
+// ld Rd, -Y   `1001 000d dddd 1010`
+
+// ld Rd, Z    `1000 000d dddd 0000`
+// ld Rd, Z+   `1001 000d dddd 0001`
+// ld Rd, -Z   `1001 000d dddd 0010`
+//                 ^
+//                 |
+// Note this one inconsistent bit - it is 1 sometimes and 0 at other times.
+// There is no logical pattern. Looking at a truth table, the following
+// formula can be derived to fit the pattern:
+// 
+// inconsistent_bit = is_predec OR is_postinc OR is_reg_x
+//
+// To solve this issue, in AVRInstrInfo.td, a new operand type is added: LDSTPtrReg.
+// In the LD/ST family of instructions, the pointer register occupies two bits.
+// The LDSTPtrReg operand has a special encoding function which uses the lowest
+// three bits - the bottom two being the pointer register, and the top bit
+// being our inconsistent bit. The custom encoding function uses the aforementioned
+// boolean expression and puts it in the third bit of its result, so we can use it here.
+// Thus, the format of `ppp` is not 3 bits for the pointer register, but `ipp` where
+// `i` is the inconsistent bit.
 //===---------------------------------------------------------------------===//
 class FSTLD<bit type, bits<2> mode, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>

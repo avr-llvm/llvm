@@ -79,6 +79,10 @@ public:
   {
       return getRelCondBrTargetEncoding(12, MI, OpNo, Fixups, STI);
   }
+  
+  unsigned getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
+                                 SmallVectorImpl<MCFixup> &Fixups,
+                                 const MCSubtargetInfo &STI) const;
 
   // getBinaryCodeForInstr - TableGen'erated function for getting the
   // binary encoding for an instruction.

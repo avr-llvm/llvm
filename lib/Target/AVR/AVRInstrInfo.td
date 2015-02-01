@@ -179,6 +179,30 @@ def rel_condbr_12_target : Operand<OtherVT>
 // Addressing mode pattern reg+imm6
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], [SDNPWantRoot]>;
 
+// AsmOperand class for a pointer register.
+// Used with the LD/ST family of instructions.
+// See FSTLD in AVRInstrFormats.td
+def PtrRegAsmOperand : AsmOperandClass
+{
+   let Name = "Reg";
+} 
+ 
+// A special operand type for the LD/ST instructions.
+//
+// The 12th bit in the instruction follows no pattern. It is 1 in some
+// cases of pointer reg and predec/postinc mode, and 0 in others.
+// We enumerate all cases in the custom encoder method and set this
+// bit appropriately.
+//
+// See FSTLD in AVRInstrFormats.td for more information.
+def LDSTPtrReg : Operand<i16>
+{
+    let MIOperandInfo = (ops PTRREGS);
+    let EncoderMethod = "getLDSTPtrRegEncoding";
+    
+    let ParserMatchClass = PtrRegAsmOperand;
+}
+
 //===----------------------------------------------------------------------===//
 // AVR predicates for subtarget features
 //===----------------------------------------------------------------------===//
@@ -996,9 +1020,9 @@ let canFoldAsLoad = 1,
 isReMaterializable = 1 in
 def LDRdPtr : FSTLDPtrReg<0b0,
                           (outs GPR8:$reg),
-                          (ins PTRREGS:$ptrreg),
+                          (ins LDSTPtrReg:$ptrreg),
                           "ld\t$reg, $ptrreg",
-                          [(set GPR8:$reg, (load PTRREGS:$ptrreg))]>;
+                          [(set GPR8:$reg, (load i16:$ptrreg))]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
@@ -1013,7 +1037,7 @@ hasSideEffects = 0,
 Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
 def LDRdPtrPi : FSTLDPtrPiReg<0b0,
                               (outs GPR8:$reg, PTRREGS:$base_wb),
-                              (ins PTRREGS:$ptrreg),
+                              (ins LDSTPtrReg:$ptrreg),
                               "ld\t$reg, $ptrreg +",
                               []>;
 
@@ -1030,7 +1054,7 @@ hasSideEffects = 0,
 Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
 def LDRdPtrPd : FSTLDPtrPdReg<0b0,
                               (outs GPR8:$reg, PTRREGS:$base_wb),
-                              (ins PTRREGS:$ptrreg),
+                              (ins LDSTPtrReg:$ptrreg),
                               "ld\t$reg, -$ptrreg",
                               []>;
 
@@ -1083,9 +1107,9 @@ def STSWKRr : Pseudo<(outs),
 // Stores the value of Rr into the location addressed by pointer P.
 def STPtrRr : FSTLDPtrReg<0b1,
                          (outs),
-                         (ins PTRREGS:$ptrreg, GPR8:$reg),
+                         (ins LDSTPtrReg:$ptrreg, GPR8:$reg),
                          "st\t$ptrreg, $reg",
-                         [(store GPR8:$reg, PTRREGS:$ptrreg)]>;
+                         [(store GPR8:$reg, i16:$ptrreg)]>;
 
 // STW P, Rr
 // Stores the value of Rr into the location addressed by pointer P.
@@ -1099,11 +1123,11 @@ def STWPtrRr : Pseudo<(outs),
 // Post increments P.
 let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
 def STPtrPiRr : FSTLDPtrPiReg<0b1,
-                              (outs PTRREGS:$base_wb),
-                              (ins PTRREGS:$ptrreg, GPR8:$reg, i8imm:$offs),
+                              (outs LDSTPtrReg:$base_wb),
+                              (ins LDSTPtrReg:$ptrreg, GPR8:$reg, i8imm:$offs),
                               "st\t$ptrreg +, $reg",
-                              [(set PTRREGS:$base_wb,
-                              (post_store GPR8:$reg, PTRREGS:$ptrreg, imm:$offs))]>;
+                              [(set i16:$base_wb,
+                              (post_store GPR8:$reg, i16:$ptrreg, imm:$offs))]>;
 
 // STW P+, Rr
 // Stores the value of Rr into the location addressed by pointer P.
@@ -1120,11 +1144,11 @@ def STWPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
 // Pre decrements P.
 let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
 def STPtrPdRr : FSTLDPtrPdReg<0b1,
-                              (outs PTRREGS:$base_wb),
-                              (ins PTRREGS:$ptrreg, GPR8:$reg, i8imm:$offs),
+                              (outs LDSTPtrReg:$base_wb),
+                              (ins LDSTPtrReg:$ptrreg, GPR8:$reg, i8imm:$offs),
                               "st\t-$ptrreg, $reg",
-                              [(set PTRREGS:$base_wb,
-                              (pre_store GPR8:$reg, PTRREGS:$ptrreg, imm:$offs))]>;
+                              [(set i16:$base_wb,
+                              (pre_store GPR8:$reg, i16:$ptrreg, imm:$offs))]>;
 
 // STW -P, Rr
 // Stores the value of Rr into the location addressed by pointer P.

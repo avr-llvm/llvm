@@ -166,6 +166,55 @@ AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
     return (MO.getImm() >> 1);
 }
 
+unsigned
+AVRMCCodeEmitter::getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
+                                        SmallVectorImpl<MCFixup> &Fixups,
+                                        const MCSubtargetInfo &STI) const {
+    
+    // the operand should be a pointer register.
+    assert(MI.getOperand(OpNo).isReg());
+  
+    const MCOperand MO = MI.getOperand(OpNo);
+    
+    unsigned encoding;
+    
+    switch (MO.getReg()) {
+        case AVR::R27R26: // X pointer register
+        {
+            encoding = 0x03; // 0b11
+            break;
+        }
+        case AVR::R29R28: // Y pointer register
+        {
+            encoding = 0x02; // 0b10
+            break;
+        }
+        case AVR::R31R30: // Z pointer register
+        {
+            encoding = 0x00; // 0b00
+            break;
+        }
+        default:
+        {
+            llvm_unreachable("invalid pointer register");
+            break;
+        }
+    }
+    
+    bool is_predec = OpNo == AVR::LDRdPtrPd ||
+                     OpNo == AVR::STPtrPdRr;
+    
+    bool is_postinc = OpNo == AVR::LDRdPtrPi ||
+                      OpNo == AVR::STPtrPiRr;
+    
+    bool is_reg_x = MO.getReg() == AVR::R27R26;
+    
+    if(is_predec || is_postinc || is_reg_x)
+        encoding |= 0x04; // 0b100
+    
+    return encoding;
+}
+
 unsigned AVRMCCodeEmitter::
 getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
                const MCSubtargetInfo &STI) const {
