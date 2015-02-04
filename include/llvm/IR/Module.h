@@ -248,6 +248,12 @@ public:
   /// @returns the module identifier as a string
   const std::string &getModuleIdentifier() const { return ModuleID; }
 
+  /// \brief Get a short "name" for the module.
+  ///
+  /// This is useful for debugging or logging. It is essentially a convenience
+  /// wrapper around getModuleIdentifier().
+  StringRef getName() const { return ModuleID; }
+
   /// Get the data layout string for the module's target platform. This is
   /// equivalent to getDataLayout()->getStringRepresentation().
   const std::string &getDataLayoutStr() const { return DataLayoutStr; }
@@ -623,6 +629,15 @@ public:
     return iterator_range<const_named_metadata_iterator>(named_metadata_begin(),
                                                          named_metadata_end());
   }
+
+  /// Destroy ConstantArrays in LLVMContext if they are not used.
+  /// ConstantArrays constructed during linking can cause quadratic memory
+  /// explosion. Releasing all unused constants can cause a 20% LTO compile-time
+  /// slowdown for a large application.
+  ///
+  /// NOTE: Constants are currently owned by LLVMContext. This can then only
+  /// be called where all uses of the LLVMContext are understood.
+  void dropTriviallyDeadConstantArrays();
 
 /// @}
 /// @name Utility functions for printing and dumping Module objects

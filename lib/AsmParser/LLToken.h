@@ -28,9 +28,7 @@ namespace lltok {
     lbrace, rbrace,    // {  }
     less, greater,     // <  >
     lparen, rparen,    // (  )
-    backslash,         // \    (not /)
     exclaim,           // !
-    hash,              // #
 
     kw_x,
     kw_true,    kw_false,
@@ -183,6 +181,9 @@ namespace lltok {
     kw_extractelement, kw_insertelement, kw_shufflevector,
     kw_extractvalue, kw_insertvalue, kw_blockaddress,
 
+    // Metadata types.
+    kw_distinct,
+
     // Use-list order directives.
     kw_uselistorder, kw_uselistorder_bb,
 
@@ -198,6 +199,7 @@ namespace lltok {
     LocalVar,          // %foo %"foo"
     MetadataVar,       // !foo
     StringConstant,    // "foo"
+    DwarfTag,          // DW_TAG_foo (includes "DW_TAG_")
 
     // Type valued tokens (TyVal).
     Type,

@@ -1,10 +1,10 @@
-; RUN: llc -march=r600 -mcpu=SI -verify-machineinstrs < %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
-; RUN: llc -march=r600 -mcpu=bonaire -verify-machineinstrs < %s | FileCheck -strict-whitespace -check-prefix=CI -check-prefix=FUNC %s
+; RUN: llc -march=amdgcn -mcpu=SI -verify-machineinstrs < %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
+; RUN: llc -march=amdgcn -mcpu=bonaire -verify-machineinstrs < %s | FileCheck -strict-whitespace -check-prefix=CI -check-prefix=FUNC %s
 
 ; FUNC-LABEL: {{^}}lds_atomic_cmpxchg_ret_i32_offset:
+; SI: v_mov_b32_e32 [[VCMP:v[0-9]+]], 7
 ; SI: s_load_dword [[PTR:s[0-9]+]], s{{\[[0-9]+:[0-9]+\]}}, 0xb
 ; SI: s_load_dword [[SWAP:s[0-9]+]], s{{\[[0-9]+:[0-9]+\]}}, 0xc
-; SI-DAG: v_mov_b32_e32 [[VCMP:v[0-9]+]], 7
 ; SI-DAG: v_mov_b32_e32 [[VPTR:v[0-9]+]], [[PTR]]
 ; SI-DAG: v_mov_b32_e32 [[VSWAP:v[0-9]+]], [[SWAP]]
 ; SI: ds_cmpst_rtn_b32 [[RESULT:v[0-9]+]], [[VPTR]], [[VCMP]], [[VSWAP]] offset:16 [M0]
@@ -18,11 +18,10 @@ define void @lds_atomic_cmpxchg_ret_i32_offset(i32 addrspace(1)* %out, i32 addrs
 }
 
 ; FUNC-LABEL: {{^}}lds_atomic_cmpxchg_ret_i64_offset:
+; SI-DAG: v_mov_b32_e32 v[[LOVCMP:[0-9]+]], 7
+; SI-DAG: v_mov_b32_e32 v[[HIVCMP:[0-9]+]], 0
 ; SI: s_load_dword [[PTR:s[0-9]+]], s{{\[[0-9]+:[0-9]+\]}}, 0xb
 ; SI: s_load_dwordx2 s{{\[}}[[LOSWAP:[0-9]+]]:[[HISWAP:[0-9]+]]{{\]}}, s{{\[[0-9]+:[0-9]+\]}}, 0xd
-; SI: s_mov_b64  s{{\[}}[[LOSCMP:[0-9]+]]:[[HISCMP:[0-9]+]]{{\]}}, 7
-; SI-DAG: v_mov_b32_e32 v[[LOVCMP:[0-9]+]], s[[LOSCMP]]
-; SI-DAG: v_mov_b32_e32 v[[HIVCMP:[0-9]+]], s[[HISCMP]]
 ; SI-DAG: v_mov_b32_e32 [[VPTR:v[0-9]+]], [[PTR]]
 ; SI-DAG: v_mov_b32_e32 v[[LOSWAPV:[0-9]+]], s[[LOSWAP]]
 ; SI-DAG: v_mov_b32_e32 v[[HISWAPV:[0-9]+]], s[[HISWAP]]
@@ -69,9 +68,8 @@ define void @lds_atomic_cmpxchg_noret_i32_offset(i32 addrspace(3)* %ptr, i32 %sw
 ; FUNC-LABEL: {{^}}lds_atomic_cmpxchg_noret_i64_offset:
 ; SI: s_load_dword [[PTR:s[0-9]+]], s{{\[[0-9]+:[0-9]+\]}}, 0x9
 ; SI: s_load_dwordx2 s{{\[}}[[LOSWAP:[0-9]+]]:[[HISWAP:[0-9]+]]{{\]}}, s{{\[[0-9]+:[0-9]+\]}}, 0xb
-; SI: s_mov_b64  s{{\[}}[[LOSCMP:[0-9]+]]:[[HISCMP:[0-9]+]]{{\]}}, 7
-; SI-DAG: v_mov_b32_e32 v[[LOVCMP:[0-9]+]], s[[LOSCMP]]
-; SI-DAG: v_mov_b32_e32 v[[HIVCMP:[0-9]+]], s[[HISCMP]]
+; SI-DAG: v_mov_b32_e32 v[[LOVCMP:[0-9]+]], 7
+; SI-DAG: v_mov_b32_e32 v[[HIVCMP:[0-9]+]], 0
 ; SI-DAG: v_mov_b32_e32 [[VPTR:v[0-9]+]], [[PTR]]
 ; SI-DAG: v_mov_b32_e32 v[[LOSWAPV:[0-9]+]], s[[LOSWAP]]
 ; SI-DAG: v_mov_b32_e32 v[[HISWAPV:[0-9]+]], s[[HISWAP]]

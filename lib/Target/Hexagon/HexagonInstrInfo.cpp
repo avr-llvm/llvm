@@ -358,21 +358,19 @@ bool HexagonInstrInfo::analyzeCompare(const MachineInstr *MI,
       SrcReg = MI->getOperand(1).getReg();
       Mask = ~0;
       break;
-    case Hexagon::CMPbEQri_V4:
-    case Hexagon::CMPbEQrr_sbsb_V4:
-    case Hexagon::CMPbEQrr_ubub_V4:
-    case Hexagon::CMPbGTUri_V4:
-    case Hexagon::CMPbGTUrr_V4:
-    case Hexagon::CMPbGTrr_V4:
+    case Hexagon::A4_cmpbeqi:
+    case Hexagon::A4_cmpbeq:
+    case Hexagon::A4_cmpbgtui:
+    case Hexagon::A4_cmpbgtu:
+    case Hexagon::A4_cmpbgt:
       SrcReg = MI->getOperand(1).getReg();
       Mask = 0xFF;
       break;
-    case Hexagon::CMPhEQri_V4:
-    case Hexagon::CMPhEQrr_shl_V4:
-    case Hexagon::CMPhEQrr_xor_V4:
-    case Hexagon::CMPhGTUri_V4:
-    case Hexagon::CMPhGTUrr_V4:
-    case Hexagon::CMPhGTrr_shl_V4:
+    case Hexagon::A4_cmpheqi:
+    case Hexagon::A4_cmpheq:
+    case Hexagon::A4_cmphgtui:
+    case Hexagon::A4_cmphgtu:
+    case Hexagon::A4_cmphgt:
       SrcReg = MI->getOperand(1).getReg();
       Mask = 0xFFFF;
       break;
@@ -386,24 +384,22 @@ bool HexagonInstrInfo::analyzeCompare(const MachineInstr *MI,
     case Hexagon::C2_cmpgtup:
     case Hexagon::C2_cmpgtu:
     case Hexagon::C2_cmpgt:
-    case Hexagon::CMPbEQrr_sbsb_V4:
-    case Hexagon::CMPbEQrr_ubub_V4:
-    case Hexagon::CMPbGTUrr_V4:
-    case Hexagon::CMPbGTrr_V4:
-    case Hexagon::CMPhEQrr_shl_V4:
-    case Hexagon::CMPhEQrr_xor_V4:
-    case Hexagon::CMPhGTUrr_V4:
-    case Hexagon::CMPhGTrr_shl_V4:
+    case Hexagon::A4_cmpbeq:
+    case Hexagon::A4_cmpbgtu:
+    case Hexagon::A4_cmpbgt:
+    case Hexagon::A4_cmpheq:
+    case Hexagon::A4_cmphgtu:
+    case Hexagon::A4_cmphgt:
       SrcReg2 = MI->getOperand(2).getReg();
       return true;
 
     case Hexagon::C2_cmpeqi:
     case Hexagon::C2_cmpgtui:
     case Hexagon::C2_cmpgti:
-    case Hexagon::CMPbEQri_V4:
-    case Hexagon::CMPbGTUri_V4:
-    case Hexagon::CMPhEQri_V4:
-    case Hexagon::CMPhGTUri_V4:
+    case Hexagon::A4_cmpbeqi:
+    case Hexagon::A4_cmpbgtui:
+    case Hexagon::A4_cmpheqi:
+    case Hexagon::A4_cmphgtui:
       SrcReg2 = 0;
       Value = MI->getOperand(2).getImm();
       return true;
@@ -655,15 +651,15 @@ bool HexagonInstrInfo::isPredicable(MachineInstr *MI) const {
     return isShiftedUInt<6,3>(MI->getOperand(1).getImm());
 
   case Hexagon::S2_storeri_io:
-  case Hexagon::STriw_nv_V4:
+  case Hexagon::S2_storerinew_io:
     return isShiftedUInt<6,2>(MI->getOperand(1).getImm());
 
   case Hexagon::S2_storerh_io:
-  case Hexagon::STrih_nv_V4:
+  case Hexagon::S2_storerhnew_io:
     return isShiftedUInt<6,1>(MI->getOperand(1).getImm());
 
   case Hexagon::S2_storerb_io:
-  case Hexagon::STrib_nv_V4:
+  case Hexagon::S2_storerbnew_io:
     return isUInt<6>(MI->getOperand(1).getImm());
 
   case Hexagon::L2_loadrd_io:
@@ -694,9 +690,9 @@ bool HexagonInstrInfo::isPredicable(MachineInstr *MI) const {
   case Hexagon::L2_loadrub_pi:
     return isInt<4>(MI->getOperand(3).getImm());
 
-  case Hexagon::STrib_imm_V4:
-  case Hexagon::STrih_imm_V4:
-  case Hexagon::STriw_imm_V4:
+  case Hexagon::S4_storeirb_io:
+  case Hexagon::S4_storeirh_io:
+  case Hexagon::S4_storeiri_io:
     return (isUInt<6>(MI->getOperand(1).getImm()) &&
             isInt<6>(MI->getOperand(2).getImm()));
 
@@ -735,10 +731,10 @@ unsigned HexagonInstrInfo::getInvertedPredicatedOpcode(const int Opc) const {
       return Hexagon::C2_ccombinewt;
 
       // Dealloc_return.
-    case Hexagon::DEALLOC_RET_cPt_V4:
-      return Hexagon::DEALLOC_RET_cNotPt_V4;
-    case Hexagon::DEALLOC_RET_cNotPt_V4:
-      return Hexagon::DEALLOC_RET_cPt_V4;
+    case Hexagon::L4_return_t:
+      return Hexagon::L4_return_f;
+    case Hexagon::L4_return_f:
+      return Hexagon::L4_return_t;
   }
 }
 
@@ -774,18 +770,10 @@ getMatchingCondBranchOpcode(int Opc, bool invertPredicate) const {
     return !invertPredicate ? Hexagon::C2_ccombinewt :
                               Hexagon::C2_ccombinewf;
 
-  // Word.
-  case Hexagon::STriw_f:
-    return !invertPredicate ? Hexagon::S2_pstorerit_io:
-                              Hexagon::S2_pstorerif_io;
-  case Hexagon::STriw_indexed_f:
-    return !invertPredicate ? Hexagon::S2_pstorerit_io:
-                              Hexagon::S2_pstorerif_io;
-
   // DEALLOC_RETURN.
-  case Hexagon::DEALLOC_RET_V4:
-    return !invertPredicate ? Hexagon::DEALLOC_RET_cPt_V4 :
-                              Hexagon::DEALLOC_RET_cNotPt_V4;
+  case Hexagon::L4_return:
+    return !invertPredicate ? Hexagon::L4_return_t:
+                              Hexagon::L4_return_f;
   }
   llvm_unreachable("Unexpected predicable instruction");
 }
@@ -891,7 +879,7 @@ PredicateInstruction(MachineInstr *MI,
         continue;
       }
       else {
-        assert(false && "Unexpected operand type");
+        llvm_unreachable("Unexpected operand type");
       }
     }
   }
@@ -1072,13 +1060,13 @@ isProfitableToDupForIfCvt(MachineBasicBlock &MBB,unsigned NumInstrs,
 bool HexagonInstrInfo::isDeallocRet(const MachineInstr *MI) const {
   switch (MI->getOpcode()) {
   default: return false;
-  case Hexagon::DEALLOC_RET_V4 :
-  case Hexagon::DEALLOC_RET_cPt_V4 :
-  case Hexagon::DEALLOC_RET_cNotPt_V4 :
-  case Hexagon::DEALLOC_RET_cdnPnt_V4 :
-  case Hexagon::DEALLOC_RET_cNotdnPnt_V4 :
-  case Hexagon::DEALLOC_RET_cdnPt_V4 :
-  case Hexagon::DEALLOC_RET_cNotdnPt_V4 :
+  case Hexagon::L4_return:
+  case Hexagon::L4_return_t:
+  case Hexagon::L4_return_f:
+  case Hexagon::L4_return_tnew_pnt:
+  case Hexagon::L4_return_fnew_pnt:
+  case Hexagon::L4_return_tnew_pt:
+  case Hexagon::L4_return_fnew_pt:
    return true;
   }
 }
@@ -1098,16 +1086,12 @@ isValidOffset(const int Opcode, const int Offset) const {
   switch(Opcode) {
 
   case Hexagon::L2_loadri_io:
-  case Hexagon::LDriw_f:
   case Hexagon::S2_storeri_io:
-  case Hexagon::STriw_f:
     return (Offset >= Hexagon_MEMW_OFFSET_MIN) &&
       (Offset <= Hexagon_MEMW_OFFSET_MAX);
 
   case Hexagon::L2_loadrd_io:
-  case Hexagon::LDrid_f:
   case Hexagon::S2_storerd_io:
-  case Hexagon::STrid_f:
     return (Offset >= Hexagon_MEMD_OFFSET_MIN) &&
       (Offset <= Hexagon_MEMD_OFFSET_MAX);
 
@@ -1128,28 +1112,28 @@ isValidOffset(const int Opcode, const int Offset) const {
     return (Offset >= Hexagon_ADDI_OFFSET_MIN) &&
       (Offset <= Hexagon_ADDI_OFFSET_MAX);
 
-  case Hexagon::MemOPw_ADDi_V4 :
-  case Hexagon::MemOPw_SUBi_V4 :
-  case Hexagon::MemOPw_ADDr_V4 :
-  case Hexagon::MemOPw_SUBr_V4 :
-  case Hexagon::MemOPw_ANDr_V4 :
-  case Hexagon::MemOPw_ORr_V4 :
+  case Hexagon::L4_iadd_memopw_io:
+  case Hexagon::L4_isub_memopw_io:
+  case Hexagon::L4_add_memopw_io:
+  case Hexagon::L4_sub_memopw_io:
+  case Hexagon::L4_and_memopw_io:
+  case Hexagon::L4_or_memopw_io:
     return (0 <= Offset && Offset <= 255);
 
-  case Hexagon::MemOPh_ADDi_V4 :
-  case Hexagon::MemOPh_SUBi_V4 :
-  case Hexagon::MemOPh_ADDr_V4 :
-  case Hexagon::MemOPh_SUBr_V4 :
-  case Hexagon::MemOPh_ANDr_V4 :
-  case Hexagon::MemOPh_ORr_V4 :
+  case Hexagon::L4_iadd_memoph_io:
+  case Hexagon::L4_isub_memoph_io:
+  case Hexagon::L4_add_memoph_io:
+  case Hexagon::L4_sub_memoph_io:
+  case Hexagon::L4_and_memoph_io:
+  case Hexagon::L4_or_memoph_io:
     return (0 <= Offset && Offset <= 127);
 
-  case Hexagon::MemOPb_ADDi_V4 :
-  case Hexagon::MemOPb_SUBi_V4 :
-  case Hexagon::MemOPb_ADDr_V4 :
-  case Hexagon::MemOPb_SUBr_V4 :
-  case Hexagon::MemOPb_ANDr_V4 :
-  case Hexagon::MemOPb_ORr_V4 :
+  case Hexagon::L4_iadd_memopb_io:
+  case Hexagon::L4_isub_memopb_io:
+  case Hexagon::L4_add_memopb_io:
+  case Hexagon::L4_sub_memopb_io:
+  case Hexagon::L4_and_memopb_io:
+  case Hexagon::L4_or_memopb_io:
     return (0 <= Offset && Offset <= 63);
 
   // LDri_pred and STriw_pred are pseudo operations, so it has to take offset of
@@ -1206,31 +1190,31 @@ isMemOp(const MachineInstr *MI) const {
 
   switch (MI->getOpcode())
   {
-    default: return false;
-    case Hexagon::MemOPw_ADDi_V4 :
-    case Hexagon::MemOPw_SUBi_V4 :
-    case Hexagon::MemOPw_ADDr_V4 :
-    case Hexagon::MemOPw_SUBr_V4 :
-    case Hexagon::MemOPw_ANDr_V4 :
-    case Hexagon::MemOPw_ORr_V4 :
-    case Hexagon::MemOPh_ADDi_V4 :
-    case Hexagon::MemOPh_SUBi_V4 :
-    case Hexagon::MemOPh_ADDr_V4 :
-    case Hexagon::MemOPh_SUBr_V4 :
-    case Hexagon::MemOPh_ANDr_V4 :
-    case Hexagon::MemOPh_ORr_V4 :
-    case Hexagon::MemOPb_ADDi_V4 :
-    case Hexagon::MemOPb_SUBi_V4 :
-    case Hexagon::MemOPb_ADDr_V4 :
-    case Hexagon::MemOPb_SUBr_V4 :
-    case Hexagon::MemOPb_ANDr_V4 :
-    case Hexagon::MemOPb_ORr_V4 :
-    case Hexagon::MemOPb_SETBITi_V4:
-    case Hexagon::MemOPh_SETBITi_V4:
-    case Hexagon::MemOPw_SETBITi_V4:
-    case Hexagon::MemOPb_CLRBITi_V4:
-    case Hexagon::MemOPh_CLRBITi_V4:
-    case Hexagon::MemOPw_CLRBITi_V4:
+  default: return false;
+  case Hexagon::L4_iadd_memopw_io:
+  case Hexagon::L4_isub_memopw_io:
+  case Hexagon::L4_add_memopw_io:
+  case Hexagon::L4_sub_memopw_io:
+  case Hexagon::L4_and_memopw_io:
+  case Hexagon::L4_or_memopw_io:
+  case Hexagon::L4_iadd_memoph_io:
+  case Hexagon::L4_isub_memoph_io:
+  case Hexagon::L4_add_memoph_io:
+  case Hexagon::L4_sub_memoph_io:
+  case Hexagon::L4_and_memoph_io:
+  case Hexagon::L4_or_memoph_io:
+  case Hexagon::L4_iadd_memopb_io:
+  case Hexagon::L4_isub_memopb_io:
+  case Hexagon::L4_add_memopb_io:
+  case Hexagon::L4_sub_memopb_io:
+  case Hexagon::L4_and_memopb_io:
+  case Hexagon::L4_or_memopb_io:
+  case Hexagon::L4_ior_memopb_io:
+  case Hexagon::L4_ior_memoph_io:
+  case Hexagon::L4_ior_memopw_io:
+  case Hexagon::L4_iand_memopb_io:
+  case Hexagon::L4_iand_memoph_io:
+  case Hexagon::L4_iand_memopw_io:
     return true;
   }
   return false;
@@ -1351,31 +1335,31 @@ isConditionalLoad (const MachineInstr* MI) const {
     case Hexagon::L2_ploadrubt_io:
     case Hexagon::L2_ploadrubf_io:
       return true;
-    case Hexagon::L2_ploadrdt_pi :
-    case Hexagon::L2_ploadrdf_pi :
-    case Hexagon::L2_ploadrit_pi :
-    case Hexagon::L2_ploadrif_pi :
-    case Hexagon::L2_ploadrht_pi :
-    case Hexagon::L2_ploadrhf_pi :
-    case Hexagon::L2_ploadrbt_pi :
-    case Hexagon::L2_ploadrbf_pi :
-    case Hexagon::L2_ploadruht_pi :
-    case Hexagon::L2_ploadruhf_pi :
-    case Hexagon::L2_ploadrubt_pi :
-    case Hexagon::L2_ploadrubf_pi :
+    case Hexagon::L2_ploadrdt_pi:
+    case Hexagon::L2_ploadrdf_pi:
+    case Hexagon::L2_ploadrit_pi:
+    case Hexagon::L2_ploadrif_pi:
+    case Hexagon::L2_ploadrht_pi:
+    case Hexagon::L2_ploadrhf_pi:
+    case Hexagon::L2_ploadrbt_pi:
+    case Hexagon::L2_ploadrbf_pi:
+    case Hexagon::L2_ploadruht_pi:
+    case Hexagon::L2_ploadruhf_pi:
+    case Hexagon::L2_ploadrubt_pi:
+    case Hexagon::L2_ploadrubf_pi:
       return QRI.Subtarget.hasV4TOps();
-    case Hexagon::LDrid_indexed_shl_cPt_V4 :
-    case Hexagon::LDrid_indexed_shl_cNotPt_V4 :
-    case Hexagon::LDrib_indexed_shl_cPt_V4 :
-    case Hexagon::LDrib_indexed_shl_cNotPt_V4 :
-    case Hexagon::LDriub_indexed_shl_cPt_V4 :
-    case Hexagon::LDriub_indexed_shl_cNotPt_V4 :
-    case Hexagon::LDrih_indexed_shl_cPt_V4 :
-    case Hexagon::LDrih_indexed_shl_cNotPt_V4 :
-    case Hexagon::LDriuh_indexed_shl_cPt_V4 :
-    case Hexagon::LDriuh_indexed_shl_cNotPt_V4 :
-    case Hexagon::LDriw_indexed_shl_cPt_V4 :
-    case Hexagon::LDriw_indexed_shl_cNotPt_V4 :
+    case Hexagon::L4_ploadrdt_rr:
+    case Hexagon::L4_ploadrdf_rr:
+    case Hexagon::L4_ploadrbt_rr:
+    case Hexagon::L4_ploadrbf_rr:
+    case Hexagon::L4_ploadrubt_rr:
+    case Hexagon::L4_ploadrubf_rr:
+    case Hexagon::L4_ploadrht_rr:
+    case Hexagon::L4_ploadrhf_rr:
+    case Hexagon::L4_ploadruht_rr:
+    case Hexagon::L4_ploadruhf_rr:
+    case Hexagon::L4_ploadrit_rr:
+    case Hexagon::L4_ploadrif_rr:
       return QRI.Subtarget.hasV4TOps();
   }
 }
@@ -1420,46 +1404,47 @@ isConditionalStore (const MachineInstr* MI) const {
   switch (MI->getOpcode())
   {
     default: return false;
-    case Hexagon::STrib_imm_cPt_V4 :
-    case Hexagon::STrib_imm_cNotPt_V4 :
-    case Hexagon::STrib_indexed_shl_cPt_V4 :
-    case Hexagon::STrib_indexed_shl_cNotPt_V4 :
+    case Hexagon::S4_storeirbt_io:
+    case Hexagon::S4_storeirbf_io:
+    case Hexagon::S4_pstorerbt_rr:
+    case Hexagon::S4_pstorerbf_rr:
     case Hexagon::S2_pstorerbt_io:
     case Hexagon::S2_pstorerbf_io:
     case Hexagon::S2_pstorerbt_pi:
     case Hexagon::S2_pstorerbf_pi:
     case Hexagon::S2_pstorerdt_io:
     case Hexagon::S2_pstorerdf_io:
-    case Hexagon::STrid_indexed_shl_cPt_V4 :
+    case Hexagon::S4_pstorerdt_rr:
+    case Hexagon::S4_pstorerdf_rr:
     case Hexagon::S2_pstorerdt_pi:
     case Hexagon::S2_pstorerdf_pi:
     case Hexagon::S2_pstorerht_io:
     case Hexagon::S2_pstorerhf_io:
-    case Hexagon::STrih_imm_cPt_V4 :
-    case Hexagon::STrih_imm_cNotPt_V4 :
-    case Hexagon::STrih_indexed_shl_cPt_V4 :
-    case Hexagon::STrih_indexed_shl_cNotPt_V4 :
+    case Hexagon::S4_storeirht_io:
+    case Hexagon::S4_storeirhf_io:
+    case Hexagon::S4_pstorerht_rr:
+    case Hexagon::S4_pstorerhf_rr:
     case Hexagon::S2_pstorerht_pi:
     case Hexagon::S2_pstorerhf_pi:
     case Hexagon::S2_pstorerit_io:
     case Hexagon::S2_pstorerif_io:
-    case Hexagon::STriw_imm_cPt_V4 :
-    case Hexagon::STriw_imm_cNotPt_V4 :
-    case Hexagon::STriw_indexed_shl_cPt_V4 :
-    case Hexagon::STriw_indexed_shl_cNotPt_V4 :
+    case Hexagon::S4_storeirit_io:
+    case Hexagon::S4_storeirif_io:
+    case Hexagon::S4_pstorerit_rr:
+    case Hexagon::S4_pstorerif_rr:
     case Hexagon::S2_pstorerit_pi:
     case Hexagon::S2_pstorerif_pi:
       return QRI.Subtarget.hasV4TOps();
 
     // V4 global address store before promoting to dot new.
-    case Hexagon::STd_GP_cPt_V4 :
-    case Hexagon::STd_GP_cNotPt_V4 :
-    case Hexagon::STb_GP_cPt_V4 :
-    case Hexagon::STb_GP_cNotPt_V4 :
-    case Hexagon::STh_GP_cPt_V4 :
-    case Hexagon::STh_GP_cNotPt_V4 :
-    case Hexagon::STw_GP_cPt_V4 :
-    case Hexagon::STw_GP_cNotPt_V4 :
+    case Hexagon::S4_pstorerdt_abs:
+    case Hexagon::S4_pstorerdf_abs:
+    case Hexagon::S4_pstorerbt_abs:
+    case Hexagon::S4_pstorerbf_abs:
+    case Hexagon::S4_pstorerht_abs:
+    case Hexagon::S4_pstorerhf_abs:
+    case Hexagon::S4_pstorerit_abs:
+    case Hexagon::S4_pstorerif_abs:
       return QRI.Subtarget.hasV4TOps();
 
     // Predicated new value stores (i.e. if (p0) memw(..)=r0.new) are excluded
@@ -1553,12 +1538,6 @@ int HexagonInstrInfo::GetDotNewOp(const MachineInstr* MI) const {
 
   case Hexagon::STrih_shl_V4:
     return Hexagon::STrih_shl_nv_V4;
-
-  case Hexagon::STriw_f:
-    return Hexagon::STriw_nv_V4;
-
-  case Hexagon::STriw_indexed_f:
-    return Hexagon::STriw_indexed_nv_V4;
 
   case Hexagon::STriw_shl_V4:
     return Hexagon::STriw_shl_nv_V4;

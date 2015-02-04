@@ -5,7 +5,7 @@ add_llvm_library(LLVMAnalysis
   AliasDebugger.cpp
   AliasSetTracker.cpp
   Analysis.cpp
-  AssumptionTracker.cpp
+  AssumptionCache.cpp
   BasicAliasAnalysis.cpp
   BlockFrequencyInfo.cpp
   BlockFrequencyInfoImpl.cpp
@@ -22,7 +22,6 @@ add_llvm_library(LLVMAnalysis
   DependenceAnalysis.cpp
   DomPrinter.cpp
   DominanceFrontier.cpp
-  FunctionTargetTransformInfo.cpp
   IVUsers.cpp
   InstCount.cpp
   InstructionSimplify.cpp
@@ -35,6 +34,7 @@ add_llvm_library(LLVMAnalysis
   LibCallSemantics.cpp
   Lint.cpp
   Loads.cpp
+  LoopAccessAnalysis.cpp
   LoopInfo.cpp
   LoopPass.cpp
   MemDepPrinter.cpp
@@ -53,6 +53,7 @@ add_llvm_library(LLVMAnalysis
   ScalarEvolutionExpander.cpp
   ScalarEvolutionNormalization.cpp
   SparsePropagation.cpp
+  TargetLibraryInfo.cpp
   TargetTransformInfo.cpp
   Trace.cpp
   TypeBasedAliasAnalysis.cpp

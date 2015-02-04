@@ -10,6 +10,7 @@
 //
 
 #include "AMDGPU.h"
+#include "AMDGPUMCInstLower.h"
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
 #include "llvm/ADT/Statistic.h"
@@ -130,7 +131,7 @@ static void foldImmediates(MachineInstr &MI, const SIInstrInfo *TII,
 
   // Only one literal constant is allowed per instruction, so if src0 is a
   // literal constant then we can't do any folding.
-  if ((Src0->isImm() || Src0->isFPImm()) && TII->isLiteralConstant(*Src0))
+  if (Src0->isImm() && TII->isLiteralConstant(*Src0))
     return;
 
 
@@ -151,12 +152,6 @@ static void foldImmediates(MachineInstr &MI, const SIInstrInfo *TII,
       if (MovSrc.isImm() && isUInt<32>(MovSrc.getImm())) {
         Src0->ChangeToImmediate(MovSrc.getImm());
         ConstantFolded = true;
-      } else if (MovSrc.isFPImm()) {
-        const ConstantFP *CFP = MovSrc.getFPImm();
-        if (&CFP->getValueAPF().getSemantics() == &APFloat::IEEEsingle) {
-          Src0->ChangeToFPImmediate(CFP);
-          ConstantFolded = true;
-        }
       }
       if (ConstantFolded) {
         if (MRI.use_empty(Reg))
@@ -193,7 +188,6 @@ bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
       if (MI.getOpcode() == AMDGPU::S_MOV_B32) {
         const MachineOperand &Src = MI.getOperand(1);
 
-        // TODO: Handle FPImm?
         if (Src.isImm()) {
           if (isInt<16>(Src.getImm()) && !TII->isInlineConstant(Src))
             MI.setDesc(TII->get(AMDGPU::S_MOVK_I32));
@@ -213,12 +207,12 @@ bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
           continue;
       }
 
-      int Op32 = AMDGPU::getVOPe32(MI.getOpcode());
-
-      // Op32 could be -1 here if we started with an instruction that had a
+      // getVOPe32 could be -1 here if we started with an instruction that had
       // a 32-bit encoding and then commuted it to an instruction that did not.
-      if (Op32 == -1)
+      if (!TII->hasVALU32BitEncoding(MI.getOpcode()))
         continue;
+
+      int Op32 = AMDGPU::getVOPe32(MI.getOpcode());
 
       if (TII->isVOPC(Op32)) {
         unsigned DstReg = MI.getOperand(0).getReg();

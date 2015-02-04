@@ -110,11 +110,17 @@ bool llvm::ConstantFoldTerminator(BasicBlock *BB, bool DeleteDeadConditions,
   }
 
   if (SwitchInst *SI = dyn_cast<SwitchInst>(T)) {
-    // If we are switching on a constant, we can convert the switch into a
-    // single branch instruction!
+    // If we are switching on a constant, we can convert the switch to an
+    // unconditional branch.
     ConstantInt *CI = dyn_cast<ConstantInt>(SI->getCondition());
-    BasicBlock *TheOnlyDest = SI->getDefaultDest();
-    BasicBlock *DefaultDest = TheOnlyDest;
+    BasicBlock *DefaultDest = SI->getDefaultDest();
+    BasicBlock *TheOnlyDest = DefaultDest;
+
+    // If the default is unreachable, ignore it when searching for TheOnlyDest.
+    if (isa<UnreachableInst>(DefaultDest->getFirstNonPHIOrDbg()) &&
+        SI->getNumCases() > 0) {
+      TheOnlyDest = SI->case_begin().getCaseSuccessor();
+    }
 
     // Figure out which case it goes to.
     for (SwitchInst::CaseIt i = SI->case_begin(), e = SI->case_end();
@@ -489,7 +495,7 @@ void llvm::RemovePredecessorAndSimplify(BasicBlock *BB, BasicBlock *Pred,
 /// between them, moving the instructions in the predecessor into DestBB and
 /// deleting the predecessor block.
 ///
-void llvm::MergeBasicBlockIntoOnlyPred(BasicBlock *DestBB, Pass *P) {
+void llvm::MergeBasicBlockIntoOnlyPred(BasicBlock *DestBB, DominatorTree *DT) {
   // If BB has single-entry PHI nodes, fold them.
   while (PHINode *PN = dyn_cast<PHINode>(DestBB->begin())) {
     Value *NewVal = PN->getIncomingValue(0);
@@ -525,14 +531,10 @@ void llvm::MergeBasicBlockIntoOnlyPred(BasicBlock *DestBB, Pass *P) {
   if (PredBB == &DestBB->getParent()->getEntryBlock())
     DestBB->moveAfter(PredBB);
 
-  if (P) {
-    if (DominatorTreeWrapperPass *DTWP =
-            P->getAnalysisIfAvailable<DominatorTreeWrapperPass>()) {
-      DominatorTree &DT = DTWP->getDomTree();
-      BasicBlock *PredBBIDom = DT.getNode(PredBB)->getIDom()->getBlock();
-      DT.changeImmediateDominator(DestBB, PredBBIDom);
-      DT.eraseNode(PredBB);
-    }
+  if (DT) {
+    BasicBlock *PredBBIDom = DT->getNode(PredBB)->getIDom()->getBlock();
+    DT->changeImmediateDominator(DestBB, PredBBIDom);
+    DT->eraseNode(PredBB);
   }
   // Nuke BB.
   PredBB->eraseFromParent();
@@ -943,7 +945,7 @@ static unsigned enforceKnownAlignment(Value *V, unsigned Align,
 /// increase the alignment of the ultimate object, making this check succeed.
 unsigned llvm::getOrEnforceKnownAlignment(Value *V, unsigned PrefAlign,
                                           const DataLayout *DL,
-                                          AssumptionTracker *AT,
+                                          AssumptionCache *AC,
                                           const Instruction *CxtI,
                                           const DominatorTree *DT) {
   assert(V->getType()->isPointerTy() &&
@@ -951,7 +953,7 @@ unsigned llvm::getOrEnforceKnownAlignment(Value *V, unsigned PrefAlign,
   unsigned BitWidth = DL ? DL->getPointerTypeSizeInBits(V->getType()) : 64;
 
   APInt KnownZero(BitWidth, 0), KnownOne(BitWidth, 0);
-  computeKnownBits(V, KnownZero, KnownOne, DL, 0, AT, CxtI, DT);
+  computeKnownBits(V, KnownZero, KnownOne, DL, 0, AC, CxtI, DT);
   unsigned TrailZ = KnownZero.countTrailingOnes();
 
   // Avoid trouble with ridiculously large TrailZ values, such as
@@ -1104,10 +1106,11 @@ DbgDeclareInst *llvm::FindAllocaDbgDeclare(Value *V) {
 }
 
 bool llvm::replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
-                                      DIBuilder &Builder) {
+                                      DIBuilder &Builder, bool Deref) {
   DbgDeclareInst *DDI = FindAllocaDbgDeclare(AI);
   if (!DDI)
     return false;
+  DebugLoc Loc = DDI->getDebugLoc();
   DIVariable DIVar(DDI->getVariable());
   DIExpression DIExpr(DDI->getExpression());
   assert((!DIVar || DIVar.isVariable()) &&
@@ -1115,21 +1118,24 @@ bool llvm::replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
   if (!DIVar)
     return false;
 
-  // Create a copy of the original DIDescriptor for user variable, prepending
-  // "deref" operation to a list of address elements, as new llvm.dbg.declare
-  // will take a value storing address of the memory for variable, not
-  // alloca itself.
-  SmallVector<int64_t, 4> NewDIExpr;
-  NewDIExpr.push_back(dwarf::DW_OP_deref);
-  if (DIExpr)
-    for (unsigned i = 0, n = DIExpr.getNumElements(); i < n; ++i)
-      NewDIExpr.push_back(DIExpr.getElement(i));
+  if (Deref) {
+    // Create a copy of the original DIDescriptor for user variable, prepending
+    // "deref" operation to a list of address elements, as new llvm.dbg.declare
+    // will take a value storing address of the memory for variable, not
+    // alloca itself.
+    SmallVector<int64_t, 4> NewDIExpr;
+    NewDIExpr.push_back(dwarf::DW_OP_deref);
+    if (DIExpr)
+      for (unsigned i = 0, n = DIExpr.getNumElements(); i < n; ++i)
+        NewDIExpr.push_back(DIExpr.getElement(i));
+    DIExpr = Builder.createExpression(NewDIExpr);
+  }
 
   // Insert llvm.dbg.declare in the same basic block as the original alloca,
   // and remove old llvm.dbg.declare.
   BasicBlock *BB = AI->getParent();
-  Builder.insertDeclare(NewAllocaAddress, DIVar,
-                        Builder.createExpression(NewDIExpr), BB);
+  Builder.insertDeclare(NewAllocaAddress, DIVar, DIExpr, BB)
+    ->setDebugLoc(Loc);
   DDI->eraseFromParent();
   return true;
 }

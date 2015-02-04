@@ -131,8 +131,8 @@ foreach Index = 0-31 in {
 }
 
 // The reprsentation of r0 when treated as the constant 0.
-def ZERO  : GPR<0, "0">;
-def ZERO8 : GP8<ZERO, "0">;
+def ZERO  : GPR<0, "0">,    DwarfRegAlias<R0>;
+def ZERO8 : GP8<ZERO, "0">, DwarfRegAlias<X0>;
 
 // Representations of the frame pointer used by ISD::FRAMEADDR.
 def FP   : GPR<0 /* arbitrary */, "**FRAME POINTER**">;
@@ -203,7 +203,7 @@ def VRSAVE: SPR<256, "vrsave">, DwarfRegNum<[109]>;
 // Carry bit.  In the architecture this is really bit 0 of the XER register
 // (which really is SPR register 1);  this is the only bit interesting to a
 // compiler.
-def CARRY: SPR<1, "ca">;
+def CARRY: SPR<1, "ca">, DwarfRegNum<[76]>;
 
 // FP rounding mode:  bits 30 and 31 of the FP status and control register
 // This is not allocated as a normal register; it appears only in
@@ -212,25 +212,57 @@ def CARRY: SPR<1, "ca">;
 // most registers, it has to be done in code; to make this work all the
 // return and call instructions are described as Uses of RM, so instructions
 // that do nothing but change RM will not get deleted.
-// Also, in the architecture it is not really a SPR; 512 is arbitrary.
-def RM: SPR<512, "**ROUNDING MODE**">;
+def RM: PPCReg<"**ROUNDING MODE**">;
 
 /// Register classes
 // Allocate volatiles first
 // then nonvolatiles in reverse order since stmw/lmw save from rN to r31
 def GPRC : RegisterClass<"PPC", [i32], 32, (add (sequence "R%u", 2, 12),
                                                 (sequence "R%u", 30, 13),
-                                                R31, R0, R1, FP, BP)>;
+                                                R31, R0, R1, FP, BP)> {
+  // On non-Darwin PPC64 systems, R2 can be allocated, but must be restored, so
+  // put it at the end of the list.
+  let AltOrders = [(add (sub GPRC, R2), R2)];
+  let AltOrderSelect = [{
+    const PPCSubtarget &S = MF.getTarget().getSubtarget<PPCSubtarget>();
+    return S.isPPC64() && S.isSVR4ABI();
+  }];
+}
 
 def G8RC : RegisterClass<"PPC", [i64], 64, (add (sequence "X%u", 2, 12),
                                                 (sequence "X%u", 30, 14),
-                                                X31, X13, X0, X1, FP8, BP8)>;
+                                                X31, X13, X0, X1, FP8, BP8)> {
+  // On non-Darwin PPC64 systems, R2 can be allocated, but must be restored, so
+  // put it at the end of the list.
+  let AltOrders = [(add (sub G8RC, X2), X2)];
+  let AltOrderSelect = [{
+    const PPCSubtarget &S = MF.getTarget().getSubtarget<PPCSubtarget>();
+    return S.isPPC64() && S.isSVR4ABI();
+  }];
+}
 
 // For some instructions r0 is special (representing the value 0 instead of
 // the value in the r0 register), and we use these register subclasses to
 // prevent r0 from being allocated for use by those instructions.
-def GPRC_NOR0 : RegisterClass<"PPC", [i32], 32, (add (sub GPRC, R0), ZERO)>;
-def G8RC_NOX0 : RegisterClass<"PPC", [i64], 64, (add (sub G8RC, X0), ZERO8)>;
+def GPRC_NOR0 : RegisterClass<"PPC", [i32], 32, (add (sub GPRC, R0), ZERO)> {
+  // On non-Darwin PPC64 systems, R2 can be allocated, but must be restored, so
+  // put it at the end of the list.
+  let AltOrders = [(add (sub GPRC_NOR0, R2), R2)];
+  let AltOrderSelect = [{
+    const PPCSubtarget &S = MF.getTarget().getSubtarget<PPCSubtarget>();
+    return S.isPPC64() && S.isSVR4ABI();
+  }];
+}
+
+def G8RC_NOX0 : RegisterClass<"PPC", [i64], 64, (add (sub G8RC, X0), ZERO8)> {
+  // On non-Darwin PPC64 systems, R2 can be allocated, but must be restored, so
+  // put it at the end of the list.
+  let AltOrders = [(add (sub G8RC_NOX0, X2), X2)];
+  let AltOrderSelect = [{
+    const PPCSubtarget &S = MF.getTarget().getSubtarget<PPCSubtarget>();
+    return S.isPPC64() && S.isSVR4ABI();
+  }];
+}
 
 // Allocate volatiles first, then non-volatiles in reverse order. With the SVR4
 // ABI the size of the Floating-point register save area is determined by the
@@ -243,7 +275,7 @@ def F8RC : RegisterClass<"PPC", [f64], 64, (add (sequence "F%u", 0, 13),
                                                 (sequence "F%u", 31, 14))>;
 def F4RC : RegisterClass<"PPC", [f32], 32, (add F8RC)>;
 
-def VRRC : RegisterClass<"PPC", [v16i8,v8i16,v4i32,v4f32], 128,
+def VRRC : RegisterClass<"PPC", [v16i8,v8i16,v4i32,v2i64,v4f32], 128,
                          (add V2, V3, V4, V5, V0, V1, V6, V7, V8, V9, V10, V11,
                              V12, V13, V14, V15, V16, V17, V18, V19, V31, V30,
                              V29, V28, V27, V26, V25, V24, V23, V22, V21, V20)>;

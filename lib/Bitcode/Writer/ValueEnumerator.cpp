@@ -15,6 +15,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
@@ -282,7 +283,8 @@ static bool isIntOrIntVectorValue(const std::pair<const Value*, unsigned> &V) {
   return V.first->getType()->isIntOrIntVectorTy();
 }
 
-ValueEnumerator::ValueEnumerator(const Module &M) {
+ValueEnumerator::ValueEnumerator(const Module &M)
+    : HasMDString(false), HasMDLocation(false), HasGenericDebugNode(false) {
   if (shouldPreserveBitcodeUseListOrder())
     UseListOrders = predictUseListOrder(M);
 
@@ -407,12 +409,6 @@ unsigned ValueEnumerator::getValueID(const Value *V) const {
   ValueMapType::const_iterator I = ValueMap.find(V);
   assert(I != ValueMap.end() && "Value not in slotcalculator!");
   return I->second-1;
-}
-
-unsigned ValueEnumerator::getMetadataID(const Metadata *MD) const {
-  auto I = MDValueMap.find(MD);
-  assert(I != MDValueMap.end() && "Metadata not in slotcalculator!");
-  return I->second - 1;
 }
 
 void ValueEnumerator::dump() const {
@@ -545,6 +541,10 @@ void ValueEnumerator::EnumerateMetadata(const Metadata *MD) {
     EnumerateMDNodeOperands(N);
   else if (auto *C = dyn_cast<ConstantAsMetadata>(MD))
     EnumerateValue(C->getValue());
+
+  HasMDString |= isa<MDString>(MD);
+  HasMDLocation |= isa<MDLocation>(MD);
+  HasGenericDebugNode |= isa<GenericDebugNode>(MD);
 
   // Replace the dummy ID inserted above with the correct one.  MDValueMap may
   // have changed by inserting operands, so we need a fresh lookup here.

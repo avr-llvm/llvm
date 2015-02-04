@@ -13,9 +13,8 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
-#include "llvm/Support/CommandLine.h"
-
 #include "llvm/IR/Statepoint.h"
+#include "llvm/Support/CommandLine.h"
 
 using namespace std;
 using namespace llvm;
@@ -55,7 +54,8 @@ bool llvm::isGCResult(const Instruction *inst) {
     if (Function *F = call->getCalledFunction()) {
       return (F->getIntrinsicID() == Intrinsic::experimental_gc_result_int ||
               F->getIntrinsicID() == Intrinsic::experimental_gc_result_float ||
-              F->getIntrinsicID() == Intrinsic::experimental_gc_result_ptr);
+              F->getIntrinsicID() == Intrinsic::experimental_gc_result_ptr ||
+              F->getIntrinsicID() == Intrinsic::experimental_gc_result);
     }
   }
   return false;

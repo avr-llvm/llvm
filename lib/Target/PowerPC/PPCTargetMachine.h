@@ -25,26 +25,28 @@ namespace llvm {
 ///
 class PPCTargetMachine : public LLVMTargetMachine {
   std::unique_ptr<TargetLoweringObjectFile> TLOF;
+  // Calculates type size & alignment
+  const DataLayout DL;
   PPCSubtarget Subtarget;
 
   mutable StringMap<std::unique_ptr<PPCSubtarget>> SubtargetMap;
 
 public:
-  PPCTargetMachine(const Target &T, StringRef TT,
-                   StringRef CPU, StringRef FS, const TargetOptions &Options,
-                   Reloc::Model RM, CodeModel::Model CM,
-                   CodeGenOpt::Level OL);
+  PPCTargetMachine(const Target &T, StringRef TT, StringRef CPU, StringRef FS,
+                   const TargetOptions &Options, Reloc::Model RM,
+                   CodeModel::Model CM, CodeGenOpt::Level OL);
 
   ~PPCTargetMachine() override;
 
+  const DataLayout *getDataLayout() const override { return &DL; }
   const PPCSubtarget *getSubtargetImpl() const override { return &Subtarget; }
   const PPCSubtarget *getSubtargetImpl(const Function &F) const override;
 
   // Pass Pipeline Configuration
   TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 
-  /// \brief Register PPC analysis passes with a pass manager.
-  void addAnalysisPasses(PassManagerBase &PM) override;
+  TargetIRAnalysis getTargetIRAnalysis() override;
+
   TargetLoweringObjectFile *getObjFileLowering() const override {
     return TLOF.get();
   }

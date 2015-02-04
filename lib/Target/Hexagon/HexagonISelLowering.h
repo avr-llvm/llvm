@@ -49,10 +49,14 @@ bool isPositiveHalfWord(SDNode *N);
       FTOI,        // FP to Int within a FP register.
       ITOF,        // Int to FP within a FP register.
 
-      CALL,        // A call instruction.
+      CALLv3,      // A V3+ call instruction.
+      CALLv3nr,    // A V3+ call instruction that doesn't return.
+      CALLR,
+
       RET_FLAG,    // Return with a flag operand.
       BR_JT,       // Jump table.
-      BARRIER,     // Memory barrier.
+      BARRIER,     // Memory barrier
+      POPCOUNT,
       COMBINE,
       WrapperJT,
       WrapperCP,
@@ -68,9 +72,12 @@ bool isPositiveHalfWord(SDNode *N);
       WrapperShuffOB,
       WrapperShuffOH,
       TC_RETURN,
-      EH_RETURN
+      EH_RETURN,
+      DCFETCH
     };
   }
+
+  class HexagonSubtarget;
 
   class HexagonTargetLowering : public TargetLowering {
     int VarArgsFrameOffset;   // Frame offset to start of varargs area.
@@ -79,8 +86,9 @@ bool isPositiveHalfWord(SDNode *N);
                               unsigned& RetSize) const;
 
   public:
-    const TargetMachine &TM;
-    explicit HexagonTargetLowering(const TargetMachine &targetmachine);
+    const HexagonSubtarget *Subtarget;
+    explicit HexagonTargetLowering(const TargetMachine &TM,
+                                   const HexagonSubtarget &Subtarget);
 
     /// IsEligibleForTailCallOptimization - Check whether the call is eligible
     /// for tail call optimization. Targets which want to do tail call

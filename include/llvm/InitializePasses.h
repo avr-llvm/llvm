@@ -40,7 +40,7 @@ void initializeObjCARCOpts(PassRegistry&);
 void initializeVectorization(PassRegistry&);
 
 /// initializeInstCombine - Initialize all passes linked into the
-/// ScalarOpts library.
+/// InstCombine library.
 void initializeInstCombine(PassRegistry&);
 
 /// initializeIPO - Initialize all passes linked into the IPO library.
@@ -77,7 +77,6 @@ void initializeAlignmentFromAssumptionsPass(PassRegistry&);
 void initializeBarrierNoopPass(PassRegistry&);
 void initializeBasicAliasAnalysisPass(PassRegistry&);
 void initializeCallGraphWrapperPassPass(PassRegistry &);
-void initializeBasicTTIPass(PassRegistry&);
 void initializeBlockExtractorPassPass(PassRegistry&);
 void initializeBlockFrequencyInfoPass(PassRegistry&);
 void initializeBoundsCheckingPass(PassRegistry&);
@@ -129,7 +128,7 @@ void initializeThreadSanitizerPass(PassRegistry&);
 void initializeSanitizerCoverageModulePass(PassRegistry&);
 void initializeDataFlowSanitizerPass(PassRegistry&);
 void initializeScalarizerPass(PassRegistry&);
-void initializeEarlyCSEPass(PassRegistry&);
+void initializeEarlyCSELegacyPassPass(PassRegistry &);
 void initializeExpandISelPseudosPass(PassRegistry&);
 void initializeFunctionAttrsPass(PassRegistry&);
 void initializeGCMachineCodeAnalysisPass(PassRegistry&);
@@ -142,9 +141,10 @@ void initializeIPCPPass(PassRegistry&);
 void initializeIPSCCPPass(PassRegistry&);
 void initializeIVUsersPass(PassRegistry&);
 void initializeIfConverterPass(PassRegistry&);
+void initializeInductiveRangeCheckEliminationPass(PassRegistry&);
 void initializeIndVarSimplifyPass(PassRegistry&);
 void initializeInlineCostAnalysisPass(PassRegistry&);
-void initializeInstCombinerPass(PassRegistry&);
+void initializeInstructionCombiningPassPass(PassRegistry&);
 void initializeInstCountPass(PassRegistry&);
 void initializeInstNamerPass(PassRegistry&);
 void initializeInternalizePassPass(PassRegistry&);
@@ -166,7 +166,7 @@ void initializeLoaderPassPass(PassRegistry&);
 void initializeLocalStackSlotPassPass(PassRegistry&);
 void initializeLoopDeletionPass(PassRegistry&);
 void initializeLoopExtractorPass(PassRegistry&);
-void initializeLoopInfoPass(PassRegistry&);
+void initializeLoopInfoWrapperPassPass(PassRegistry&);
 void initializeLoopInstSimplifyPass(PassRegistry&);
 void initializeLoopRotatePass(PassRegistry&);
 void initializeLoopSimplifyPass(PassRegistry&);
@@ -244,6 +244,7 @@ void initializeSROA_SSAUpPass(PassRegistry&);
 void initializeScalarEvolutionAliasAnalysisPass(PassRegistry&);
 void initializeScalarEvolutionPass(PassRegistry&);
 void initializeSimpleInlinerPass(PassRegistry&);
+void initializeShadowStackGCLoweringPass(PassRegistry&);  
 void initializeRegisterCoalescerPass(PassRegistry&);
 void initializeSingleLoopExtractorPass(PassRegistry&);
 void initializeSinkingPass(PassRegistry&);
@@ -253,6 +254,7 @@ void initializeSpillPlacementPass(PassRegistry&);
 void initializeStackProtectorPass(PassRegistry&);
 void initializeStackColoringPass(PassRegistry&);
 void initializeStackSlotColoringPass(PassRegistry&);
+void initializeStraightLineStrengthReducePass(PassRegistry &);
 void initializeStripDeadDebugInfoPass(PassRegistry&);
 void initializeStripDeadPrototypesPassPass(PassRegistry&);
 void initializeStripDebugDeclarePass(PassRegistry&);
@@ -262,11 +264,9 @@ void initializeTailCallElimPass(PassRegistry&);
 void initializeTailDuplicatePassPass(PassRegistry&);
 void initializeTargetPassConfigPass(PassRegistry&);
 void initializeDataLayoutPassPass(PassRegistry &);
-void initializeTargetTransformInfoAnalysisGroup(PassRegistry&);
-void initializeFunctionTargetTransformInfoPass(PassRegistry &);
-void initializeNoTTIPass(PassRegistry&);
-void initializeTargetLibraryInfoPass(PassRegistry&);
-void initializeAssumptionTrackerPass(PassRegistry &);
+void initializeTargetTransformInfoWrapperPassPass(PassRegistry &);
+void initializeTargetLibraryInfoWrapperPassPass(PassRegistry &);
+void initializeAssumptionCacheTrackerPass(PassRegistry &);
 void initializeTwoAddressInstructionPassPass(PassRegistry&);
 void initializeTypeBasedAliasAnalysisPass(PassRegistry&);
 void initializeScopedNoAliasAAPass(PassRegistry&);
@@ -287,6 +287,9 @@ void initializeStackMapLivenessPass(PassRegistry&);
 void initializeMachineCombinerPass(PassRegistry &);
 void initializeLoadCombinePass(PassRegistry&);
 void initializeRewriteSymbolsPass(PassRegistry&);
+void initializeWinEHPreparePass(PassRegistry&);
+void initializePlaceBackedgeSafepointsImplPass(PassRegistry&);
+void initializePlaceSafepointsPass(PassRegistry&);
 }
 
 #endif

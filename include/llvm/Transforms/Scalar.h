@@ -21,6 +21,7 @@ namespace llvm {
 
 class BasicBlockPass;
 class FunctionPass;
+class ModulePass;
 class Pass;
 class GetElementPtrInst;
 class PassInfo;
@@ -95,6 +96,13 @@ FunctionPass *createScalarReplAggregatesPass(signed Threshold = -1,
                                              signed StructMemberThreshold = -1,
                                              signed ArrayElementThreshold = -1,
                                              signed ScalarLoadThreshold = -1);
+
+//===----------------------------------------------------------------------===//
+//
+// InductiveRangeCheckElimination - Transform loops to elide range checks on
+// linear functions of the induction variable.
+//
+Pass *createInductiveRangeCheckEliminationPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -404,6 +412,19 @@ createSeparateConstOffsetFromGEPPass(const TargetMachine *TM = nullptr,
 // LoadCombine - Combine loads into bigger loads.
 //
 BasicBlockPass *createLoadCombinePass();
+
+FunctionPass *createStraightLineStrengthReducePass();
+
+
+//===----------------------------------------------------------------------===//
+//
+// PlaceSafepoints - Rewrite any IR calls to gc.statepoints and insert any
+// safepoint polls (method entry, backedge) that might be required.  This pass
+// does not generate explicit relocation sequences - that's handled by
+// RewriteStatepointsForGC which can be run at an arbitrary point in the pass
+// order following this pass.
+//
+ModulePass *createPlaceSafepointsPass();
 
 } // End llvm namespace
 

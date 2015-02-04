@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "HexagonInstrInfo.h"
 #include "MCTargetDesc/HexagonBaseInfo.h"
 #include "MCTargetDesc/HexagonMCInst.h"
 #include "MCTargetDesc/HexagonMCTargetDesc.h"
@@ -66,18 +65,9 @@ void HexagonMCInst::resetPacket() {
   setPacketEnd(false);
 }
 
-// Return the slots used by the insn.
-unsigned HexagonMCInst::getUnits(const HexagonTargetMachine *TM) const {
-  const HexagonInstrInfo *QII = TM->getSubtargetImpl()->getInstrInfo();
-  const InstrItineraryData *II =
-      TM->getSubtargetImpl()->getInstrItineraryData();
-  const InstrStage *IS =
-      II->beginStage(QII->get(this->getOpcode()).getSchedClass());
-
-  return (IS->getUnits());
+MCInstrDesc const &HexagonMCInst::getDesc() const {
+  return (MCII->get(getOpcode()));
 }
-
-MCInstrDesc const& HexagonMCInst::getDesc() const { return (MCII->get(getOpcode())); }
 
 // Return the Hexagon ISA class for the insn.
 unsigned HexagonMCInst::getType() const {

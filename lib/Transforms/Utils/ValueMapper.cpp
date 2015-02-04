@@ -157,6 +157,99 @@ static Metadata *mapToSelf(ValueToValueMapTy &VM, const Metadata *MD) {
 static Metadata *MapMetadataImpl(const Metadata *MD, ValueToValueMapTy &VM,
                                  RemapFlags Flags,
                                  ValueMapTypeRemapper *TypeMapper,
+                                 ValueMaterializer *Materializer);
+
+static Metadata *mapMetadataOp(Metadata *Op, ValueToValueMapTy &VM,
+                               RemapFlags Flags,
+                               ValueMapTypeRemapper *TypeMapper,
+                               ValueMaterializer *Materializer) {
+  if (!Op)
+    return nullptr;
+  if (Metadata *MappedOp =
+          MapMetadataImpl(Op, VM, Flags, TypeMapper, Materializer))
+    return MappedOp;
+  // Use identity map if MappedOp is null and we can ignore missing entries.
+  if (Flags & RF_IgnoreMissingEntries)
+    return Op;
+
+  // FIXME: This assert crashes during bootstrap, but I think it should be
+  // correct.  For now, just match behaviour from before the metadata/value
+  // split.
+  //
+  //    llvm_unreachable("Referenced metadata not in value map!");
+  return nullptr;
+}
+
+/// \brief Remap nodes.
+///
+/// Insert \c NewNode in the value map, and then remap \c OldNode's operands.
+/// Assumes that \c NewNode is already a clone of \c OldNode.
+///
+/// \pre \c NewNode is a clone of \c OldNode.
+static bool remap(const MDNode *OldNode, MDNode *NewNode, ValueToValueMapTy &VM,
+                  RemapFlags Flags, ValueMapTypeRemapper *TypeMapper,
+                  ValueMaterializer *Materializer) {
+  assert(OldNode->getNumOperands() == NewNode->getNumOperands() &&
+         "Expected nodes to match");
+  assert(OldNode->isResolved() && "Expected resolved node");
+  assert(!NewNode->isUniqued() && "Expected non-uniqued node");
+
+  // Map the node upfront so it's available for cyclic references.
+  mapToMetadata(VM, OldNode, NewNode);
+  bool AnyChanged = false;
+  for (unsigned I = 0, E = OldNode->getNumOperands(); I != E; ++I) {
+    Metadata *Old = OldNode->getOperand(I);
+    assert(NewNode->getOperand(I) == Old &&
+           "Expected old operands to already be in place");
+
+    Metadata *New = mapMetadataOp(OldNode->getOperand(I), VM, Flags, TypeMapper,
+                                  Materializer);
+    if (Old != New) {
+      AnyChanged = true;
+      NewNode->replaceOperandWith(I, New);
+    }
+  }
+
+  return AnyChanged;
+}
+
+/// \brief Map a distinct MDNode.
+///
+/// Distinct nodes are not uniqued, so they must always recreated.
+static Metadata *mapDistinctNode(const MDNode *Node, ValueToValueMapTy &VM,
+                                 RemapFlags Flags,
+                                 ValueMapTypeRemapper *TypeMapper,
+                                 ValueMaterializer *Materializer) {
+  assert(Node->isDistinct() && "Expected distinct node");
+
+  MDNode *NewMD = MDNode::replaceWithDistinct(Node->clone());
+  remap(Node, NewMD, VM, Flags, TypeMapper, Materializer);
+  return NewMD;
+}
+
+/// \brief Map a uniqued MDNode.
+///
+/// Uniqued nodes may not need to be recreated (they may map to themselves).
+static Metadata *mapUniquedNode(const MDNode *Node, ValueToValueMapTy &VM,
+                                RemapFlags Flags,
+                                ValueMapTypeRemapper *TypeMapper,
+                                ValueMaterializer *Materializer) {
+  assert(Node->isUniqued() && "Expected uniqued node");
+
+  // Create a temporary node upfront in case we have a metadata cycle.
+  auto ClonedMD = Node->clone();
+  if (!remap(Node, ClonedMD.get(), VM, Flags, TypeMapper, Materializer))
+    // No operands changed, so use the identity mapping.
+    return mapToSelf(VM, Node);
+
+  // At least one operand has changed, so uniquify the cloned node.
+  return mapToMetadata(VM, Node,
+                       MDNode::replaceWithUniqued(std::move(ClonedMD)));
+}
+
+static Metadata *MapMetadataImpl(const Metadata *MD, ValueToValueMapTy &VM,
+                                 RemapFlags Flags,
+                                 ValueMapTypeRemapper *TypeMapper,
                                  ValueMaterializer *Materializer) {
   // If the value already exists in the map, use it.
   if (Metadata *NewMD = VM.MD().lookup(MD).get())
@@ -189,56 +282,15 @@ static Metadata *MapMetadataImpl(const Metadata *MD, ValueToValueMapTy &VM,
   const MDNode *Node = cast<MDNode>(MD);
   assert(Node->isResolved() && "Unexpected unresolved node");
 
-  auto getMappedOp = [&](Metadata *Op) -> Metadata *{
-    if (!Op)
-      return nullptr;
-    if (Metadata *MappedOp =
-            MapMetadataImpl(Op, VM, Flags, TypeMapper, Materializer))
-      return MappedOp;
-    // Use identity map if MappedOp is null and we can ignore missing entries.
-    if (Flags & RF_IgnoreMissingEntries)
-      return Op;
-
-    // FIXME: This assert crashes during bootstrap, but I think it should be
-    // correct.  For now, just match behaviour from before the metadata/value
-    // split.
-    //
-    //    llvm_unreachable("Referenced metadata not in value map!");
-    return nullptr;
-  };
-
   // If this is a module-level metadata and we know that nothing at the
   // module level is changing, then use an identity mapping.
   if (Flags & RF_NoModuleLevelChanges)
     return mapToSelf(VM, MD);
 
-  // Create a dummy node in case we have a metadata cycle.
-  MDNodeFwdDecl *Dummy = MDNode::getTemporary(Node->getContext(), None);
-  mapToMetadata(VM, Node, Dummy);
+  if (Node->isDistinct())
+    return mapDistinctNode(Node, VM, Flags, TypeMapper, Materializer);
 
-  // Check all operands to see if any need to be remapped.
-  for (unsigned I = 0, E = Node->getNumOperands(); I != E; ++I) {
-    Metadata *Op = Node->getOperand(I);
-    Metadata *MappedOp = getMappedOp(Op);
-    if (Op == MappedOp)
-      continue;
-
-    // Ok, at least one operand needs remapping.
-    SmallVector<Metadata *, 4> Elts;
-    Elts.reserve(Node->getNumOperands());
-    for (I = 0; I != E; ++I)
-      Elts.push_back(getMappedOp(Node->getOperand(I)));
-
-    MDNode *NewMD = MDNode::get(Node->getContext(), Elts);
-    Dummy->replaceAllUsesWith(NewMD);
-    MDNode::deleteTemporary(Dummy);
-    return mapToMetadata(VM, Node, NewMD);
-  }
-
-  // No operands needed remapping.  Use an identity mapping.
-  mapToSelf(VM, MD);
-  MDNode::deleteTemporary(Dummy);
-  return const_cast<Metadata *>(MD);
+  return mapUniquedNode(Node, VM, Flags, TypeMapper, Materializer);
 }
 
 Metadata *llvm::MapMetadata(const Metadata *MD, ValueToValueMapTy &VM,
@@ -246,8 +298,9 @@ Metadata *llvm::MapMetadata(const Metadata *MD, ValueToValueMapTy &VM,
                             ValueMaterializer *Materializer) {
   Metadata *NewMD = MapMetadataImpl(MD, VM, Flags, TypeMapper, Materializer);
   if (NewMD && NewMD != MD)
-    if (auto *G = dyn_cast<GenericMDNode>(NewMD))
-      G->resolveCycles();
+    if (auto *N = dyn_cast<MDNode>(NewMD))
+      if (!N->isResolved())
+        N->resolveCycles();
   return NewMD;
 }
 

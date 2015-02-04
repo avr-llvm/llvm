@@ -237,6 +237,8 @@ namespace llvm {
 
     MCSymbol *getOrCreateSectionSymbol(const MCSectionELF &Section);
 
+    MCSymbol *getOrCreateFrameAllocSymbol(StringRef FuncName);
+
     /// LookupSymbol - Get the symbol for \p Name, or null.
     MCSymbol *LookupSymbol(StringRef Name) const;
     MCSymbol *LookupSymbol(const Twine &Name) const;
@@ -269,11 +271,11 @@ namespace llvm {
     }
 
     const MCSectionELF *getELFSection(StringRef Section, unsigned Type,
-                                      unsigned Flags, SectionKind Kind);
+                                      unsigned Flags);
 
     const MCSectionELF *getELFSection(StringRef Section, unsigned Type,
-                                      unsigned Flags, SectionKind Kind,
-                                      unsigned EntrySize, StringRef Group);
+                                      unsigned Flags, unsigned EntrySize,
+                                      StringRef Group);
 
     void renameELFSection(const MCSectionELF *Section, StringRef Name);
 

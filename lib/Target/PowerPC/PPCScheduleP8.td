@@ -66,6 +66,10 @@ def P8Itineraries : ProcessorItineraries<
                                    InstrStage<1, [P8_FXU1, P8_FXU2, P8_LU1,
                                                   P8_LU2, P8_LSU1, P8_LSU2]>],
                                   [1, 1, 1]>,
+  InstrItinData<IIC_IntISEL,      [InstrStage<1, [P8_DU1], 0>,
+                                   InstrStage<1, [P8_FXU1, P8_FXU2], 0>,
+                                   InstrStage<1, [P8_BRU]>],
+                                  [1, 1, 1, 1]>,
   InstrItinData<IIC_IntCompare  , [InstrStage<1, [P8_DU1, P8_DU2, P8_DU3,
                                                   P8_DU4, P8_DU5, P8_DU6], 0>,
                                    InstrStage<1, [P8_FXU1, P8_FXU2]>],
@@ -388,6 +392,9 @@ def P8Model : SchedMachineModel {
                        // This is overriden by OperandCycles if the
                        // Itineraries are queried instead.
   let MispredictPenalty = 16;
+
+  // Try to make sure we have at least 10 dispatch groups in a loop.
+  let LoopMicroOpBufferSize = 60;
 
   let Itineraries = P8Itineraries;
 }

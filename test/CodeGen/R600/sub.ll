@@ -1,4 +1,4 @@
-; RUN: llc -march=r600 -mcpu=verde -verify-machineinstrs < %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
+; RUN: llc -march=amdgcn -mcpu=verde -verify-machineinstrs < %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
 ; RUN: llc -march=r600 -mcpu=redwood < %s | FileCheck -check-prefix=EG -check-prefix=FUNC %s
 
 
@@ -7,7 +7,7 @@ declare i32 @llvm.r600.read.tidig.x() readnone
 ; FUNC-LABEL: {{^}}test_sub_i32:
 ; EG: SUB_INT {{\** *}}T{{[0-9]+\.[XYZW], T[0-9]+\.[XYZW], T[0-9]+\.[XYZW]}}
 
-; SI: v_sub_i32_e32 v{{[0-9]+, v[0-9]+, v[0-9]+}}
+; SI: v_subrev_i32_e32 v{{[0-9]+, v[0-9]+, v[0-9]+}}
 define void @test_sub_i32(i32 addrspace(1)* %out, i32 addrspace(1)* %in) {
   %b_ptr = getelementptr i32 addrspace(1)* %in, i32 1
   %a = load i32 addrspace(1)* %in

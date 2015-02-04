@@ -80,6 +80,41 @@ namespace llvm {
     }
   };
 
+  /// Structure to represent an optional metadata field.
+  template <class FieldTy> struct MDFieldImpl {
+    typedef MDFieldImpl ImplTy;
+    FieldTy Val;
+    bool Seen;
+
+    void assign(FieldTy Val) {
+      Seen = true;
+      this->Val = std::move(Val);
+    }
+
+    explicit MDFieldImpl(FieldTy Default)
+        : Val(std::move(Default)), Seen(false) {}
+  };
+  template <class NumTy> struct MDUnsignedField : public MDFieldImpl<NumTy> {
+    typedef typename MDUnsignedField::ImplTy ImplTy;
+    NumTy Max;
+
+    MDUnsignedField(NumTy Default = 0,
+                    NumTy Max = std::numeric_limits<NumTy>::max())
+        : ImplTy(Default), Max(Max) {}
+  };
+  struct DwarfTagField : public MDUnsignedField<uint32_t> {
+    DwarfTagField() : MDUnsignedField<uint32_t>(0, ~0u >> 16) {}
+  };
+  struct MDField : public MDFieldImpl<Metadata *> {
+    MDField() : ImplTy(nullptr) {}
+  };
+  struct MDStringField : public MDFieldImpl<std::string> {
+    MDStringField() : ImplTy(std::string()) {}
+  };
+  struct MDFieldList : public MDFieldImpl<SmallVector<Metadata *, 4>> {
+    MDFieldList() : ImplTy(SmallVector<Metadata *, 4>()) {}
+  };
+
   class LLParser {
   public:
     typedef LLLexer::LocTy LocTy;
@@ -102,7 +137,6 @@ namespace llvm {
       SMLoc Loc;
       unsigned MDKind, MDSlot;
     };
-    DenseMap<Instruction*, std::vector<MDRef> > ForwardRefInstMetadata;
 
     SmallVector<Instruction*, 64> InstsWithTBAATag;
 
@@ -112,7 +146,7 @@ namespace llvm {
     std::vector<std::pair<Type*, LocTy> > NumberedTypes;
 
     std::vector<TrackingMDNodeRef> NumberedMetadata;
-    std::map<unsigned, std::pair<MDNodeFwdDecl *, LocTy>> ForwardRefMDNodes;
+    std::map<unsigned, std::pair<TempMDTuple, LocTy>> ForwardRefMDNodes;
 
     // Global Value reference information.
     std::map<std::string, std::pair<GlobalValue*, LocTy> > ForwardRefVals;
@@ -266,7 +300,6 @@ namespace llvm {
     bool ParseNamedMetadata();
     bool ParseMDString(MDString *&Result);
     bool ParseMDNodeID(MDNode *&Result);
-    bool ParseMDNodeID(MDNode *&Result, unsigned &SlotNo);
     bool ParseUnnamedAttrGrp();
     bool ParseFnAttributeValuePairs(AttrBuilder &B,
                                     std::vector<unsigned> &FwdRefAttrGrps,
@@ -385,13 +418,30 @@ namespace llvm {
     bool ParseGlobalValue(Type *Ty, Constant *&V);
     bool ParseGlobalTypeAndValue(Constant *&V);
     bool ParseGlobalValueVector(SmallVectorImpl<Constant *> &Elts);
-    bool parseOptionalComdat(Comdat *&C);
+    bool parseOptionalComdat(StringRef GlobalName, Comdat *&C);
     bool ParseMetadataAsValue(Value *&V, PerFunctionState &PFS);
     bool ParseValueAsMetadata(Metadata *&MD, PerFunctionState *PFS);
     bool ParseMetadata(Metadata *&MD, PerFunctionState *PFS);
+    bool ParseMDTuple(MDNode *&MD, bool IsDistinct = false);
     bool ParseMDNode(MDNode *&MD);
+    bool ParseMDNodeTail(MDNode *&MD);
     bool ParseMDNodeVector(SmallVectorImpl<Metadata *> &MDs);
     bool ParseInstructionMetadata(Instruction *Inst, PerFunctionState *PFS);
+
+    bool ParseMDField(LocTy Loc, StringRef Name,
+                      MDUnsignedField<uint32_t> &Result);
+    bool ParseMDField(LocTy Loc, StringRef Name, DwarfTagField &Result);
+    bool ParseMDField(LocTy Loc, StringRef Name, MDField &Result);
+    bool ParseMDField(LocTy Loc, StringRef Name, MDStringField &Result);
+    bool ParseMDField(LocTy Loc, StringRef Name, MDFieldList &Result);
+    template <class FieldTy> bool ParseMDField(StringRef Name, FieldTy &Result);
+    template <class ParserTy>
+    bool ParseMDFieldsImplBody(ParserTy parseField);
+    template <class ParserTy>
+    bool ParseMDFieldsImpl(ParserTy parseField, LocTy &ClosingLoc);
+    bool ParseSpecializedMDNode(MDNode *&N, bool IsDistinct = false);
+    bool ParseMDLocation(MDNode *&Result, bool IsDistinct);
+    bool ParseGenericDebugNode(MDNode *&Result, bool IsDistinct);
 
     // Function Parsing.
     struct ArgInfo {

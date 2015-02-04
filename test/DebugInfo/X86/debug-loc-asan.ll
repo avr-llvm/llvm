@@ -21,10 +21,10 @@
 ; CHECK: .Ldebug_loc{{[0-9]+}}:
 ; We expect two location ranges for the variable.
 
-; First, it is stored in %rdx:
+; First, its address is stored in %rdi:
 ; CHECK:      .quad .Lfunc_begin0-.Lfunc_begin0
 ; CHECK-NEXT: .quad [[START_LABEL]]-.Lfunc_begin0
-; CHECK: DW_OP_reg5
+; CHECK: DW_OP_breg5
 
 ; Then it's addressed via %rsp:
 ; CHECK:      .quad [[START_LABEL]]-.Lfunc_begin0
@@ -178,5 +178,5 @@ attributes #1 = { nounwind readnone }
 !10 = !{i32 2, !"Debug Info Version", i32 2}
 !11 = !{!"clang version 3.5.0 (209308)"}
 !12 = !{!"0x101\00y\0016777217\000", !4, !5, !8} ; [ DW_TAG_arg_variable ] [y] [line 1]
-!13 = !{i32 2, i32 0, !4, null}
+!13 = !MDLocation(line: 2, scope: !4)
 !14 = !{!"0x102\006"} ; [ DW_TAG_expression ] [DW_OP_deref]

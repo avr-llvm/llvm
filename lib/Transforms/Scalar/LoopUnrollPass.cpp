@@ -13,9 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Scalar.h"
-#include "llvm/Analysis/AssumptionTracker.h"
+#include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/CodeMetrics.h"
-#include "llvm/Analysis/FunctionTargetTransformInfo.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
@@ -104,17 +103,16 @@ namespace {
     /// loop preheaders be inserted into the CFG...
     ///
     void getAnalysisUsage(AnalysisUsage &AU) const override {
-      AU.addRequired<AssumptionTracker>();
-      AU.addRequired<LoopInfo>();
-      AU.addPreserved<LoopInfo>();
+      AU.addRequired<AssumptionCacheTracker>();
+      AU.addRequired<LoopInfoWrapperPass>();
+      AU.addPreserved<LoopInfoWrapperPass>();
       AU.addRequiredID(LoopSimplifyID);
       AU.addPreservedID(LoopSimplifyID);
       AU.addRequiredID(LCSSAID);
       AU.addPreservedID(LCSSAID);
       AU.addRequired<ScalarEvolution>();
       AU.addPreserved<ScalarEvolution>();
-      AU.addRequired<TargetTransformInfo>();
-      AU.addRequired<FunctionTargetTransformInfo>();
+      AU.addRequired<TargetTransformInfoWrapperPass>();
       // FIXME: Loop unroll requires LCSSA. And LCSSA requires dom info.
       // If loop unroll does not preserve dom info then LCSSA pass on next
       // loop will receive invalid dom info.
@@ -124,7 +122,7 @@ namespace {
 
     // Fill in the UnrollingPreferences parameter with values from the
     // TargetTransformationInfo.
-    void getUnrollingPreferences(Loop *L, const FunctionTargetTransformInfo &FTTI,
+    void getUnrollingPreferences(Loop *L, const TargetTransformInfo &TTI,
                                  TargetTransformInfo::UnrollingPreferences &UP) {
       UP.Threshold = CurrentThreshold;
       UP.OptSizeThreshold = OptSizeUnrollThreshold;
@@ -134,7 +132,7 @@ namespace {
       UP.MaxCount = UINT_MAX;
       UP.Partial = CurrentAllowPartial;
       UP.Runtime = CurrentRuntime;
-      FTTI.getUnrollingPreferences(L, UP);
+      TTI.getUnrollingPreferences(L, UP);
     }
 
     // Select and return an unroll count based on parameters from
@@ -185,10 +183,9 @@ namespace {
 
 char LoopUnroll::ID = 0;
 INITIALIZE_PASS_BEGIN(LoopUnroll, "loop-unroll", "Unroll loops", false, false)
-INITIALIZE_AG_DEPENDENCY(TargetTransformInfo)
-INITIALIZE_PASS_DEPENDENCY(AssumptionTracker)
-INITIALIZE_PASS_DEPENDENCY(FunctionTargetTransformInfo)
-INITIALIZE_PASS_DEPENDENCY(LoopInfo)
+INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(AssumptionCacheTracker)
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(LoopSimplify)
 INITIALIZE_PASS_DEPENDENCY(LCSSA)
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolution)
@@ -207,9 +204,9 @@ Pass *llvm::createSimpleLoopUnrollPass() {
 static unsigned ApproximateLoopSize(const Loop *L, unsigned &NumCalls,
                                     bool &NotDuplicatable,
                                     const TargetTransformInfo &TTI,
-                                    AssumptionTracker *AT) {
+                                    AssumptionCache *AC) {
   SmallPtrSet<const Value *, 32> EphValues;
-  CodeMetrics::collectEphemeralValues(L, AT, EphValues);
+  CodeMetrics::collectEphemeralValues(L, AC, EphValues);
 
   CodeMetrics Metrics;
   for (Loop::block_iterator I = L->block_begin(), E = L->block_end();
@@ -222,8 +219,11 @@ static unsigned ApproximateLoopSize(const Loop *L, unsigned &NumCalls,
 
   // Don't allow an estimate of size zero.  This would allows unrolling of loops
   // with huge iteration counts, which is a compile time problem even if it's
-  // not a problem for code quality.
-  if (LoopSize == 0) LoopSize = 1;
+  // not a problem for code quality. Also, the code using this size may assume
+  // that each loop has at least three instructions (likely a conditional
+  // branch, a comparison feeding that branch, and some kind of loop increment
+  // feeding that comparison instruction).
+  LoopSize = std::max(LoopSize, 3u);
 
   return LoopSize;
 }
@@ -231,44 +231,26 @@ static unsigned ApproximateLoopSize(const Loop *L, unsigned &NumCalls,
 // Returns the loop hint metadata node with the given name (for example,
 // "llvm.loop.unroll.count").  If no such metadata node exists, then nullptr is
 // returned.
-static const MDNode *GetUnrollMetadata(const Loop *L, StringRef Name) {
-  MDNode *LoopID = L->getLoopID();
-  if (!LoopID)
-    return nullptr;
-
-  // First operand should refer to the loop id itself.
-  assert(LoopID->getNumOperands() > 0 && "requires at least one operand");
-  assert(LoopID->getOperand(0) == LoopID && "invalid loop id");
-
-  for (unsigned i = 1, e = LoopID->getNumOperands(); i < e; ++i) {
-    const MDNode *MD = dyn_cast<MDNode>(LoopID->getOperand(i));
-    if (!MD)
-      continue;
-
-    const MDString *S = dyn_cast<MDString>(MD->getOperand(0));
-    if (!S)
-      continue;
-
-    if (Name.equals(S->getString()))
-      return MD;
-  }
+static MDNode *GetUnrollMetadataForLoop(const Loop *L, StringRef Name) {
+  if (MDNode *LoopID = L->getLoopID())
+    return GetUnrollMetadata(LoopID, Name);
   return nullptr;
 }
 
 // Returns true if the loop has an unroll(full) pragma.
 static bool HasUnrollFullPragma(const Loop *L) {
-  return GetUnrollMetadata(L, "llvm.loop.unroll.full");
+  return GetUnrollMetadataForLoop(L, "llvm.loop.unroll.full");
 }
 
 // Returns true if the loop has an unroll(disable) pragma.
 static bool HasUnrollDisablePragma(const Loop *L) {
-  return GetUnrollMetadata(L, "llvm.loop.unroll.disable");
+  return GetUnrollMetadataForLoop(L, "llvm.loop.unroll.disable");
 }
 
 // If loop has an unroll_count pragma return the (necessarily
 // positive) value from the pragma.  Otherwise return 0.
 static unsigned UnrollCountPragmaValue(const Loop *L) {
-  const MDNode *MD = GetUnrollMetadata(L, "llvm.loop.unroll.count");
+  MDNode *MD = GetUnrollMetadataForLoop(L, "llvm.loop.unroll.count");
   if (MD) {
     assert(MD->getNumOperands() == 2 &&
            "Unroll count hint metadata should have two operands.");
@@ -360,12 +342,13 @@ bool LoopUnroll::runOnLoop(Loop *L, LPPassManager &LPM) {
   if (skipOptnoneFunction(L))
     return false;
 
-  LoopInfo *LI = &getAnalysis<LoopInfo>();
+  Function &F = *L->getHeader()->getParent();
+
+  LoopInfo *LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   ScalarEvolution *SE = &getAnalysis<ScalarEvolution>();
-  const TargetTransformInfo &TTI = getAnalysis<TargetTransformInfo>();
-  const FunctionTargetTransformInfo &FTTI =
-      getAnalysis<FunctionTargetTransformInfo>();
-  AssumptionTracker *AT = &getAnalysis<AssumptionTracker>();
+  const TargetTransformInfo &TTI =
+      getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
+  auto &AC = getAnalysis<AssumptionCacheTracker>().getAssumptionCache(F);
 
   BasicBlock *Header = L->getHeader();
   DEBUG(dbgs() << "Loop Unroll: F[" << Header->getParent()->getName()
@@ -379,7 +362,7 @@ bool LoopUnroll::runOnLoop(Loop *L, LPPassManager &LPM) {
   bool HasPragma = PragmaFullUnroll || PragmaCount > 0;
 
   TargetTransformInfo::UnrollingPreferences UP;
-  getUnrollingPreferences(L, FTTI, UP);
+  getUnrollingPreferences(L, TTI, UP);
 
   // Find trip count and trip multiple if count is not available
   unsigned TripCount = 0;
@@ -404,9 +387,13 @@ bool LoopUnroll::runOnLoop(Loop *L, LPPassManager &LPM) {
   unsigned NumInlineCandidates;
   bool notDuplicatable;
   unsigned LoopSize =
-      ApproximateLoopSize(L, NumInlineCandidates, notDuplicatable, TTI, AT);
+      ApproximateLoopSize(L, NumInlineCandidates, notDuplicatable, TTI, &AC);
   DEBUG(dbgs() << "  Loop Size = " << LoopSize << "\n");
-  uint64_t UnrolledSize = (uint64_t)LoopSize * Count;
+
+  // When computing the unrolled size, note that the conditional branch on the
+  // backedge and the comparison feeding it are not replicated like the rest of
+  // the loop body (which is why 2 is subtracted).
+  uint64_t UnrolledSize = (uint64_t)(LoopSize-2) * Count + 2;
   if (notDuplicatable) {
     DEBUG(dbgs() << "  Not unrolling loop which contains non-duplicatable"
                  << " instructions.\n");
@@ -451,7 +438,7 @@ bool LoopUnroll::runOnLoop(Loop *L, LPPassManager &LPM) {
     }
     if (PartialThreshold != NoThreshold && UnrolledSize > PartialThreshold) {
       // Reduce unroll count to be modulo of TripCount for partial unrolling.
-      Count = PartialThreshold / LoopSize;
+      Count = (std::max(PartialThreshold, 3u)-2) / (LoopSize-2);
       while (Count != 0 && TripCount % Count != 0)
         Count--;
     }
@@ -465,7 +452,7 @@ bool LoopUnroll::runOnLoop(Loop *L, LPPassManager &LPM) {
     // the original count which satisfies the threshold limit.
     while (Count != 0 && UnrolledSize > PartialThreshold) {
       Count >>= 1;
-      UnrolledSize = LoopSize * Count;
+      UnrolledSize = (LoopSize-2) * Count + 2;
     }
     if (Count > UP.MaxCount)
       Count = UP.MaxCount;
@@ -511,7 +498,7 @@ bool LoopUnroll::runOnLoop(Loop *L, LPPassManager &LPM) {
 
   // Unroll the loop.
   if (!UnrollLoop(L, Count, TripCount, AllowRuntime, TripMultiple, LI, this,
-                  &LPM, AT))
+                  &LPM, &AC))
     return false;
 
   return true;

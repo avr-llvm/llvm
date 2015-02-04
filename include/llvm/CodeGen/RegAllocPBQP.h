@@ -17,12 +17,15 @@
 #define LLVM_CODEGEN_REGALLOCPBQP_H
 
 #include "llvm/CodeGen/MachineFunctionPass.h"
-#include "llvm/CodeGen/PBQPRAConstraint.h"
 #include "llvm/CodeGen/PBQP/CostAllocator.h"
 #include "llvm/CodeGen/PBQP/ReductionRules.h"
+#include "llvm/CodeGen/PBQPRAConstraint.h"
 #include "llvm/Support/ErrorHandling.h"
 
 namespace llvm {
+
+class raw_ostream;
+
 namespace PBQP {
 namespace RegAlloc {
 
@@ -248,7 +251,7 @@ public:
   void setReductionState(ReductionState RS) { this->RS = RS; }
 
   void handleAddEdge(const MatrixMetadata& MD, bool Transpose) {
-    DeniedOpts += Transpose ? MD.getWorstCol() : MD.getWorstRow();
+    DeniedOpts += Transpose ? MD.getWorstRow() : MD.getWorstCol();
     const bool* UnsafeOpts =
       Transpose ? MD.getUnsafeCols() : MD.getUnsafeRows();
     for (unsigned i = 0; i < NumOpts; ++i)
@@ -256,7 +259,7 @@ public:
   }
 
   void handleRemoveEdge(const MatrixMetadata& MD, bool Transpose) {
-    DeniedOpts -= Transpose ? MD.getWorstCol() : MD.getWorstRow();
+    DeniedOpts -= Transpose ? MD.getWorstRow() : MD.getWorstCol();
     const bool* UnsafeOpts =
       Transpose ? MD.getUnsafeCols() : MD.getUnsafeRows();
     for (unsigned i = 0; i < NumOpts; ++i)
@@ -309,6 +312,8 @@ public:
   }
 
   void handleAddNode(NodeId NId) {
+    assert(G.getNodeCosts(NId).getLength() > 1 &&
+           "PBQP Graph should not contain single or zero-option nodes");
     G.getNodeMetadata(NId).setup(G.getNodeCosts(NId));
   }
   void handleRemoveNode(NodeId NId) {}
@@ -499,6 +504,17 @@ private:
   typedef PBQP::Graph<RegAllocSolverImpl> BaseT;
 public:
   PBQPRAGraph(GraphMetadata Metadata) : BaseT(Metadata) {}
+
+  /// @brief Dump this graph to dbgs().
+  void dump() const;
+
+  /// @brief Dump this graph to an output stream.
+  /// @param OS Output stream to print on.
+  void dump(raw_ostream &OS) const;
+
+  /// @brief Print a representation of this graph in DOT format.
+  /// @param OS Output stream to print on.
+  void printDot(raw_ostream &OS) const;
 };
 
 inline Solution solve(PBQPRAGraph& G) {

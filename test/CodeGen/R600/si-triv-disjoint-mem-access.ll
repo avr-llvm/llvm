@@ -1,4 +1,4 @@
-; RUN: llc -march=r600 -mcpu=bonaire -verify-machineinstrs -enable-misched -enable-aa-sched-mi < %s | FileCheck -check-prefix=FUNC -check-prefix=CI %s
+; RUN: llc -march=amdgcn -mcpu=bonaire -verify-machineinstrs -enable-misched -enable-aa-sched-mi < %s | FileCheck -check-prefix=FUNC -check-prefix=CI %s
 
 declare void @llvm.SI.tbuffer.store.i32(<16 x i8>, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32)
 declare void @llvm.SI.tbuffer.store.v4i32(<16 x i8>, <4 x i32>, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32)
@@ -51,8 +51,8 @@ define void @no_reorder_local_load_volatile_global_store_local_load(i32 addrspac
 
 ; FUNC-LABEL: @no_reorder_barrier_local_load_global_store_local_load
 ; CI: ds_read_b32 {{v[0-9]+}}, {{v[0-9]+}} offset:4
-; CI: buffer_store_dword
 ; CI: ds_read_b32 {{v[0-9]+}}, {{v[0-9]+}} offset:8
+; CI: buffer_store_dword
 define void @no_reorder_barrier_local_load_global_store_local_load(i32 addrspace(1)* %out, i32 addrspace(1)* %gptr) #0 {
   %ptr0 = load i32 addrspace(3)* addrspace(3)* @stored_lds_ptr, align 4
 

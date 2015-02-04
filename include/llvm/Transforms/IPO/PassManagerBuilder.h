@@ -19,7 +19,7 @@
 
 namespace llvm {
 class Pass;
-class TargetLibraryInfo;
+class TargetLibraryInfoImpl;
 class TargetMachine;
 
 // The old pass manager infrastructure is hidden in a legacy namespace now.
@@ -105,7 +105,7 @@ public:
   /// LibraryInfo - Specifies information about the runtime library for the
   /// optimizer.  If this is non-null, it is added to both the function and
   /// per-module pass pipeline.
-  TargetLibraryInfo *LibraryInfo;
+  TargetLibraryInfoImpl *LibraryInfo;
 
   /// Inliner - Specifies the inliner to use.  If this is non-null, it is
   /// added to the per-module passes.
@@ -151,7 +151,7 @@ public:
 
   /// populateModulePassManager - This sets up the primary pass manager.
   void populateModulePassManager(PassManagerBase &MPM);
-  void populateLTOPassManager(PassManagerBase &PM, TargetMachine *TM = nullptr);
+  void populateLTOPassManager(PassManagerBase &PM);
 };
 
 /// Registers a function for adding a standard set of passes.  This should be

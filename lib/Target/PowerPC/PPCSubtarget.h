@@ -15,8 +15,8 @@
 #define LLVM_LIB_TARGET_POWERPC_PPCSUBTARGET_H
 
 #include "PPCFrameLowering.h"
-#include "PPCInstrInfo.h"
 #include "PPCISelLowering.h"
+#include "PPCInstrInfo.h"
 #include "PPCSelectionDAGInfo.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/IR/DataLayout.h"
@@ -68,9 +68,6 @@ protected:
   /// TargetTriple - What processor and OS we're targeting.
   Triple TargetTriple;
 
-  // Calculates type size & alignment
-  const DataLayout DL;
-
   /// stackAlignment - The minimum alignment known to hold of the stack frame on
   /// entry to the function and which must be maintained by every function.
   unsigned StackAlignment;
@@ -92,6 +89,7 @@ protected:
   bool HasQPX;
   bool HasVSX;
   bool HasP8Vector;
+  bool HasP8Altivec;
   bool HasFCPSGN;
   bool HasFSQRT;
   bool HasFRE, HasFRES, HasFRSQRTE, HasFRSQRTES;
@@ -102,6 +100,7 @@ protected:
   bool HasFPCVT;
   bool HasISEL;
   bool HasPOPCNTD;
+  bool HasCMPB;
   bool HasLDBRX;
   bool IsBookE;
   bool HasOnlyMSYNC;
@@ -112,6 +111,8 @@ protected:
   bool DeprecatedDST;
   bool HasLazyResolverStubs;
   bool IsLittleEndian;
+  bool HasICBT;
+  bool HasInvariantFunctionDescriptors;
 
   enum {
     PPC_ABI_UNKNOWN,
@@ -153,7 +154,6 @@ public:
   const PPCFrameLowering *getFrameLowering() const override {
     return &FrameLowering;
   }
-  const DataLayout *getDataLayout() const override { return &DL; }
   const PPCInstrInfo *getInstrInfo() const override { return &InstrInfo; }
   const PPCTargetLowering *getTargetLowering() const override {
     return &TLInfo;
@@ -217,9 +217,11 @@ public:
   bool hasQPX() const { return HasQPX; }
   bool hasVSX() const { return HasVSX; }
   bool hasP8Vector() const { return HasP8Vector; }
+  bool hasP8Altivec() const { return HasP8Altivec; }
   bool hasMFOCRF() const { return HasMFOCRF; }
   bool hasISEL() const { return HasISEL; }
   bool hasPOPCNTD() const { return HasPOPCNTD; }
+  bool hasCMPB() const { return HasCMPB; }
   bool hasLDBRX() const { return HasLDBRX; }
   bool isBookE() const { return IsBookE; }
   bool hasOnlyMSYNC() const { return HasOnlyMSYNC; }
@@ -228,6 +230,10 @@ public:
   bool isE500() const { return IsE500; }
   bool isDeprecatedMFTB() const { return DeprecatedMFTB; }
   bool isDeprecatedDST() const { return DeprecatedDST; }
+  bool hasICBT() const { return HasICBT; }
+  bool hasInvariantFunctionDescriptors() const {
+    return HasInvariantFunctionDescriptors;
+  }
 
   const Triple &getTargetTriple() const { return TargetTriple; }
 
@@ -257,6 +263,8 @@ public:
                            MachineInstr *end,
                            unsigned NumRegionInstrs) const override;
   bool useAA() const override;
+
+  bool enableSubRegLiveness() const override;
 };
 } // End llvm namespace
 

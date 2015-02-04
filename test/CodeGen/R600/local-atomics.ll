@@ -1,11 +1,11 @@
-; RUN: llc -march=r600 -mcpu=SI -verify-machineinstrs < %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
-; RUN: llc -march=r600 -mcpu=bonaire -verify-machineinstrs < %s | FileCheck -strict-whitespace -check-prefix=CI -check-prefix=FUNC %s
+; RUN: llc -march=amdgcn -mcpu=SI -verify-machineinstrs < %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
+; RUN: llc -march=amdgcn -mcpu=bonaire -verify-machineinstrs < %s | FileCheck -strict-whitespace -check-prefix=CI -check-prefix=FUNC %s
 ; RUN: llc -march=r600 -mcpu=redwood -verify-machineinstrs < %s | FileCheck -check-prefix=EG -check-prefix=FUNC %s
 
 ; FUNC-LABEL: {{^}}lds_atomic_xchg_ret_i32:
 ; EG: LDS_WRXCHG_RET *
-; SI: s_load_dword [[SPTR:s[0-9]+]],
 ; SI: v_mov_b32_e32 [[DATA:v[0-9]+]], 4
+; SI: s_load_dword [[SPTR:s[0-9]+]],
 ; SI: v_mov_b32_e32 [[VPTR:v[0-9]+]], [[SPTR]]
 ; SI: ds_wrxchg_rtn_b32 [[RESULT:v[0-9]+]], [[VPTR]], [[DATA]] [M0]
 ; SI: buffer_store_dword [[RESULT]],
@@ -30,8 +30,8 @@ define void @lds_atomic_xchg_ret_i32_offset(i32 addrspace(1)* %out, i32 addrspac
 ; XXX - Is it really necessary to load 4 into VGPR?
 ; FUNC-LABEL: {{^}}lds_atomic_add_ret_i32:
 ; EG: LDS_ADD_RET *
-; SI: s_load_dword [[SPTR:s[0-9]+]],
 ; SI: v_mov_b32_e32 [[DATA:v[0-9]+]], 4
+; SI: s_load_dword [[SPTR:s[0-9]+]],
 ; SI: v_mov_b32_e32 [[VPTR:v[0-9]+]], [[SPTR]]
 ; SI: ds_add_rtn_u32 [[RESULT:v[0-9]+]], [[VPTR]], [[DATA]] [M0]
 ; SI: buffer_store_dword [[RESULT]],

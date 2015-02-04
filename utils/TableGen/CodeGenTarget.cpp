@@ -57,6 +57,7 @@ std::string llvm::getEnumName(MVT::SimpleValueType T) {
   case MVT::i32:      return "MVT::i32";
   case MVT::i64:      return "MVT::i64";
   case MVT::i128:     return "MVT::i128";
+  case MVT::Any:      return "MVT::Any";
   case MVT::iAny:     return "MVT::iAny";
   case MVT::fAny:     return "MVT::fAny";
   case MVT::vAny:     return "MVT::vAny";
@@ -295,7 +296,7 @@ void CodeGenTarget::ComputeInstrsByEnum() const {
       "IMPLICIT_DEF", "SUBREG_TO_REG", "COPY_TO_REGCLASS", "DBG_VALUE",
       "REG_SEQUENCE", "COPY",          "BUNDLE",           "LIFETIME_START",
       "LIFETIME_END", "STACKMAP",      "PATCHPOINT",       "LOAD_STACK_GUARD",
-      "STATEPOINT",
+      "STATEPOINT",   "FRAME_ALLOC",
       nullptr};
   const auto &Insts = getInstructions();
   for (const char *const *p = FixedInstrs; *p; ++p) {

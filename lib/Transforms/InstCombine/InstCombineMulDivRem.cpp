@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "InstCombine.h"
+#include "InstCombineInternal.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/PatternMatch.h"
@@ -46,10 +46,10 @@ static Value *simplifyValueKnownNonZero(Value *V, InstCombiner &IC,
   // (PowerOfTwo >>u B) --> isExact since shifting out the result would make it
   // inexact.  Similarly for <<.
   if (BinaryOperator *I = dyn_cast<BinaryOperator>(V))
-    if (I->isLogicalShift() && isKnownToBeAPowerOfTwo(I->getOperand(0), false,
-                                                      0, IC.getAssumptionTracker(),
-                                                      CxtI,
-                                                      IC.getDominatorTree())) {
+    if (I->isLogicalShift() &&
+        isKnownToBeAPowerOfTwo(I->getOperand(0), false, 0,
+                               IC.getAssumptionCache(), CxtI,
+                               IC.getDominatorTree())) {
       // We know that this is an exact/nuw shift and that the input is a
       // non-zero context as well.
       if (Value *V2 = simplifyValueKnownNonZero(I->getOperand(0), IC, CxtI)) {
@@ -165,39 +165,6 @@ bool InstCombiner::WillNotOverflowSignedMul(Value *LHS, Value *RHS,
   return false;
 }
 
-/// \brief Return true if we can prove that:
-///    (mul LHS, RHS)  === (mul nuw LHS, RHS)
-bool InstCombiner::WillNotOverflowUnsignedMul(Value *LHS, Value *RHS,
-                                              Instruction *CxtI) {
-  // Multiplying n * m significant bits yields a result of n + m significant
-  // bits. If the total number of significant bits does not exceed the
-  // result bit width (minus 1), there is no overflow.
-  // This means if we have enough leading zero bits in the operands
-  // we can guarantee that the result does not overflow.
-  // Ref: "Hacker's Delight" by Henry Warren
-  unsigned BitWidth = LHS->getType()->getScalarSizeInBits();
-  APInt LHSKnownZero(BitWidth, 0);
-  APInt RHSKnownZero(BitWidth, 0);
-  APInt TmpKnownOne(BitWidth, 0);
-  computeKnownBits(LHS, LHSKnownZero, TmpKnownOne, 0, CxtI);
-  computeKnownBits(RHS, RHSKnownZero, TmpKnownOne, 0, CxtI);
-  // Note that underestimating the number of zero bits gives a more
-  // conservative answer.
-  unsigned ZeroBits = LHSKnownZero.countLeadingOnes() +
-                      RHSKnownZero.countLeadingOnes();
-  // First handle the easy case: if we have enough zero bits there's
-  // definitely no overflow.
-  if (ZeroBits >= BitWidth)
-    return true;
-
-  // There is an ambiguous cases where there can be no overflow:
-  //   ZeroBits == BitWidth - 1
-  // However, determining overflow requires calculating the sign bit of
-  // LHS * RHS/2.
-
-  return false;
-}
-
 Instruction *InstCombiner::visitMul(BinaryOperator &I) {
   bool Changed = SimplifyAssociativeOrCommutative(I);
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
@@ -205,7 +172,7 @@ Instruction *InstCombiner::visitMul(BinaryOperator &I) {
   if (Value *V = SimplifyVectorOp(I))
     return ReplaceInstUsesWith(I, V);
 
-  if (Value *V = SimplifyMulInst(Op0, Op1, DL, TLI, DT, AT))
+  if (Value *V = SimplifyMulInst(Op0, Op1, DL, TLI, DT, AC))
     return ReplaceInstUsesWith(I, V);
 
   if (Value *V = SimplifyUsingDistributiveLaws(I))
@@ -374,10 +341,10 @@ Instruction *InstCombiner::visitMul(BinaryOperator &I) {
     bool ShlNSW = false;
     if (match(Op0, m_Shl(m_One(), m_Value(Y)))) {
       BO = BinaryOperator::CreateShl(Op1, Y);
-      ShlNSW = cast<BinaryOperator>(Op0)->hasNoSignedWrap();
+      ShlNSW = cast<ShlOperator>(Op0)->hasNoSignedWrap();
     } else if (match(Op1, m_Shl(m_One(), m_Value(Y)))) {
       BO = BinaryOperator::CreateShl(Op0, Y);
-      ShlNSW = cast<BinaryOperator>(Op1)->hasNoSignedWrap();
+      ShlNSW = cast<ShlOperator>(Op1)->hasNoSignedWrap();
     }
     if (BO) {
       if (I.hasNoUnsignedWrap())
@@ -413,7 +380,9 @@ Instruction *InstCombiner::visitMul(BinaryOperator &I) {
     I.setHasNoSignedWrap(true);
   }
 
-  if (!I.hasNoUnsignedWrap() && WillNotOverflowUnsignedMul(Op0, Op1, &I)) {
+  if (!I.hasNoUnsignedWrap() &&
+      computeOverflowForUnsignedMul(Op0, Op1, &I) ==
+          OverflowResult::NeverOverflows) {
     Changed = true;
     I.setHasNoUnsignedWrap(true);
   }
@@ -561,8 +530,8 @@ Instruction *InstCombiner::visitFMul(BinaryOperator &I) {
   if (isa<Constant>(Op0))
     std::swap(Op0, Op1);
 
-  if (Value *V = SimplifyFMulInst(Op0, Op1, I.getFastMathFlags(), DL, TLI,
-                                  DT, AT))
+  if (Value *V =
+          SimplifyFMulInst(Op0, Op1, I.getFastMathFlags(), DL, TLI, DT, AC))
     return ReplaceInstUsesWith(I, V);
 
   bool AllowReassociate = I.hasUnsafeAlgebra();
@@ -1066,7 +1035,7 @@ Instruction *InstCombiner::visitUDiv(BinaryOperator &I) {
   if (Value *V = SimplifyVectorOp(I))
     return ReplaceInstUsesWith(I, V);
 
-  if (Value *V = SimplifyUDivInst(Op0, Op1, DL, TLI, DT, AT))
+  if (Value *V = SimplifyUDivInst(Op0, Op1, DL, TLI, DT, AC))
     return ReplaceInstUsesWith(I, V);
 
   // Handle the integer div common cases
@@ -1139,7 +1108,7 @@ Instruction *InstCombiner::visitSDiv(BinaryOperator &I) {
   if (Value *V = SimplifyVectorOp(I))
     return ReplaceInstUsesWith(I, V);
 
-  if (Value *V = SimplifySDivInst(Op0, Op1, DL, TLI, DT, AT))
+  if (Value *V = SimplifySDivInst(Op0, Op1, DL, TLI, DT, AC))
     return ReplaceInstUsesWith(I, V);
 
   // Handle the integer div common cases
@@ -1186,7 +1155,7 @@ Instruction *InstCombiner::visitSDiv(BinaryOperator &I) {
         return BO;
       }
 
-      if (isKnownToBeAPowerOfTwo(Op1, /*OrZero*/true, 0, AT, &I, DT)) {
+      if (isKnownToBeAPowerOfTwo(Op1, /*OrZero*/ true, 0, AC, &I, DT)) {
         // X sdiv (1 << Y) -> X udiv (1 << Y) ( -> X u>> Y)
         // Safe because the only negative value (1 << Y) can take on is
         // INT_MIN, and X sdiv INT_MIN == X udiv INT_MIN == 0 if X doesn't have
@@ -1237,7 +1206,7 @@ Instruction *InstCombiner::visitFDiv(BinaryOperator &I) {
   if (Value *V = SimplifyVectorOp(I))
     return ReplaceInstUsesWith(I, V);
 
-  if (Value *V = SimplifyFDivInst(Op0, Op1, DL, TLI, DT, AT))
+  if (Value *V = SimplifyFDivInst(Op0, Op1, DL, TLI, DT, AC))
     return ReplaceInstUsesWith(I, V);
 
   if (isa<Constant>(Op0))
@@ -1402,7 +1371,7 @@ Instruction *InstCombiner::visitURem(BinaryOperator &I) {
   if (Value *V = SimplifyVectorOp(I))
     return ReplaceInstUsesWith(I, V);
 
-  if (Value *V = SimplifyURemInst(Op0, Op1, DL, TLI, DT, AT))
+  if (Value *V = SimplifyURemInst(Op0, Op1, DL, TLI, DT, AC))
     return ReplaceInstUsesWith(I, V);
 
   if (Instruction *common = commonIRemTransforms(I))
@@ -1415,7 +1384,7 @@ Instruction *InstCombiner::visitURem(BinaryOperator &I) {
                           I.getType());
 
   // X urem Y -> X and Y-1, where Y is a power of 2,
-  if (isKnownToBeAPowerOfTwo(Op1, /*OrZero*/true, 0, AT, &I, DT)) {
+  if (isKnownToBeAPowerOfTwo(Op1, /*OrZero*/ true, 0, AC, &I, DT)) {
     Constant *N1 = Constant::getAllOnesValue(I.getType());
     Value *Add = Builder->CreateAdd(Op1, N1);
     return BinaryOperator::CreateAnd(Op0, Add);
@@ -1437,7 +1406,7 @@ Instruction *InstCombiner::visitSRem(BinaryOperator &I) {
   if (Value *V = SimplifyVectorOp(I))
     return ReplaceInstUsesWith(I, V);
 
-  if (Value *V = SimplifySRemInst(Op0, Op1, DL, TLI, DT, AT))
+  if (Value *V = SimplifySRemInst(Op0, Op1, DL, TLI, DT, AC))
     return ReplaceInstUsesWith(I, V);
 
   // Handle the integer rem common cases
@@ -1512,7 +1481,7 @@ Instruction *InstCombiner::visitFRem(BinaryOperator &I) {
   if (Value *V = SimplifyVectorOp(I))
     return ReplaceInstUsesWith(I, V);
 
-  if (Value *V = SimplifyFRemInst(Op0, Op1, DL, TLI, DT, AT))
+  if (Value *V = SimplifyFRemInst(Op0, Op1, DL, TLI, DT, AC))
     return ReplaceInstUsesWith(I, V);
 
   // Handle cases involving: rem X, (select Cond, Y, Z)

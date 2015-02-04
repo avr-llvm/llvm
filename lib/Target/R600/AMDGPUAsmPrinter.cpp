@@ -73,17 +73,20 @@ static uint32_t getFPMode(const MachineFunction &F) {
          FP_DENORM_MODE_DP(FP64Denormals);
 }
 
-static AsmPrinter *createAMDGPUAsmPrinterPass(TargetMachine &tm,
-                                              MCStreamer &Streamer) {
-  return new AMDGPUAsmPrinter(tm, Streamer);
+static AsmPrinter *
+createAMDGPUAsmPrinterPass(TargetMachine &tm,
+                           std::unique_ptr<MCStreamer> &&Streamer) {
+  return new AMDGPUAsmPrinter(tm, std::move(Streamer));
 }
 
 extern "C" void LLVMInitializeR600AsmPrinter() {
   TargetRegistry::RegisterAsmPrinter(TheAMDGPUTarget, createAMDGPUAsmPrinterPass);
+  TargetRegistry::RegisterAsmPrinter(TheGCNTarget, createAMDGPUAsmPrinterPass);
 }
 
-AMDGPUAsmPrinter::AMDGPUAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-    : AsmPrinter(TM, Streamer) {
+AMDGPUAsmPrinter::AMDGPUAsmPrinter(TargetMachine &TM,
+                                   std::unique_ptr<MCStreamer> Streamer)
+    : AsmPrinter(TM, std::move(Streamer)) {
   DisasmEnabled = TM.getSubtarget<AMDGPUSubtarget>().dumpCode();
 }
 
@@ -107,15 +110,13 @@ bool AMDGPUAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   EmitFunctionHeader();
 
   MCContext &Context = getObjFileLowering().getContext();
-  const MCSectionELF *ConfigSection = Context.getELFSection(".AMDGPU.config",
-                                              ELF::SHT_PROGBITS, 0,
-                                              SectionKind::getReadOnly());
+  const MCSectionELF *ConfigSection =
+      Context.getELFSection(".AMDGPU.config", ELF::SHT_PROGBITS, 0);
   OutStreamer.SwitchSection(ConfigSection);
 
   const AMDGPUSubtarget &STM = TM.getSubtarget<AMDGPUSubtarget>();
   SIProgramInfo KernelInfo;
   if (STM.isAmdHsaOS()) {
-    OutStreamer.SwitchSection(getObjFileLowering().getTextSection());
     getSIProgramInfo(KernelInfo, MF);
     EmitAmdKernelCodeT(MF, KernelInfo);
     OutStreamer.EmitCodeAlignment(2 << (MF.getAlignment() - 1));
@@ -134,10 +135,8 @@ bool AMDGPUAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   EmitFunctionBody();
 
   if (isVerbose()) {
-    const MCSectionELF *CommentSection
-      = Context.getELFSection(".AMDGPU.csdata",
-                              ELF::SHT_PROGBITS, 0,
-                              SectionKind::getReadOnly());
+    const MCSectionELF *CommentSection =
+        Context.getELFSection(".AMDGPU.csdata", ELF::SHT_PROGBITS, 0);
     OutStreamer.SwitchSection(CommentSection);
 
     if (STM.getGeneration() >= AMDGPUSubtarget::SOUTHERN_ISLANDS) {
@@ -161,23 +160,17 @@ bool AMDGPUAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
     }
   }
 
-  if (STM.dumpCode()) {
-#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-    MF.dump();
-#endif
+  if (STM.dumpCode() && DisasmEnabled) {
 
-    if (DisasmEnabled) {
-      OutStreamer.SwitchSection(Context.getELFSection(".AMDGPU.disasm",
-                                                  ELF::SHT_NOTE, 0,
-                                                  SectionKind::getReadOnly()));
+    OutStreamer.SwitchSection(
+        Context.getELFSection(".AMDGPU.disasm", ELF::SHT_NOTE, 0));
 
-      for (size_t i = 0; i < DisasmLines.size(); ++i) {
-        std::string Comment(DisasmLineMaxLen - DisasmLines[i].size(), ' ');
-        Comment += " ; " + HexLines[i] + "\n";
+    for (size_t i = 0; i < DisasmLines.size(); ++i) {
+      std::string Comment(DisasmLineMaxLen - DisasmLines[i].size(), ' ');
+      Comment += " ; " + HexLines[i] + "\n";
 
-        OutStreamer.EmitBytes(StringRef(DisasmLines[i]));
-        OutStreamer.EmitBytes(StringRef(Comment));
-      }
+      OutStreamer.EmitBytes(StringRef(DisasmLines[i]));
+      OutStreamer.EmitBytes(StringRef(Comment));
     }
   }
 
@@ -293,7 +286,7 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
         if (AMDGPU::SReg_32RegClass.contains(reg)) {
           isSGPR = true;
           width = 1;
-        } else if (AMDGPU::VReg_32RegClass.contains(reg)) {
+        } else if (AMDGPU::VGPR_32RegClass.contains(reg)) {
           isSGPR = false;
           width = 1;
         } else if (AMDGPU::SReg_64RegClass.contains(reg)) {
@@ -425,6 +418,7 @@ static unsigned getRsrcReg(unsigned ShaderType) {
 
 void AMDGPUAsmPrinter::EmitProgramInfoSI(const MachineFunction &MF,
                                          const SIProgramInfo &KernelInfo) {
+  const AMDGPUSubtarget &STM = TM.getSubtarget<AMDGPUSubtarget>();
   const SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
   unsigned RsrcReg = getRsrcReg(MFI->getShaderType());
 
@@ -445,6 +439,10 @@ void AMDGPUAsmPrinter::EmitProgramInfoSI(const MachineFunction &MF,
     OutStreamer.EmitIntValue(RsrcReg, 4);
     OutStreamer.EmitIntValue(S_00B028_VGPRS(KernelInfo.VGPRBlocks) |
                              S_00B028_SGPRS(KernelInfo.SGPRBlocks), 4);
+    if (STM.isVGPRSpillingEnabled(MFI)) {
+      OutStreamer.EmitIntValue(R_0286E8_SPI_TMPRING_SIZE, 4);
+      OutStreamer.EmitIntValue(S_0286E8_WAVESIZE(KernelInfo.ScratchBlocks), 4);
+    }
   }
 
   if (MFI->getShaderType() == ShaderType::PIXEL) {
@@ -507,6 +505,19 @@ void AMDGPUAsmPrinter::EmitAmdKernelCodeT(const MachineFunction &MF,
   header.code_type = 1; // HSA_EXT_CODE_KERNEL
 
   header.wavefront_size = STM.getWavefrontSize();
+
+  const MCSectionELF *VersionSection =
+      OutContext.getELFSection(".hsa.version", ELF::SHT_PROGBITS, 0);
+  OutStreamer.SwitchSection(VersionSection);
+  OutStreamer.EmitBytes(Twine("HSA Code Unit:" +
+                        Twine(header.hsail_version_major) + "." +
+                        Twine(header.hsail_version_minor) + ":" +
+                        "AMD:" +
+                        Twine(header.amd_code_version_major) + "." +
+                        Twine(header.amd_code_version_minor) +  ":" +
+                        "GFX8.1:0").str());
+
+  OutStreamer.SwitchSection(getObjFileLowering().getTextSection());
 
   if (isVerbose()) {
     OutStreamer.emitRawComment("amd_code_version_major = " +

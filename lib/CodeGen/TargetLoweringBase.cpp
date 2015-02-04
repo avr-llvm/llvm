@@ -696,7 +696,7 @@ static void InitCmpLibcallCCs(ISD::CondCode *CCs) {
 
 /// NOTE: The TargetMachine owns TLOF.
 TargetLoweringBase::TargetLoweringBase(const TargetMachine &tm)
-    : TM(tm), DL(TM.getSubtargetImpl()->getDataLayout()) {
+    : TM(tm), DL(TM.getDataLayout()) {
   initActions();
 
   // Perform these initializations only once.
@@ -710,6 +710,7 @@ TargetLoweringBase::TargetLoweringBase(const TargetMachine &tm)
   HasMultipleConditionRegisters = false;
   HasExtractBitsInsn = false;
   IntDivIsCheap = false;
+  FsqrtIsCheap = false;
   Pow2SDivIsCheap = false;
   JumpIsExpensive = false;
   PredictableSelectIsExpensive = false;
@@ -748,37 +749,32 @@ void TargetLoweringBase::initActions() {
   memset(TargetDAGCombineArray, 0, array_lengthof(TargetDAGCombineArray));
 
   // Set default actions for various operations.
-  for (unsigned VT = 0; VT != (unsigned)MVT::LAST_VALUETYPE; ++VT) {
+  for (MVT VT : MVT::all_valuetypes()) {
     // Default all indexed load / store to expand.
     for (unsigned IM = (unsigned)ISD::PRE_INC;
          IM != (unsigned)ISD::LAST_INDEXED_MODE; ++IM) {
-      setIndexedLoadAction(IM, (MVT::SimpleValueType)VT, Expand);
-      setIndexedStoreAction(IM, (MVT::SimpleValueType)VT, Expand);
+      setIndexedLoadAction(IM, VT, Expand);
+      setIndexedStoreAction(IM, VT, Expand);
     }
 
     // Most backends expect to see the node which just returns the value loaded.
-    setOperationAction(ISD::ATOMIC_CMP_SWAP_WITH_SUCCESS,
-                       (MVT::SimpleValueType)VT, Expand);
+    setOperationAction(ISD::ATOMIC_CMP_SWAP_WITH_SUCCESS, VT, Expand);
 
     // These operations default to expand.
-    setOperationAction(ISD::FGETSIGN, (MVT::SimpleValueType)VT, Expand);
-    setOperationAction(ISD::CONCAT_VECTORS, (MVT::SimpleValueType)VT, Expand);
-    setOperationAction(ISD::FMINNUM, (MVT::SimpleValueType)VT, Expand);
-    setOperationAction(ISD::FMAXNUM, (MVT::SimpleValueType)VT, Expand);
+    setOperationAction(ISD::FGETSIGN, VT, Expand);
+    setOperationAction(ISD::CONCAT_VECTORS, VT, Expand);
+    setOperationAction(ISD::FMINNUM, VT, Expand);
+    setOperationAction(ISD::FMAXNUM, VT, Expand);
 
     // These library functions default to expand.
-    setOperationAction(ISD::FROUND, (MVT::SimpleValueType)VT, Expand);
+    setOperationAction(ISD::FROUND, VT, Expand);
 
     // These operations default to expand for vector types.
-    if (VT >= MVT::FIRST_VECTOR_VALUETYPE &&
-        VT <= MVT::LAST_VECTOR_VALUETYPE) {
-      setOperationAction(ISD::FCOPYSIGN, (MVT::SimpleValueType)VT, Expand);
-      setOperationAction(ISD::ANY_EXTEND_VECTOR_INREG,
-                         (MVT::SimpleValueType)VT, Expand);
-      setOperationAction(ISD::SIGN_EXTEND_VECTOR_INREG,
-                         (MVT::SimpleValueType)VT, Expand);
-      setOperationAction(ISD::ZERO_EXTEND_VECTOR_INREG,
-                         (MVT::SimpleValueType)VT, Expand);
+    if (VT.isVector()) {
+      setOperationAction(ISD::FCOPYSIGN, VT, Expand);
+      setOperationAction(ISD::ANY_EXTEND_VECTOR_INREG, VT, Expand);
+      setOperationAction(ISD::SIGN_EXTEND_VECTOR_INREG, VT, Expand);
+      setOperationAction(ISD::ZERO_EXTEND_VECTOR_INREG, VT, Expand);
     }
   }
 
@@ -1001,8 +997,7 @@ TargetLoweringBase::emitPatchPoint(MachineInstr *MI,
     }
     MachineMemOperand *MMO = MF.getMachineMemOperand(
         MachinePointerInfo::getFixedStack(FI), Flags,
-        TM.getSubtargetImpl()->getDataLayout()->getPointerSize(),
-        MFI.getObjectAlignment(FI));
+        TM.getDataLayout()->getPointerSize(), MFI.getObjectAlignment(FI));
     MIB->addMemOperand(MF, MMO);
 
     // Replace the instruction and update the operand index.

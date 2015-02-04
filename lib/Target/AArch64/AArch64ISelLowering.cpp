@@ -67,10 +67,9 @@ EnableAArch64SlrGeneration("aarch64-shift-insert-generation", cl::Hidden,
                          cl::desc("Allow AArch64 SLI/SRI formation"),
                          cl::init(false));
 
-
-AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM)
-    : TargetLowering(TM) {
-  Subtarget = &TM.getSubtarget<AArch64Subtarget>();
+AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
+                                             const AArch64Subtarget &STI)
+    : TargetLowering(TM), Subtarget(&STI) {
 
   // AArch64 doesn't have comparisons which set GPRs or setcc instructions, so
   // we have to make something up. Arbitrarily, choose ZeroOrOne.
@@ -396,11 +395,15 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM)
 
   // AArch64 does not have floating-point extending loads, i1 sign-extending
   // load, floating-point truncating stores, or v2i32->v2i16 truncating store.
-  setLoadExtAction(ISD::EXTLOAD, MVT::f16, Expand);
-  setLoadExtAction(ISD::EXTLOAD, MVT::f32, Expand);
-  setLoadExtAction(ISD::EXTLOAD, MVT::f64, Expand);
-  setLoadExtAction(ISD::EXTLOAD, MVT::f80, Expand);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Expand);
+  for (MVT VT : MVT::fp_valuetypes()) {
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::f16, Expand);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::f32, Expand);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::f64, Expand);
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::f80, Expand);
+  }
+  for (MVT VT : MVT::integer_valuetypes())
+    setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i1, Expand);
+
   setTruncStoreAction(MVT::f32, MVT::f16, Expand);
   setTruncStoreAction(MVT::f64, MVT::f32, Expand);
   setTruncStoreAction(MVT::f64, MVT::f16, Expand);
@@ -539,26 +542,22 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM)
     setTruncStoreAction(MVT::v2i32, MVT::v2i16, Expand);
     // Likewise, narrowing and extending vector loads/stores aren't handled
     // directly.
-    for (unsigned VT = (unsigned)MVT::FIRST_VECTOR_VALUETYPE;
-         VT <= (unsigned)MVT::LAST_VECTOR_VALUETYPE; ++VT) {
+    for (MVT VT : MVT::vector_valuetypes()) {
+      setOperationAction(ISD::SIGN_EXTEND_INREG, VT, Expand);
 
-      setOperationAction(ISD::SIGN_EXTEND_INREG, (MVT::SimpleValueType)VT,
-                         Expand);
+      setOperationAction(ISD::MULHS, VT, Expand);
+      setOperationAction(ISD::SMUL_LOHI, VT, Expand);
+      setOperationAction(ISD::MULHU, VT, Expand);
+      setOperationAction(ISD::UMUL_LOHI, VT, Expand);
 
-      setOperationAction(ISD::MULHS, (MVT::SimpleValueType)VT, Expand);
-      setOperationAction(ISD::SMUL_LOHI, (MVT::SimpleValueType)VT, Expand);
-      setOperationAction(ISD::MULHU, (MVT::SimpleValueType)VT, Expand);
-      setOperationAction(ISD::UMUL_LOHI, (MVT::SimpleValueType)VT, Expand);
+      setOperationAction(ISD::BSWAP, VT, Expand);
 
-      setOperationAction(ISD::BSWAP, (MVT::SimpleValueType)VT, Expand);
-
-      for (unsigned InnerVT = (unsigned)MVT::FIRST_VECTOR_VALUETYPE;
-           InnerVT <= (unsigned)MVT::LAST_VECTOR_VALUETYPE; ++InnerVT)
-        setTruncStoreAction((MVT::SimpleValueType)VT,
-                            (MVT::SimpleValueType)InnerVT, Expand);
-      setLoadExtAction(ISD::SEXTLOAD, (MVT::SimpleValueType)VT, Expand);
-      setLoadExtAction(ISD::ZEXTLOAD, (MVT::SimpleValueType)VT, Expand);
-      setLoadExtAction(ISD::EXTLOAD, (MVT::SimpleValueType)VT, Expand);
+      for (MVT InnerVT : MVT::vector_valuetypes()) {
+        setTruncStoreAction(VT, InnerVT, Expand);
+        setLoadExtAction(ISD::SEXTLOAD, VT, InnerVT, Expand);
+        setLoadExtAction(ISD::ZEXTLOAD, VT, InnerVT, Expand);
+        setLoadExtAction(ISD::EXTLOAD, VT, InnerVT, Expand);
+      }
     }
 
     // AArch64 has implementations of a lot of rounding-like FP operations.
@@ -623,7 +622,8 @@ void AArch64TargetLowering::addTypeForNEON(EVT VT, EVT PromotedBitwiseVT) {
   setOperationAction(ISD::SELECT, VT.getSimpleVT(), Expand);
   setOperationAction(ISD::SELECT_CC, VT.getSimpleVT(), Expand);
   setOperationAction(ISD::VSELECT, VT.getSimpleVT(), Expand);
-  setLoadExtAction(ISD::EXTLOAD, VT.getSimpleVT(), Expand);
+  for (MVT InnerVT : MVT::all_valuetypes())
+    setLoadExtAction(ISD::EXTLOAD, InnerVT, VT.getSimpleVT(), Expand);
 
   // CNT supports only B element sizes.
   if (VT != MVT::v8i8 && VT != MVT::v16i8)
@@ -877,9 +877,8 @@ AArch64TargetLowering::EmitF128CSEL(MachineInstr *MI,
   // EndBB:
   //     Dest = PHI [IfTrue, TrueBB], [IfFalse, OrigBB]
 
-  const TargetInstrInfo *TII =
-      getTargetMachine().getSubtargetImpl()->getInstrInfo();
   MachineFunction *MF = MBB->getParent();
+  const TargetInstrInfo *TII = Subtarget->getInstrInfo();
   const BasicBlock *LLVM_BB = MBB->getBasicBlock();
   DebugLoc DL = MI->getDebugLoc();
   MachineFunction::iterator It = MBB;
@@ -1989,6 +1988,8 @@ CCAssignFn *AArch64TargetLowering::CCAssignFnForCall(CallingConv::ID CC,
     llvm_unreachable("Unsupported calling convention.");
   case CallingConv::WebKit_JS:
     return CC_AArch64_WebKit_JS;
+  case CallingConv::GHC:
+    return CC_AArch64_GHC;
   case CallingConv::C:
   case CallingConv::Fast:
     if (!Subtarget->isTargetDarwin())
@@ -2358,7 +2359,9 @@ bool AArch64TargetLowering::isEligibleForTailCallOptimization(
   // cannot rely on the linker replacing the tail call with a return.
   if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
     const GlobalValue *GV = G->getGlobal();
-    if (GV->hasExternalWeakLinkage())
+    const Triple TT(getTargetMachine().getTargetTriple());
+    if (GV->hasExternalWeakLinkage() &&
+        (!TT.isOSWindows() || TT.isOSBinFormatELF() || TT.isOSBinFormatMachO()))
       return false;
   }
 
@@ -2792,19 +2795,16 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   // Add a register mask operand representing the call-preserved registers.
   const uint32_t *Mask;
-  const TargetRegisterInfo *TRI =
-      getTargetMachine().getSubtargetImpl()->getRegisterInfo();
-  const AArch64RegisterInfo *ARI =
-      static_cast<const AArch64RegisterInfo *>(TRI);
+  const AArch64RegisterInfo *TRI = Subtarget->getRegisterInfo();
   if (IsThisReturn) {
     // For 'this' returns, use the X0-preserving mask if applicable
-    Mask = ARI->getThisReturnPreservedMask(CallConv);
+    Mask = TRI->getThisReturnPreservedMask(CallConv);
     if (!Mask) {
       IsThisReturn = false;
-      Mask = ARI->getCallPreservedMask(CallConv);
+      Mask = TRI->getCallPreservedMask(CallConv);
     }
   } else
-    Mask = ARI->getCallPreservedMask(CallConv);
+    Mask = TRI->getCallPreservedMask(CallConv);
 
   assert(Mask && "Missing call preserved mask for calling convention");
   Ops.push_back(DAG.getRegisterMask(Mask));
@@ -3024,11 +3024,8 @@ AArch64TargetLowering::LowerDarwinGlobalTLSAddress(SDValue Op,
   // TLS calls preserve all registers except those that absolutely must be
   // trashed: X0 (it takes an argument), LR (it's a call) and NZCV (let's not be
   // silly).
-  const TargetRegisterInfo *TRI =
-      getTargetMachine().getSubtargetImpl()->getRegisterInfo();
-  const AArch64RegisterInfo *ARI =
-      static_cast<const AArch64RegisterInfo *>(TRI);
-  const uint32_t *Mask = ARI->getTLSCallPreservedMask();
+  const uint32_t *Mask =
+      Subtarget->getRegisterInfo()->getTLSCallPreservedMask();
 
   // Finally, we can make the call. This is just a degenerate version of a
   // normal AArch64 call node: x0 takes the address of the descriptor, and
@@ -3075,11 +3072,8 @@ SDValue AArch64TargetLowering::LowerELFTLSDescCall(SDValue SymAddr,
   // TLS calls preserve all registers except those that absolutely must be
   // trashed: X0 (it takes an argument), LR (it's a call) and NZCV (let's not be
   // silly).
-  const TargetRegisterInfo *TRI =
-      getTargetMachine().getSubtargetImpl()->getRegisterInfo();
-  const AArch64RegisterInfo *ARI =
-      static_cast<const AArch64RegisterInfo *>(TRI);
-  const uint32_t *Mask = ARI->getTLSCallPreservedMask();
+  const uint32_t *Mask =
+      Subtarget->getRegisterInfo()->getTLSCallPreservedMask();
 
   // The function takes only one argument: the address of the descriptor itself
   // in X0.
@@ -3457,18 +3451,12 @@ SDValue AArch64TargetLowering::LowerCTPOP(SDValue Op, SelectionDAG &DAG) const {
   SDValue Val = Op.getOperand(0);
   SDLoc DL(Op);
   EVT VT = Op.getValueType();
-  SDValue ZeroVec = DAG.getUNDEF(MVT::v8i8);
 
-  SDValue VecVal;
-  if (VT == MVT::i32) {
-    VecVal = DAG.getNode(ISD::BITCAST, DL, MVT::f32, Val);
-    VecVal = DAG.getTargetInsertSubreg(AArch64::ssub, DL, MVT::v8i8, ZeroVec,
-                                       VecVal);
-  } else {
-    VecVal = DAG.getNode(ISD::BITCAST, DL, MVT::v8i8, Val);
-  }
+  if (VT == MVT::i32)
+    Val = DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::i64, Val);
+  Val = DAG.getNode(ISD::BITCAST, DL, MVT::v8i8, Val);
 
-  SDValue CtPop = DAG.getNode(ISD::CTPOP, DL, MVT::v8i8, VecVal);
+  SDValue CtPop = DAG.getNode(ISD::CTPOP, DL, MVT::v8i8, Val);
   SDValue UaddLV = DAG.getNode(
       ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
       DAG.getConstant(Intrinsic::aarch64_neon_uaddlv, MVT::i32), CtPop);
@@ -7852,7 +7840,7 @@ static SDValue performSTORECombine(SDNode *N,
     return SDValue();
 
   // Cyclone has bad performance on unaligned 16B stores when crossing line and
-  // page boundries. We want to split such stores.
+  // page boundaries. We want to split such stores.
   if (!Subtarget->isCyclone())
     return SDValue();
 

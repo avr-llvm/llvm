@@ -67,6 +67,9 @@ multiclass T_Calls<string ExtStr> {
 let isCodeGenOnly = 0 in
 defm J2_call: T_Calls<"">, PredRel;
 
+let isCodeGenOnly = 1, isCall = 1, hasSideEffects = 1, Defs = VolatileV3.Regs in
+def CALLv3nr :  T_Call<"">, PredRel;
+
 //===----------------------------------------------------------------------===//
 // J -
 //===----------------------------------------------------------------------===//
@@ -76,13 +79,11 @@ defm J2_call: T_Calls<"">, PredRel;
 // JR +
 //===----------------------------------------------------------------------===//
 // Call subroutine from register.
-let isCall = 1, hasSideEffects = 0,
-  Defs = [D0, D1, D2, D3, D4, D5, D6, D7, R28, R31,
-                P0, P1, P2, P3, LC0, LC1, SA0, SA1] in {
-  def CALLRv3 : JRInst<(outs), (ins IntRegs:$dst),
-              "callr $dst",
-              []>, Requires<[HasV3TOnly]>;
- }
+
+let isCodeGenOnly = 1, Defs = VolatileV3.Regs, validSubTargets = HasV3SubT in {
+  def CALLRv3nr : JUMPR_MISC_CALLR<0, 1>; // Call, no return.
+}
+
 
 //===----------------------------------------------------------------------===//
 // JR -
@@ -105,7 +106,7 @@ def A2_addspl : T_ALU64_addsp_hl<":raw:lo", 0b110>;
 def A2_addsph : T_ALU64_addsp_hl<":raw:hi", 0b111>;
 }
 
-let hasSideEffects = 0, isCodeGenOnly = 0 in
+let hasSideEffects = 0, isAsmParserOnly = 1 in
 def A2_addsp : ALU64_rr<(outs DoubleRegs:$Rd),
   (ins IntRegs:$Rs, DoubleRegs:$Rt), "$Rd = add($Rs, $Rt)",
   [(set (i64 DoubleRegs:$Rd), (i64 (add (i64 (sext (i32 IntRegs:$Rs))),
@@ -178,11 +179,105 @@ let AddedComplexity = 200 in {
 //def : Pat <(brcond (i1 (setgt (i32 IntRegs:$src1), -1)), bb:$offset),
 //      (JMP_RegGezt (i32 IntRegs:$src1), bb:$offset)>, Requires<[HasV3T]>;
 
-
 // Map call instruction
-def : Pat<(call (i32 IntRegs:$dst)),
-      (J2_call (i32 IntRegs:$dst))>, Requires<[HasV3T]>;
-def : Pat<(call tglobaladdr:$dst),
+def : Pat<(callv3 (i32 IntRegs:$dst)),
+      (J2_callr (i32 IntRegs:$dst))>, Requires<[HasV3T]>;
+def : Pat<(callv3 tglobaladdr:$dst),
       (J2_call tglobaladdr:$dst)>, Requires<[HasV3T]>;
-def : Pat<(call texternalsym:$dst),
+def : Pat<(callv3 texternalsym:$dst),
       (J2_call texternalsym:$dst)>, Requires<[HasV3T]>;
+def : Pat<(callv3 tglobaltlsaddr:$dst),
+      (J2_call tglobaltlsaddr:$dst)>, Requires<[HasV3T]>;
+
+def : Pat<(callv3nr (i32 IntRegs:$dst)),
+      (CALLRv3nr (i32 IntRegs:$dst))>, Requires<[HasV3T]>;
+def : Pat<(callv3nr tglobaladdr:$dst),
+      (CALLv3nr tglobaladdr:$dst)>, Requires<[HasV3T]>;
+def : Pat<(callv3nr texternalsym:$dst),
+      (CALLv3nr texternalsym:$dst)>, Requires<[HasV3T]>;
+
+//===----------------------------------------------------------------------===//
+// :raw form of vrcmpys:hi/lo insns
+//===----------------------------------------------------------------------===//
+// Vector reduce complex multiply by scalar.
+let Defs = [USR_OVF], hasSideEffects = 0 in
+class T_vrcmpRaw<string HiLo, bits<3>MajOp>:
+  MInst<(outs DoubleRegs:$Rdd),
+         (ins DoubleRegs:$Rss, DoubleRegs:$Rtt),
+         "$Rdd = vrcmpys($Rss, $Rtt):<<1:sat:raw:"#HiLo, []> {
+    bits<5> Rdd;
+    bits<5> Rss;
+    bits<5> Rtt;
+
+    let IClass = 0b1110;
+
+    let Inst{27-24} = 0b1000;
+    let Inst{23-21} = MajOp;
+    let Inst{20-16} = Rss;
+    let Inst{12-8}  = Rtt;
+    let Inst{7-5}   = 0b100;
+    let Inst{4-0}   = Rdd;
+}
+
+let isCodeGenOnly = 0 in {
+def M2_vrcmpys_s1_h: T_vrcmpRaw<"hi", 0b101>;
+def M2_vrcmpys_s1_l: T_vrcmpRaw<"lo", 0b111>;
+}
+
+// Assembler mapped to M2_vrcmpys_s1_h or M2_vrcmpys_s1_l
+let hasSideEffects = 0, isAsmParserOnly = 1 in
+def M2_vrcmpys_s1
+ : MInst<(outs DoubleRegs:$Rdd), (ins DoubleRegs:$Rss, IntRegs:$Rt),
+ "$Rdd=vrcmpys($Rss,$Rt):<<1:sat">;
+
+// Vector reduce complex multiply by scalar with accumulation.
+let Defs = [USR_OVF], hasSideEffects = 0 in
+class T_vrcmpys_acc<string HiLo, bits<3>MajOp>:
+  MInst <(outs DoubleRegs:$Rxx),
+         (ins DoubleRegs:$_src_, DoubleRegs:$Rss, DoubleRegs:$Rtt),
+  "$Rxx += vrcmpys($Rss, $Rtt):<<1:sat:raw:"#HiLo, [],
+  "$Rxx = $_src_"> {
+    bits<5> Rxx;
+    bits<5> Rss;
+    bits<5> Rtt;
+
+    let IClass = 0b1110;
+
+    let Inst{27-24} = 0b1010;
+    let Inst{23-21} = MajOp;
+    let Inst{20-16} = Rss;
+    let Inst{12-8}  = Rtt;
+    let Inst{7-5}   = 0b100;
+    let Inst{4-0}   = Rxx;
+  }
+
+let isCodeGenOnly = 0 in {
+def M2_vrcmpys_acc_s1_h: T_vrcmpys_acc<"hi", 0b101>;
+def M2_vrcmpys_acc_s1_l: T_vrcmpys_acc<"lo", 0b111>;
+}
+
+// Assembler mapped to M2_vrcmpys_acc_s1_h or M2_vrcmpys_acc_s1_l
+
+let isAsmParserOnly = 1 in
+def M2_vrcmpys_acc_s1
+  : MInst <(outs DoubleRegs:$dst),
+           (ins DoubleRegs:$dst2, DoubleRegs:$src1, IntRegs:$src2),
+           "$dst += vrcmpys($src1, $src2):<<1:sat", [],
+           "$dst2 = $dst">;
+
+let isCodeGenOnly = 0 in {
+def M2_vrcmpys_s1rp_h : T_MType_vrcmpy <"vrcmpys", 0b101, 0b110, 1>;
+def M2_vrcmpys_s1rp_l : T_MType_vrcmpy <"vrcmpys", 0b101, 0b111, 0>;
+}
+
+// Assembler mapped to M2_vrcmpys_s1rp_h or M2_vrcmpys_s1rp_l
+let isAsmParserOnly = 1 in
+def M2_vrcmpys_s1rp
+  : MInst <(outs IntRegs:$Rd), (ins DoubleRegs:$Rss, IntRegs:$Rt),
+  "$Rd=vrcmpys($Rss,$Rt):<<1:rnd:sat">;
+
+
+// S2_cabacdecbin: Cabac decode bin.
+let Defs = [P0], isPredicateLate = 1, Itinerary = S_3op_tc_1_SLOT23,
+    isCodeGenOnly = 0 in
+def S2_cabacdecbin : T_S3op_64 < "decbin", 0b11, 0b110, 0>;

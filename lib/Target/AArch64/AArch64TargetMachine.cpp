@@ -13,6 +13,7 @@
 #include "AArch64.h"
 #include "AArch64TargetMachine.h"
 #include "AArch64TargetObjectFile.h"
+#include "AArch64TargetTransformInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegAllocRegistry.h"
 #include "llvm/IR/Function.h"
@@ -112,6 +113,13 @@ AArch64TargetMachine::AArch64TargetMachine(const Target &T, StringRef TT,
                                            CodeGenOpt::Level OL,
                                            bool LittleEndian)
     : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
+      // This nested ternary is horrible, but DL needs to be properly
+      // initialized
+      // before TLInfo is constructed.
+      DL(Triple(TT).isOSBinFormatMachO()
+             ? "e-m:o-i64:64-i128:128-n32:64-S128"
+             : (LittleEndian ? "e-m:e-i64:64-i128:128-n32:64-S128"
+                             : "E-m:e-i64:64-i128:128-n32:64-S128")),
       TLOF(createTLOF(Triple(getTargetTriple()))),
       Subtarget(TT, CPU, FS, *this, LittleEndian), isLittle(LittleEndian) {
   initAsmInfo();
@@ -188,12 +196,10 @@ public:
 };
 } // namespace
 
-void AArch64TargetMachine::addAnalysisPasses(PassManagerBase &PM) {
-  // Add first the target-independent BasicTTI pass, then our AArch64 pass. This
-  // allows the AArch64 pass to delegate to the target independent layer when
-  // appropriate.
-  PM.add(createBasicTargetTransformInfoPass(this));
-  PM.add(createAArch64TargetTransformInfoPass(this));
+TargetIRAnalysis AArch64TargetMachine::getTargetIRAnalysis() {
+  return TargetIRAnalysis([this](Function &F) {
+    return TargetTransformInfo(AArch64TTIImpl(this, F));
+  });
 }
 
 TargetPassConfig *AArch64TargetMachine::createPassConfig(PassManagerBase &PM) {
@@ -246,7 +252,7 @@ bool AArch64PassConfig::addInstSelector() {
 
   // For ELF, cleanup any local-dynamic TLS accesses (i.e. combine as many
   // references to _TLS_MODULE_BASE_ as possible.
-  if (TM->getSubtarget<AArch64Subtarget>().isTargetELF() &&
+  if (Triple(TM->getTargetTriple()).isOSBinFormatELF() &&
       getOptLevel() != CodeGenOpt::None)
     addPass(createAArch64CleanupLocalDynamicTLSPass());
 
@@ -304,6 +310,6 @@ void AArch64PassConfig::addPreEmitPass() {
   // range of their destination.
   addPass(createAArch64BranchRelaxation());
   if (TM->getOptLevel() != CodeGenOpt::None && EnableCollectLOH &&
-      TM->getSubtarget<AArch64Subtarget>().isTargetMachO())
+      Triple(TM->getTargetTriple()).isOSBinFormatMachO())
     addPass(createAArch64CollectLOHPass());
 }

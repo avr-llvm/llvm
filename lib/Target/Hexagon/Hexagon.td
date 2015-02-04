@@ -34,22 +34,24 @@ def ArchV5       : SubtargetFeature<"v5", "HexagonArchVersion", "V5",
 //===----------------------------------------------------------------------===//
 // Hexagon Instruction Predicate Definitions.
 //===----------------------------------------------------------------------===//
-def HasV2T                      : Predicate<"Subtarget.hasV2TOps()">;
-def HasV2TOnly                  : Predicate<"Subtarget.hasV2TOpsOnly()">;
-def NoV2T                       : Predicate<"!Subtarget.hasV2TOps()">;
-def HasV3T                      : Predicate<"Subtarget.hasV3TOps()">;
-def HasV3TOnly                  : Predicate<"Subtarget.hasV3TOpsOnly()">;
-def NoV3T                       : Predicate<"!Subtarget.hasV3TOps()">;
-def HasV4T                      : Predicate<"Subtarget.hasV4TOps()">;
-def NoV4T                       : Predicate<"!Subtarget.hasV4TOps()">;
-def HasV5T                      : Predicate<"Subtarget.hasV5TOps()">;
-def NoV5T                       : Predicate<"!Subtarget.hasV5TOps()">;
-def UseMEMOP                    : Predicate<"Subtarget.useMemOps()">;
-def IEEERndNearV5T              : Predicate<"Subtarget.modeIEEERndNear()">;
+def HasV2T                      : Predicate<"Subtarget->hasV2TOps()">;
+def HasV2TOnly                  : Predicate<"Subtarget->hasV2TOpsOnly()">;
+def NoV2T                       : Predicate<"!Subtarget->hasV2TOps()">;
+def HasV3T                      : Predicate<"Subtarget->hasV3TOps()">;
+def HasV3TOnly                  : Predicate<"Subtarget->hasV3TOpsOnly()">;
+def NoV3T                       : Predicate<"!Subtarget->hasV3TOps()">;
+def HasV4T                      : Predicate<"Subtarget->hasV4TOps()">;
+def NoV4T                       : Predicate<"!Subtarget->hasV4TOps()">;
+def HasV5T                      : Predicate<"Subtarget->hasV5TOps()">;
+def NoV5T                       : Predicate<"!Subtarget->hasV5TOps()">;
+def UseMEMOP                    : Predicate<"Subtarget->useMemOps()">;
+def IEEERndNearV5T              : Predicate<"Subtarget->modeIEEERndNear()">;
 
 //===----------------------------------------------------------------------===//
 // Classes used for relation maps.
 //===----------------------------------------------------------------------===//
+
+class ImmRegShl;
 // PredRel - Filter class used to relate non-predicated instructions with their
 // predicated forms.
 class PredRel;
@@ -137,7 +139,7 @@ def getPredOldOpcode : InstrMapping {
 //
 def getNewValueOpcode : InstrMapping {
   let FilterClass = "NewValueRel";
-  let RowFields = ["BaseOpcode", "PredSense", "PNewValue"];
+  let RowFields = ["BaseOpcode", "PredSense", "PNewValue", "addrMode"];
   let ColFields = ["NValueST"];
   let KeyCol = ["false"];
   let ValueCols = [["true"]];
@@ -149,7 +151,7 @@ def getNewValueOpcode : InstrMapping {
 //
 def getNonNVStore : InstrMapping {
   let FilterClass = "NewValueRel";
-  let RowFields = ["BaseOpcode", "PredSense", "PNewValue"];
+  let RowFields = ["BaseOpcode", "PredSense", "PNewValue", "addrMode"];
   let ColFields = ["NValueST"];
   let KeyCol = ["true"];
   let ValueCols = [["false"]];
@@ -175,6 +177,14 @@ def getBaseWithRegOffset : InstrMapping {
 def getRegForm : InstrMapping {
   let FilterClass = "ImmRegRel";
   let RowFields = ["CextOpcode", "PredSense", "PNewValue"];
+  let ColFields = ["InputType"];
+  let KeyCol = ["imm"];
+  let ValueCols = [["reg"]];
+}
+
+def getRegShlForm : InstrMapping {
+  let FilterClass = "ImmRegShl";
+  let RowFields = ["CextOpcode", "PredSense", "PNewValue", "isNVStore"];
   let ColFields = ["InputType"];
   let KeyCol = ["imm"];
   let ValueCols = [["reg"]];

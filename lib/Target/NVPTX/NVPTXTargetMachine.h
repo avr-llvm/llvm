@@ -14,8 +14,8 @@
 #ifndef LLVM_LIB_TARGET_NVPTX_NVPTXTARGETMACHINE_H
 #define LLVM_LIB_TARGET_NVPTX_NVPTXTARGETMACHINE_H
 
-#include "NVPTXSubtarget.h"
 #include "ManagedStringPool.h"
+#include "NVPTXSubtarget.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetSelectionDAGInfo.h"
@@ -26,6 +26,7 @@ namespace llvm {
 ///
 class NVPTXTargetMachine : public LLVMTargetMachine {
   std::unique_ptr<TargetLoweringObjectFile> TLOF;
+  const DataLayout DL; // Calculates type size & alignment
   NVPTXSubtarget Subtarget;
 
   // Hold Strings that can be free'd all together with NVPTXTargetMachine
@@ -37,7 +38,7 @@ public:
                      CodeModel::Model CM, CodeGenOpt::Level OP, bool is64bit);
 
   ~NVPTXTargetMachine() override;
-
+  const DataLayout *getDataLayout() const override { return &DL; }
   const NVPTXSubtarget *getSubtargetImpl() const override { return &Subtarget; }
 
   ManagedStringPool *getManagedStrPool() const {
@@ -55,8 +56,7 @@ public:
     return TLOF.get();
   }
 
-  /// \brief Register NVPTX analysis passes with a pass manager.
-  void addAnalysisPasses(PassManagerBase &PM) override;
+  TargetIRAnalysis getTargetIRAnalysis() override;
 
 }; // NVPTXTargetMachine.
 

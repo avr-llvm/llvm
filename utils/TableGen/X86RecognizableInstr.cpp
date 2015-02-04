@@ -405,13 +405,17 @@ InstructionContext RecognizableInstr::insnContext() const {
       errs() << "Instruction does not use a prefix: " << Name << "\n";
       llvm_unreachable("Invalid prefix");
     }
-  } else if (Is64Bit || HasREX_WPrefix) {
+  } else if (Is64Bit || HasREX_WPrefix || AdSize == X86Local::AdSize64) {
     if (HasREX_WPrefix && (OpSize == X86Local::OpSize16 || OpPrefix == X86Local::PD))
       insnContext = IC_64BIT_REXW_OPSIZE;
+    else if (HasREX_WPrefix && AdSize == X86Local::AdSize32)
+      insnContext = IC_64BIT_REXW_ADSIZE;
     else if (OpSize == X86Local::OpSize16 && OpPrefix == X86Local::XD)
       insnContext = IC_64BIT_XD_OPSIZE;
     else if (OpSize == X86Local::OpSize16 && OpPrefix == X86Local::XS)
       insnContext = IC_64BIT_XS_OPSIZE;
+    else if (OpSize == X86Local::OpSize16 && AdSize == X86Local::AdSize32)
+      insnContext = IC_64BIT_OPSIZE_ADSIZE;
     else if (OpSize == X86Local::OpSize16 || OpPrefix == X86Local::PD)
       insnContext = IC_64BIT_OPSIZE;
     else if (AdSize == X86Local::AdSize32)
@@ -433,6 +437,8 @@ InstructionContext RecognizableInstr::insnContext() const {
       insnContext = IC_XD_OPSIZE;
     else if (OpSize == X86Local::OpSize16 && OpPrefix == X86Local::XS)
       insnContext = IC_XS_OPSIZE;
+    else if (OpSize == X86Local::OpSize16 && AdSize == X86Local::AdSize16)
+      insnContext = IC_OPSIZE_ADSIZE;
     else if (OpSize == X86Local::OpSize16 || OpPrefix == X86Local::PD)
       insnContext = IC_OPSIZE;
     else if (AdSize == X86Local::AdSize16)
@@ -508,7 +514,7 @@ void RecognizableInstr::emitInstructionSpecifier() {
   assert(numOperands <= X86_MAX_OPERANDS && "X86_MAX_OPERANDS is not large enough");
 
   for (unsigned operandIndex = 0; operandIndex < numOperands; ++operandIndex) {
-    if (OperandList[operandIndex].Constraints.size()) {
+    if (!OperandList[operandIndex].Constraints.empty()) {
       const CGIOperandList::ConstraintInfo &Constraint =
         OperandList[operandIndex].Constraints[0];
       if (Constraint.isTied()) {
@@ -854,6 +860,13 @@ void RecognizableInstr::emitDecodePath(DisassemblerTables &tables) const {
     break;
   } // switch (OpMap)
 
+  unsigned AddressSize = 0;
+  switch (AdSize) {
+  case X86Local::AdSize16: AddressSize = 16; break;
+  case X86Local::AdSize32: AddressSize = 32; break;
+  case X86Local::AdSize64: AddressSize = 64; break;
+  }
+
   assert(opcodeType != (OpcodeType)-1 &&
          "Opcode type not set");
   assert(filter && "Filter not set");
@@ -871,13 +884,13 @@ void RecognizableInstr::emitDecodePath(DisassemblerTables &tables) const {
                             insnContext(),
                             currentOpcode,
                             *filter,
-                            UID, Is32Bit, IgnoresVEX_L);
+                            UID, Is32Bit, IgnoresVEX_L, AddressSize);
   } else {
     tables.setTableFields(opcodeType,
                           insnContext(),
                           opcodeToSet,
                           *filter,
-                          UID, Is32Bit, IgnoresVEX_L);
+                          UID, Is32Bit, IgnoresVEX_L, AddressSize);
   }
 
   delete filter;
@@ -919,6 +932,8 @@ OperandType RecognizableInstr::typeFromString(const std::string &s,
   TYPE("GR64",                TYPE_R64)
   TYPE("i8mem",               TYPE_M8)
   TYPE("i8imm",               TYPE_IMM8)
+  TYPE("u8imm",               TYPE_UIMM8)
+  TYPE("i32u8imm",            TYPE_UIMM8)
   TYPE("GR8",                 TYPE_R8)
   TYPE("VR128",               TYPE_XMM128)
   TYPE("VR128X",              TYPE_XMM128)
@@ -942,16 +957,17 @@ OperandType RecognizableInstr::typeFromString(const std::string &s,
   TYPE("i32imm_pcrel",        TYPE_REL32)
   TYPE("SSECC",               TYPE_IMM3)
   TYPE("AVXCC",               TYPE_IMM5)
+  TYPE("AVX512ICC",           TYPE_AVX512ICC)
   TYPE("AVX512RC",            TYPE_IMM32)
-  TYPE("brtarget",            TYPE_RELv)
-  TYPE("uncondbrtarget",      TYPE_RELv)
+  TYPE("brtarget32",          TYPE_RELv)
+  TYPE("brtarget16",          TYPE_RELv)
   TYPE("brtarget8",           TYPE_REL8)
   TYPE("f80mem",              TYPE_M80FP)
-  TYPE("lea32mem",            TYPE_LEA)
   TYPE("lea64_32mem",         TYPE_LEA)
   TYPE("lea64mem",            TYPE_LEA)
   TYPE("VR64",                TYPE_MM64)
   TYPE("i64imm",              TYPE_IMMv)
+  TYPE("anymem",              TYPE_M)
   TYPE("opaque32mem",         TYPE_M1616)
   TYPE("opaque48mem",         TYPE_M1632)
   TYPE("opaque80mem",         TYPE_M1664)
@@ -967,10 +983,17 @@ OperandType RecognizableInstr::typeFromString(const std::string &s,
   TYPE("dstidx16",            TYPE_DSTIDX16)
   TYPE("dstidx32",            TYPE_DSTIDX32)
   TYPE("dstidx64",            TYPE_DSTIDX64)
-  TYPE("offset8",             TYPE_MOFFS8)
-  TYPE("offset16",            TYPE_MOFFS16)
-  TYPE("offset32",            TYPE_MOFFS32)
-  TYPE("offset64",            TYPE_MOFFS64)
+  TYPE("offset16_8",          TYPE_MOFFS8)
+  TYPE("offset16_16",         TYPE_MOFFS16)
+  TYPE("offset16_32",         TYPE_MOFFS32)
+  TYPE("offset32_8",          TYPE_MOFFS8)
+  TYPE("offset32_16",         TYPE_MOFFS16)
+  TYPE("offset32_32",         TYPE_MOFFS32)
+  TYPE("offset32_64",         TYPE_MOFFS64)
+  TYPE("offset64_8",          TYPE_MOFFS8)
+  TYPE("offset64_16",         TYPE_MOFFS16)
+  TYPE("offset64_32",         TYPE_MOFFS32)
+  TYPE("offset64_64",         TYPE_MOFFS64)
   TYPE("VR256",               TYPE_XMM256)
   TYPE("VR256X",              TYPE_XMM256)
   TYPE("VR512",               TYPE_XMM512)
@@ -1015,6 +1038,7 @@ RecognizableInstr::immediateEncodingFromString(const std::string &s,
   ENCODING("i32i8imm",        ENCODING_IB)
   ENCODING("SSECC",           ENCODING_IB)
   ENCODING("AVXCC",           ENCODING_IB)
+  ENCODING("AVX512ICC",       ENCODING_IB)
   ENCODING("AVX512RC",        ENCODING_IB)
   ENCODING("i16imm",          ENCODING_Iv)
   ENCODING("i16i8imm",        ENCODING_IB)
@@ -1022,6 +1046,8 @@ RecognizableInstr::immediateEncodingFromString(const std::string &s,
   ENCODING("i64i32imm",       ENCODING_ID)
   ENCODING("i64i8imm",        ENCODING_IB)
   ENCODING("i8imm",           ENCODING_IB)
+  ENCODING("u8imm",           ENCODING_IB)
+  ENCODING("i32u8imm",        ENCODING_IB)
   // This is not a typo.  Instructions like BLENDVPD put
   // register IDs in 8-bit immediates nowadays.
   ENCODING("FR32",            ENCODING_IB)
@@ -1157,9 +1183,9 @@ RecognizableInstr::memoryEncodingFromString(const std::string &s,
   ENCODING("i256mem",         ENCODING_RM)
   ENCODING("i512mem",         ENCODING_RM)
   ENCODING("f80mem",          ENCODING_RM)
-  ENCODING("lea32mem",        ENCODING_RM)
   ENCODING("lea64_32mem",     ENCODING_RM)
   ENCODING("lea64mem",        ENCODING_RM)
+  ENCODING("anymem",          ENCODING_RM)
   ENCODING("opaque32mem",     ENCODING_RM)
   ENCODING("opaque48mem",     ENCODING_RM)
   ENCODING("opaque80mem",     ENCODING_RM)
@@ -1190,16 +1216,26 @@ RecognizableInstr::relocationEncodingFromString(const std::string &s,
   ENCODING("i64i32imm",       ENCODING_ID)
   ENCODING("i64i8imm",        ENCODING_IB)
   ENCODING("i8imm",           ENCODING_IB)
+  ENCODING("u8imm",           ENCODING_IB)
+  ENCODING("i32u8imm",        ENCODING_IB)
   ENCODING("i64i32imm_pcrel", ENCODING_ID)
   ENCODING("i16imm_pcrel",    ENCODING_IW)
   ENCODING("i32imm_pcrel",    ENCODING_ID)
-  ENCODING("brtarget",        ENCODING_Iv)
+  ENCODING("brtarget32",      ENCODING_Iv)
+  ENCODING("brtarget16",      ENCODING_Iv)
   ENCODING("brtarget8",       ENCODING_IB)
   ENCODING("i64imm",          ENCODING_IO)
-  ENCODING("offset8",         ENCODING_Ia)
-  ENCODING("offset16",        ENCODING_Ia)
-  ENCODING("offset32",        ENCODING_Ia)
-  ENCODING("offset64",        ENCODING_Ia)
+  ENCODING("offset16_8",      ENCODING_Ia)
+  ENCODING("offset16_16",     ENCODING_Ia)
+  ENCODING("offset16_32",     ENCODING_Ia)
+  ENCODING("offset32_8",      ENCODING_Ia)
+  ENCODING("offset32_16",     ENCODING_Ia)
+  ENCODING("offset32_32",     ENCODING_Ia)
+  ENCODING("offset32_64",     ENCODING_Ia)
+  ENCODING("offset64_8",      ENCODING_Ia)
+  ENCODING("offset64_16",     ENCODING_Ia)
+  ENCODING("offset64_32",     ENCODING_Ia)
+  ENCODING("offset64_64",     ENCODING_Ia)
   ENCODING("srcidx8",         ENCODING_SI)
   ENCODING("srcidx16",        ENCODING_SI)
   ENCODING("srcidx32",        ENCODING_SI)

@@ -15,8 +15,8 @@
 #define LLVM_LIB_TARGET_HEXAGON_HEXAGONSUBTARGET_H
 
 #include "HexagonFrameLowering.h"
-#include "HexagonInstrInfo.h"
 #include "HexagonISelLowering.h"
+#include "HexagonInstrInfo.h"
 #include "HexagonSelectionDAGInfo.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Target/TargetMachine.h"
@@ -45,7 +45,6 @@ public:
   HexagonArchEnum HexagonArchVersion;
 private:
   std::string CPUString;
-  const DataLayout DL;       // Calculates type size & alignment.
   HexagonInstrInfo InstrInfo;
   HexagonTargetLowering TLInfo;
   HexagonSelectionDAGInfo TSInfo;
@@ -74,7 +73,6 @@ public:
   const HexagonSelectionDAGInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
   }
-  const DataLayout *getDataLayout() const override { return &DL; }
 
   HexagonSubtarget &initializeSubtargetDependencies(StringRef CPU,
                                                     StringRef FS);

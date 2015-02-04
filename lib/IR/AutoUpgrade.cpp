@@ -15,9 +15,9 @@
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DIBuilder.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DiagnosticInfo.h"
-#include "llvm/IR/DIBuilder.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instruction.h"
@@ -51,6 +51,21 @@ static bool UpgradeX86IntrinsicsWith8BitMask(Function *F, Intrinsic::ID IID,
   // Check that the last argument is an i32.
   Type *LastArgType = F->getFunctionType()->getParamType(
      F->getFunctionType()->getNumParams() - 1);
+  if (!LastArgType->isIntegerTy(32))
+    return false;
+
+  // Move this function aside and map down.
+  F->setName(F->getName() + ".old");
+  NewFn = Intrinsic::getDeclaration(F->getParent(), IID);
+  return true;
+}
+
+// Upgrade the declarations of AVX-512 cmp intrinsic functions whose 8-bit
+// immediates have changed their type from i32 to i8.
+static bool UpgradeAVX512CmpIntrinsic(Function *F, Intrinsic::ID IID,
+                                      Function *&NewFn) {
+  // Check that the last argument is an i32.
+  Type *LastArgType = F->getFunctionType()->getParamType(2);
   if (!LastArgType->isIntegerTy(32))
     return false;
 
@@ -205,6 +220,88 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
     if (Name == "x86.avx2.mpsadbw")
       return UpgradeX86IntrinsicsWith8BitMask(F, Intrinsic::x86_avx2_mpsadbw,
                                               NewFn);
+
+    if (Name == "x86.avx512.mask.cmp.ps.512")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_ps_512,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.cmp.pd.512")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_pd_512,
+                                       NewFn);
+
+    if (Name == "x86.avx512.mask.cmp.b.512")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_b_512,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.cmp.w.512")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_w_512,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.cmp.d.512")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_d_512,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.cmp.q.512")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_q_512,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.b.512")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_b_512,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.w.512")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_w_512,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.d.512")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_d_512,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.q.512")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_q_512,
+                                       NewFn);
+
+    if (Name == "x86.avx512.mask.cmp.b.256")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_b_256,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.cmp.w.256")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_w_256,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.cmp.d.256")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_d_256,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.cmp.q.256")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_q_256,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.b.256")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_b_256,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.w.256")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_w_256,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.d.256")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_d_256,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.q.256")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_q_256,
+                                       NewFn);
+
+    if (Name == "x86.avx512.mask.cmp.b.128")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_b_128,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.cmp.w.128")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_w_128,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.cmp.d.128")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_d_128,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.cmp.q.128")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_cmp_q_128,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.b.128")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_b_128,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.w.128")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_w_128,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.d.128")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_d_128,
+                                       NewFn);
+    if (Name == "x86.avx512.mask.ucmp.q.128")
+      return UpgradeAVX512CmpIntrinsic(F, Intrinsic::x86_avx512_mask_ucmp_q_128,
+                                       NewFn);
 
     // frcz.ss/sd may need to have an argument dropped
     if (Name.startswith("x86.xop.vfrcz.ss") && F->arg_size() == 2) {
@@ -541,6 +638,21 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
 
     // Replace the last argument with a trunc.
     Args.back() = Builder.CreateTrunc(Args.back(), Type::getInt8Ty(C), "trunc");
+
+    CallInst *NewCall = Builder.CreateCall(NewFn, Args);
+    CI->replaceAllUsesWith(NewCall);
+    CI->eraseFromParent();
+    return;
+  }
+  case Intrinsic::x86_avx512_mask_cmp_ps_512:
+  case Intrinsic::x86_avx512_mask_cmp_pd_512: {
+    // Need to truncate the last argument from i32 to i8 -- this argument models
+    // an inherently 8-bit immediate operand to these x86 instructions.
+    SmallVector<Value *, 5> Args(CI->arg_operands().begin(),
+                                 CI->arg_operands().end());
+
+    // Replace the last argument with a trunc.
+    Args[2] = Builder.CreateTrunc(Args[2], Type::getInt8Ty(C), "trunc");
 
     CallInst *NewCall = Builder.CreateCall(NewFn, Args);
     CI->replaceAllUsesWith(NewCall);

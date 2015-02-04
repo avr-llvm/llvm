@@ -435,6 +435,7 @@ define void @loadStoreBaseIndexOffsetSextNoSex(i8* %a, i8* %b, i8* %c, i32 %n) {
   ret void
 }
 
+; PR21711 ( http://llvm.org/bugs/show_bug.cgi?id=21711 )
 define void @merge_vec_element_store(<8 x float> %v, float* %ptr) {
   %vecext0 = extractelement <8 x float> %v, i32 0
   %vecext1 = extractelement <8 x float> %v, i32 1
@@ -467,3 +468,28 @@ define void @merge_vec_element_store(<8 x float> %v, float* %ptr) {
 ; CHECK-NEXT: retq
 }
 
+; This is a minimized test based on real code that was failing.
+; We could merge stores (and loads) like this...
+
+define void @merge_vec_element_and_scalar_load([6 x i64]* %array) {
+  %idx0 = getelementptr inbounds [6 x i64]* %array, i64 0, i64 0
+  %idx1 = getelementptr inbounds [6 x i64]* %array, i64 0, i64 1
+  %idx4 = getelementptr inbounds [6 x i64]* %array, i64 0, i64 4
+  %idx5 = getelementptr inbounds [6 x i64]* %array, i64 0, i64 5
+
+  %a0 = load i64* %idx0, align 8
+  store i64 %a0, i64* %idx4, align 8
+
+  %b = bitcast i64* %idx1 to <2 x i64>*
+  %v = load <2 x i64>* %b, align 8
+  %a1 = extractelement <2 x i64> %v, i32 0
+  store i64 %a1, i64* %idx5, align 8
+  ret void
+
+; CHECK-LABEL: merge_vec_element_and_scalar_load
+; CHECK:      movq	(%rdi), %rax
+; CHECK-NEXT: movq	%rax, 32(%rdi)
+; CHECK-NEXT: movq	8(%rdi), %rax
+; CHECK-NEXT: movq	%rax, 40(%rdi)
+; CHECK-NEXT: retq
+}

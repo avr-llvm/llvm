@@ -308,10 +308,9 @@ void SILowerControlFlowPass::Kill(MachineInstr &MI) {
 #endif
 
   // Clear this thread from the exec mask if the operand is negative
-  if ((Op.isImm() || Op.isFPImm())) {
+  if ((Op.isImm())) {
     // Constant operand: Set exec mask to 0 or do nothing
-    if (Op.isImm() ? (Op.getImm() & 0x80000000) :
-        Op.getFPImm()->isNegative()) {
+    if (Op.getImm() & 0x80000000) {
       BuildMI(MBB, &MI, DL, TII->get(AMDGPU::S_MOV_B64), AMDGPU::EXEC)
               .addImm(0);
     }
@@ -340,7 +339,7 @@ void SILowerControlFlowPass::LoadM0(MachineInstr &MI, MachineInstr *MovRel) {
   } else {
 
     assert(AMDGPU::SReg_64RegClass.contains(Save));
-    assert(AMDGPU::VReg_32RegClass.contains(Idx));
+    assert(AMDGPU::VGPR_32RegClass.contains(Idx));
 
     // Save the EXEC mask
     BuildMI(MBB, &MI, DL, TII->get(AMDGPU::S_MOV_B64), Save)

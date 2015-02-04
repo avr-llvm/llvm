@@ -18,6 +18,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/InstructionSimplify.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constants.h"
@@ -32,19 +33,20 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/PatternMatch.h"
+#include "llvm/IR/Statepoint.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/IR/ValueMap.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/BuildLibCalls.h"
 #include "llvm/Transforms/Utils/BypassSlowDivision.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Transforms/Utils/SimplifyLibCalls.h"
 using namespace llvm;
 using namespace llvm::PatternMatch;
 
@@ -70,6 +72,10 @@ STATISTIC(NumStoreExtractExposed, "Number of store(extractelement) exposed");
 static cl::opt<bool> DisableBranchOpts(
   "disable-cgp-branch-opts", cl::Hidden, cl::init(false),
   cl::desc("Disable branch optimizations in CodeGenPrepare"));
+
+static cl::opt<bool>
+    DisableGCOpts("disable-cgp-gc-opts", cl::Hidden, cl::init(false),
+                  cl::desc("Disable GC optimizations in CodeGenPrepare"));
 
 static cl::opt<bool> DisableSelectToBranch(
   "disable-cgp-select2branch", cl::Hidden, cl::init(false),
@@ -155,8 +161,8 @@ class TypePromotionTransaction;
 
     void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addPreserved<DominatorTreeWrapperPass>();
-      AU.addRequired<TargetLibraryInfo>();
-      AU.addRequired<TargetTransformInfo>();
+      AU.addRequired<TargetLibraryInfoWrapperPass>();
+      AU.addRequired<TargetTransformInfoWrapperPass>();
     }
 
   private:
@@ -182,6 +188,7 @@ class TypePromotionTransaction;
                         const SmallVectorImpl<Instruction *> &Exts,
                         unsigned CreatedInst);
     bool splitBranchCondition(Function &F);
+    bool simplifyOffsetableRelocate(Instruction &I);
   };
 }
 
@@ -204,9 +211,9 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
 
   ModifiedDT = false;
   if (TM)
-    TLI = TM->getSubtargetImpl()->getTargetLowering();
-  TLInfo = &getAnalysis<TargetLibraryInfo>();
-  TTI = &getAnalysis<TargetTransformInfo>();
+    TLI = TM->getSubtargetImpl(F)->getTargetLowering();
+  TLInfo = &getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
+  TTI = &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
   DominatorTreeWrapperPass *DTWP =
       getAnalysisIfAvailable<DominatorTreeWrapperPass>();
   DT = DTWP ? &DTWP->getDomTree() : nullptr;
@@ -247,7 +254,7 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
       BasicBlock *BB = I++;
       bool ModifiedDTOnIteration = false;
       MadeChange |= OptimizeBlock(*BB, ModifiedDTOnIteration);
-      
+
       // Restart BB iteration if the dominator tree of the Function was changed
       ModifiedDT |= ModifiedDTOnIteration;
       if (ModifiedDTOnIteration)
@@ -261,9 +268,9 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
   if (!DisableBranchOpts) {
     MadeChange = false;
     SmallPtrSet<BasicBlock*, 8> WorkList;
-    for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB) {
-      SmallVector<BasicBlock*, 2> Successors(succ_begin(BB), succ_end(BB));
-      MadeChange |= ConstantFoldTerminator(BB, true);
+    for (BasicBlock &BB : F) {
+      SmallVector<BasicBlock *, 2> Successors(succ_begin(&BB), succ_end(&BB));
+      MadeChange |= ConstantFoldTerminator(&BB, true);
       if (!MadeChange) continue;
 
       for (SmallVectorImpl<BasicBlock*>::iterator
@@ -297,6 +304,16 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
     EverMadeChange |= MadeChange;
   }
 
+  if (!DisableGCOpts) {
+    SmallVector<Instruction *, 2> Statepoints;
+    for (BasicBlock &BB : F)
+      for (Instruction &I : BB)
+        if (isStatepoint(I))
+          Statepoints.push_back(&I);
+    for (auto &I : Statepoints)
+      EverMadeChange |= simplifyOffsetableRelocate(*I);
+  }
+
   if (ModifiedDT && DT)
     DT->recalculate(F);
 
@@ -325,7 +342,7 @@ bool CodeGenPrepare::EliminateFallThrough(Function &F) {
       // Remember if SinglePred was the entry block of the function.
       // If so, we will need to move BB back to the entry position.
       bool isEntry = SinglePred == &SinglePred->getParent()->getEntryBlock();
-      MergeBasicBlockIntoOnlyPred(BB, this);
+      MergeBasicBlockIntoOnlyPred(BB, DT);
 
       if (isEntry && BB != &BB->getParent()->getEntryBlock())
         BB->moveBefore(&BB->getParent()->getEntryBlock());
@@ -465,7 +482,7 @@ void CodeGenPrepare::EliminateMostlyEmptyBlock(BasicBlock *BB) {
       // Remember if SinglePred was the entry block of the function.  If so, we
       // will need to move BB back to the entry position.
       bool isEntry = SinglePred == &SinglePred->getParent()->getEntryBlock();
-      MergeBasicBlockIntoOnlyPred(DestBB, this);
+      MergeBasicBlockIntoOnlyPred(DestBB, DT);
 
       if (isEntry && BB != &BB->getParent()->getEntryBlock())
         BB->moveBefore(&BB->getParent()->getEntryBlock());
@@ -518,6 +535,144 @@ void CodeGenPrepare::EliminateMostlyEmptyBlock(BasicBlock *BB) {
   ++NumBlocksElim;
 
   DEBUG(dbgs() << "AFTER:\n" << *DestBB << "\n\n\n");
+}
+
+// Computes a map of base pointer relocation instructions to corresponding
+// derived pointer relocation instructions given a vector of all relocate calls
+static void computeBaseDerivedRelocateMap(
+    const SmallVectorImpl<User *> &AllRelocateCalls,
+    DenseMap<IntrinsicInst *, SmallVector<IntrinsicInst *, 2>> &
+        RelocateInstMap) {
+  // Collect information in two maps: one primarily for locating the base object
+  // while filling the second map; the second map is the final structure holding
+  // a mapping between Base and corresponding Derived relocate calls
+  DenseMap<std::pair<unsigned, unsigned>, IntrinsicInst *> RelocateIdxMap;
+  for (auto &U : AllRelocateCalls) {
+    GCRelocateOperands ThisRelocate(U);
+    IntrinsicInst *I = cast<IntrinsicInst>(U);
+    auto K = std::make_pair(ThisRelocate.basePtrIndex(),
+                            ThisRelocate.derivedPtrIndex());
+    RelocateIdxMap.insert(std::make_pair(K, I));
+  }
+  for (auto &Item : RelocateIdxMap) {
+    std::pair<unsigned, unsigned> Key = Item.first;
+    if (Key.first == Key.second)
+      // Base relocation: nothing to insert
+      continue;
+
+    IntrinsicInst *I = Item.second;
+    auto BaseKey = std::make_pair(Key.first, Key.first);
+    IntrinsicInst *Base = RelocateIdxMap[BaseKey];
+    if (!Base)
+      // TODO: We might want to insert a new base object relocate and gep off
+      // that, if there are enough derived object relocates.
+      continue;
+    RelocateInstMap[Base].push_back(I);
+  }
+}
+
+// Accepts a GEP and extracts the operands into a vector provided they're all
+// small integer constants
+static bool getGEPSmallConstantIntOffsetV(GetElementPtrInst *GEP,
+                                          SmallVectorImpl<Value *> &OffsetV) {
+  for (unsigned i = 1; i < GEP->getNumOperands(); i++) {
+    // Only accept small constant integer operands
+    auto Op = dyn_cast<ConstantInt>(GEP->getOperand(i));
+    if (!Op || Op->getZExtValue() > 20)
+      return false;
+  }
+
+  for (unsigned i = 1; i < GEP->getNumOperands(); i++)
+    OffsetV.push_back(GEP->getOperand(i));
+  return true;
+}
+
+// Takes a RelocatedBase (base pointer relocation instruction) and Targets to
+// replace, computes a replacement, and affects it.
+static bool
+simplifyRelocatesOffABase(IntrinsicInst *RelocatedBase,
+                          const SmallVectorImpl<IntrinsicInst *> &Targets) {
+  bool MadeChange = false;
+  for (auto &ToReplace : Targets) {
+    GCRelocateOperands MasterRelocate(RelocatedBase);
+    GCRelocateOperands ThisRelocate(ToReplace);
+
+    assert(ThisRelocate.basePtrIndex() == MasterRelocate.basePtrIndex() &&
+           "Not relocating a derived object of the original base object");
+    if (ThisRelocate.basePtrIndex() == ThisRelocate.derivedPtrIndex()) {
+      // A duplicate relocate call. TODO: coalesce duplicates.
+      continue;
+    }
+
+    Value *Base = ThisRelocate.basePtr();
+    auto Derived = dyn_cast<GetElementPtrInst>(ThisRelocate.derivedPtr());
+    if (!Derived || Derived->getPointerOperand() != Base)
+      continue;
+
+    SmallVector<Value *, 2> OffsetV;
+    if (!getGEPSmallConstantIntOffsetV(Derived, OffsetV))
+      continue;
+
+    // Create a Builder and replace the target callsite with a gep
+    IRBuilder<> Builder(ToReplace);
+    Builder.SetCurrentDebugLocation(ToReplace->getDebugLoc());
+    Value *Replacement =
+        Builder.CreateGEP(RelocatedBase, makeArrayRef(OffsetV));
+    Instruction *ReplacementInst = cast<Instruction>(Replacement);
+    ReplacementInst->removeFromParent();
+    ReplacementInst->insertAfter(RelocatedBase);
+    Replacement->takeName(ToReplace);
+    ToReplace->replaceAllUsesWith(Replacement);
+    ToReplace->eraseFromParent();
+
+    MadeChange = true;
+  }
+  return MadeChange;
+}
+
+// Turns this:
+//
+// %base = ...
+// %ptr = gep %base + 15
+// %tok = statepoint (%fun, i32 0, i32 0, i32 0, %base, %ptr)
+// %base' = relocate(%tok, i32 4, i32 4)
+// %ptr' = relocate(%tok, i32 4, i32 5)
+// %val = load %ptr'
+//
+// into this:
+//
+// %base = ...
+// %ptr = gep %base + 15
+// %tok = statepoint (%fun, i32 0, i32 0, i32 0, %base, %ptr)
+// %base' = gc.relocate(%tok, i32 4, i32 4)
+// %ptr' = gep %base' + 15
+// %val = load %ptr'
+bool CodeGenPrepare::simplifyOffsetableRelocate(Instruction &I) {
+  bool MadeChange = false;
+  SmallVector<User *, 2> AllRelocateCalls;
+
+  for (auto *U : I.users())
+    if (isGCRelocate(dyn_cast<Instruction>(U)))
+      // Collect all the relocate calls associated with a statepoint
+      AllRelocateCalls.push_back(U);
+
+  // We need atleast one base pointer relocation + one derived pointer
+  // relocation to mangle
+  if (AllRelocateCalls.size() < 2)
+    return false;
+
+  // RelocateInstMap is a mapping from the base relocate instruction to the
+  // corresponding derived relocate instructions
+  DenseMap<IntrinsicInst *, SmallVector<IntrinsicInst *, 2>> RelocateInstMap;
+  computeBaseDerivedRelocateMap(AllRelocateCalls, RelocateInstMap);
+  if (RelocateInstMap.empty())
+    return false;
+
+  for (auto &Item : RelocateInstMap)
+    // Item.first is the RelocatedBase to offset against
+    // Item.second is the vector of Targets to replace
+    MadeChange = simplifyRelocatesOffABase(Item.first, Item.second);
+  return MadeChange;
 }
 
 /// SinkCast - Sink the specified cast instruction into its user blocks
@@ -847,22 +1002,6 @@ static bool OptimizeExtractBits(BinaryOperator *ShiftI, ConstantInt *CI,
   return MadeChange;
 }
 
-namespace {
-class CodeGenPrepareFortifiedLibCalls : public SimplifyFortifiedLibCalls {
-protected:
-  void replaceCall(Value *With) override {
-    CI->replaceAllUsesWith(With);
-    CI->eraseFromParent();
-  }
-  bool isFoldable(unsigned SizeCIOp, unsigned, bool) const override {
-      if (ConstantInt *SizeCI =
-                             dyn_cast<ConstantInt>(CI->getArgOperand(SizeCIOp)))
-        return SizeCI->isAllOnesValue();
-    return false;
-  }
-};
-} // end anonymous namespace
-
 //  ScalarizeMaskedLoad() translates masked load intrinsic, like 
 // <16 x i32 > @llvm.masked.load( <16 x i32>* %addr, i32 align,
 //                               <16 x i1> %mask, <16 x i32> %passthru)
@@ -1152,10 +1291,15 @@ bool CodeGenPrepare::OptimizeCallInst(CallInst *CI, bool& ModifiedDT) {
 
   // Lower all default uses of _chk calls.  This is very similar
   // to what InstCombineCalls does, but here we are only lowering calls
-  // that have the default "don't know" as the objectsize.  Anything else
-  // should be left alone.
-  CodeGenPrepareFortifiedLibCalls Simplifier;
-  return Simplifier.fold(CI, TD, TLInfo);
+  // to fortified library functions (e.g. __memcpy_chk) that have the default
+  // "don't know" as the objectsize.  Anything else should be left alone.
+  FortifiedLibCallSimplifier Simplifier(TD, TLInfo, true);
+  if (Value *V = Simplifier.optimizeCall(CI)) {
+    CI->replaceAllUsesWith(V);
+    CI->eraseFromParent();
+    return true;
+  }
+  return false;
 }
 
 /// DupRetToEnableTailCallOpts - Look for opportunities to duplicate return
@@ -2999,8 +3143,10 @@ bool CodeGenPrepare::OptimizeMemoryInst(Instruction *MemoryInst, Value *Addr,
                  << *MemoryInst << "\n");
     if (SunkAddr->getType() != Addr->getType())
       SunkAddr = Builder.CreateBitCast(SunkAddr, Addr->getType());
-  } else if (AddrSinkUsingGEPs || (!AddrSinkUsingGEPs.getNumOccurrences() &&
-               TM && TM->getSubtarget<TargetSubtargetInfo>().useAA())) {
+  } else if (AddrSinkUsingGEPs ||
+             (!AddrSinkUsingGEPs.getNumOccurrences() && TM &&
+              TM->getSubtargetImpl(*MemoryInst->getParent()->getParent())
+                  ->useAA())) {
     // By default, we use the GEP-based method when AA is used later. This
     // prevents new inttoptr/ptrtoint pairs from degrading AA capabilities.
     DEBUG(dbgs() << "CGP: SINKING nonlocal addrmode: " << AddrMode << " for "
@@ -3432,7 +3578,7 @@ bool CodeGenPrepare::MoveExtToFormExtLoad(Instruction *&I) {
     assert(isa<SExtInst>(I) && "Unexpected ext type!");
     LType = ISD::SEXTLOAD;
   }
-  if (TLI && !TLI->isLoadExtLegal(LType, LoadVT)) {
+  if (TLI && !TLI->isLoadExtLegal(LType, VT, LoadVT)) {
     I = OldExt;
     TPT.rollback(LastKnownGood);
     return false;
@@ -3970,7 +4116,8 @@ void VectorPromoteHelper::promoteImpl(Instruction *ToBePromoted) {
           isa<UndefValue>(Val) ||
               canCauseUndefinedBehavior(ToBePromoted, U.getOperandNo()));
     } else
-      assert(0 && "Did you modified shouldPromote and forgot to update this?");
+      llvm_unreachable("Did you modified shouldPromote and forgot to update "
+                       "this?");
     ToBePromoted->setOperand(U.getOperandNo(), NewVal);
   }
   Transition->removeFromParent();
@@ -4007,15 +4154,41 @@ static bool OptimizeBranchInst(BranchInst *BrInst, const TargetLowering &TLI) {
   // See if ThenBB contains only one instruction (excluding the
   // terminator and DbgInfoIntrinsic calls).
   IntrinsicInst *II = nullptr;
+  CastInst *CI = nullptr;
   for (BasicBlock::iterator I = ThenBB->begin(),
                             E = std::prev(ThenBB->end()); I != E; ++I) {
     // Skip debug info.
     if (isa<DbgInfoIntrinsic>(I))
       continue;
 
-    if (II)
-      // Avoid speculating more than one instruction.
-      return false;
+    // Check if this is a zero extension or a truncate of a previously
+    // matched call to intrinsic cttz/ctlz.
+    if (II) {
+      // Early exit if we already found a "free" zero extend/truncate.
+      if (CI)
+        return false;
+
+      Type *SrcTy = II->getType();
+      Type *DestTy = I->getType();
+      Value *V;
+ 
+      if (match(cast<Instruction>(I), m_ZExt(m_Value(V))) && V == II) {
+        // Speculate this zero extend only if it is "free" for the target.
+        if (TLI.isZExtFree(SrcTy, DestTy)) {
+          CI = cast<CastInst>(I);
+          continue;
+        }
+      } else if (match(cast<Instruction>(I), m_Trunc(m_Value(V))) && V == II) {
+        // Speculate this truncate only if it is "free" for the target.
+        if (TLI.isTruncateFree(SrcTy, DestTy)) {
+          CI = cast<CastInst>(I);
+          continue;
+        }
+      } else {
+        // Avoid speculating more than one instruction.
+        return false;
+      }
+    }
 
     // See if this is a call to intrinsic cttz/ctlz.
     if (match(cast<Instruction>(I), m_Intrinsic<Intrinsic::cttz>())) {
@@ -4040,11 +4213,14 @@ static bool OptimizeBranchInst(BranchInst *BrInst, const TargetLowering &TLI) {
     Value *ThenV = PN->getIncomingValueForBlock(ThenBB);
     Value *OrigV = PN->getIncomingValueForBlock(EntryBB);
 
-    if (!OrigV || ThenV != II)
+    if (!OrigV)
       return false;
 
+    if (ThenV != II && (!CI || ThenV != CI))
+      return false;
+    
     if (ConstantInt *CInt = dyn_cast<ConstantInt>(OrigV)) {
-      unsigned BitWidth = ThenV->getType()->getIntegerBitWidth();
+      unsigned BitWidth = II->getType()->getIntegerBitWidth();
 
       // Don't try to simplify this phi node if 'ThenV' is a cttz/ctlz
       // intrinsic call, but 'OrigV' is not equal to the 'size-of' in bits
@@ -4069,7 +4245,7 @@ static bool OptimizeBranchInst(BranchInst *BrInst, const TargetLowering &TLI) {
                           ConstantInt::getFalse(II->getContext()) };
         Module *M = EntryBB->getParent()->getParent();
         Value *IF = Intrinsic::getDeclaration(M, II->getIntrinsicID(), Ty);
-        IRBuilder<> Builder(BrInst);
+        IRBuilder<> Builder(II);
         Instruction *NewI = Builder.CreateCall(IF, Args);
 
         // Replace the old call to cttz/ctlz.
@@ -4297,10 +4473,10 @@ bool CodeGenPrepare::OptimizeBlock(BasicBlock &BB, bool& ModifiedDT) {
 // find a node corresponding to the value.
 bool CodeGenPrepare::PlaceDbgValues(Function &F) {
   bool MadeChange = false;
-  for (Function::iterator I = F.begin(), E = F.end(); I != E; ++I) {
+  for (BasicBlock &BB : F) {
     Instruction *PrevNonDbgInst = nullptr;
-    for (BasicBlock::iterator BI = I->begin(), BE = I->end(); BI != BE;) {
-      Instruction *Insn = BI; ++BI;
+    for (BasicBlock::iterator BI = BB.begin(), BE = BB.end(); BI != BE;) {
+      Instruction *Insn = BI++;
       DbgValueInst *DVI = dyn_cast<DbgValueInst>(Insn);
       // Leave dbg.values that refer to an alloca alone. These
       // instrinsics describe the address of a variable (= the alloca)

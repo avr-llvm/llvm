@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "InstCombine.h"
+#include "InstCombineInternal.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/IR/CallSite.h"
@@ -21,6 +21,7 @@
 #include "llvm/IR/Statepoint.h"
 #include "llvm/Transforms/Utils/BuildLibCalls.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Transforms/Utils/SimplifyLibCalls.h"
 using namespace llvm;
 using namespace PatternMatch;
 
@@ -60,8 +61,8 @@ static Type *reduceToSingleValueType(Type *T) {
 }
 
 Instruction *InstCombiner::SimplifyMemTransfer(MemIntrinsic *MI) {
-  unsigned DstAlign = getKnownAlignment(MI->getArgOperand(0), DL, AT, MI, DT);
-  unsigned SrcAlign = getKnownAlignment(MI->getArgOperand(1), DL, AT, MI, DT);
+  unsigned DstAlign = getKnownAlignment(MI->getArgOperand(0), DL, AC, MI, DT);
+  unsigned SrcAlign = getKnownAlignment(MI->getArgOperand(1), DL, AC, MI, DT);
   unsigned MinAlign = std::min(DstAlign, SrcAlign);
   unsigned CopyAlign = MI->getAlignment();
 
@@ -155,7 +156,7 @@ Instruction *InstCombiner::SimplifyMemTransfer(MemIntrinsic *MI) {
 }
 
 Instruction *InstCombiner::SimplifyMemSet(MemSetInst *MI) {
-  unsigned Alignment = getKnownAlignment(MI->getDest(), DL, AT, MI, DT);
+  unsigned Alignment = getKnownAlignment(MI->getDest(), DL, AC, MI, DT);
   if (MI->getAlignment() < Alignment) {
     MI->setAlignment(ConstantInt::get(MI->getAlignmentType(),
                                              Alignment, false));
@@ -352,33 +353,11 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     break;
   case Intrinsic::uadd_with_overflow: {
     Value *LHS = II->getArgOperand(0), *RHS = II->getArgOperand(1);
-    IntegerType *IT = cast<IntegerType>(II->getArgOperand(0)->getType());
-    uint32_t BitWidth = IT->getBitWidth();
-    APInt LHSKnownZero(BitWidth, 0);
-    APInt LHSKnownOne(BitWidth, 0);
-    computeKnownBits(LHS, LHSKnownZero, LHSKnownOne, 0, II);
-    bool LHSKnownNegative = LHSKnownOne[BitWidth - 1];
-    bool LHSKnownPositive = LHSKnownZero[BitWidth - 1];
-
-    if (LHSKnownNegative || LHSKnownPositive) {
-      APInt RHSKnownZero(BitWidth, 0);
-      APInt RHSKnownOne(BitWidth, 0);
-      computeKnownBits(RHS, RHSKnownZero, RHSKnownOne, 0, II);
-      bool RHSKnownNegative = RHSKnownOne[BitWidth - 1];
-      bool RHSKnownPositive = RHSKnownZero[BitWidth - 1];
-      if (LHSKnownNegative && RHSKnownNegative) {
-        // The sign bit is set in both cases: this MUST overflow.
-        // Create a simple add instruction, and insert it into the struct.
-        return CreateOverflowTuple(II, Builder->CreateAdd(LHS, RHS), true,
-                                    /*ReUseName*/true);
-      }
-
-      if (LHSKnownPositive && RHSKnownPositive) {
-        // The sign bit is clear in both cases: this CANNOT overflow.
-        // Create a simple add instruction, and insert it into the struct.
-        return CreateOverflowTuple(II, Builder->CreateNUWAdd(LHS, RHS), false);
-      }
-    }
+    OverflowResult OR = computeOverflowForUnsignedAdd(LHS, RHS, II);
+    if (OR == OverflowResult::NeverOverflows)
+      return CreateOverflowTuple(II, Builder->CreateNUWAdd(LHS, RHS), false);
+    if (OR == OverflowResult::AlwaysOverflows)
+      return CreateOverflowTuple(II, Builder->CreateAdd(LHS, RHS), true);
   }
   // FALL THROUGH uadd into sadd
   case Intrinsic::sadd_with_overflow:
@@ -440,26 +419,11 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   }
   case Intrinsic::umul_with_overflow: {
     Value *LHS = II->getArgOperand(0), *RHS = II->getArgOperand(1);
-    unsigned BitWidth = cast<IntegerType>(LHS->getType())->getBitWidth();
-
-    APInt LHSKnownZero(BitWidth, 0);
-    APInt LHSKnownOne(BitWidth, 0);
-    computeKnownBits(LHS, LHSKnownZero, LHSKnownOne, 0, II);
-    APInt RHSKnownZero(BitWidth, 0);
-    APInt RHSKnownOne(BitWidth, 0);
-    computeKnownBits(RHS, RHSKnownZero, RHSKnownOne, 0, II);
-
-    // Get the largest possible values for each operand.
-    APInt LHSMax = ~LHSKnownZero;
-    APInt RHSMax = ~RHSKnownZero;
-
-    // If multiplying the maximum values does not overflow then we can turn
-    // this into a plain NUW mul.
-    bool Overflow;
-    LHSMax.umul_ov(RHSMax, Overflow);
-    if (!Overflow) {
+    OverflowResult OR = computeOverflowForUnsignedMul(LHS, RHS, II);
+    if (OR == OverflowResult::NeverOverflows)
       return CreateOverflowTuple(II, Builder->CreateNUWMul(LHS, RHS), false);
-    }
+    if (OR == OverflowResult::AlwaysOverflows)
+      return CreateOverflowTuple(II, Builder->CreateMul(LHS, RHS), true);
   } // FALL THROUGH
   case Intrinsic::smul_with_overflow:
     // Canonicalize constants into the RHS.
@@ -580,8 +544,8 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   case Intrinsic::ppc_altivec_lvx:
   case Intrinsic::ppc_altivec_lvxl:
     // Turn PPC lvx -> load if the pointer is known aligned.
-    if (getOrEnforceKnownAlignment(II->getArgOperand(0), 16,
-                                   DL, AT, II, DT) >= 16) {
+    if (getOrEnforceKnownAlignment(II->getArgOperand(0), 16, DL, AC, II, DT) >=
+        16) {
       Value *Ptr = Builder->CreateBitCast(II->getArgOperand(0),
                                          PointerType::getUnqual(II->getType()));
       return new LoadInst(Ptr);
@@ -597,8 +561,8 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   case Intrinsic::ppc_altivec_stvx:
   case Intrinsic::ppc_altivec_stvxl:
     // Turn stvx -> store if the pointer is known aligned.
-    if (getOrEnforceKnownAlignment(II->getArgOperand(1), 16,
-                                   DL, AT, II, DT) >= 16) {
+    if (getOrEnforceKnownAlignment(II->getArgOperand(1), 16, DL, AC, II, DT) >=
+        16) {
       Type *OpPtrTy =
         PointerType::getUnqual(II->getArgOperand(0)->getType());
       Value *Ptr = Builder->CreateBitCast(II->getArgOperand(1), OpPtrTy);
@@ -616,8 +580,8 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   case Intrinsic::x86_sse2_storeu_pd:
   case Intrinsic::x86_sse2_storeu_dq:
     // Turn X86 storeu -> store if the pointer is known aligned.
-    if (getOrEnforceKnownAlignment(II->getArgOperand(0), 16,
-                                   DL, AT, II, DT) >= 16) {
+    if (getOrEnforceKnownAlignment(II->getArgOperand(0), 16, DL, AC, II, DT) >=
+        16) {
       Type *OpPtrTy =
         PointerType::getUnqual(II->getArgOperand(1)->getType());
       Value *Ptr = Builder->CreateBitCast(II->getArgOperand(0), OpPtrTy);
@@ -977,7 +941,7 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   case Intrinsic::arm_neon_vst2lane:
   case Intrinsic::arm_neon_vst3lane:
   case Intrinsic::arm_neon_vst4lane: {
-    unsigned MemAlign = getKnownAlignment(II->getArgOperand(0), DL, AT, II, DT);
+    unsigned MemAlign = getKnownAlignment(II->getArgOperand(0), DL, AC, II, DT);
     unsigned AlignArg = II->getNumArgOperands() - 1;
     ConstantInt *IntrAlign = dyn_cast<ConstantInt>(II->getArgOperand(AlignArg));
     if (IntrAlign && IntrAlign->getZExtValue() < MemAlign) {
@@ -1221,7 +1185,11 @@ static bool isSafeToEliminateVarargsCast(const CallSite CS,
 Instruction *InstCombiner::tryOptimizeCall(CallInst *CI, const DataLayout *DL) {
   if (!CI->getCalledFunction()) return nullptr;
 
-  if (Value *With = Simplifier->optimizeCall(CI)) {
+  auto InstCombineRAUW = [this](Instruction *From, Value *With) {
+    ReplaceInstUsesWith(*From, With);
+  };
+  LibCallSimplifier Simplifier(DL, TLI, InstCombineRAUW);
+  if (Value *With = Simplifier.optimizeCall(CI)) {
     ++NumSimplified;
     return CI->use_empty() ? CI : ReplaceInstUsesWith(*CI, With);
   }
@@ -1413,6 +1381,10 @@ bool InstCombiner::transformConstExprCastCall(CallSite CS) {
     dyn_cast<Function>(CS.getCalledValue()->stripPointerCasts());
   if (!Callee)
     return false;
+  // The prototype of thunks are a lie, don't try to directly call such
+  // functions.
+  if (Callee->hasFnAttribute("thunk"))
+    return false;
   Instruction *Caller = CS.getInstruction();
   const AttributeSet &CallerPAL = CS.getAttributes();
 
@@ -1430,7 +1402,7 @@ bool InstCombiner::transformConstExprCastCall(CallSite CS) {
     if (NewRetTy->isStructTy())
       return false; // TODO: Handle multiple return values.
 
-    if (!CastInst::isBitCastable(NewRetTy, OldRetTy)) {
+    if (!CastInst::isBitOrNoopPointerCastable(NewRetTy, OldRetTy, DL)) {
       if (Callee->isDeclaration())
         return false;   // Cannot transform this return value.
 
@@ -1465,12 +1437,21 @@ bool InstCombiner::transformConstExprCastCall(CallSite CS) {
   unsigned NumActualArgs = CS.arg_size();
   unsigned NumCommonArgs = std::min(FT->getNumParams(), NumActualArgs);
 
+  // Prevent us turning:
+  // declare void @takes_i32_inalloca(i32* inalloca)
+  //  call void bitcast (void (i32*)* @takes_i32_inalloca to void (i32)*)(i32 0)
+  //
+  // into:
+  //  call void @takes_i32_inalloca(i32* null)
+  if (Callee->getAttributes().hasAttrSomewhere(Attribute::InAlloca))
+    return false;
+
   CallSite::arg_iterator AI = CS.arg_begin();
   for (unsigned i = 0, e = NumCommonArgs; i != e; ++i, ++AI) {
     Type *ParamTy = FT->getParamType(i);
     Type *ActTy = (*AI)->getType();
 
-    if (!CastInst::isBitCastable(ActTy, ParamTy))
+    if (!CastInst::isBitOrNoopPointerCastable(ActTy, ParamTy, DL))
       return false;   // Cannot transform this parameter value.
 
     if (AttrBuilder(CallerPAL.getParamAttributes(i + 1), i + 1).
@@ -1565,7 +1546,7 @@ bool InstCombiner::transformConstExprCastCall(CallSite CS) {
     if ((*AI)->getType() == ParamTy) {
       Args.push_back(*AI);
     } else {
-      Args.push_back(Builder->CreateBitCast(*AI, ParamTy));
+      Args.push_back(Builder->CreateBitOrPointerCast(*AI, ParamTy));
     }
 
     // Add any parameter attributes.
@@ -1636,7 +1617,7 @@ bool InstCombiner::transformConstExprCastCall(CallSite CS) {
   Value *NV = NC;
   if (OldRetTy != NV->getType() && !Caller->use_empty()) {
     if (!NV->getType()->isVoidTy()) {
-      NV = NC = CastInst::Create(CastInst::BitCast, NC, OldRetTy);
+      NV = NC = CastInst::CreateBitOrPointerCast(NC, OldRetTy);
       NC->setDebugLoc(Caller->getDebugLoc());
 
       // If this is an invoke instruction, we should insert it after the first

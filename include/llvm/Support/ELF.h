@@ -766,6 +766,7 @@ enum {
   STB_LOCAL = 0,   // Local symbol, not visible outside obj file containing def
   STB_GLOBAL = 1,  // Global symbol, visible to all object files being combined
   STB_WEAK = 2,    // Weak symbol, like global but lower-precedence
+  STB_GNU_UNIQUE = 10,
   STB_LOOS   = 10, // Lowest operating system-specific binding type
   STB_HIOS   = 12, // Highest operating system-specific binding type
   STB_LOPROC = 13, // Lowest processor-specific binding type
@@ -798,6 +799,14 @@ enum {
 // Symbol number.
 enum {
   STN_UNDEF = 0
+};
+
+// Special relocation symbols used in the MIPS64 ELF relocation entries
+enum {
+  RSS_UNDEF = 0, // None
+  RSS_GP = 1,    // Value of gp
+  RSS_GP0 = 2,   // Value of gp used to create object being relocated
+  RSS_LOC = 3    // Address of location being relocated
 };
 
 // Relocation entry, without explicit addend.

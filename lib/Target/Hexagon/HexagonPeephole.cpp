@@ -112,7 +112,7 @@ INITIALIZE_PASS(HexagonPeephole, "hexagon-peephole", "Hexagon Peephole",
 
 bool HexagonPeephole::runOnMachineFunction(MachineFunction &MF) {
   QII = static_cast<const HexagonInstrInfo *>(MF.getSubtarget().getInstrInfo());
-  QRI = MF.getTarget().getSubtarget<HexagonSubtarget>().getRegisterInfo();
+  QRI = MF.getSubtarget<HexagonSubtarget>().getRegisterInfo();
   MRI = &MF.getRegInfo();
 
   DenseMap<unsigned, unsigned> PeepholeMap;
@@ -152,7 +152,7 @@ bool HexagonPeephole::runOnMachineFunction(MachineFunction &MF) {
       // Look for  %vreg170<def> = COMBINE_ir_V4 (0, %vreg169)
       // %vreg170:DoublRegs, %vreg169:IntRegs
       if (!DisableOptExtTo64 &&
-          MI->getOpcode () == Hexagon::COMBINE_Ir_V4) {
+          MI->getOpcode () == Hexagon::A4_combineir) {
         assert (MI->getNumOperands() == 3);
         MachineOperand &Dst = MI->getOperand(0);
         MachineOperand &Src1 = MI->getOperand(1);

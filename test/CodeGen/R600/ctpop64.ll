@@ -1,4 +1,4 @@
-; RUN: llc -march=r600 -mcpu=SI -verify-machineinstrs < %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
+; RUN: llc -march=amdgcn -mcpu=SI -verify-machineinstrs < %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
 
 declare i64 @llvm.ctpop.i64(i64) nounwind readnone
 declare <2 x i64> @llvm.ctpop.v2i64(<2 x i64>) nounwind readnone
@@ -21,8 +21,7 @@ define void @s_ctpop_i64(i32 addrspace(1)* noalias %out, i64 %val) nounwind {
 
 ; FUNC-LABEL: {{^}}v_ctpop_i64:
 ; SI: buffer_load_dwordx2 v{{\[}}[[LOVAL:[0-9]+]]:[[HIVAL:[0-9]+]]{{\]}},
-; SI: v_mov_b32_e32 [[VZERO:v[0-9]+]], 0
-; SI: v_bcnt_u32_b32_e32 [[MIDRESULT:v[0-9]+]], v[[LOVAL]], [[VZERO]]
+; SI: v_bcnt_u32_b32_e64 [[MIDRESULT:v[0-9]+]], v[[LOVAL]], 0
 ; SI-NEXT: v_bcnt_u32_b32_e32 [[RESULT:v[0-9]+]], v[[HIVAL]], [[MIDRESULT]]
 ; SI: buffer_store_dword [[RESULT]],
 ; SI: s_endpgm

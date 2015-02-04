@@ -198,9 +198,14 @@ class Verifier : public InstVisitor<Verifier>, VerifierSupport {
   /// personality function.
   const Value *PersonalityFn;
 
+  /// \brief Whether we've seen a call to @llvm.frameallocate in this function
+  /// already.
+  bool SawFrameAllocate;
+
 public:
   explicit Verifier(raw_ostream &OS = dbgs())
-      : VerifierSupport(OS), Context(nullptr), PersonalityFn(nullptr) {}
+      : VerifierSupport(OS), Context(nullptr), PersonalityFn(nullptr),
+        SawFrameAllocate(false) {}
 
   bool verify(const Function &F) {
     M = F.getParent();
@@ -235,6 +240,7 @@ public:
     visit(const_cast<Function &>(F));
     InstsInThisBlock.clear();
     PersonalityFn = nullptr;
+    SawFrameAllocate = false;
 
     return !Broken;
   }
@@ -364,6 +370,7 @@ private:
                            const Value *V);
 
   void VerifyConstantExprBitcastType(const ConstantExpr *CE);
+  void VerifyStatepoint(ImmutableCallSite CS);
 };
 class DebugInfoVerifier : public VerifierSupport {
 public:
@@ -611,7 +618,7 @@ void Verifier::visitMDNode(MDNode &MD) {
   }
 
   // Check these last, so we diagnose problems in operands first.
-  Assert1(!isa<MDNodeFwdDecl>(MD), "Expected no forward declarations!", &MD);
+  Assert1(!MD.isTemporary(), "Expected no forward declarations!", &MD);
   Assert1(MD.isResolved(), "All nodes should be resolved!", &MD);
 }
 
@@ -1039,6 +1046,105 @@ bool Verifier::VerifyAttributeCount(AttributeSet Attrs, unsigned Params) {
   return false;
 }
 
+/// \brief Verify that statepoint intrinsic is well formed.
+void Verifier::VerifyStatepoint(ImmutableCallSite CS) {
+  assert(CS.getCalledFunction() &&
+         CS.getCalledFunction()->getIntrinsicID() ==
+           Intrinsic::experimental_gc_statepoint);
+
+  const Instruction &CI = *CS.getInstruction();
+
+  Assert1(!CS.doesNotAccessMemory() &&
+          !CS.onlyReadsMemory(),
+          "gc.statepoint must read and write memory to preserve "
+          "reordering restrictions required by safepoint semantics", &CI);
+    
+  const Value *Target = CS.getArgument(0);
+  const PointerType *PT = dyn_cast<PointerType>(Target->getType());
+  Assert2(PT && PT->getElementType()->isFunctionTy(),
+          "gc.statepoint callee must be of function pointer type",
+          &CI, Target);
+  FunctionType *TargetFuncType = cast<FunctionType>(PT->getElementType());
+
+  const Value *NumCallArgsV = CS.getArgument(1);
+  Assert1(isa<ConstantInt>(NumCallArgsV),
+          "gc.statepoint number of arguments to underlying call "
+          "must be constant integer", &CI);
+  const int NumCallArgs = cast<ConstantInt>(NumCallArgsV)->getZExtValue();
+  Assert1(NumCallArgs >= 0,
+          "gc.statepoint number of arguments to underlying call "
+          "must be positive", &CI);
+  const int NumParams = (int)TargetFuncType->getNumParams();
+  if (TargetFuncType->isVarArg()) {
+    Assert1(NumCallArgs >= NumParams,
+            "gc.statepoint mismatch in number of vararg call args", &CI);
+
+    // TODO: Remove this limitation
+    Assert1(TargetFuncType->getReturnType()->isVoidTy(),
+            "gc.statepoint doesn't support wrapping non-void "
+            "vararg functions yet", &CI);
+  } else
+    Assert1(NumCallArgs == NumParams,
+            "gc.statepoint mismatch in number of call args", &CI);
+
+  const Value *Unused = CS.getArgument(2);
+  Assert1(isa<ConstantInt>(Unused) &&
+          cast<ConstantInt>(Unused)->isNullValue(),
+          "gc.statepoint parameter #3 must be zero", &CI);
+
+  // Verify that the types of the call parameter arguments match
+  // the type of the wrapped callee.
+  for (int i = 0; i < NumParams; i++) {
+    Type *ParamType = TargetFuncType->getParamType(i);
+    Type *ArgType = CS.getArgument(3+i)->getType();
+    Assert1(ArgType == ParamType,
+            "gc.statepoint call argument does not match wrapped "
+            "function type", &CI);
+  }
+  const int EndCallArgsInx = 2+NumCallArgs;
+  const Value *NumDeoptArgsV = CS.getArgument(EndCallArgsInx+1);
+  Assert1(isa<ConstantInt>(NumDeoptArgsV),
+          "gc.statepoint number of deoptimization arguments "
+          "must be constant integer", &CI);
+  const int NumDeoptArgs = cast<ConstantInt>(NumDeoptArgsV)->getZExtValue();
+  Assert1(NumDeoptArgs >= 0,
+          "gc.statepoint number of deoptimization arguments "
+          "must be positive", &CI);
+
+  Assert1(4 + NumCallArgs + NumDeoptArgs <= (int)CS.arg_size(),
+          "gc.statepoint too few arguments according to length fields", &CI);
+    
+  // Check that the only uses of this gc.statepoint are gc.result or 
+  // gc.relocate calls which are tied to this statepoint and thus part
+  // of the same statepoint sequence
+  for (const User *U : CI.users()) {
+    const CallInst *Call = dyn_cast<const CallInst>(U);
+    Assert2(Call, "illegal use of statepoint token", &CI, U);
+    if (!Call) continue;
+    Assert2(isGCRelocate(Call) || isGCResult(Call),
+            "gc.result or gc.relocate are the only value uses"
+            "of a gc.statepoint", &CI, U);
+    if (isGCResult(Call)) {
+      Assert2(Call->getArgOperand(0) == &CI,
+              "gc.result connected to wrong gc.statepoint",
+              &CI, Call);
+    } else if (isGCRelocate(Call)) {
+      Assert2(Call->getArgOperand(0) == &CI,
+              "gc.relocate connected to wrong gc.statepoint",
+              &CI, Call);
+    }
+  }
+
+  // Note: It is legal for a single derived pointer to be listed multiple
+  // times.  It's non-optimal, but it is legal.  It can also happen after
+  // insertion if we strip a bitcast away.
+  // Note: It is really tempting to check that each base is relocated and
+  // that a derived pointer is never reused as a base pointer.  This turns
+  // out to be problematic since optimizations run after safepoint insertion
+  // can recognize equality properties that the insertion logic doesn't know
+  // about.  See example statepoint.ll in the verifier subdirectory
+}
+
 // visitFunction - Verify that a function is ok.
 //
 void Verifier::visitFunction(const Function &F) {
@@ -1122,7 +1228,7 @@ void Verifier::visitFunction(const Function &F) {
 
     // Check the entry node
     const BasicBlock *Entry = &F.getEntryBlock();
-    Assert1(pred_begin(Entry) == pred_end(Entry),
+    Assert1(pred_empty(Entry),
             "Entry block to function must not have predecessors!", Entry);
 
     // The address of the entry block cannot be taken, unless it is dead.
@@ -2385,6 +2491,7 @@ bool Verifier::VerifyIntrinsicType(Type *Ty,
     ArgTys.push_back(Ty);
 
     switch (D.getArgumentKind()) {
+    case IITDescriptor::AK_Any:        return false; // Success
     case IITDescriptor::AK_AnyInteger: return !Ty->isIntOrIntVectorTy();
     case IITDescriptor::AK_AnyFloat:   return !Ty->isFPOrFPVectorTy();
     case IITDescriptor::AK_AnyVector:  return !isa<VectorType>(Ty);
@@ -2599,102 +2706,44 @@ void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
     Assert1(isa<ConstantInt>(CI.getArgOperand(1)),
             "llvm.invariant.end parameter #2 must be a constant integer", &CI);
     break;
- 
-  case Intrinsic::experimental_gc_statepoint: {
-    Assert1(!CI.doesNotAccessMemory() &&
-            !CI.onlyReadsMemory(),
-            "gc.statepoint must read and write memory to preserve "
-            "reordering restrictions required by safepoint semantics", &CI);
-    Assert1(!CI.isInlineAsm(),
-            "gc.statepoint support for inline assembly unimplemented", &CI);
-    
-    const Value *Target = CI.getArgOperand(0);
-    const PointerType *PT = dyn_cast<PointerType>(Target->getType());
-    Assert2(PT && PT->getElementType()->isFunctionTy(),
-            "gc.statepoint callee must be of function pointer type",
-            &CI, Target);
-    FunctionType *TargetFuncType = cast<FunctionType>(PT->getElementType());
-    Assert1(!TargetFuncType->isVarArg(),
-            "gc.statepoint support for var arg functions not implemented", &CI);
 
-    const Value *NumCallArgsV = CI.getArgOperand(1);
-    Assert1(isa<ConstantInt>(NumCallArgsV),
-            "gc.statepoint number of arguments to underlying call "
-            "must be constant integer", &CI);
-    const int NumCallArgs = cast<ConstantInt>(NumCallArgsV)->getZExtValue();
-    Assert1(NumCallArgs >= 0,
-            "gc.statepoint number of arguments to underlying call "
-            "must be positive", &CI);
-    Assert1(NumCallArgs == (int)TargetFuncType->getNumParams(),
-            "gc.statepoint mismatch in number of call args", &CI);
-
-    const Value *Unused = CI.getArgOperand(2);
-    Assert1(isa<ConstantInt>(Unused) &&
-            cast<ConstantInt>(Unused)->isNullValue(),
-            "gc.statepoint parameter #3 must be zero", &CI);
-
-    // Verify that the types of the call parameter arguments match
-    // the type of the wrapped callee.
-    for (int i = 0; i < NumCallArgs; i++) {
-      Type *ParamType = TargetFuncType->getParamType(i);
-      Type *ArgType = CI.getArgOperand(3+i)->getType();
-      Assert1(ArgType == ParamType,
-              "gc.statepoint call argument does not match wrapped "
-              "function type", &CI);
-    }
-    const int EndCallArgsInx = 2+NumCallArgs;
-    const Value *NumDeoptArgsV = CI.getArgOperand(EndCallArgsInx+1);
-    Assert1(isa<ConstantInt>(NumDeoptArgsV),
-            "gc.statepoint number of deoptimization arguments "
-            "must be constant integer", &CI);
-    const int NumDeoptArgs = cast<ConstantInt>(NumDeoptArgsV)->getZExtValue();
-    Assert1(NumDeoptArgs >= 0,
-            "gc.statepoint number of deoptimization arguments "
-            "must be positive", &CI);
-
-    Assert1(4 + NumCallArgs + NumDeoptArgs <= (int)CI.getNumArgOperands(),
-            "gc.statepoint too few arguments according to length fields", &CI);
-    
-    // Check that the only uses of this gc.statepoint are gc.result or 
-    // gc.relocate calls which are tied to this statepoint and thus part
-    // of the same statepoint sequence
-    for (User *U : CI.users()) {
-      const CallInst *Call = dyn_cast<const CallInst>(U);
-      Assert2(Call, "illegal use of statepoint token", &CI, U);
-      if (!Call) continue;
-      Assert2(isGCRelocate(Call) || isGCResult(Call),
-              "gc.result or gc.relocate are the only value uses"
-              "of a gc.statepoint", &CI, U);
-      if (isGCResult(Call)) {
-        Assert2(Call->getArgOperand(0) == &CI,
-                "gc.result connected to wrong gc.statepoint",
-                &CI, Call);
-      } else if (isGCRelocate(Call)) {
-        Assert2(Call->getArgOperand(0) == &CI,
-                "gc.relocate connected to wrong gc.statepoint",
-                &CI, Call);
-      }
-    }
-
-    // Note: It is legal for a single derived pointer to be listed multiple
-    // times.  It's non-optimal, but it is legal.  It can also happen after
-    // insertion if we strip a bitcast away.
-    // Note: It is really tempting to check that each base is relocated and
-    // that a derived pointer is never reused as a base pointer.  This turns
-    // out to be problematic since optimizations run after safepoint insertion
-    // can recognize equality properties that the insertion logic doesn't know
-    // about.  See example statepoint.ll in the verifier subdirectory
+  case Intrinsic::frameallocate: {
+    BasicBlock *BB = CI.getParent();
+    Assert1(BB == &BB->getParent()->front(),
+            "llvm.frameallocate used outside of entry block", &CI);
+    Assert1(!SawFrameAllocate,
+            "multiple calls to llvm.frameallocate in one function", &CI);
+    SawFrameAllocate = true;
+    Assert1(isa<ConstantInt>(CI.getArgOperand(0)),
+            "llvm.frameallocate argument must be constant integer size", &CI);
     break;
   }
+  case Intrinsic::framerecover: {
+    Value *FnArg = CI.getArgOperand(0)->stripPointerCasts();
+    Function *Fn = dyn_cast<Function>(FnArg);
+    Assert1(Fn && !Fn->isDeclaration(), "llvm.framerecover first "
+            "argument must be function defined in this module", &CI);
+    break;
+  }
+
+  case Intrinsic::experimental_gc_statepoint:
+    Assert1(!CI.isInlineAsm(),
+            "gc.statepoint support for inline assembly unimplemented", &CI);
+
+    VerifyStatepoint(ImmutableCallSite(&CI));
+    break;
   case Intrinsic::experimental_gc_result_int:
   case Intrinsic::experimental_gc_result_float:
-  case Intrinsic::experimental_gc_result_ptr: {
+  case Intrinsic::experimental_gc_result_ptr:
+  case Intrinsic::experimental_gc_result: {
     // Are we tied to a statepoint properly?
     CallSite StatepointCS(CI.getArgOperand(0));
-    const Function *StatepointFn = StatepointCS.getCalledFunction();
+    const Function *StatepointFn =
+      StatepointCS.getInstruction() ? StatepointCS.getCalledFunction() : nullptr;
     Assert2(StatepointFn && StatepointFn->isDeclaration() &&
             StatepointFn->getIntrinsicID() == Intrinsic::experimental_gc_statepoint,
-            "token must be from a statepoint", &CI, CI.getArgOperand(0));
+	    "gc.result operand #1 must be from a statepoint",
+	    &CI, CI.getArgOperand(0));
 
     // Assert that result type matches wrapped callee.
     const Value *Target = StatepointCS.getArgument(0);
@@ -2710,32 +2759,53 @@ void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
     // Are we tied to a statepoint properly?
     CallSite StatepointCS(CI.getArgOperand(0));
     const Function *StatepointFn =
-        StatepointCS.getInstruction() ? StatepointCS.getCalledFunction() : NULL;
+        StatepointCS.getInstruction() ? StatepointCS.getCalledFunction() : nullptr;
     Assert2(StatepointFn && StatepointFn->isDeclaration() &&
             StatepointFn->getIntrinsicID() == Intrinsic::experimental_gc_statepoint,
-            "token must be from a statepoint", &CI, CI.getArgOperand(0));
+            "gc.relocate operand #1 must be from a statepoint",
+	    &CI, CI.getArgOperand(0));
 
     // Both the base and derived must be piped through the safepoint
     Value* Base = CI.getArgOperand(1);
-    Assert1( isa<ConstantInt>(Base), "must be integer offset", &CI);
+    Assert1(isa<ConstantInt>(Base),
+            "gc.relocate operand #2 must be integer offset", &CI);
     
     Value* Derived = CI.getArgOperand(2);
-    Assert1( isa<ConstantInt>(Derived), "must be integer offset", &CI);
+    Assert1(isa<ConstantInt>(Derived),
+            "gc.relocate operand #3 must be integer offset", &CI);
 
     const int BaseIndex = cast<ConstantInt>(Base)->getZExtValue();
     const int DerivedIndex = cast<ConstantInt>(Derived)->getZExtValue();
     // Check the bounds
     Assert1(0 <= BaseIndex &&
             BaseIndex < (int)StatepointCS.arg_size(),
-            "index out of bounds", &CI);
+            "gc.relocate: statepoint base index out of bounds", &CI);
     Assert1(0 <= DerivedIndex &&
             DerivedIndex < (int)StatepointCS.arg_size(),
-            "index out of bounds", &CI);
+            "gc.relocate: statepoint derived index out of bounds", &CI);
+
+    // Check that BaseIndex and DerivedIndex fall within the 'gc parameters'
+    // section of the statepoint's argument
+    const int NumCallArgs =
+      cast<ConstantInt>(StatepointCS.getArgument(1))->getZExtValue();
+    const int NumDeoptArgs =
+      cast<ConstantInt>(StatepointCS.getArgument(NumCallArgs + 3))->getZExtValue();
+    const int GCParamArgsStart = NumCallArgs + NumDeoptArgs + 4;
+    const int GCParamArgsEnd = StatepointCS.arg_size();
+    Assert1(GCParamArgsStart <= BaseIndex &&
+            BaseIndex < GCParamArgsEnd,
+            "gc.relocate: statepoint base index doesn't fall within the "
+	    "'gc parameters' section of the statepoint call", &CI);
+    Assert1(GCParamArgsStart <= DerivedIndex &&
+            DerivedIndex < GCParamArgsEnd,
+            "gc.relocate: statepoint derived index doesn't fall within the "
+	    "'gc parameters' section of the statepoint call", &CI);
+
 
     // Assert that the result type matches the type of the relocated pointer
     GCRelocateOperands Operands(&CI);
     Assert1(Operands.derivedPtr()->getType() == CI.getType(),
-            "gc.relocate: relocating a pointer shouldn't change it's type",
+            "gc.relocate: relocating a pointer shouldn't change its type",
             &CI);
     break;
   }
@@ -2785,12 +2855,20 @@ void DebugInfoVerifier::processCallInst(DebugInfoFinder &Finder,
   if (Function *F = CI.getCalledFunction())
     if (Intrinsic::ID ID = (Intrinsic::ID)F->getIntrinsicID())
       switch (ID) {
-      case Intrinsic::dbg_declare:
-        Finder.processDeclare(*M, cast<DbgDeclareInst>(&CI));
+      case Intrinsic::dbg_declare: {
+        auto *DDI = cast<DbgDeclareInst>(&CI);
+        Finder.processDeclare(*M, DDI);
+        if (auto E = DDI->getExpression())
+          Assert1(DIExpression(E).Verify(), "DIExpression does not Verify!", E);
         break;
-      case Intrinsic::dbg_value:
-        Finder.processValue(*M, cast<DbgValueInst>(&CI));
+      }
+      case Intrinsic::dbg_value: {
+        auto *DVI = cast<DbgValueInst>(&CI);
+        Finder.processValue(*M, DVI);
+        if (auto E = DVI->getExpression())
+          Assert1(DIExpression(E).Verify(), "DIExpression does not Verify!", E);
         break;
+      }
       default:
         break;
       }
@@ -2902,15 +2980,15 @@ ModulePass *llvm::createDebugInfoVerifierPass(bool FatalErrors) {
   return new DebugInfoVerifierLegacyPass(FatalErrors);
 }
 
-PreservedAnalyses VerifierPass::run(Module *M) {
-  if (verifyModule(*M, &dbgs()) && FatalErrors)
+PreservedAnalyses VerifierPass::run(Module &M) {
+  if (verifyModule(M, &dbgs()) && FatalErrors)
     report_fatal_error("Broken module found, compilation aborted!");
 
   return PreservedAnalyses::all();
 }
 
-PreservedAnalyses VerifierPass::run(Function *F) {
-  if (verifyFunction(*F, &dbgs()) && FatalErrors)
+PreservedAnalyses VerifierPass::run(Function &F) {
+  if (verifyFunction(F, &dbgs()) && FatalErrors)
     report_fatal_error("Broken function found, compilation aborted!");
 
   return PreservedAnalyses::all();

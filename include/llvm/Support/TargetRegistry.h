@@ -23,6 +23,7 @@
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/CodeGen.h"
 #include <cassert>
+#include <memory>
 #include <string>
 
 namespace llvm {
@@ -61,9 +62,8 @@ namespace llvm {
 
   MCSymbolizer *createMCSymbolizer(StringRef TT, LLVMOpInfoCallback GetOpInfo,
                                    LLVMSymbolLookupCallback SymbolLookUp,
-                                   void *DisInfo,
-                                   MCContext *Ctx,
-                                   MCRelocationInfo *RelInfo);
+                                   void *DisInfo, MCContext *Ctx,
+                                   std::unique_ptr<MCRelocationInfo> &&RelInfo);
 
   /// Target - Wrapper for Target specific information.
   ///
@@ -99,8 +99,11 @@ namespace llvm {
                                                   Reloc::Model RM,
                                                   CodeModel::Model CM,
                                                   CodeGenOpt::Level OL);
-    typedef AsmPrinter *(*AsmPrinterCtorTy)(TargetMachine &TM,
-                                            MCStreamer &Streamer);
+    // If it weren't for layering issues (this header is in llvm/Support, but
+    // depends on MC?) this should take the Streamer by value rather than rvalue
+    // reference.
+    typedef AsmPrinter *(*AsmPrinterCtorTy)(
+        TargetMachine &TM, std::unique_ptr<MCStreamer> &&Streamer);
     typedef MCAsmBackend *(*MCAsmBackendCtorTy)(const Target &T,
                                                 const MCRegisterInfo &MRI,
                                                 StringRef TT,
@@ -138,12 +141,10 @@ namespace llvm {
     typedef MCStreamer *(*NullStreamerCtorTy)(MCContext &Ctx);
     typedef MCRelocationInfo *(*MCRelocationInfoCtorTy)(StringRef TT,
                                                         MCContext &Ctx);
-    typedef MCSymbolizer *(*MCSymbolizerCtorTy)(StringRef TT,
-                                   LLVMOpInfoCallback GetOpInfo,
-                                   LLVMSymbolLookupCallback SymbolLookUp,
-                                   void *DisInfo,
-                                   MCContext *Ctx,
-                                   MCRelocationInfo *RelInfo);
+    typedef MCSymbolizer *(*MCSymbolizerCtorTy)(
+        StringRef TT, LLVMOpInfoCallback GetOpInfo,
+        LLVMSymbolLookupCallback SymbolLookUp, void *DisInfo, MCContext *Ctx,
+        std::unique_ptr<MCRelocationInfo> &&RelInfo);
 
   private:
     /// Next - The next registered target in the linked list, maintained by the
@@ -376,10 +377,11 @@ namespace llvm {
 
     /// createAsmPrinter - Create a target specific assembly printer pass.  This
     /// takes ownership of the MCStreamer object.
-    AsmPrinter *createAsmPrinter(TargetMachine &TM, MCStreamer &Streamer) const{
+    AsmPrinter *createAsmPrinter(TargetMachine &TM,
+                                 std::unique_ptr<MCStreamer> &&Streamer) const {
       if (!AsmPrinterCtorFn)
         return nullptr;
-      return AsmPrinterCtorFn(TM, Streamer);
+      return AsmPrinterCtorFn(TM, std::move(Streamer));
     }
 
     MCDisassembler *createMCDisassembler(const MCSubtargetInfo &STI,
@@ -474,12 +476,12 @@ namespace llvm {
     /// \param RelInfo The relocation information for this target. Takes ownership.
     MCSymbolizer *
     createMCSymbolizer(StringRef TT, LLVMOpInfoCallback GetOpInfo,
-                       LLVMSymbolLookupCallback SymbolLookUp,
-                       void *DisInfo,
-                       MCContext *Ctx, MCRelocationInfo *RelInfo) const {
+                       LLVMSymbolLookupCallback SymbolLookUp, void *DisInfo,
+                       MCContext *Ctx,
+                       std::unique_ptr<MCRelocationInfo> &&RelInfo) const {
       MCSymbolizerCtorTy Fn =
           MCSymbolizerCtorFn ? MCSymbolizerCtorFn : llvm::createMCSymbolizer;
-      return Fn(TT, GetOpInfo, SymbolLookUp, DisInfo, Ctx, RelInfo);
+      return Fn(TT, GetOpInfo, SymbolLookUp, DisInfo, Ctx, std::move(RelInfo));
     }
 
     /// @}
@@ -1121,8 +1123,9 @@ namespace llvm {
     }
 
   private:
-    static AsmPrinter *Allocator(TargetMachine &TM, MCStreamer &Streamer) {
-      return new AsmPrinterImpl(TM, Streamer);
+    static AsmPrinter *Allocator(TargetMachine &TM,
+                                 std::unique_ptr<MCStreamer> &&Streamer) {
+      return new AsmPrinterImpl(TM, std::move(Streamer));
     }
   };
 

@@ -72,6 +72,11 @@ namespace ISD {
     /// the parent's frame or return address, and so on.
     FRAMEADDR, RETURNADDR,
 
+    /// FRAME_ALLOC_RECOVER - Represents the llvm.framerecover
+    /// intrinsic. Materializes the offset from the frame pointer of another
+    /// function to the result of llvm.frameallocate.
+    FRAME_ALLOC_RECOVER,
+
     /// READ_REGISTER, WRITE_REGISTER - This node represents llvm.register on
     /// the DAG, which implements the named register global variables extension.
     READ_REGISTER,
@@ -748,7 +753,7 @@ namespace ISD {
     LAST_LOADEXT_TYPE
   };
 
-  NodeType getExtForLoadExtType(LoadExtType);
+  NodeType getExtForLoadExtType(bool IsFP, LoadExtType);
 
   //===--------------------------------------------------------------------===//
   /// ISD::CondCode enum - These are ordered carefully to make the bitfields

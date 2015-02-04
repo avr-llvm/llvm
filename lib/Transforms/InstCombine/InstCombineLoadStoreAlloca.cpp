@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "InstCombine.h"
+#include "InstCombineInternal.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/IR/DataLayout.h"
@@ -268,9 +268,8 @@ Instruction *InstCombiner::visitAllocaInst(AllocaInst &AI) {
     // is only subsequently read.
     SmallVector<Instruction *, 4> ToDelete;
     if (MemTransferInst *Copy = isOnlyCopiedFromConstantGlobal(&AI, ToDelete)) {
-      unsigned SourceAlign = getOrEnforceKnownAlignment(Copy->getSource(),
-                                                        AI.getAlignment(),
-                                                        DL, AT, &AI, DT);
+      unsigned SourceAlign = getOrEnforceKnownAlignment(
+          Copy->getSource(), AI.getAlignment(), DL, AC, &AI, DT);
       if (AI.getAlignment() <= SourceAlign) {
         DEBUG(dbgs() << "Found alloca equal to global: " << AI << '\n');
         DEBUG(dbgs() << "  memcpy = " << *Copy << '\n');
@@ -345,6 +344,53 @@ static LoadInst *combineLoadToNewType(InstCombiner &IC, LoadInst &LI, Type *NewT
   return NewLoad;
 }
 
+/// \brief Combine a store to a new type.
+///
+/// Returns the newly created store instruction.
+static StoreInst *combineStoreToNewValue(InstCombiner &IC, StoreInst &SI, Value *V) {
+  Value *Ptr = SI.getPointerOperand();
+  unsigned AS = SI.getPointerAddressSpace();
+  SmallVector<std::pair<unsigned, MDNode *>, 8> MD;
+  SI.getAllMetadata(MD);
+
+  StoreInst *NewStore = IC.Builder->CreateAlignedStore(
+      V, IC.Builder->CreateBitCast(Ptr, V->getType()->getPointerTo(AS)),
+      SI.getAlignment());
+  for (const auto &MDPair : MD) {
+    unsigned ID = MDPair.first;
+    MDNode *N = MDPair.second;
+    // Note, essentially every kind of metadata should be preserved here! This
+    // routine is supposed to clone a store instruction changing *only its
+    // type*. The only metadata it makes sense to drop is metadata which is
+    // invalidated when the pointer type changes. This should essentially
+    // never be the case in LLVM, but we explicitly switch over only known
+    // metadata to be conservatively correct. If you are adding metadata to
+    // LLVM which pertains to stores, you almost certainly want to add it
+    // here.
+    switch (ID) {
+    case LLVMContext::MD_dbg:
+    case LLVMContext::MD_tbaa:
+    case LLVMContext::MD_prof:
+    case LLVMContext::MD_fpmath:
+    case LLVMContext::MD_tbaa_struct:
+    case LLVMContext::MD_alias_scope:
+    case LLVMContext::MD_noalias:
+    case LLVMContext::MD_nontemporal:
+    case LLVMContext::MD_mem_parallel_loop_access:
+    case LLVMContext::MD_nonnull:
+      // All of these directly apply.
+      NewStore->setMetadata(ID, N);
+      break;
+
+    case LLVMContext::MD_invariant_load:
+    case LLVMContext::MD_range:
+      break;
+    }
+  }
+
+  return NewStore;
+}
+
 /// \brief Combine loads to match the type of value their uses after looking
 /// through intervening bitcasts.
 ///
@@ -371,6 +417,35 @@ static Instruction *combineLoadToOperationType(InstCombiner &IC, LoadInst &LI) {
   if (LI.use_empty())
     return nullptr;
 
+  Type *Ty = LI.getType();
+
+  // Try to canonicalize loads which are only ever stored to operate over
+  // integers instead of any other type. We only do this when the loaded type
+  // is sized and has a size exactly the same as its store size and the store
+  // size is a legal integer type.
+  const DataLayout *DL = IC.getDataLayout();
+  if (!Ty->isIntegerTy() && Ty->isSized() && DL &&
+      DL->isLegalInteger(DL->getTypeStoreSizeInBits(Ty)) &&
+      DL->getTypeStoreSizeInBits(Ty) == DL->getTypeSizeInBits(Ty)) {
+    if (std::all_of(LI.user_begin(), LI.user_end(), [&LI](User *U) {
+          auto *SI = dyn_cast<StoreInst>(U);
+          return SI && SI->getPointerOperand() != &LI;
+        })) {
+      LoadInst *NewLoad = combineLoadToNewType(
+          IC, LI,
+          Type::getIntNTy(LI.getContext(), DL->getTypeStoreSizeInBits(Ty)));
+      // Replace all the stores with stores of the newly loaded value.
+      for (auto UI = LI.user_begin(), UE = LI.user_end(); UI != UE;) {
+        auto *SI = cast<StoreInst>(*UI++);
+        IC.Builder->SetInsertPoint(SI);
+        combineStoreToNewValue(IC, *SI, NewLoad);
+        IC.EraseInstFromFunction(*SI);
+      }
+      assert(LI.use_empty() && "Failed to remove all users of the load!");
+      // Return the old load so the combiner can delete it safely.
+      return &LI;
+    }
+  }
 
   // Fold away bit casts of the loaded value by loading the desired type.
   if (LI.hasOneUse())
@@ -395,9 +470,8 @@ Instruction *InstCombiner::visitLoadInst(LoadInst &LI) {
 
   // Attempt to improve the alignment.
   if (DL) {
-    unsigned KnownAlign =
-      getOrEnforceKnownAlignment(Op, DL->getPrefTypeAlignment(LI.getType()),
-                                 DL, AT, &LI, DT);
+    unsigned KnownAlign = getOrEnforceKnownAlignment(
+        Op, DL->getPrefTypeAlignment(LI.getType()), DL, AC, &LI, DT);
     unsigned LoadAlign = LI.getAlignment();
     unsigned EffectiveLoadAlign = LoadAlign != 0 ? LoadAlign :
       DL->getABITypeAlignment(LI.getType());
@@ -517,49 +591,12 @@ static bool combineStoreToValueType(InstCombiner &IC, StoreInst &SI) {
   if (!SI.isSimple())
     return false;
 
-  Value *Ptr = SI.getPointerOperand();
   Value *V = SI.getValueOperand();
-  unsigned AS = SI.getPointerAddressSpace();
-  SmallVector<std::pair<unsigned, MDNode *>, 8> MD;
-  SI.getAllMetadata(MD);
 
   // Fold away bit casts of the stored value by storing the original type.
   if (auto *BC = dyn_cast<BitCastInst>(V)) {
     V = BC->getOperand(0);
-    StoreInst *NewStore = IC.Builder->CreateAlignedStore(
-        V, IC.Builder->CreateBitCast(Ptr, V->getType()->getPointerTo(AS)),
-        SI.getAlignment());
-    for (const auto &MDPair : MD) {
-      unsigned ID = MDPair.first;
-      MDNode *N = MDPair.second;
-      // Note, essentially every kind of metadata should be preserved here! This
-      // routine is supposed to clone a store instruction changing *only its
-      // type*. The only metadata it makes sense to drop is metadata which is
-      // invalidated when the pointer type changes. This should essentially
-      // never be the case in LLVM, but we explicitly switch over only known
-      // metadata to be conservatively correct. If you are adding metadata to
-      // LLVM which pertains to stores, you almost certainly want to add it
-      // here.
-      switch (ID) {
-      case LLVMContext::MD_dbg:
-      case LLVMContext::MD_tbaa:
-      case LLVMContext::MD_prof:
-      case LLVMContext::MD_fpmath:
-      case LLVMContext::MD_tbaa_struct:
-      case LLVMContext::MD_alias_scope:
-      case LLVMContext::MD_noalias:
-      case LLVMContext::MD_nontemporal:
-      case LLVMContext::MD_mem_parallel_loop_access:
-      case LLVMContext::MD_nonnull:
-        // All of these directly apply.
-        NewStore->setMetadata(ID, N);
-        break;
-
-      case LLVMContext::MD_invariant_load:
-      case LLVMContext::MD_range:
-        break;
-      }
-    }
+    combineStoreToNewValue(IC, SI, V);
     return true;
   }
 
@@ -607,9 +644,8 @@ Instruction *InstCombiner::visitStoreInst(StoreInst &SI) {
 
   // Attempt to improve the alignment.
   if (DL) {
-    unsigned KnownAlign =
-      getOrEnforceKnownAlignment(Ptr, DL->getPrefTypeAlignment(Val->getType()),
-                                 DL, AT, &SI, DT);
+    unsigned KnownAlign = getOrEnforceKnownAlignment(
+        Ptr, DL->getPrefTypeAlignment(Val->getType()), DL, AC, &SI, DT);
     unsigned StoreAlign = SI.getAlignment();
     unsigned EffectiveStoreAlign = StoreAlign != 0 ? StoreAlign :
       DL->getABITypeAlignment(Val->getType());

@@ -7,9 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 #include "DebugMap.h"
-
-#include "llvm/ADT/iterator_range.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
@@ -68,7 +67,8 @@ DebugMapObject::lookupSymbol(StringRef SymbolName) const {
 }
 
 void DebugMap::print(raw_ostream &OS) const {
-  OS << "DEBUG MAP:   object addr =>  executable addr\tsymbol name\n";
+  OS << "DEBUG MAP: " << BinaryTriple.getTriple()
+     << "\n\tobject addr =>  executable addr\tsymbol name\n";
   for (const auto &Obj : objects())
     Obj->print(OS);
   OS << "END DEBUG MAP\n";

@@ -29,16 +29,16 @@
 //===----------------------------------------------------------------------===//
 
 #include "StratifiedSets.h"
-#include "llvm/Analysis/Passes.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/None.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/Passes.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/IR/InstVisitor.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Allocator.h"
@@ -227,10 +227,13 @@ public:
     // Comparisons between global variables and other constants should be
     // handled by BasicAA.
     if (isa<Constant>(LocA.Ptr) && isa<Constant>(LocB.Ptr)) {
-      return MayAlias;
+      return AliasAnalysis::alias(LocA, LocB);
     }
+    AliasResult QueryResult = query(LocA, LocB);
+    if (QueryResult == MayAlias)
+      return AliasAnalysis::alias(LocA, LocB);
 
-    return query(LocA, LocB);
+    return QueryResult;
   }
 
   void initializePass() override { InitializeAliasAnalysis(this); }
@@ -295,8 +298,11 @@ public:
   }
 
   void visitSelectInst(SelectInst &Inst) {
-    auto *Condition = Inst.getCondition();
-    Output.push_back(Edge(&Inst, Condition, EdgeType::Assign, AttrNone));
+    // Condition is not processed here (The actual statement producing
+    // the condition result is processed elsewhere). For select, the
+    // condition is evaluated, but not loaded, stored, or assigned
+    // simply as a result of being the condition of a select.
+
     auto *TrueVal = Inst.getTrueValue();
     Output.push_back(Edge(&Inst, TrueVal, EdgeType::Assign, AttrNone));
     auto *FalseVal = Inst.getFalseValue();
@@ -768,13 +774,16 @@ static Optional<StratifiedAttr> valueToAttrIndex(Value *Val) {
     return AttrGlobalIndex;
 
   if (auto *Arg = dyn_cast<Argument>(Val))
-    if (!Arg->hasNoAliasAttr())
+    // Only pointer arguments should have the argument attribute,
+    // because things can't escape through scalars without us seeing a
+    // cast, and thus, interaction with them doesn't matter.
+    if (!Arg->hasNoAliasAttr() && Arg->getType()->isPointerTy())
       return argNumberToAttrIndex(Arg->getArgNo());
   return NoneType();
 }
 
 static StratifiedAttr argNumberToAttrIndex(unsigned ArgNum) {
-  if (ArgNum > AttrMaxNumArgs)
+  if (ArgNum >= AttrMaxNumArgs)
     return AttrAllIndex;
   return ArgNum + AttrFirstArgIndex;
 }
@@ -991,10 +1000,6 @@ CFLAliasAnalysis::query(const AliasAnalysis::Location &LocA,
 
   auto SetA = *MaybeA;
   auto SetB = *MaybeB;
-
-  if (SetA.Index == SetB.Index)
-    return AliasAnalysis::PartialAlias;
-
   auto AttrsA = Sets.getLink(SetA.Index).Attrs;
   auto AttrsB = Sets.getLink(SetB.Index).Attrs;
   // Stratified set attributes are used as markets to signify whether a member
@@ -1007,6 +1012,17 @@ CFLAliasAnalysis::query(const AliasAnalysis::Location &LocA,
   // the sets has no values that could legally be altered by changing the value 
   // of an argument or global, then we don't have to be as conservative.
   if (AttrsA.any() && AttrsB.any())
+    return AliasAnalysis::MayAlias;
+
+  // We currently unify things even if the accesses to them may not be in
+  // bounds, so we can't return partial alias here because we don't
+  // know whether the pointer is really within the object or not.
+  // IE Given an out of bounds GEP and an alloca'd pointer, we may
+  // unify the two. We can't return partial alias for this case.
+  // Since we do not currently track enough information to
+  // differentiate
+
+  if (SetA.Index == SetB.Index)
     return AliasAnalysis::MayAlias;
 
   return AliasAnalysis::NoAlias;

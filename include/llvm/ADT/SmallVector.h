@@ -135,11 +135,11 @@ public:
   const_pointer data() const { return const_pointer(begin()); }
 
   reference operator[](size_type idx) {
-    assert(begin() + idx < end());
+    assert(idx < size());
     return begin()[idx];
   }
   const_reference operator[](size_type idx) const {
-    assert(begin() + idx < end());
+    assert(idx < size());
     return begin()[idx];
   }
 
@@ -921,6 +921,17 @@ public:
     SmallVectorImpl<T>::operator=(::std::move(RHS));
     return *this;
   }
+
+  SmallVector(SmallVectorImpl<T> &&RHS) : SmallVectorImpl<T>(N) {
+    if (!RHS.empty())
+      SmallVectorImpl<T>::operator=(::std::move(RHS));
+  }
+
+  const SmallVector &operator=(SmallVectorImpl<T> &&RHS) {
+    SmallVectorImpl<T>::operator=(::std::move(RHS));
+    return *this;
+  }
+
 };
 
 template<typename T, unsigned N>

@@ -1,5 +1,5 @@
 #include "DwarfCompileUnit.h"
-
+#include "DwarfExpression.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/GlobalValue.h"
@@ -10,8 +10,8 @@
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
 
 namespace llvm {
 
@@ -295,7 +295,8 @@ DIE &DwarfCompileUnit::updateSubprogramScopeDIE(DISubprogram SP) {
     const TargetRegisterInfo *RI =
         Asm->TM.getSubtargetImpl()->getRegisterInfo();
     MachineLocation Location(RI->getFrameRegister(*Asm->MF));
-    addAddress(*SPDie, dwarf::DW_AT_frame_base, Location);
+    if (RI->isPhysicalRegister(Location.getReg()))
+      addAddress(*SPDie, dwarf::DW_AT_frame_base, Location);
   }
 
   // Add name to the name table, we do this here because we're guaranteed
@@ -736,27 +737,22 @@ void DwarfCompileUnit::addVariableAddress(const DbgVariable &DV, DIE &Die,
   else if (DV.isBlockByrefVariable())
     addBlockByrefAddress(DV, Die, dwarf::DW_AT_location, Location);
   else
-    addAddress(Die, dwarf::DW_AT_location, Location,
-               DV.getVariable().isIndirect());
+    addAddress(Die, dwarf::DW_AT_location, Location);
 }
 
 /// Add an address attribute to a die based on the location provided.
 void DwarfCompileUnit::addAddress(DIE &Die, dwarf::Attribute Attribute,
-                                  const MachineLocation &Location,
-                                  bool Indirect) {
+                                  const MachineLocation &Location) {
   DIELoc *Loc = new (DIEValueAllocator) DIELoc();
 
   bool validReg;
-  if (Location.isReg() && !Indirect)
+  if (Location.isReg())
     validReg = addRegisterOpPiece(*Loc, Location.getReg());
   else
     validReg = addRegisterOffset(*Loc, Location.getReg(), Location.getOffset());
 
   if (!validReg)
     return;
-
-  if (!Location.isReg() && Indirect)
-    addUInt(*Loc, dwarf::DW_FORM_data1, dwarf::DW_OP_deref);
 
   // Now attach the location information to the DIE.
   addBlock(Die, Attribute, Loc);
@@ -770,57 +766,20 @@ void DwarfCompileUnit::addComplexAddress(const DbgVariable &DV, DIE &Die,
                                          dwarf::Attribute Attribute,
                                          const MachineLocation &Location) {
   DIELoc *Loc = new (DIEValueAllocator) DIELoc();
-  unsigned N = DV.getNumAddrElements();
-  unsigned i = 0;
-  bool validReg;
-  if (Location.isReg()) {
-    if (N >= 2 && DV.getAddrElement(0) == dwarf::DW_OP_plus) {
-      assert(!DV.getVariable().isIndirect() &&
-             "double indirection not handled");
-      // If first address element is OpPlus then emit
-      // DW_OP_breg + Offset instead of DW_OP_reg + Offset.
-      validReg = addRegisterOffset(*Loc, Location.getReg(), DV.getAddrElement(1));
-      i = 2;
-    } else if (N >= 2 && DV.getAddrElement(0) == dwarf::DW_OP_deref) {
-      assert(!DV.getVariable().isIndirect() &&
-             "double indirection not handled");
-      validReg = addRegisterOpPiece(*Loc, Location.getReg(),
-                                 DV.getExpression().getPieceSize(),
-                                 DV.getExpression().getPieceOffset());
-      i = 3;
-    } else
-      validReg = addRegisterOpPiece(*Loc, Location.getReg());
+  DIEDwarfExpression DwarfExpr(*Asm, *this, *Loc);
+  DIExpression Expr = DV.getExpression();
+  bool ValidReg;
+  if (Location.getOffset()) {
+    ValidReg = DwarfExpr.AddMachineRegIndirect(Location.getReg(),
+                                               Location.getOffset());
+    if (ValidReg)
+      DwarfExpr.AddExpression(Expr);
   } else
-    validReg = addRegisterOffset(*Loc, Location.getReg(), Location.getOffset());
-
-  if (!validReg)
-    return;
-
-  for (; i < N; ++i) {
-    uint64_t Element = DV.getAddrElement(i);
-    if (Element == dwarf::DW_OP_plus) {
-      addUInt(*Loc, dwarf::DW_FORM_data1, dwarf::DW_OP_plus_uconst);
-      addUInt(*Loc, dwarf::DW_FORM_udata, DV.getAddrElement(++i));
-
-    } else if (Element == dwarf::DW_OP_deref) {
-      if (!Location.isReg())
-        addUInt(*Loc, dwarf::DW_FORM_data1, dwarf::DW_OP_deref);
-
-    } else if (Element == dwarf::DW_OP_piece) {
-      const unsigned SizeOfByte = 8;
-      unsigned PieceOffsetInBits = DV.getAddrElement(++i) * SizeOfByte;
-      unsigned PieceSizeInBits = DV.getAddrElement(++i) * SizeOfByte;
-      // Emit DW_OP_bit_piece Size Offset.
-      assert(PieceSizeInBits > 0 && "piece has zero size");
-      addUInt(*Loc, dwarf::DW_FORM_data1, dwarf::DW_OP_bit_piece);
-      addUInt(*Loc, dwarf::DW_FORM_udata, PieceSizeInBits);
-      addUInt(*Loc, dwarf::DW_FORM_udata, PieceOffsetInBits);
-    } else
-      llvm_unreachable("unknown DIBuilder Opcode");
-  }
+    ValidReg = DwarfExpr.AddMachineRegExpression(Expr, Location.getReg());
 
   // Now attach the location information to the DIE.
-  addBlock(Die, Attribute, Loc);
+  if (ValidReg)
+    addBlock(Die, Attribute, Loc);
 }
 
 /// Add a Dwarf loclistptr attribute data and value.

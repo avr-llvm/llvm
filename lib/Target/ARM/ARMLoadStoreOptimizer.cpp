@@ -568,9 +568,18 @@ ARMLoadStoreOpt::MergeOps(MachineBasicBlock &MBB,
       //   ADDS NewBase, #imm8.
       if (Base != NewBase && Offset >= 8) {
         // Need to insert a MOV to the new base first.
-        BuildMI(MBB, MBBI, dl, TII->get(ARM::tMOVr), NewBase)
-          .addReg(Base, getKillRegState(BaseKill))
-          .addImm(Pred).addReg(PredReg);
+        if (isARMLowRegister(NewBase) && isARMLowRegister(Base) &&
+            !STI->hasV6Ops()) {
+          // thumbv4t doesn't have lo->lo copies, and we can't predicate tMOVSr
+          if (Pred != ARMCC::AL)
+            return false;
+          BuildMI(MBB, MBBI, dl, TII->get(ARM::tMOVSr), NewBase)
+            .addReg(Base, getKillRegState(BaseKill));
+        } else
+          BuildMI(MBB, MBBI, dl, TII->get(ARM::tMOVr), NewBase)
+            .addReg(Base, getKillRegState(BaseKill))
+            .addImm(Pred).addReg(PredReg);
+
         // Set up BaseKill and Base correctly to insert the ADDS/SUBS below.
         Base = NewBase;
         BaseKill = false;
@@ -1787,12 +1796,11 @@ bool ARMLoadStoreOpt::MergeReturnIntoLDM(MachineBasicBlock &MBB) {
 }
 
 bool ARMLoadStoreOpt::runOnMachineFunction(MachineFunction &Fn) {
-  const TargetMachine &TM = Fn.getTarget();
-  TL = TM.getSubtargetImpl()->getTargetLowering();
+  STI = &static_cast<const ARMSubtarget &>(Fn.getSubtarget());
+  TL = STI->getTargetLowering();
   AFI = Fn.getInfo<ARMFunctionInfo>();
-  TII = TM.getSubtargetImpl()->getInstrInfo();
-  TRI = TM.getSubtargetImpl()->getRegisterInfo();
-  STI = &TM.getSubtarget<ARMSubtarget>();
+  TII = STI->getInstrInfo();
+  TRI = STI->getRegisterInfo();
   RS = new RegScavenger();
   isThumb2 = AFI->isThumb2Function();
   isThumb1 = AFI->isThumbFunction() && !isThumb2;
@@ -1802,7 +1810,7 @@ bool ARMLoadStoreOpt::runOnMachineFunction(MachineFunction &Fn) {
        ++MFI) {
     MachineBasicBlock &MBB = *MFI;
     Modified |= LoadStoreMultipleOpti(MBB);
-    if (TM.getSubtarget<ARMSubtarget>().hasV5TOps())
+    if (STI->hasV5TOps())
       Modified |= MergeReturnIntoLDM(MBB);
   }
 
@@ -1850,10 +1858,10 @@ namespace {
 }
 
 bool ARMPreAllocLoadStoreOpt::runOnMachineFunction(MachineFunction &Fn) {
-  TD = Fn.getSubtarget().getDataLayout();
-  TII = Fn.getSubtarget().getInstrInfo();
-  TRI = Fn.getSubtarget().getRegisterInfo();
+  TD = Fn.getTarget().getDataLayout();
   STI = &static_cast<const ARMSubtarget &>(Fn.getSubtarget());
+  TII = STI->getInstrInfo();
+  TRI = STI->getRegisterInfo();
   MRI = &Fn.getRegInfo();
   MF  = &Fn;
 
