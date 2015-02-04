@@ -76,10 +76,7 @@ class AVRAsmParser : public MCTargetAsmParser {
   bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
                         SMLoc NameLoc,
                         OperandVector &Operands);
-  // TODO: (unused function)
-  bool parseMathOperation(StringRef Name, SMLoc NameLoc,
-                        OperandVector &Operands);
-
+  
   bool ParseDirective(AsmToken DirectiveID);
 
   AVRAsmParser::OperandMatchResultTy parseMemOperand(OperandVector &);
@@ -96,18 +93,13 @@ class AVRAsmParser : public MCTargetAsmParser {
   bool parseMemOffset(const MCExpr *&Res);
   bool parseRelocOperand(const MCExpr *&Res);
 
-  bool parseSetAtDirective();
-  bool parseSetNoAtDirective();
-  bool parseSetMacroDirective();
-  bool parseSetNoMacroDirective();
-  bool parseSetReorderDirective();
-  bool parseSetNoReorderDirective();
-
+  //! \brief Matches a register name to a register number.
+  //! \return The register number, or -1 if the register is invalid.
   int matchRegisterName(StringRef Symbol);
-
+  
+  //! \brief Validates a register number.
+  //! \return The register number, or -1 if the register does not exist.
   int matchRegisterByNumber(unsigned RegNum, StringRef Mnemonic);
-
-  unsigned getReg(int RC,int RegNo);
 
 public:
   AVRAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,
@@ -392,16 +384,11 @@ int AVRAsmParser::matchRegisterName(StringRef Name) {
   return -1;
 }
 
-unsigned AVRAsmParser::getReg(int RC,int RegNo) {
-  return *(getContext().getRegisterInfo()->getRegClass(RC).begin() + RegNo);
-}
-
 int AVRAsmParser::matchRegisterByNumber(unsigned RegNum, StringRef Mnemonic) {
-  if (RegNum > 31)
-    return -1;
-  llvm_unreachable("this function is not used (I think), but needs to be implemented properly");
-  // TODO[urgent]: 0 is probably not the correct register class
-  return getReg(0, RegNum);
+  if(RegNum <= 31)
+      return RegNum;
+  else
+      return -1;
 }
 
 int AVRAsmParser::tryParseRegister(StringRef Mnemonic) {
@@ -409,13 +396,18 @@ int AVRAsmParser::tryParseRegister(StringRef Mnemonic) {
   int RegNum = -1;
 
   if (Tok.is(AsmToken::Identifier)) {
+  
     std::string lowerCase = Tok.getString().lower();
     RegNum = matchRegisterName(lowerCase);
-  } else if (Tok.is(AsmToken::Integer))
+    
+  } else if (Tok.is(AsmToken::Integer)) {
+    
     RegNum = matchRegisterByNumber(static_cast<unsigned>(Tok.getIntVal()),
                                    Mnemonic.lower());
-    else
-      return RegNum;  //error
+  } else { // error
+      RegNum = -1;
+  }
+  
   return RegNum;
 }
 
@@ -426,12 +418,14 @@ bool AVRAsmParser::
   SMLoc S = Parser.getTok().getLoc();
   int RegNo = -1;
 
-    RegNo = tryParseRegister(Mnemonic);
+  RegNo = tryParseRegister(Mnemonic);
+  
   if (RegNo == -1)
     return true;
 
   Operands.push_back(AVROperand::CreateReg(RegNo, S,
-      Parser.getTok().getLoc()));
+                     Parser.getTok().getLoc()));
+  
   Parser.Lex(); // Eat register token.
   return false;
 }
@@ -439,11 +433,13 @@ bool AVRAsmParser::
 bool AVRAsmParser::ParseOperand(OperandVector &Operands,
                                  StringRef Mnemonic) {
   DEBUG(dbgs() << "ParseOperand\n");
+  
   // Check if the current operand has a custom associated parser, if so, try to
   // custom parse the operand, or fallback to the general approach.
   OperandMatchResultTy ResTy = MatchOperandParserImpl(Operands, Mnemonic);
   if (ResTy == MatchOperand_Success)
     return false;
+  
   // If there wasn't a custom match, try the generic matcher below. Otherwise,
   // there was a match, but an error occurred, in which case, just return that
   // the operand parsing failed.
@@ -453,74 +449,39 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
   DEBUG(dbgs() << ".. Generic Parser\n");
 
   switch (getLexer().getKind()) {
-  default:
-    Error(Parser.getTok().getLoc(), "unexpected token in operand");
-    return true;
-  case AsmToken::Dollar: {
-    // parse register
-    SMLoc S = Parser.getTok().getLoc();
-    Parser.Lex(); // Eat dollar token.
-    // parse register operand
-    if (!tryParseRegisterOperand(Operands, Mnemonic)) {
-
-      return false;
-    }
-    // maybe it is a symbol reference
-    StringRef Identifier;
-    if (Parser.parseIdentifier(Identifier))
+    default:
+      Error(Parser.getTok().getLoc(), "unexpected token in operand");
       return true;
-
-    SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-
-    MCSymbol *Sym = getContext().GetOrCreateSymbol("$" + Identifier);
-
-    // Otherwise create a symbol ref.
-    const MCExpr *Res = MCSymbolRefExpr::Create(Sym, MCSymbolRefExpr::VK_None,
-                                                getContext());
-
-    Operands.push_back(AVROperand::CreateImm(Res, S, E));
-    return false;
-  }
-  case AsmToken::Identifier:
-  case AsmToken::LParen:
-  case AsmToken::Minus:
-  case AsmToken::Plus:
-  case AsmToken::Integer:
-  case AsmToken::String: {
-  
-    // try parse the operand as a register
-    if(!tryParseRegisterOperand(Operands, Mnemonic)) {
-      return false;
-      
-    } else { // the operand not a register
-      
-      // quoted label names
-      const MCExpr *IdVal;
-      SMLoc S = Parser.getTok().getLoc();
-      
-      if (getParser().parseExpression(IdVal))
-        return true;
-      
-      SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-      Operands.push_back(AVROperand::CreateImm(IdVal, S, E));
-      return false;
-    }
-  
+    // Try and parse a register
+    case AsmToken::Dollar:
+    case AsmToken::Percent:
+    case AsmToken::Identifier:
+    case AsmToken::LParen:
+    case AsmToken::Minus:
+    case AsmToken::Plus:
+    case AsmToken::Integer:
+    case AsmToken::String: {
     
-  }
-  case AsmToken::Percent: {
-    // it is a symbol reference or constant expression
-    const MCExpr *IdVal;
-    SMLoc S = Parser.getTok().getLoc(); // start location of the operand
-    if (parseRelocOperand(IdVal))
-      return true;
-
-    SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-
-    Operands.push_back(AVROperand::CreateImm(IdVal, S, E));
-    return false;
-  } // case AsmToken::Percent
+      // try parse the operand as a register
+      if(!tryParseRegisterOperand(Operands, Mnemonic)) {
+        return false;
+      
+      } else { // the operand not a register
+        
+        // quoted label names
+        const MCExpr *IdVal;
+        SMLoc S = Parser.getTok().getLoc();
+        
+        if (getParser().parseExpression(IdVal))
+          return true;
+      
+        SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+        Operands.push_back(AVROperand::CreateImm(IdVal, S, E));
+        return false;
+      }
+    }
   } // switch(getLexer().getKind())
+  
   return true;
 }
 
@@ -678,56 +639,6 @@ AVRAsmParser::OperandMatchResultTy AVRAsmParser::parseMemOperand(
 }
 
 bool AVRAsmParser::
-parseMathOperation(StringRef Name, SMLoc NameLoc,
-                   OperandVector &Operands) {
-  // split the format
-  size_t Start = Name.find('.'), Next = Name.rfind('.');
-  StringRef Format1 = Name.slice(Start, Next);
-  // and add the first format to the operands
-  Operands.push_back(AVROperand::CreateToken(Format1, NameLoc));
-  // now for the second format
-  StringRef Format2 = Name.slice(Next, StringRef::npos);
-  Operands.push_back(AVROperand::CreateToken(Format2, NameLoc));
-
-  // set the format for the first register
-//  setFpFormat(Format1);
-
-  // Read the remaining operands.
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    // Read the first operand.
-    if (ParseOperand(Operands, Name)) {
-      SMLoc Loc = getLexer().getLoc();
-      Parser.eatToEndOfStatement();
-      return Error(Loc, "unexpected token in argument list");
-    }
-
-    if (getLexer().isNot(AsmToken::Comma)) {
-      SMLoc Loc = getLexer().getLoc();
-      Parser.eatToEndOfStatement();
-      return Error(Loc, "unexpected token in argument list");
-
-    }
-    Parser.Lex();  // Eat the comma.
-
-    // Parse and remember the operand.
-    if (ParseOperand(Operands, Name)) {
-      SMLoc Loc = getLexer().getLoc();
-      Parser.eatToEndOfStatement();
-      return Error(Loc, "unexpected token in argument list");
-    }
-  }
-
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    SMLoc Loc = getLexer().getLoc();
-    Parser.eatToEndOfStatement();
-    return Error(Loc, "unexpected token in argument list");
-  }
-
-  Parser.Lex(); // Consume the EndOfStatement
-  return false;
-}
-
-bool AVRAsmParser::
 ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
                  OperandVector &Operands) {
 
@@ -774,57 +685,6 @@ bool AVRAsmParser::reportParseError(StringRef ErrorMsg) {
    return Error(Loc, ErrorMsg);
 }
 
-bool AVRAsmParser::parseSetReorderDirective() {
-  Parser.Lex();
-  // if this is not the end of the statement, report error
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    reportParseError("unexpected token in statement");
-    return false;
-  }
-  Options.setReorder();
-  Parser.Lex(); // Consume the EndOfStatement
-  return false;
-}
-
-bool AVRAsmParser::parseSetNoReorderDirective() {
-    Parser.Lex();
-    // if this is not the end of the statement, report error
-    if (getLexer().isNot(AsmToken::EndOfStatement)) {
-      reportParseError("unexpected token in statement");
-      return false;
-    }
-    Options.setNoreorder();
-    Parser.Lex(); // Consume the EndOfStatement
-    return false;
-}
-
-bool AVRAsmParser::parseSetMacroDirective() {
-  Parser.Lex();
-  // if this is not the end of the statement, report error
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    reportParseError("unexpected token in statement");
-    return false;
-  }
-  Options.setMacro();
-  Parser.Lex(); // Consume the EndOfStatement
-  return false;
-}
-
-bool AVRAsmParser::parseSetNoMacroDirective() {
-  Parser.Lex();
-  // if this is not the end of the statement, report error
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    reportParseError("`noreorder' must be set before `nomacro'");
-    return false;
-  }
-  if (Options.isReorder()) {
-    reportParseError("`noreorder' must be set before `nomacro'");
-    return false;
-  }
-  Options.setNomacro();
-  Parser.Lex(); // Consume the EndOfStatement
-  return false;
-}
 
 bool AVRAsmParser::ParseDirective(AsmToken DirectiveID) {
 
