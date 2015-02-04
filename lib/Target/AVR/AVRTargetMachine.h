@@ -35,6 +35,7 @@ public:
 public: // TargetMachine
 
   const AVRSubtarget *getSubtargetImpl() const override;
+  const DataLayout *getDataLayout() const override { return &DL; }
   
   TargetLoweringObjectFile *getObjFileLowering() const override { return this->TLOF.get(); }
 
@@ -46,7 +47,7 @@ public:
 private:
   std::unique_ptr<TargetLoweringObjectFile> TLOF;
   AVRSubtarget SubTarget;
-
+  const DataLayout DL;
 };
 
 } // end namespace llvm

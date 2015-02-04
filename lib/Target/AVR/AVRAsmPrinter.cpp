@@ -38,8 +38,8 @@ namespace
 class AVRAsmPrinter : public AsmPrinter
 {
 public:
-  explicit AVRAsmPrinter(TargetMachine &TM, MCStreamer &Streamer) :
-    AsmPrinter(TM, Streamer) {}
+  explicit AVRAsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer) :
+    AsmPrinter(TM, std::move(Streamer)) {}
 
   const char *getPassName() const
   {

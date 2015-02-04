@@ -43,8 +43,6 @@ public:
   AVRSubtarget(const std::string &TT, const std::string &CPU,
                const std::string &FS, AVRTargetMachine &TM);
 
-  const DataLayout *getDataLayout() const override { return &DL; }
-
   const AVRInstrInfo *getInstrInfo() const override { return &InstrInfo; }
   const TargetFrameLowering *getFrameLowering() const override { return &FrameLowering; }
   const AVRTargetLowering *getTargetLowering() const override { return &TLInfo; }
@@ -80,7 +78,6 @@ public:
 
 private:
 
-  const DataLayout DL;
   AVRInstrInfo InstrInfo;
   AVRFrameLowering FrameLowering;
   AVRTargetLowering TLInfo;

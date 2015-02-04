@@ -23,7 +23,7 @@ void AVRTargetObjectFile::Initialize(MCContext &ctx, const TargetMachine &TM)
 
   ProgmemDataSection =
     getContext().getELFSection(".progmem.data", ELF::SHT_PROGBITS,
-                               ELF::SHF_ALLOC, SectionKind::getDataRel());
+                               ELF::SHF_ALLOC);
 }
 
 const MCSection *

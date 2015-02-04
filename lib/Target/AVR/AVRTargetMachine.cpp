@@ -32,7 +32,8 @@ AVRTargetMachine::AVRTargetMachine(const Target &T, StringRef TT, StringRef CPU,
                                    Reloc::Model RM, CodeModel::Model CM,
                                    CodeGenOpt::Level OL) :
   LLVMTargetMachine(T, TT, CPU.empty() ? DefaultCPU : CPU, FS, Options, RM, CM, OL),
-  SubTarget(TT, CPU, FS, *this)
+  SubTarget(TT, CPU, FS, *this),
+  DL("e-p:16:8:8-i8:8:8-i16:8:8-i32:8:8-i64:8:8-f32:8:8-f64:8:8-n8")
 {
   this->TLOF = make_unique<AVRTargetObjectFile>();
   initAsmInfo();

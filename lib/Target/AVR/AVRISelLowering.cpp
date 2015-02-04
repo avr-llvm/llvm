@@ -50,9 +50,11 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i8, Expand);
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i16, Expand);
 
-  setLoadExtAction(ISD::EXTLOAD, MVT::i8, Expand);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i8, Expand);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i8, Expand);
+  for (MVT VT : MVT::integer_valuetypes()) {
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::i8, Expand);
+    setLoadExtAction(ISD::SEXTLOAD, VT, MVT::i8, Expand);
+    setLoadExtAction(ISD::ZEXTLOAD, VT, MVT::i8, Expand);
+  }
 
   setTruncStoreAction(MVT::i16, MVT::i8, Expand);
 
