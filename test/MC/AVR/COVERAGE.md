@@ -1,0 +1,162 @@
+# Coverage table of MC unit tests for AVR instructions
+
+** There should be at least two tests for each instruction to be considered tested **
+
+Arithmetic and Logic Instructions
+
+Mnemonic | Operands  | Description                                     | Has MC Unit Test
+:--------|:----------|:------------------------------------------------|------------------------------------
+`ADD`    | `Rd, Rr`  | Add without Carry                               | **No**
+`ADC`    | `Rd, Rr`  | Add without Carry                               | **No**
+`ADIW`   | `Rd, K`   | Add Immediate to Word                           | **No**
+`SUB`    | `Rd, Rr`  | Subtract without Carry                          | **No**
+`SUBI`   | `Rd, K`   | Subtract Immediate                              | **No**
+`SBC `   | `Rd, Rr`  | Subtract with Carry                             | **No**
+`SBCI`   | `Rd, K`   | Subtract Immediate with Carry                   | **No**
+`SBIW`   | `Rd, K`   | Subtract Immediate from Word                    | **No**
+`AND`    | `Rd, Rr`  | Logical AND                                     | **No**
+`ANDI`   | `Rd, K`   | Logical AND with Immediate                      | **No**
+`OR`     | `Rd, Rr`  | Logical OR                                      | **No**
+`ORI`    | `Rd, K`   | Logical OR with Immediate                       | **No**
+`EOR`    | `Rd, Rr`  | Exclusive OR                                    | **No**
+`COM`    | `Rd`      | One’s Complement                                | **No**
+`NEG`    | `Rd`      | Two’s Complement                                | **No**
+`SBR`    | `Rd,K`    | Set Bit(s) in Register                          | **No**
+`CBR`    | `Rd,K`    | Clear Bit(s) in Register                        | **No**
+`INC`    | `Rd`      | Increment                                       | **No**
+`DEC`    | `Rd`      | Decrement                                       | **No**
+`TST`    | `Rd`      | Test for Zero or Minus                          | **No**
+`CLR`    | `Rd`      | Clear Register                                  | **No**
+`SER`    | `Rd`      | Set Register                                    | **No**
+`MUL`    | `Rd,Rr`   | Multiply Unsigned                               | **No**
+`MULS`   | `Rd,Rr`   | Multiply Signed                                 | **No**
+`MULSU`  | `Rd,Rr`   | Multiply Signed with Unsigned                   | **No**
+`FMUL`   | `Rd,Rr`   | Fractional Multiply Unsigned                    | **No**
+`FMULS`  | `Rd,Rr`   | Fractional Multiply Signed                      | **No**
+`FMULSU` | `Rd,Rr`   | Fractional Multiply Signed with Unsigned        | **No**
+
+Branch Instructions
+
+Mnemonic | Operands  | Description                                     | Has MC Unit Test
+:--------|:----------|:------------------------------------------------|------------------
+`RJMP`   | `k`       | Relative Jump                                   | **No**
+`IJMP`   |           | Indirect Jump to (Z)                            | **No**
+`EIJMP`  |           | Extended Indirect Jump to (Z)                   | **No**
+`JMP`    | `k`       | Jump                                            | **No**
+`RCALL`  | `k`       | Relative Call Subroutine                        | **No**
+`ICALL`  |           | Indirect Call to (Z)                            | **No**
+`EICALL` |           | Extended Indirect Call to (Z)                   | **No**
+`CALL`   | `k`       | Call Subroutine                                 | **No**
+`RET`    |           | Subroutine Return                               | **No**
+`RETI`   |           | Interrupt Return                                | **No**
+`CPSE`   | `Rd,Rr`   | Compare, Skip if Equal                          | **No**
+`CP`     | `Rd,Rr`   | Compare                                         | **No**
+`CPC`    | `Rd,Rr`   | Compare with Carry                              | **No**
+`CPI`    | `Rd,K `   | Compare with Immediate                          | **No**
+`SBRC`   | `Rr, b`   | Skip if Bit in Register Cleared                 | **No**
+`SBRS`   | `Rr, b`   | Skip if Bit in Register Set                     | **No**
+`BRBS`   | `s, k`    | Branch if Status Flag Set                       | **No**
+`BRBC`   | `s, k`    | Branch if Status Flag Cleared                   | **No**
+`BREQ`   | `k`       | Branch if Equal                                 | **No**
+`BRNE`   | `k`       | Branch if Not Equal                             | **No**
+`BRCS`   | `k`       | Branch if Carry Set                             | **No**
+`BRCC`   | `k`       | Branch if Carry Cleared                         | **No**
+`BRSH`   | `k`       | Branch if Same or Higher                        | **No**
+`BRLO`   | `k`       | Branch if Lower                                 | **No**
+`BRMI`   | `k`       | Branch if Minus                                 | **No**
+`BRPL`   | `k`       | Branch if Plus                                  | **No**
+`BRGE`   | `k`       | Branch if Greater or Equal, Signed              | **No**
+`BRLT`   | `k`       | Branch if Less Than, Signed                     | **No**
+`BRHS`   | `k`       | Branch if Half Carry Flag Set                   | **No**
+`BRHC`   | `k`       | Branch if Half Carry Flag Cleared               | **No**
+`BRTS`   | `k`       | Branch if T Flag Set                            | **No**
+`BRTC`   | `k`       | Branch if T Flag Cleared                        | **No**
+`BRVS`   | `k`       | Branch if Overflow Flag is Set                  | **No**
+`BRVC`   | `k`       | Branch if Overflow Flag is Cleared              | **No**
+`BRIE`   | `k`       | Branch if Interrupt Enabled                     | **No**
+`BRID`   | `k`       | Branch if Interrupt Disabled                    | **No**
+
+Data Transfer Instructions
+
+Mnemonic | Operands  | Description                                     | Has MC Unit Test
+:--------|:----------|:------------------------------------------------|------------------
+`MOV`    | `Rd, Rr`  | Copy Register                                   | **No**
+`MOVW`   | `Rd, Rr`  | Copy Register Pair                              | **No**
+`LDI`    | `Rd, K`   | Load Immediate                                  | **No**
+`LDS`    | `Rd, k`   | Load Direct from data space                     | **No**
+`LD`     | `Rd, X`   | Load Indirect                                   | **No**
+`LD`     | `Rd, X+`  | Load Indirect and Post-Increment                | **No**
+`LD`     | `Rd, -X`  | Load Indirect and Pre-Decrement                 | **No**
+`LD`     | `Rd, Y`   | Load Indirect                                   | **No**
+`LD`     | `Rd, Y+`  | Load Indirect and Post-Increment                | **No**
+`LD`     | `Rd, -Y`  | Load Indirect and Pre-Decrement                 | **No**
+`LDD`    | `Rd,Y+q`  | Load Indirect with Displacement                 | **No**
+`LD`     | `Rd, Z`   | Load Indirect                                   | **No**
+`LD`     | `Rd, Z+`  | Load Indirect and Post-Increment                | **No**
+`LD`     | `Rd, -Z`  | Load Indirect and Pre-Decrement                 | **No**
+`LDD`    | `Rd, Z+q` | Load Indirect with Displacement                 | **No**
+`STS`    | `k, Rr`   | Store Direct to data space                      | **No**
+`ST`     | `X, Rr`   | Store Indirect                                  | **No**
+`ST`     | `X+, Rr`  | Store Indirect and Post-Increment               | **No**
+`ST`     | `-X, Rr`  | Store Indirect and Pre-Decrement                | **No**
+`ST`     | `Y, Rr`   | Store Indirect                                  | **No**
+`ST`     | `Y+, Rr`  | Store Indirect and Post-Increment               | **No**
+`ST`     | `-Y, Rr`  | Store Indirect and Pre-Decrement                | **No**
+`STD`    | `Y+q,Rr`  | Store Indirect with Displacement                | **No**
+`ST`     | `Z, Rr`   | Store Indirect                                  | **No**
+`ST`     | `Z+, Rr`  | Store Indirect and Post-Increment               | **No**
+`ST`     | `-Z, Rr`  | Store Indirect and Pre-Decrement                | **No**
+`STD`    | `Z+q,Rr`  | Store Indirect with Displacement                | **No**
+`LPM`    |           | Load Program Memory                             | **No**
+`LPM`    | `Rd, Z`   | Load Program Memory                             | **No**
+`LPM`    | `Rd, Z+`  | Load Program Memory and Post-Increment          | **No**
+`ELPM`   |           | Extended Load Program Memory                    | **No**
+`ELPM`   | `Rd, Z`   | Extended Load Program Memory                    | **No**
+`ELPM`   | `Rd, Z+`  | Extended Load Program Memory and Post-Increment | **No**
+`SPM`    |           | Store Program Memory                            | **No**
+`IN`     | `Rd, A`   | In From I/O Location                            | **No**
+`OUT`    | `A, Rr`   | Out To I/O Location                             | **No**
+`PUSH`   | `Rr`      | Push Register on Stack                          | **No**
+`POP`    | `Rd`      | Pop Register from Stack                         | **No**
+
+Bit and Bit-test Instructions
+
+Mnemonic | Operands  | Description                                     | Has MC Unit Test
+:--------|:----------|:------------------------------------------------|------------------
+`LSL`    | `Rd`      |  Logical Shift Left                             | **No**
+`LSR`    | `Rd`      | Logical Shift Right                             | **No**
+`ROL`    | `Rd`      | Rotate Left Through Carry                       | **No**
+`ROR`    | `Rd`      | Rotate Right Through Carry                      | **No**
+`ASR`    | `Rd`      | Arithmetic Shift Right                          | **No**
+`SWAP`   | `Rd`      | Swap Nibbles                                    | **No**
+`BSET`   | `s`       | Flag Set                                        | **No**
+`BCLR`   | `s`       | Flag Clear                                      | **No**
+`SBI`    | `A, b`    | Set Bit in I/O Register                         | **No**
+`CBI`    | `A, b`    | Clear Bit in I/O Register                       | **No**
+`BST`    | `Rr, b`   | Bit Store from Register to T                    | **No**
+`BLD`    | `Rd, b`   | Bit load from T to Register                     | **No**
+`SEC`    |           | Set Carry                                       | **No**
+`CLC`    |           | Clear Carry                                     | **No**
+`SEN`    |           | Set Negative Flag                               | **No**
+`CLN`    |           | Clear Negative Flag                             | **No**
+`SEZ`    |           | Set Zero Flag                                   | **No**
+`CLZ`    |           | Clear Zero Flag                                 | **No**
+`SEI`    |           | Global Interrupt Enable                         | **No**
+`CLI`    |           | Global Interrupt Disable                        | **No**
+`SES`    |           | Set Signed Test Flag                            | **No**
+`CLS`    |           | Clear Signed Test Flag                          | **No**
+`SEV`    |           | Set Two’s Complement Overflow                   | **No**
+`CLV`    |           | Clear Two’s Complement Overflow                 | **No**
+`SET`    |           | Set T in SREG                                   | **No**
+`CLT`    |           | Clear T in SREG                                 | **No**
+`SEH`    |           | Set Half Carry Flag in SREG                     | **No**
+`CLH`    |           | Clear Half Carry Flag in SREG                   | **No**
+
+MCU Control Instructions
+
+Mnemonic | Operands  | Description                                     | Has MC Unit Test
+:--------|:----------|:------------------------------------------------|------------------
+`BREAK`  |           | Break                                           | **No**
+`NOP`    |           | No Operation                                    | **No**
+`SLEEP`  |           | Sleep                                           | **No**
+`WDR`    |           | Watchdog Reset                                  | **No**
