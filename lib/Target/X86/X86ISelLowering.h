@@ -158,6 +158,10 @@ namespace llvm {
       /// vector to a GPR.
       MMX_MOVD2W,
 
+      /// MMX_MOVW2D - Copies a GPR into the low 32-bit word of a MMX vector
+      /// and zero out the high word.
+      MMX_MOVW2D,
+
       /// PEXTRB - Extract an 8-bit value from a vector and zero extend it to
       /// i32, corresponds to X86::PEXTRB.
       PEXTRB,
@@ -739,6 +743,10 @@ namespace llvm {
     bool isZExtFree(Type *Ty1, Type *Ty2) const override;
     bool isZExtFree(EVT VT1, EVT VT2) const override;
     bool isZExtFree(SDValue Val, EVT VT2) const override;
+
+    /// Return true if folding a vector load into ExtVal (a sign, zero, or any
+    /// extend node) is profitable.
+    bool isVectorLoadExtDesirable(SDValue) const override;
 
     /// Return true if an FMA operation is faster than a pair of fmul and fadd
     /// instructions. fmuladd intrinsics will be expanded to FMAs when this

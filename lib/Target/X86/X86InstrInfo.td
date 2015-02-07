@@ -774,10 +774,8 @@ def HasHLE       : Predicate<"Subtarget->hasHLE()">;
 def HasTSX       : Predicate<"Subtarget->hasRTM() || Subtarget->hasHLE()">;
 def HasADX       : Predicate<"Subtarget->hasADX()">;
 def HasSHA       : Predicate<"Subtarget->hasSHA()">;
-def HasSGX       : Predicate<"Subtarget->hasSGX()">;
 def HasPRFCHW    : Predicate<"Subtarget->hasPRFCHW()">;
 def HasRDSEED    : Predicate<"Subtarget->hasRDSEED()">;
-def HasSMAP      : Predicate<"Subtarget->hasSMAP()">;
 def HasPrefetchW : Predicate<"Subtarget->hasPRFCHW()">;
 def FPStackf32   : Predicate<"!Subtarget->hasSSE1()">;
 def FPStackf64   : Predicate<"!Subtarget->hasSSE2()">;
@@ -2410,6 +2408,16 @@ let Predicates = [HasTBM] in {
   def : Pat<(and (not GR64:$src), (add GR64:$src, -1)),
             (TZMSK64rr GR64:$src)>;
 } // HasTBM
+
+//===----------------------------------------------------------------------===//
+// Memory Instructions
+//
+
+def CLFLUSHOPT : I<0xAE, MRM7m, (outs), (ins i8mem:$src),
+                   "clflushopt\t$src", []>, PD;
+def CLWB       : I<0xAE, MRM6m, (outs), (ins i8mem:$src), "clwb\t$src", []>, PD;
+def PCOMMIT    : I<0xAE, MRM_F8, (outs), (ins), "pcommit", []>, PD;
+
 
 //===----------------------------------------------------------------------===//
 // Subsystems.

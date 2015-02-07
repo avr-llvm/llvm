@@ -430,7 +430,7 @@ public:
 
   /// \brief Tests whether the OS is Windows.
   bool isOSWindows() const {
-    return getOS() == Triple::Win32 || isOSCygMing();
+    return getOS() == Triple::Win32;
   }
 
   /// \brief Tests whether the OS is NaCl (Native Client)

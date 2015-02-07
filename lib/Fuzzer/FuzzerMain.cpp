@@ -11,19 +11,12 @@
 
 #include "FuzzerInternal.h"
 
-#include <climits>
 #include <cstring>
 #include <unistd.h>
 #include <iostream>
 #include <thread>
 #include <atomic>
-
-// ASAN options:
-//   * don't dump the coverage to disk.
-//   * enable coverage by default.
-extern "C" const char *__asan_default_options() {
-  return "coverage_pcs=0:coverage=1";
-}
+#include <mutex>
 
 // Program arguments.
 struct FlagDescription {
@@ -105,20 +98,30 @@ static void ParseFlags(int argc, char **argv) {
 }
 
 static void WorkerThread(const std::string &Cmd, std::atomic<int> *Counter,
-                         int NumJobs) {
+                        int NumJobs, std::atomic<bool> *HasErrors) {
+  static std::mutex CerrMutex;
   while (true) {
     int C = (*Counter)++;
-    if (C >= NumJobs) return;
-    std::string ToRun = Cmd + " > fuzz-" + std::to_string(C) + ".log 2>&1\n";
+    if (C >= NumJobs) break;
+    std::string Log = "fuzz-" + std::to_string(C) + ".log";
+    std::string ToRun = Cmd + " > " + Log + " 2>&1\n";
     if (Flags.verbosity)
       std::cerr << ToRun;
-    system(ToRun.c_str());
+    int ExitCode = system(ToRun.c_str());
+    if (ExitCode != 0)
+      *HasErrors = true;
+    std::lock_guard<std::mutex> Lock(CerrMutex);
+    std::cerr << "================== Job " << C
+              << " exited with exit code " << ExitCode
+              << " =================\n";
+    fuzzer::CopyFileToErr(Log);
   }
 }
 
 static int RunInMultipleProcesses(int argc, char **argv, int NumWorkers,
                                   int NumJobs) {
   std::atomic<int> Counter(0);
+  std::atomic<bool> HasErrors(false);
   std::string Cmd;
   for (int i = 0; i < argc; i++) {
     if (FlagValue(argv[i], "jobs") || FlagValue(argv[i], "workers")) continue;
@@ -127,10 +130,10 @@ static int RunInMultipleProcesses(int argc, char **argv, int NumWorkers,
   }
   std::vector<std::thread> V;
   for (int i = 0; i < NumWorkers; i++)
-    V.push_back(std::thread(WorkerThread, Cmd, &Counter, NumJobs));
+    V.push_back(std::thread(WorkerThread, Cmd, &Counter, NumJobs, &HasErrors));
   for (auto &T : V)
     T.join();
-  return 0;
+  return HasErrors ? 1 : 0;
 }
 
 int main(int argc, char **argv) {
@@ -153,6 +156,10 @@ int main(int argc, char **argv) {
   Options.MutateDepth = Flags.mutate_depth;
   Options.ExitOnFirst = Flags.exit_on_first;
   Options.UseFullCoverageSet = Flags.use_full_coverage_set;
+  Options.PreferSmallDuringInitialShuffle =
+      Flags.prefer_small_during_initial_shuffle;
+  if (Flags.runs >= 0)
+    Options.MaxNumberOfRuns = Flags.runs;
   if (!inputs.empty())
     Options.OutputCorpus = inputs[0];
   Fuzzer F(Options);
@@ -179,6 +186,8 @@ int main(int argc, char **argv) {
     F.SaveCorpus();
   F.Loop(Flags.iterations < 0 ? INT_MAX : Flags.iterations);
   if (Flags.verbosity)
-    std::cerr << "Done\n";
+    std::cerr << "Done " << F.getTotalNumberOfRuns()
+              << " runs in " << F.secondsSinceProcessStartUp()
+              << " seconds\n";
   return 0;
 }

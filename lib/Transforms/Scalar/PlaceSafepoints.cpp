@@ -104,7 +104,7 @@ static cl::opt<bool> SkipCounted("spp-counted", cl::init(true));
 static cl::opt<bool> SplitBackedge("spp-split-backedge", cl::init(false));
 
 // Print tracing output
-cl::opt<bool> TraceLSP("spp-trace", cl::init(false));
+static cl::opt<bool> TraceLSP("spp-trace", cl::init(false));
 
 namespace {
 
@@ -699,15 +699,12 @@ INITIALIZE_PASS_END(PlaceSafepoints, "place-safepoints", "Place Safepoints",
 
 static bool isGCLeafFunction(const CallSite &CS) {
   Instruction *inst = CS.getInstruction();
-  if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(inst)) {
-    switch (II->getIntrinsicID()) {
-    default:
-      // Most LLVM intrinsics are things which can never take a safepoint.
-      // As a result, we don't need to have the stack parsable at the
-      // callsite.  This is a highly useful optimization since intrinsic
-      // calls are fairly prevelent, particularly in debug builds.
-      return true;
-    }
+  if (isa<IntrinsicInst>(inst)) {
+    // Most LLVM intrinsics are things which can never take a safepoint.
+    // As a result, we don't need to have the stack parsable at the
+    // callsite.  This is a highly useful optimization since intrinsic
+    // calls are fairly prevelent, particularly in debug builds.
+    return true;
   }
 
   // If this function is marked explicitly as a leaf call, we don't need to

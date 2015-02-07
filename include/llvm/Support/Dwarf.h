@@ -38,7 +38,8 @@ namespace dwarf {
 
 enum LLVMConstants : uint32_t {
   // LLVM mock tags (see also llvm/Support/Dwarf.def).
-  DW_TAG_invalid = ~0U,    // Tag for invalid results.
+  DW_TAG_invalid = ~0U,        // Tag for invalid results.
+  DW_VIRTUALITY_invalid = ~0U, // Virtuality for invalid results.
 
   // Other constants.
   DWARF_VERSION = 4,       // Default dwarf version we output.
@@ -455,23 +456,8 @@ enum LocationAtom {
 };
 
 enum TypeKind {
-  // Encoding attribute values
-  DW_ATE_address = 0x01,
-  DW_ATE_boolean = 0x02,
-  DW_ATE_complex_float = 0x03,
-  DW_ATE_float = 0x04,
-  DW_ATE_signed = 0x05,
-  DW_ATE_signed_char = 0x06,
-  DW_ATE_unsigned = 0x07,
-  DW_ATE_unsigned_char = 0x08,
-  DW_ATE_imaginary_float = 0x09,
-  DW_ATE_packed_decimal = 0x0a,
-  DW_ATE_numeric_string = 0x0b,
-  DW_ATE_edited = 0x0c,
-  DW_ATE_signed_fixed = 0x0d,
-  DW_ATE_unsigned_fixed = 0x0e,
-  DW_ATE_decimal_float = 0x0f,
-  DW_ATE_UTF = 0x10,
+#define HANDLE_DW_ATE(ID, NAME) DW_ATE_##NAME = ID,
+#include "llvm/Support/Dwarf.def"
   DW_ATE_lo_user = 0x80,
   DW_ATE_hi_user = 0xff
 };
@@ -509,45 +495,15 @@ enum VisibilityAttribute {
 };
 
 enum VirtualityAttribute {
-  // Virtuality codes
-  DW_VIRTUALITY_none = 0x00,
-  DW_VIRTUALITY_virtual = 0x01,
-  DW_VIRTUALITY_pure_virtual = 0x02
+#define HANDLE_DW_VIRTUALITY(ID, NAME) DW_VIRTUALITY_##NAME = ID,
+#include "llvm/Support/Dwarf.def"
+  DW_VIRTUALITY_max = 0x02
 };
 
 enum SourceLanguage {
-  // Language names
-  DW_LANG_C89 = 0x0001,
-  DW_LANG_C = 0x0002,
-  DW_LANG_Ada83 = 0x0003,
-  DW_LANG_C_plus_plus = 0x0004,
-  DW_LANG_Cobol74 = 0x0005,
-  DW_LANG_Cobol85 = 0x0006,
-  DW_LANG_Fortran77 = 0x0007,
-  DW_LANG_Fortran90 = 0x0008,
-  DW_LANG_Pascal83 = 0x0009,
-  DW_LANG_Modula2 = 0x000a,
-  DW_LANG_Java = 0x000b,
-  DW_LANG_C99 = 0x000c,
-  DW_LANG_Ada95 = 0x000d,
-  DW_LANG_Fortran95 = 0x000e,
-  DW_LANG_PLI = 0x000f,
-  DW_LANG_ObjC = 0x0010,
-  DW_LANG_ObjC_plus_plus = 0x0011,
-  DW_LANG_UPC = 0x0012,
-  DW_LANG_D = 0x0013,
-  // New in DWARF 5:
-  DW_LANG_Python = 0x0014,
-  DW_LANG_OpenCL = 0x0015,
-  DW_LANG_Go = 0x0016,
-  DW_LANG_Modula3 = 0x0017,
-  DW_LANG_Haskell = 0x0018,
-  DW_LANG_C_plus_plus_03 = 0x0019,
-  DW_LANG_C_plus_plus_11 = 0x001a,
-  DW_LANG_OCaml = 0x001b,
-
+#define HANDLE_DW_LANG(ID, NAME) DW_LANG_##NAME = ID,
+#include "llvm/Support/Dwarf.def"
   DW_LANG_lo_user = 0x8000,
-  DW_LANG_Mips_Assembler = 0x8001,
   DW_LANG_hi_user = 0xffff
 };
 
@@ -784,8 +740,20 @@ const char *GDBIndexEntryKindString(GDBIndexEntryKind Kind);
 const char *GDBIndexEntryLinkageString(GDBIndexEntryLinkage Linkage);
 /// @}
 
-/// \brief Get the tag number associated with a tag string.
+/// \defgroup DwarfConstantsParsing Dwarf constants parsing functions
+///
+/// These functions map their strings back to the corresponding enumeration
+/// value or return 0 if there is none, except for these exceptions:
+///
+/// \li \a getTag() returns \a DW_TAG_invalid on invalid input.
+/// \li \a getVirtuality() returns \a DW_VIRTUALITY_invalid on invalid input.
+///
+/// @{
 unsigned getTag(StringRef TagString);
+unsigned getVirtuality(StringRef VirtualityString);
+unsigned getLanguage(StringRef LanguageString);
+unsigned getAttributeEncoding(StringRef EncodingString);
+/// @}
 
 /// \brief Returns the symbolic string representing Val when used as a value
 /// for attribute Attr.

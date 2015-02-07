@@ -15,6 +15,8 @@
 #define LLVM_EXECUTIONENGINE_ORC_LAZYEMITTINGLAYER_H
 
 #include "LookasideRTDyldMM.h"
+#include "llvm/ExecutionEngine/RTDyldMemoryManager.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Mangler.h"
 #include <list>
 
@@ -207,7 +209,7 @@ public:
   ///   This method will free the memory associated with the given module set,
   /// both in this layer, and the base layer.
   void removeModuleSet(ModuleSetHandleT H) {
-    H->RemoveModulesFromBaseLayer();
+    (*H)->RemoveModulesFromBaseLayer(BaseLayer);
     ModuleSetList.erase(H);
   }
 

@@ -217,6 +217,13 @@ public:
     /// exceed this cost. Set this to UINT_MAX to disable the loop body cost
     /// restriction.
     unsigned Threshold;
+    /// If complete unrolling could help other optimizations (e.g. InstSimplify)
+    /// to remove N% of instructions, then we can go beyond unroll threshold.
+    /// This value set the minimal percent for allowing that.
+    unsigned MinPercentOfOptimized;
+    /// The absolute cost threshold. We won't go beyond this even if complete
+    /// unrolling could result in optimizing out 90% of instructions.
+    unsigned AbsoluteThreshold;
     /// The cost threshold for the unrolled loop when optimizing for size (set
     /// to UINT_MAX to disable).
     unsigned OptSizeThreshold;
@@ -324,6 +331,10 @@ public:
 
   /// \brief Return true if the hardware has a fast square-root instruction.
   bool haveFastSqrt(Type *Ty) const;
+
+  /// \brief Return the expected cost of supporting the floating point operation
+  /// of the specified type.
+  unsigned getFPOpCost(Type *Ty) const;
 
   /// \brief Return the expected cost of materializing for the given integer
   /// immediate of the specified type.
@@ -516,6 +527,7 @@ public:
   virtual bool shouldBuildLookupTables() = 0;
   virtual PopcntSupportKind getPopcntSupport(unsigned IntTyWidthInBit) = 0;
   virtual bool haveFastSqrt(Type *Ty) = 0;
+  virtual unsigned getFPOpCost(Type *Ty) = 0;
   virtual unsigned getIntImmCost(const APInt &Imm, Type *Ty) = 0;
   virtual unsigned getIntImmCost(unsigned Opc, unsigned Idx, const APInt &Imm,
                                  Type *Ty) = 0;
@@ -631,6 +643,11 @@ public:
     return Impl.getPopcntSupport(IntTyWidthInBit);
   }
   bool haveFastSqrt(Type *Ty) override { return Impl.haveFastSqrt(Ty); }
+
+  unsigned getFPOpCost(Type *Ty) override {
+    return Impl.getFPOpCost(Ty);
+  }
+
   unsigned getIntImmCost(const APInt &Imm, Type *Ty) override {
     return Impl.getIntImmCost(Imm, Ty);
   }

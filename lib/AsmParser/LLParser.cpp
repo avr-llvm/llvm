@@ -2927,28 +2927,80 @@ bool LLParser::ParseMDNodeTail(MDNode *&N) {
   return ParseMDNodeID(N);
 }
 
+namespace {
+
+/// Structure to represent an optional metadata field.
+template <class FieldTy> struct MDFieldImpl {
+  typedef MDFieldImpl ImplTy;
+  FieldTy Val;
+  bool Seen;
+
+  void assign(FieldTy Val) {
+    Seen = true;
+    this->Val = std::move(Val);
+  }
+
+  explicit MDFieldImpl(FieldTy Default)
+      : Val(std::move(Default)), Seen(false) {}
+};
+struct MDUnsignedField : public MDFieldImpl<uint64_t> {
+  uint64_t Max;
+
+  MDUnsignedField(uint64_t Default = 0, uint64_t Max = UINT64_MAX)
+      : ImplTy(Default), Max(Max) {}
+};
+struct LineField : public MDUnsignedField {
+  LineField() : MDUnsignedField(0, UINT32_MAX) {}
+};
+struct ColumnField : public MDUnsignedField {
+  ColumnField() : MDUnsignedField(0, UINT16_MAX) {}
+};
+struct DwarfTagField : public MDUnsignedField {
+  DwarfTagField() : MDUnsignedField(0, dwarf::DW_TAG_hi_user) {}
+};
+struct MDField : public MDFieldImpl<Metadata *> {
+  MDField() : ImplTy(nullptr) {}
+};
+struct MDStringField : public MDFieldImpl<std::string> {
+  MDStringField() : ImplTy(std::string()) {}
+};
+struct MDFieldList : public MDFieldImpl<SmallVector<Metadata *, 4>> {
+  MDFieldList() : ImplTy(SmallVector<Metadata *, 4>()) {}
+};
+
+} // end namespace
+
+namespace llvm {
+
+template <>
 bool LLParser::ParseMDField(LocTy Loc, StringRef Name,
-                            MDUnsignedField<uint32_t> &Result) {
+                            MDUnsignedField &Result) {
   if (Lex.getKind() != lltok::APSInt || Lex.getAPSIntVal().isSigned())
     return TokError("expected unsigned integer");
-  uint64_t Val64 = Lex.getAPSIntVal().getLimitedValue(Result.Max + 1ull);
 
-  if (Val64 > Result.Max)
+  auto &U = Lex.getAPSIntVal();
+  if (U.ugt(Result.Max))
     return TokError("value for '" + Name + "' too large, limit is " +
                     Twine(Result.Max));
-  Result.assign(Val64);
+  Result.assign(U.getZExtValue());
+  assert(Result.Val <= Result.Max && "Expected value in range");
   Lex.Lex();
   return false;
 }
 
+template <>
+bool LLParser::ParseMDField(LocTy Loc, StringRef Name, LineField &Result) {
+  return ParseMDField(Loc, Name, static_cast<MDUnsignedField &>(Result));
+}
+template <>
+bool LLParser::ParseMDField(LocTy Loc, StringRef Name, ColumnField &Result) {
+  return ParseMDField(Loc, Name, static_cast<MDUnsignedField &>(Result));
+}
+
+template <>
 bool LLParser::ParseMDField(LocTy Loc, StringRef Name, DwarfTagField &Result) {
   if (Lex.getKind() == lltok::APSInt)
-    return ParseMDField(Loc, Name,
-                        static_cast<MDUnsignedField<uint32_t> &>(Result));
-
-  if (Result.Seen)
-    return Error(Loc,
-                 "field '" + Name + "' cannot be specified more than once");
+    return ParseMDField(Loc, Name, static_cast<MDUnsignedField &>(Result));
 
   if (Lex.getKind() != lltok::DwarfTag)
     return TokError("expected DWARF tag");
@@ -2956,13 +3008,14 @@ bool LLParser::ParseMDField(LocTy Loc, StringRef Name, DwarfTagField &Result) {
   unsigned Tag = dwarf::getTag(Lex.getStrVal());
   if (Tag == dwarf::DW_TAG_invalid)
     return TokError("invalid DWARF tag" + Twine(" '") + Lex.getStrVal() + "'");
-  assert(Tag < 1u << 16 && "Expected valid DWARF tag");
+  assert(Tag <= Result.Max && "Expected valid DWARF tag");
 
   Result.assign(Tag);
   Lex.Lex();
   return false;
 }
 
+template <>
 bool LLParser::ParseMDField(LocTy Loc, StringRef Name, MDField &Result) {
   Metadata *MD;
   if (ParseMetadata(MD, nullptr))
@@ -2972,6 +3025,7 @@ bool LLParser::ParseMDField(LocTy Loc, StringRef Name, MDField &Result) {
   return false;
 }
 
+template <>
 bool LLParser::ParseMDField(LocTy Loc, StringRef Name, MDStringField &Result) {
   std::string S;
   if (ParseStringConstant(S))
@@ -2981,6 +3035,7 @@ bool LLParser::ParseMDField(LocTy Loc, StringRef Name, MDStringField &Result) {
   return false;
 }
 
+template <>
 bool LLParser::ParseMDField(LocTy Loc, StringRef Name, MDFieldList &Result) {
   SmallVector<Metadata *, 4> MDs;
   if (ParseMDNodeVector(MDs))
@@ -2989,6 +3044,8 @@ bool LLParser::ParseMDField(LocTy Loc, StringRef Name, MDFieldList &Result) {
   Result.assign(std::move(MDs));
   return false;
 }
+
+} // end namespace llvm
 
 template <class ParserTy>
 bool LLParser::ParseMDFieldsImplBody(ParserTy parseField) {
@@ -3067,8 +3124,8 @@ bool LLParser::ParseSpecializedMDNode(MDNode *&N, bool IsDistinct) {
 ///   ::= !MDLocation(line: 43, column: 8, scope: !5, inlinedAt: !6)
 bool LLParser::ParseMDLocation(MDNode *&Result, bool IsDistinct) {
 #define VISIT_MD_FIELDS(OPTIONAL, REQUIRED)                                    \
-  OPTIONAL(line, MDUnsignedField<uint32_t>, (0, ~0u >> 8));                    \
-  OPTIONAL(column, MDUnsignedField<uint32_t>, (0, ~0u >> 16));                 \
+  OPTIONAL(line, LineField, );                                                 \
+  OPTIONAL(column, ColumnField, );                                             \
   REQUIRED(scope, MDField, );                                                  \
   OPTIONAL(inlinedAt, MDField, );
   PARSE_MD_FIELDS();

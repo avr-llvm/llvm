@@ -1675,6 +1675,7 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
   // We have target-specific dag combine patterns for the following nodes:
   setTargetDAGCombine(ISD::VECTOR_SHUFFLE);
   setTargetDAGCombine(ISD::EXTRACT_VECTOR_ELT);
+  setTargetDAGCombine(ISD::BITCAST);
   setTargetDAGCombine(ISD::VSELECT);
   setTargetDAGCombine(ISD::SELECT);
   setTargetDAGCombine(ISD::SHL);
@@ -2106,14 +2107,15 @@ X86TargetLowering::LowerReturn(SDValue Chain,
   // Win32 requires us to put the sret argument to %eax as well.
   // We saved the argument into a virtual register in the entry block,
   // so now we copy the value out and into %rax/%eax.
-  if (DAG.getMachineFunction().getFunction()->hasStructRetAttr() &&
-      (Subtarget->is64Bit() || Subtarget->isTargetKnownWindowsMSVC())) {
-    MachineFunction &MF = DAG.getMachineFunction();
-    X86MachineFunctionInfo *FuncInfo = MF.getInfo<X86MachineFunctionInfo>();
-    unsigned Reg = FuncInfo->getSRetReturnReg();
-    assert(Reg &&
-           "SRetReturnReg should have been set in LowerFormalArguments().");
-    SDValue Val = DAG.getCopyFromReg(Chain, dl, Reg, getPointerTy());
+  //
+  // Checking Function.hasStructRetAttr() here is insufficient because the IR
+  // may not have an explicit sret argument. If FuncInfo.CanLowerReturn is
+  // false, then an sret argument may be implicitly inserted in the SelDAG. In
+  // either case FuncInfo->setSRetReturnReg() will have been called.
+  if (unsigned SRetReg = FuncInfo->getSRetReturnReg()) {
+    assert((Subtarget->is64Bit() || Subtarget->isTargetKnownWindowsMSVC()) &&
+           "No need for an sret register");
+    SDValue Val = DAG.getCopyFromReg(Chain, dl, SRetReg, getPointerTy());
 
     unsigned RetValReg
         = (Subtarget->is64Bit() && !Subtarget->isTarget64BitILP32()) ?
@@ -7768,8 +7770,9 @@ static SDValue lowerVectorShuffleAsBitMask(SDLoc DL, MVT VT, SDValue V1,
     return SDValue(); // No non-zeroable elements!
 
   SDValue VMask = DAG.getNode(ISD::BUILD_VECTOR, DL, VT, VMaskOps);
-  V = DAG.getNode(VT.isFloatingPoint() ? X86ISD::FAND : ISD::AND, DL, VT, V,
-                  VMask);
+  V = DAG.getNode(VT.isFloatingPoint()
+                  ? (unsigned) X86ISD::FAND : (unsigned) ISD::AND,
+                  DL, VT, V, VMask);
   return V;
 }
 
@@ -12756,8 +12759,7 @@ X86TargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const {
                                 DAG);
 
   unsigned MaskValue;
-  if (isBlendMask(M, VT, Subtarget->hasSSE41(), Subtarget->hasInt256(),
-                  &MaskValue))
+  if (isBlendMask(M, VT, Subtarget->hasSSE41(), HasInt256, &MaskValue))
     return LowerVECTOR_SHUFFLEtoBlend(SVOp, MaskValue, Subtarget, DAG);
 
   if (isSHUFPMask(M, VT))
@@ -12835,7 +12837,7 @@ X86TargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const {
       return NewOp;
   }
 
-  if (VT == MVT::v16i16 && Subtarget->hasInt256()) {
+  if (VT == MVT::v16i16 && HasInt256) {
     SDValue NewOp = LowerVECTOR_SHUFFLEv16i16(Op, DAG);
     if (NewOp.getNode())
       return NewOp;
@@ -16291,6 +16293,7 @@ static SDValue LowerSIGN_EXTEND(SDValue Op, const X86Subtarget *Subtarget,
 // may emit an illegal shuffle but the expansion is still better than scalar
 // code. We generate X86ISD::VSEXT for SEXTLOADs if it's available, otherwise
 // we'll emit a shuffle and a arithmetic shift.
+// FIXME: Is the expansion actually better than scalar code? It doesn't seem so.
 // TODO: It is possible to support ZExt by zeroing the undef values during
 // the shuffle phase or after the shuffle.
 static SDValue LowerExtendedLoad(SDValue Op, const X86Subtarget *Subtarget,
@@ -20396,6 +20399,8 @@ bool X86TargetLowering::isZExtFree(SDValue Val, EVT VT2) const {
   return false;
 }
 
+bool X86TargetLowering::isVectorLoadExtDesirable(SDValue) const { return true; }
+
 bool
 X86TargetLowering::isFMAFasterThanFMulAndFAdd(EVT VT) const {
   if (!(Subtarget->hasFMA() || Subtarget->hasFMA4()))
@@ -22985,6 +22990,25 @@ static SDValue XFormVExtractWithShuffleIntoLoad(SDNode *N, SelectionDAG &DAG,
                      EltNo);
 }
 
+/// \brief Detect bitcasts between i32 to x86mmx low word. Since MMX types are
+/// special and don't usually play with other vector types, it's better to
+/// handle them early to be sure we emit efficient code by avoiding
+/// store-load conversions.
+static SDValue PerformBITCASTCombine(SDNode *N, SelectionDAG &DAG) {
+  if (N->getValueType(0) != MVT::x86mmx ||
+      N->getOperand(0)->getOpcode() != ISD::BUILD_VECTOR ||
+      N->getOperand(0)->getValueType(0) != MVT::v2i32)
+    return SDValue();
+
+  SDValue V = N->getOperand(0);
+  ConstantSDNode *C = dyn_cast<ConstantSDNode>(V.getOperand(1));
+  if (C && C->getZExtValue() == 0 && V.getOperand(0).getValueType() == MVT::i32)
+    return DAG.getNode(X86ISD::MMX_MOVW2D, SDLoc(V.getOperand(0)),
+                       N->getValueType(0), V.getOperand(0));
+
+  return SDValue();
+}
+
 /// PerformEXTRACT_VECTOR_ELTCombine - Detect vector gather/scatter index
 /// generation and convert it from being a bunch of shuffles and extracts
 /// into a somewhat faster sequence. For i686, the best sequence is apparently
@@ -25428,11 +25452,13 @@ static SDValue PerformFSUBCombine(SDNode *N, SelectionDAG &DAG,
 /// Do target-specific dag combines on X86ISD::FOR and X86ISD::FXOR nodes.
 static SDValue PerformFORCombine(SDNode *N, SelectionDAG &DAG) {
   assert(N->getOpcode() == X86ISD::FOR || N->getOpcode() == X86ISD::FXOR);
+
   // F[X]OR(0.0, x) -> x
-  // F[X]OR(x, 0.0) -> x
   if (ConstantFPSDNode *C = dyn_cast<ConstantFPSDNode>(N->getOperand(0)))
     if (C->getValueAPF().isPosZero())
       return N->getOperand(1);
+
+  // F[X]OR(x, 0.0) -> x
   if (ConstantFPSDNode *C = dyn_cast<ConstantFPSDNode>(N->getOperand(1)))
     if (C->getValueAPF().isPosZero())
       return N->getOperand(0);
@@ -25463,26 +25489,30 @@ static SDValue PerformFMinFMaxCombine(SDNode *N, SelectionDAG &DAG) {
 /// Do target-specific dag combines on X86ISD::FAND nodes.
 static SDValue PerformFANDCombine(SDNode *N, SelectionDAG &DAG) {
   // FAND(0.0, x) -> 0.0
-  // FAND(x, 0.0) -> 0.0
   if (ConstantFPSDNode *C = dyn_cast<ConstantFPSDNode>(N->getOperand(0)))
     if (C->getValueAPF().isPosZero())
       return N->getOperand(0);
+
+  // FAND(x, 0.0) -> 0.0
   if (ConstantFPSDNode *C = dyn_cast<ConstantFPSDNode>(N->getOperand(1)))
     if (C->getValueAPF().isPosZero())
       return N->getOperand(1);
+  
   return SDValue();
 }
 
 /// Do target-specific dag combines on X86ISD::FANDN nodes
 static SDValue PerformFANDNCombine(SDNode *N, SelectionDAG &DAG) {
-  // FANDN(x, 0.0) -> 0.0
   // FANDN(0.0, x) -> x
   if (ConstantFPSDNode *C = dyn_cast<ConstantFPSDNode>(N->getOperand(0)))
     if (C->getValueAPF().isPosZero())
       return N->getOperand(1);
+
+  // FANDN(x, 0.0) -> 0.0
   if (ConstantFPSDNode *C = dyn_cast<ConstantFPSDNode>(N->getOperand(1)))
     if (C->getValueAPF().isPosZero())
       return N->getOperand(1);
+
   return SDValue();
 }
 
@@ -26128,6 +26158,7 @@ SDValue X86TargetLowering::PerformDAGCombine(SDNode *N,
   case ISD::SELECT:
   case X86ISD::SHRUNKBLEND:
     return PerformSELECTCombine(N, DAG, DCI, Subtarget);
+  case ISD::BITCAST:        return PerformBITCASTCombine(N, DAG);
   case X86ISD::CMOV:        return PerformCMOVCombine(N, DAG, DCI, Subtarget);
   case ISD::ADD:            return PerformAddCombine(N, DAG, Subtarget);
   case ISD::SUB:            return PerformSubCombine(N, DAG, Subtarget);

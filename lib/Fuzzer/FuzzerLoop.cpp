@@ -48,10 +48,19 @@ void Fuzzer::AlarmCallback() {
 }
 
 void Fuzzer::ShuffleAndMinimize() {
+  bool PreferSmall =
+      (Options.PreferSmallDuringInitialShuffle == 1 ||
+       (Options.PreferSmallDuringInitialShuffle == -1 && rand() % 2));
   if (Options.Verbosity)
-    std::cerr << "Shuffle: " << Corpus.size() << "\n";
+    std::cerr << "Shuffle: Size: " << Corpus.size()
+              << " prefer small: " << PreferSmall
+              << "\n";
   std::vector<Unit> NewCorpus;
-  random_shuffle(Corpus.begin(), Corpus.end());
+  std::random_shuffle(Corpus.begin(), Corpus.end());
+  if (PreferSmall)
+    std::stable_sort(
+        Corpus.begin(), Corpus.end(),
+        [](const Unit &A, const Unit &B) { return A.size() < B.size(); });
   size_t MaxCov = 0;
   Unit &U = CurrentUnit;
   for (const auto &C : Corpus) {
@@ -64,7 +73,9 @@ void Fuzzer::ShuffleAndMinimize() {
         MaxCov = NewCoverage;
         NewCorpus.push_back(U);
         if (Options.Verbosity >= 2)
-          std::cerr << "NEW0: " << NewCoverage << "\n";
+          std::cerr << "NEW0: " << NewCoverage
+                    << " L " << U.size()
+                    << "\n";
       }
     }
   }
@@ -109,8 +120,7 @@ size_t Fuzzer::RunOneMaximizeTotalCoverage(const Unit &U) {
   TestOneInput(U.data(), U.size());
   size_t NewCoverage = __sanitizer_get_total_unique_coverage();
   if (!(TotalNumberOfRuns & (TotalNumberOfRuns - 1)) && Options.Verbosity) {
-    size_t Seconds =
-        duration_cast<seconds>(system_clock::now() - ProcessStartTime).count();
+    size_t Seconds = secondsSinceProcessStartUp();
     std::cerr
         << "#" << TotalNumberOfRuns
         << "\tcov: " << NewCoverage
@@ -146,9 +156,10 @@ void Fuzzer::SaveCorpus() {
 
 size_t Fuzzer::MutateAndTestOne(Unit *U) {
   size_t NewUnits = 0;
-  for (size_t i = 0; i < Options.MutateDepth; i++) {
+  for (int i = 0; i < Options.MutateDepth; i++) {
+    if (TotalNumberOfRuns >= Options.MaxNumberOfRuns)
+      return NewUnits;
     Mutate(U, Options.MaxLen);
-    if (U->empty()) continue;
     size_t NewCoverage = RunOne(*U);
     if (NewCoverage) {
       Corpus.push_back(*U);
@@ -158,6 +169,7 @@ size_t Fuzzer::MutateAndTestOne(Unit *U) {
                   << "\tNEW: " << NewCoverage
                   << " L: " << U->size()
                   << " S: " << Corpus.size()
+                  << " I: " << i
                   << "\t";
         if (U->size() < 30) {
           PrintASCII(*U);
@@ -177,18 +189,19 @@ size_t Fuzzer::MutateAndTestOne(Unit *U) {
 size_t Fuzzer::Loop(size_t NumIterations) {
   size_t NewUnits = 0;
   for (size_t i = 1; i <= NumIterations; i++) {
-    if (Options.DoCrossOver) {
-      for (size_t J1 = 0; J1 < Corpus.size(); J1++) {
+    for (size_t J1 = 0; J1 < Corpus.size(); J1++) {
+      if (TotalNumberOfRuns >= Options.MaxNumberOfRuns)
+        return NewUnits;
+      // First, simply mutate the unit w/o doing crosses.
+      CurrentUnit = Corpus[J1];
+      NewUnits += MutateAndTestOne(&CurrentUnit);
+      // Now, cross with others.
+      if (Options.DoCrossOver) {
         for (size_t J2 = 0; J2 < Corpus.size(); J2++) {
           CurrentUnit.clear();
           CrossOver(Corpus[J1], Corpus[J2], &CurrentUnit, Options.MaxLen);
           NewUnits += MutateAndTestOne(&CurrentUnit);
         }
-      }
-    } else {  // No CrossOver
-      for (size_t J = 0; J < Corpus.size(); J++) {
-        CurrentUnit = Corpus[J];
-        NewUnits += MutateAndTestOne(&CurrentUnit);
       }
     }
   }

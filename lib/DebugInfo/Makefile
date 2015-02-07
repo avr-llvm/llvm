@@ -10,6 +10,6 @@ LEVEL = ../..
 
 include $(LEVEL)/Makefile.config
 
-PARALLEL_DIRS := DWARF
+PARALLEL_DIRS := DWARF PDB
 
 include $(LEVEL)/Makefile.common

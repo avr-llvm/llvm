@@ -574,6 +574,14 @@ public:
       getLoadExtAction(ExtType, ValVT, MemVT) == Legal;
   }
 
+  /// Return true if the specified load with extension is legal or custom
+  /// on this target.
+  bool isLoadExtLegalOrCustom(unsigned ExtType, EVT ValVT, EVT MemVT) const {
+    return ValVT.isSimple() && MemVT.isSimple() &&
+      (getLoadExtAction(ExtType, ValVT, MemVT) == Legal ||
+       getLoadExtAction(ExtType, ValVT, MemVT) == Custom);
+  }
+
   /// Return how this store with truncation should be treated: either it is
   /// legal, needs to be promoted to a larger size, needs to be expanded to some
   /// other code sequence, or the target has a custom expander for it.
@@ -1509,6 +1517,10 @@ public:
     assert(VT.isFloatingPoint());
     return false;
   }
+
+  /// Return true if folding a vector load into ExtVal (a sign, zero, or any
+  /// extend node) is profitable.
+  virtual bool isVectorLoadExtDesirable(SDValue ExtVal) const { return false; }
 
   /// Return true if an fneg operation is free to the point where it is never
   /// worthwhile to replace it with a bitwise operation.

@@ -447,7 +447,7 @@ bool SILowerControlFlowPass::runOnMachineFunction(MachineFunction &MF) {
       Next = std::next(I);
 
       MachineInstr &MI = *I;
-      if (TII->isDS(MI.getOpcode()))
+      if (TII->isWQM(MI.getOpcode()) || TII->isDS(MI.getOpcode()))
         NeedWQM = true;
 
       // Flat uses m0 in case it needs to access LDS.
@@ -512,12 +512,6 @@ bool SILowerControlFlowPass::runOnMachineFunction(MachineFunction &MF) {
         case AMDGPU::SI_INDIRECT_DST_V8:
         case AMDGPU::SI_INDIRECT_DST_V16:
           IndirectDst(MI);
-          break;
-
-        case AMDGPU::V_INTERP_P1_F32:
-        case AMDGPU::V_INTERP_P2_F32:
-        case AMDGPU::V_INTERP_MOV_F32:
-          NeedWQM = true;
           break;
       }
     }

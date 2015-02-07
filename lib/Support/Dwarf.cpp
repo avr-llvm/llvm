@@ -406,26 +406,19 @@ const char *llvm::dwarf::OperationEncodingString(unsigned Encoding) {
 
 const char *llvm::dwarf::AttributeEncodingString(unsigned Encoding) {
   switch (Encoding) {
-  case DW_ATE_address:                   return "DW_ATE_address";
-  case DW_ATE_boolean:                   return "DW_ATE_boolean";
-  case DW_ATE_complex_float:             return "DW_ATE_complex_float";
-  case DW_ATE_float:                     return "DW_ATE_float";
-  case DW_ATE_signed:                    return "DW_ATE_signed";
-  case DW_ATE_signed_char:               return "DW_ATE_signed_char";
-  case DW_ATE_unsigned:                  return "DW_ATE_unsigned";
-  case DW_ATE_unsigned_char:             return "DW_ATE_unsigned_char";
-  case DW_ATE_imaginary_float:           return "DW_ATE_imaginary_float";
-  case DW_ATE_UTF:                       return "DW_ATE_UTF";
-  case DW_ATE_packed_decimal:            return "DW_ATE_packed_decimal";
-  case DW_ATE_numeric_string:            return "DW_ATE_numeric_string";
-  case DW_ATE_edited:                    return "DW_ATE_edited";
-  case DW_ATE_signed_fixed:              return "DW_ATE_signed_fixed";
-  case DW_ATE_unsigned_fixed:            return "DW_ATE_unsigned_fixed";
-  case DW_ATE_decimal_float:             return "DW_ATE_decimal_float";
-  case DW_ATE_lo_user:                   return "DW_ATE_lo_user";
-  case DW_ATE_hi_user:                   return "DW_ATE_hi_user";
+  default: return nullptr;
+#define HANDLE_DW_ATE(ID, NAME)                                                \
+  case DW_ATE_##NAME:                                                          \
+    return "DW_ATE_" #NAME;
+#include "llvm/Support/Dwarf.def"
   }
-  return nullptr;
+}
+
+unsigned llvm::dwarf::getAttributeEncoding(StringRef EncodingString) {
+  return StringSwitch<unsigned>(EncodingString)
+#define HANDLE_DW_ATE(ID, NAME) .Case("DW_ATE_" #NAME, DW_ATE_##NAME)
+#include "llvm/Support/Dwarf.def"
+      .Default(0);
 }
 
 const char *llvm::dwarf::DecimalSignString(unsigned Sign) {
@@ -471,47 +464,39 @@ const char *llvm::dwarf::VisibilityString(unsigned Visibility) {
 
 const char *llvm::dwarf::VirtualityString(unsigned Virtuality) {
   switch (Virtuality) {
-  case DW_VIRTUALITY_none:               return "DW_VIRTUALITY_none";
-  case DW_VIRTUALITY_virtual:            return "DW_VIRTUALITY_virtual";
-  case DW_VIRTUALITY_pure_virtual:       return "DW_VIRTUALITY_pure_virtual";
+  default:
+    return nullptr;
+#define HANDLE_DW_VIRTUALITY(ID, NAME)                                         \
+  case DW_VIRTUALITY_##NAME:                                                   \
+    return "DW_VIRTUALITY_" #NAME;
+#include "llvm/Support/Dwarf.def"
   }
-  return nullptr;
+}
+
+unsigned llvm::dwarf::getVirtuality(StringRef VirtualityString) {
+  return StringSwitch<unsigned>(VirtualityString)
+#define HANDLE_DW_VIRTUALITY(ID, NAME)                                         \
+  .Case("DW_VIRTUALITY_" #NAME, DW_VIRTUALITY_##NAME)
+#include "llvm/Support/Dwarf.def"
+      .Default(DW_VIRTUALITY_invalid);
 }
 
 const char *llvm::dwarf::LanguageString(unsigned Language) {
   switch (Language) {
-  case DW_LANG_C89:                      return "DW_LANG_C89";
-  case DW_LANG_C:                        return "DW_LANG_C";
-  case DW_LANG_Ada83:                    return "DW_LANG_Ada83";
-  case DW_LANG_C_plus_plus:              return "DW_LANG_C_plus_plus";
-  case DW_LANG_Cobol74:                  return "DW_LANG_Cobol74";
-  case DW_LANG_Cobol85:                  return "DW_LANG_Cobol85";
-  case DW_LANG_Fortran77:                return "DW_LANG_Fortran77";
-  case DW_LANG_Fortran90:                return "DW_LANG_Fortran90";
-  case DW_LANG_Pascal83:                 return "DW_LANG_Pascal83";
-  case DW_LANG_Modula2:                  return "DW_LANG_Modula2";
-  case DW_LANG_Java:                     return "DW_LANG_Java";
-  case DW_LANG_C99:                      return "DW_LANG_C99";
-  case DW_LANG_Ada95:                    return "DW_LANG_Ada95";
-  case DW_LANG_Fortran95:                return "DW_LANG_Fortran95";
-  case DW_LANG_PLI:                      return "DW_LANG_PLI";
-  case DW_LANG_ObjC:                     return "DW_LANG_ObjC";
-  case DW_LANG_ObjC_plus_plus:           return "DW_LANG_ObjC_plus_plus";
-  case DW_LANG_UPC:                      return "DW_LANG_UPC";
-  case DW_LANG_D:                        return "DW_LANG_D";
-  case DW_LANG_Python:                   return "DW_LANG_Python";
-  case DW_LANG_OpenCL:                   return "DW_LANG_OpenCL";
-  case DW_LANG_Go:                       return "DW_LANG_Go";
-  case DW_LANG_Modula3:                  return "DW_LANG_Modula3";
-  case DW_LANG_Haskell:                  return "DW_LANG_Haskell";
-  case DW_LANG_C_plus_plus_03:           return "DW_LANG_C_plus_plus_03";
-  case DW_LANG_C_plus_plus_11:           return "DW_LANG_C_plus_plus_11";
-  case DW_LANG_OCaml:                    return "DW_LANG_OCaml";
-  case DW_LANG_lo_user:                  return "DW_LANG_lo_user";
-  case DW_LANG_Mips_Assembler:           return "DW_LANG_Mips_Assembler";
-  case DW_LANG_hi_user:                  return "DW_LANG_hi_user";
+  default:
+    return nullptr;
+#define HANDLE_DW_LANG(ID, NAME)                                               \
+  case DW_LANG_##NAME:                                                         \
+    return "DW_LANG_" #NAME;
+#include "llvm/Support/Dwarf.def"
   }
-  return nullptr;
+}
+
+unsigned llvm::dwarf::getLanguage(StringRef LanguageString) {
+  return StringSwitch<unsigned>(LanguageString)
+#define HANDLE_DW_LANG(ID, NAME) .Case("DW_LANG_" #NAME, DW_LANG_##NAME)
+#include "llvm/Support/Dwarf.def"
+      .Default(0);
 }
 
 const char *llvm::dwarf::CaseString(unsigned Case) {
