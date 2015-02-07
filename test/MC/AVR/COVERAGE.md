@@ -2,6 +2,8 @@
 
 ** There should be at least two tests for each instruction to be considered tested **
 
+** Also note that just because a test exists, does not mean it passes **
+
 Arithmetic and Logic Instructions
 
 Mnemonic | Operands  | Description                                     | Has MC Unit Test
@@ -9,13 +11,13 @@ Mnemonic | Operands  | Description                                     | Has MC 
 `ADD`    | `Rd, Rr`  | Add without Carry                               | Yes
 `ADC`    | `Rd, Rr`  | Add with Carry                                  | Yes
 `ADIW`   | `Rd, K`   | Add Immediate to Word                           | Yes
-`SUB`    | `Rd, Rr`  | Subtract without Carry                          | **No**
+`SUB`    | `Rd, Rr`  | Subtract without Carry                          | Yes
 `SUBI`   | `Rd, K`   | Subtract Immediate                              | **No**
 `SBC `   | `Rd, Rr`  | Subtract with Carry                             | **No**
 `SBCI`   | `Rd, K`   | Subtract Immediate with Carry                   | **No**
 `SBIW`   | `Rd, K`   | Subtract Immediate from Word                    | **No**
-`AND`    | `Rd, Rr`  | Logical AND                                     | **No**
-`ANDI`   | `Rd, K`   | Logical AND with Immediate                      | **No**
+`AND`    | `Rd, Rr`  | Logical AND                                     | Yes
+`ANDI`   | `Rd, K`   | Logical AND with Immediate                      | Yes
 `OR`     | `Rd, Rr`  | Logical OR                                      | **No**
 `ORI`    | `Rd, K`   | Logical OR with Immediate                       | **No**
 `EOR`    | `Rd, Rr`  | Exclusive OR                                    | **No**
