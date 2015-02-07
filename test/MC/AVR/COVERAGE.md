@@ -6,9 +6,9 @@ Arithmetic and Logic Instructions
 
 Mnemonic | Operands  | Description                                     | Has MC Unit Test
 :--------|:----------|:------------------------------------------------|------------------------------------
-`ADD`    | `Rd, Rr`  | Add without Carry                               | **No**
-`ADC`    | `Rd, Rr`  | Add without Carry                               | **No**
-`ADIW`   | `Rd, K`   | Add Immediate to Word                           | **No**
+`ADD`    | `Rd, Rr`  | Add without Carry                               | Yes
+`ADC`    | `Rd, Rr`  | Add without Carry                               | Yes
+`ADIW`   | `Rd, K`   | Add Immediate to Word                           | Yes
 `SUB`    | `Rd, Rr`  | Subtract without Carry                          | **No**
 `SUBI`   | `Rd, K`   | Subtract Immediate                              | **No**
 `SBC `   | `Rd, Rr`  | Subtract with Carry                             | **No**
@@ -96,14 +96,14 @@ Mnemonic | Operands  | Description                                     | Has MC 
 `LD`     | `Rd, -Z`  | Load Indirect and Pre-Decrement                 | **No**
 `LDD`    | `Rd, Z+q` | Load Indirect with Displacement                 | **No**
 `STS`    | `k, Rr`   | Store Direct to data space                      | **No**
-`ST`     | `X, Rr`   | Store Indirect                                  | **No**
+`ST`     | `X, Rr`   | Store Indirect                                  | Yes
 `ST`     | `X+, Rr`  | Store Indirect and Post-Increment               | **No**
 `ST`     | `-X, Rr`  | Store Indirect and Pre-Decrement                | **No**
-`ST`     | `Y, Rr`   | Store Indirect                                  | **No**
+`ST`     | `Y, Rr`   | Store Indirect                                  | Yes
 `ST`     | `Y+, Rr`  | Store Indirect and Post-Increment               | **No**
 `ST`     | `-Y, Rr`  | Store Indirect and Pre-Decrement                | **No**
 `STD`    | `Y+q,Rr`  | Store Indirect with Displacement                | **No**
-`ST`     | `Z, Rr`   | Store Indirect                                  | **No**
+`ST`     | `Z, Rr`   | Store Indirect                                  | Yes
 `ST`     | `Z+, Rr`  | Store Indirect and Post-Increment               | **No**
 `ST`     | `-Z, Rr`  | Store Indirect and Pre-Decrement                | **No**
 `STD`    | `Z+q,Rr`  | Store Indirect with Displacement                | **No**
