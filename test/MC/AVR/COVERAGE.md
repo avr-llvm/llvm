@@ -7,7 +7,7 @@ Arithmetic and Logic Instructions
 Mnemonic | Operands  | Description                                     | Has MC Unit Test
 :--------|:----------|:------------------------------------------------|------------------------------------
 `ADD`    | `Rd, Rr`  | Add without Carry                               | Yes
-`ADC`    | `Rd, Rr`  | Add without Carry                               | Yes
+`ADC`    | `Rd, Rr`  | Add with Carry                                  | Yes
 `ADIW`   | `Rd, K`   | Add Immediate to Word                           | Yes
 `SUB`    | `Rd, Rr`  | Subtract without Carry                          | **No**
 `SUBI`   | `Rd, K`   | Subtract Immediate                              | **No**
@@ -19,8 +19,8 @@ Mnemonic | Operands  | Description                                     | Has MC 
 `OR`     | `Rd, Rr`  | Logical OR                                      | **No**
 `ORI`    | `Rd, K`   | Logical OR with Immediate                       | **No**
 `EOR`    | `Rd, Rr`  | Exclusive OR                                    | **No**
-`COM`    | `Rd`      | One’s Complement                                | **No**
-`NEG`    | `Rd`      | Two’s Complement                                | **No**
+`COM`    | `Rd`      | One's Complement                                | **No**
+`NEG`    | `Rd`      | Two's Complement                                | **No**
 `SBR`    | `Rd,K`    | Set Bit(s) in Register                          | **No**
 `CBR`    | `Rd,K`    | Clear Bit(s) in Register                        | **No**
 `INC`    | `Rd`      | Increment                                       | **No**
