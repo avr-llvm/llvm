@@ -30,3 +30,9 @@ A fork was created which updated the project to a more recent version of LLVM, w
 This repository is a fork of the updated version.
 
 The AVR-LLVM project aims to keep to code updated (so that it's always compatible with LLVM master), and also to improve the backend.
+
+## Goals
+We would like to be able to compile any program that AVR-GCC can, have comparable diagnostics, and on-par performance.
+
+Other goals include:
+* Support the LLVM `compiler-rt` library
