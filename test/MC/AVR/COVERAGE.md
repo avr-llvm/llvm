@@ -20,14 +20,14 @@ Mnemonic | Operands  | Description                                     | Has MC 
 `ANDI`   | `Rd, K`   | Logical AND with Immediate                      | Yes
 `OR`     | `Rd, Rr`  | Logical OR                                      | Yes
 `ORI`    | `Rd, K`   | Logical OR with Immediate                       | Yes
-`EOR`    | `Rd, Rr`  | Exclusive OR                                    | **No**
-`COM`    | `Rd`      | One's Complement                                | **No**
-`NEG`    | `Rd`      | Two's Complement                                | **No**
+`EOR`    | `Rd, Rr`  | Exclusive OR                                    | Yes
+`COM`    | `Rd`      | One's Complement                                | Yes
+`NEG`    | `Rd`      | Two's Complement                                | Yes
 `SBR`    | `Rd,K`    | Set Bit(s) in Register                          | **No**
 `CBR`    | `Rd,K`    | Clear Bit(s) in Register                        | **No**
-`INC`    | `Rd`      | Increment                                       | **No**
-`DEC`    | `Rd`      | Decrement                                       | **No**
-`TST`    | `Rd`      | Test for Zero or Minus                          | **No**
+`INC`    | `Rd`      | Increment                                       | Yes
+`DEC`    | `Rd`      | Decrement                                       | Yes
+`TST`    | `Rd`      | Test for Zero or Minus                          | Yes 
 `CLR`    | `Rd`      | Clear Register                                  | **No**
 `SER`    | `Rd`      | Set Register                                    | **No**
 `MUL`    | `Rd,Rr`   | Multiply Unsigned                               | **No**
