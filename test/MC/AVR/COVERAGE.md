@@ -28,8 +28,8 @@ Mnemonic | Operands  | Description                                     | Has MC 
 `INC`    | `Rd`      | Increment                                       | Yes
 `DEC`    | `Rd`      | Decrement                                       | Yes
 `TST`    | `Rd`      | Test for Zero or Minus                          | Yes 
-`CLR`    | `Rd`      | Clear Register                                  | **No**
-`SER`    | `Rd`      | Set Register                                    | **No**
+`CLR`    | `Rd`      | Clear Register                                  | Yes 
+`SER`    | `Rd`      | Set Register                                    | Yes 
 `MUL`    | `Rd,Rr`   | Multiply Unsigned                               | **No**
 `MULS`   | `Rd,Rr`   | Multiply Signed                                 | **No**
 `MULSU`  | `Rd,Rr`   | Multiply Signed with Unsigned                   | **No**
@@ -41,20 +41,20 @@ Branch Instructions
 
 Mnemonic | Operands  | Description                                     | Has MC Unit Test
 :--------|:----------|:------------------------------------------------|------------------
-`RJMP`   | `k`       | Relative Jump                                   | **No**
-`IJMP`   |           | Indirect Jump to (Z)                            | **No**
-`EIJMP`  |           | Extended Indirect Jump to (Z)                   | **No**
-`JMP`    | `k`       | Jump                                            | **No**
-`RCALL`  | `k`       | Relative Call Subroutine                        | **No**
-`ICALL`  |           | Indirect Call to (Z)                            | **No**
-`EICALL` |           | Extended Indirect Call to (Z)                   | **No**
-`CALL`   | `k`       | Call Subroutine                                 | **No**
-`RET`    |           | Subroutine Return                               | **No**
-`RETI`   |           | Interrupt Return                                | **No**
-`CPSE`   | `Rd,Rr`   | Compare, Skip if Equal                          | **No**
-`CP`     | `Rd,Rr`   | Compare                                         | **No**
-`CPC`    | `Rd,Rr`   | Compare with Carry                              | **No**
-`CPI`    | `Rd,K `   | Compare with Immediate                          | **No**
+`RJMP`   | `k`       | Relative Jump                                   | Yes 
+`IJMP`   |           | Indirect Jump to (Z)                            | Yes 
+`EIJMP`  |           | Extended Indirect Jump to (Z)                   | Yes 
+`JMP`    | `k`       | Jump                                            | Yes
+`RCALL`  | `k`       | Relative Call Subroutine                        | Yes
+`ICALL`  |           | Indirect Call to (Z)                            | Yes 
+`EICALL` |           | Extended Indirect Call to (Z)                   | Yes 
+`CALL`   | `k`       | Call Subroutine                                 | Yes 
+`RET`    |           | Subroutine Return                               | Yes 
+`RETI`   |           | Interrupt Return                                | Yes 
+`CPSE`   | `Rd,Rr`   | Compare, Skip if Equal                          | Yes 
+`CP`     | `Rd,Rr`   | Compare                                         | Yes 
+`CPC`    | `Rd,Rr`   | Compare with Carry                              | Yes 
+`CPI`    | `Rd,K `   | Compare with Immediate                          | Yes 
 `SBRC`   | `Rr, b`   | Skip if Bit in Register Cleared                 | **No**
 `SBRS`   | `Rr, b`   | Skip if Bit in Register Set                     | **No**
 `BRBS`   | `s, k`    | Branch if Status Flag Set                       | **No**
@@ -147,8 +147,8 @@ Mnemonic | Operands  | Description                                     | Has MC 
 `CLI`    |           | Global Interrupt Disable                        | **No**
 `SES`    |           | Set Signed Test Flag                            | **No**
 `CLS`    |           | Clear Signed Test Flag                          | **No**
-`SEV`    |           | Set Two’s Complement Overflow                   | **No**
-`CLV`    |           | Clear Two’s Complement Overflow                 | **No**
+`SEV`    |           | Set Two's Complement Overflow                   | **No**
+`CLV`    |           | Clear Two's Complement Overflow                 | **No**
 `SET`    |           | Set T in SREG                                   | **No**
 `CLT`    |           | Clear T in SREG                                 | **No**
 `SEH`    |           | Set Half Carry Flag in SREG                     | **No**
@@ -158,7 +158,7 @@ MCU Control Instructions
 
 Mnemonic | Operands  | Description                                     | Has MC Unit Test
 :--------|:----------|:------------------------------------------------|------------------
-`BREAK`  |           | Break                                           | **No**
-`NOP`    |           | No Operation                                    | **No**
-`SLEEP`  |           | Sleep                                           | **No**
-`WDR`    |           | Watchdog Reset                                  | **No**
+`BREAK`  |           | Break                                           | Yes
+`NOP`    |           | No Operation                                    | Yes
+`SLEEP`  |           | Sleep                                           | Yes
+`WDR`    |           | Watchdog Reset                                  | Yes
