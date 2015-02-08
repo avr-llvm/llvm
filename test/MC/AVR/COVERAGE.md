@@ -12,14 +12,14 @@ Mnemonic | Operands  | Description                                     | Has MC 
 `ADC`    | `Rd, Rr`  | Add with Carry                                  | Yes
 `ADIW`   | `Rd, K`   | Add Immediate to Word                           | Yes
 `SUB`    | `Rd, Rr`  | Subtract without Carry                          | Yes
-`SUBI`   | `Rd, K`   | Subtract Immediate                              | **No**
-`SBC `   | `Rd, Rr`  | Subtract with Carry                             | **No**
-`SBCI`   | `Rd, K`   | Subtract Immediate with Carry                   | **No**
-`SBIW`   | `Rd, K`   | Subtract Immediate from Word                    | **No**
+`SUBI`   | `Rd, K`   | Subtract Immediate                              | Yes
+`SBC `   | `Rd, Rr`  | Subtract with Carry                             | Yes
+`SBCI`   | `Rd, K`   | Subtract Immediate with Carry                   | Yes
+`SBIW`   | `Rd, K`   | Subtract Immediate from Word                    | Yes
 `AND`    | `Rd, Rr`  | Logical AND                                     | Yes
 `ANDI`   | `Rd, K`   | Logical AND with Immediate                      | Yes
-`OR`     | `Rd, Rr`  | Logical OR                                      | **No**
-`ORI`    | `Rd, K`   | Logical OR with Immediate                       | **No**
+`OR`     | `Rd, Rr`  | Logical OR                                      | Yes
+`ORI`    | `Rd, K`   | Logical OR with Immediate                       | Yes
 `EOR`    | `Rd, Rr`  | Exclusive OR                                    | **No**
 `COM`    | `Rd`      | One's Complement                                | **No**
 `NEG`    | `Rd`      | Two's Complement                                | **No**
@@ -59,24 +59,24 @@ Mnemonic | Operands  | Description                                     | Has MC 
 `SBRS`   | `Rr, b`   | Skip if Bit in Register Set                     | **No**
 `BRBS`   | `s, k`    | Branch if Status Flag Set                       | **No**
 `BRBC`   | `s, k`    | Branch if Status Flag Cleared                   | **No**
-`BREQ`   | `k`       | Branch if Equal                                 | **No**
-`BRNE`   | `k`       | Branch if Not Equal                             | **No**
-`BRCS`   | `k`       | Branch if Carry Set                             | **No**
-`BRCC`   | `k`       | Branch if Carry Cleared                         | **No**
-`BRSH`   | `k`       | Branch if Same or Higher                        | **No**
-`BRLO`   | `k`       | Branch if Lower                                 | **No**
-`BRMI`   | `k`       | Branch if Minus                                 | **No**
-`BRPL`   | `k`       | Branch if Plus                                  | **No**
-`BRGE`   | `k`       | Branch if Greater or Equal, Signed              | **No**
-`BRLT`   | `k`       | Branch if Less Than, Signed                     | **No**
-`BRHS`   | `k`       | Branch if Half Carry Flag Set                   | **No**
-`BRHC`   | `k`       | Branch if Half Carry Flag Cleared               | **No**
-`BRTS`   | `k`       | Branch if T Flag Set                            | **No**
-`BRTC`   | `k`       | Branch if T Flag Cleared                        | **No**
-`BRVS`   | `k`       | Branch if Overflow Flag is Set                  | **No**
-`BRVC`   | `k`       | Branch if Overflow Flag is Cleared              | **No**
-`BRIE`   | `k`       | Branch if Interrupt Enabled                     | **No**
-`BRID`   | `k`       | Branch if Interrupt Disabled                    | **No**
+`BREQ`   | `k`       | Branch if Equal                                 | Yes 
+`BRNE`   | `k`       | Branch if Not Equal                             | Yes
+`BRCS`   | `k`       | Branch if Carry Set                             | Yes
+`BRCC`   | `k`       | Branch if Carry Cleared                         | Yes
+`BRSH`   | `k`       | Branch if Same or Higher                        | Yes
+`BRLO`   | `k`       | Branch if Lower                                 | Yes
+`BRMI`   | `k`       | Branch if Minus                                 | Yes
+`BRPL`   | `k`       | Branch if Plus                                  | Yes
+`BRGE`   | `k`       | Branch if Greater or Equal, Signed              | Yes
+`BRLT`   | `k`       | Branch if Less Than, Signed                     | Yes
+`BRHS`   | `k`       | Branch if Half Carry Flag Set                   | Yes
+`BRHC`   | `k`       | Branch if Half Carry Flag Cleared               | Yes
+`BRTS`   | `k`       | Branch if T Flag Set                            | Yes
+`BRTC`   | `k`       | Branch if T Flag Cleared                        | Yes
+`BRVS`   | `k`       | Branch if Overflow Flag is Set                  | Yes
+`BRVC`   | `k`       | Branch if Overflow Flag is Cleared              | Yes
+`BRIE`   | `k`       | Branch if Interrupt Enabled                     | Yes
+`BRID`   | `k`       | Branch if Interrupt Disabled                    | Yes
 
 Data Transfer Instructions
 
