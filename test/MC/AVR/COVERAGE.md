@@ -23,19 +23,19 @@ Mnemonic | Operands  | Description                                     | Has MC 
 `EOR`    | `Rd, Rr`  | Exclusive OR                                    | Yes
 `COM`    | `Rd`      | One's Complement                                | Yes
 `NEG`    | `Rd`      | Two's Complement                                | Yes
-`SBR`    | `Rd,K`    | Set Bit(s) in Register                          | **No**
-`CBR`    | `Rd,K`    | Clear Bit(s) in Register                        | **No**
+`SBR`    | `Rd,K`    | Set Bit(s) in Register                          | Yes 
+`CBR`    | `Rd,K`    | Clear Bit(s) in Register                        | Yes 
 `INC`    | `Rd`      | Increment                                       | Yes
 `DEC`    | `Rd`      | Decrement                                       | Yes
 `TST`    | `Rd`      | Test for Zero or Minus                          | Yes 
 `CLR`    | `Rd`      | Clear Register                                  | Yes 
 `SER`    | `Rd`      | Set Register                                    | Yes 
-`MUL`    | `Rd,Rr`   | Multiply Unsigned                               | **No**
-`MULS`   | `Rd,Rr`   | Multiply Signed                                 | **No**
-`MULSU`  | `Rd,Rr`   | Multiply Signed with Unsigned                   | **No**
-`FMUL`   | `Rd,Rr`   | Fractional Multiply Unsigned                    | **No**
-`FMULS`  | `Rd,Rr`   | Fractional Multiply Signed                      | **No**
-`FMULSU` | `Rd,Rr`   | Fractional Multiply Signed with Unsigned        | **No**
+`MUL`    | `Rd,Rr`   | Multiply Unsigned                               | Yes
+`MULS`   | `Rd,Rr`   | Multiply Signed                                 | Yes
+`MULSU`  | `Rd,Rr`   | Multiply Signed with Unsigned                   | Yes
+`FMUL`   | `Rd,Rr`   | Fractional Multiply Unsigned                    | Yes
+`FMULS`  | `Rd,Rr`   | Fractional Multiply Signed                      | Yes
+`FMULSU` | `Rd,Rr`   | Fractional Multiply Signed with Unsigned        | Yes
 
 Branch Instructions
 
@@ -86,14 +86,14 @@ Mnemonic | Operands  | Description                                     | Has MC 
 `MOVW`   | `Rd, Rr`  | Copy Register Pair                              | **No**
 `LDI`    | `Rd, K`   | Load Immediate                                  | **No**
 `LDS`    | `Rd, k`   | Load Direct from data space                     | **No**
-`LD`     | `Rd, X`   | Load Indirect                                   | **No**
+`LD`     | `Rd, X`   | Load Indirect                                   | Yes
 `LD`     | `Rd, X+`  | Load Indirect and Post-Increment                | **No**
 `LD`     | `Rd, -X`  | Load Indirect and Pre-Decrement                 | **No**
-`LD`     | `Rd, Y`   | Load Indirect                                   | **No**
+`LD`     | `Rd, Y`   | Load Indirect                                   | Yes
 `LD`     | `Rd, Y+`  | Load Indirect and Post-Increment                | **No**
 `LD`     | `Rd, -Y`  | Load Indirect and Pre-Decrement                 | **No**
 `LDD`    | `Rd,Y+q`  | Load Indirect with Displacement                 | **No**
-`LD`     | `Rd, Z`   | Load Indirect                                   | **No**
+`LD`     | `Rd, Z`   | Load Indirect                                   | Yes
 `LD`     | `Rd, Z+`  | Load Indirect and Post-Increment                | **No**
 `LD`     | `Rd, -Z`  | Load Indirect and Pre-Decrement                 | **No**
 `LDD`    | `Rd, Z+q` | Load Indirect with Displacement                 | **No**
