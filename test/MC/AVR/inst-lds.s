@@ -1,0 +1,14 @@
+; RUN: llvm-mc -triple avr-none -show-encoding < %s | FileCheck %s
+
+
+foo:
+
+  lds r16, 0xf1
+  lds r29, 0xbe
+  lds r22, 0xac
+  lds r27, 92
+  
+; CHECK: lds r16, 0xf1                 ; encoding: [0x00,0x91,0xf1,0x00]
+; CHECK: lds r29, 0xbe                 ; encoding: [0xd0,0x91,0xbe,0x00]
+; CHECK: lds r22, 0xac                 ; encoding: [0x60,0x91,0xac,0x00]
+; CHECK: lds r27, 92                   ; encoding: [0xb0,0x91,0x5c,0x00]
