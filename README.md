@@ -1,4 +1,7 @@
 # AVR-LLVM
+
+See the [Wiki](https://github.com/dylanmckay/avr-llvm/wiki/Getting%20Started) for more information.
+
 An LLVM backend for the Atmel [AVR](http://en.wikipedia.org/wiki/Atmel_AVR) microprocessor architecture.
 
 Currently AVR-LLVM can generate assembly files and ELF object files.
