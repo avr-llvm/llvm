@@ -38,6 +38,9 @@ MULSU  not implemented
 FMUL   not implemented
 FMULS  not implemented
 FMULSU not implemented
+DES    not implemented
+SBIC   not implemented
+SBIS   not implemented
 ```
 
 ### Branch Instructions
@@ -102,10 +105,15 @@ LPM Rd, Z      x (untested)
 LPM Rd, Z+     x (untested)
 ELPM           not implemented
 SPM            not implemented
+SPM (postinc variant) not implemented
 IN             x
 OUT            x
 PUSH           x
 POP            x
+XCH
+LAS
+LAC
+LAT
 ```
 
 ### Bit and Bit-test instructions
