@@ -15,17 +15,20 @@
 
 namespace llvm {
 
+class raw_ostream;
+
 class PDBSymbolTypeCustom : public PDBSymbol {
 public:
-  PDBSymbolTypeCustom(std::unique_ptr<IPDBRawSymbol> CustomTypeSymbol);
+  PDBSymbolTypeCustom(const IPDBSession &PDBSession,
+                      std::unique_ptr<IPDBRawSymbol> Symbol);
+
+  DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::CustomType)
+
+  void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const override;
 
   FORWARD_SYMBOL_METHOD(getOemId)
   FORWARD_SYMBOL_METHOD(getOemSymbolId)
   FORWARD_SYMBOL_METHOD(getSymIndexId)
-
-  static bool classof(const PDBSymbol *S) {
-    return S->getSymTag() == PDB_SymType::CustomType;
-  }
 };
 
 } // namespace llvm

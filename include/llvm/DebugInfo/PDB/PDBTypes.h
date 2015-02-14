@@ -10,6 +10,8 @@
 #ifndef LLVM_DEBUGINFO_PDB_PDBTYPES_H
 #define LLVM_DEBUGINFO_PDB_PDBTYPES_H
 
+#include "llvm/Config/llvm-config.h"
+#include <functional>
 #include <stdint.h>
 
 namespace llvm {
@@ -25,10 +27,9 @@ class IPDBRawSymbol;
 class IPDBSession;
 class IPDBSourceFile;
 
-typedef IPDBEnumChildren<IPDBRawSymbol> IPDBEnumSymbols;
+typedef IPDBEnumChildren<PDBSymbol> IPDBEnumSymbols;
 typedef IPDBEnumChildren<IPDBSourceFile> IPDBEnumSourceFiles;
 typedef IPDBEnumChildren<IPDBDataStream> IPDBEnumDataStreams;
-typedef IPDBEnumChildren<PDBSymbolCompiland> IPDBEnumCompilands;
 
 class PDBSymbolExe;
 class PDBSymbolCompiland;
@@ -65,10 +66,13 @@ class PDBSymbolUnknown;
 /// Specifies which PDB reader implementation is to be used.  Only a value
 /// of PDB_ReaderType::DIA is supported.
 enum class PDB_ReaderType {
-  SystemDefault = 0,
-#if defined(_MSC_VER)
-  DIA = 1,
-#endif
+  DIA = 0,
+};
+
+enum class PDB_DumpLevel {
+  Compact,
+  Normal,
+  Detailed,
 };
 
 /// Defines a 128-bit unique identifier.  This maps to a GUID on Windows, but
@@ -169,6 +173,31 @@ enum class PDB_Cpu {
   Thumb = 0xf0,
   ARMNT = 0xf4,
   D3D11_Shader = 0x100,
+};
+
+enum class PDB_Machine {
+  Invalid = 0xffff,
+  Unknown = 0x0,
+  Am33 = 0x13,
+  Amd64 = 0x8664,
+  Arm = 0x1C0,
+  ArmNT = 0x1C4,
+  Ebc = 0xEBC,
+  x86 = 0x14C,
+  Ia64 = 0x200,
+  M32R = 0x9041,
+  Mips16 = 0x266,
+  MipsFpu = 0x366,
+  MipsFpu16 = 0x466,
+  PowerPC = 0x1F0,
+  PowerPCFP = 0x1F1,
+  R4000 = 0x166,
+  SH3 = 0x1A2,
+  SH3DSP = 0x1A3,
+  SH4 = 0x1A6,
+  SH5 = 0x1A8,
+  Thumb = 0x1C2,
+  WceMipsV2 = 0x169
 };
 
 /// These values correspond to the CV_call_e enumeration, and are documented
@@ -343,8 +372,116 @@ enum class PDB_BuiltinType {
   HResult = 31
 };
 
+enum class PDB_RegisterId {
+  Unknown = 0,
+  VFrame = 30006,
+  AL = 1,
+  CL = 2,
+  DL = 3,
+  BL = 4,
+  AH = 5,
+  CH = 6,
+  DH = 7,
+  BH = 8,
+  AX = 9,
+  CX = 10,
+  DX = 11,
+  BX = 12,
+  SP = 13,
+  BP = 14,
+  SI = 15,
+  DI = 16,
+  EAX = 17,
+  ECX = 18,
+  EDX = 19,
+  EBX = 20,
+  ESP = 21,
+  EBP = 22,
+  ESI = 23,
+  EDI = 24,
+  ES = 25,
+  CS = 26,
+  SS = 27,
+  DS = 28,
+  FS = 29,
+  GS = 30,
+  IP = 31,
+  RAX = 328,
+  RBX = 329,
+  RCX = 330,
+  RDX = 331,
+  RSI = 332,
+  RDI = 333,
+  RBP = 334,
+  RSP = 335,
+  R8 = 336,
+  R9 = 337,
+  R10 = 338,
+  R11 = 339,
+  R12 = 340,
+  R13 = 341,
+  R14 = 342,
+  R15 = 343,
+};
+
 enum class PDB_MemberAccess { Private = 1, Protected = 2, Public = 3 };
 
+struct VersionInfo {
+  uint32_t Major;
+  uint32_t Minor;
+  uint32_t Build;
+  uint32_t QFE;
+};
+
+enum PDB_VariantType {
+  Empty,
+  Unknown,
+  Int8,
+  Int16,
+  Int32,
+  Int64,
+  Single,
+  Double,
+  UInt8,
+  UInt16,
+  UInt32,
+  UInt64,
+  Bool,
+};
+
+struct Variant {
+  Variant()
+    : Type(PDB_VariantType::Empty) {
+  }
+
+  PDB_VariantType Type;
+  union {
+    bool Bool;
+    int8_t Int8;
+    int16_t Int16;
+    int32_t Int32;
+    int64_t Int64;
+    float Single;
+    double Double;
+    uint8_t UInt8;
+    uint16_t UInt16;
+    uint32_t UInt32;
+    uint64_t UInt64;
+    void* Pointer;
+  };
+};
+
 } // namespace llvm
+
+namespace std {
+template <> struct hash<llvm::PDB_SymType> {
+  typedef llvm::PDB_SymType argument_type;
+  typedef std::size_t result_type;
+
+  result_type operator()(const argument_type &Arg) const {
+    return std::hash<int>()(static_cast<int>(Arg));
+  }
+};
+}
 
 #endif

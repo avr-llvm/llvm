@@ -401,7 +401,7 @@ public:
             }
             PBQPRAGraph::RawMatrix Costs(G.getEdgeCosts(EId));
             addVirtRegCoalesce(Costs, *Allowed1, *Allowed2, CBenefit);
-            G.setEdgeCosts(EId, std::move(Costs));
+            G.updateEdgeCosts(EId, std::move(Costs));
           }
         }
       }

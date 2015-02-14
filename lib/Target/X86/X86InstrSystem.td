@@ -438,7 +438,9 @@ def LLDT16m : I<0x00, MRM2m, (outs), (ins i16mem:$src),
 //===----------------------------------------------------------------------===//
 // Specialized register support
 let SchedRW = [WriteSystem] in {
+let Uses = [EAX, ECX, EDX] in
 def WRMSR : I<0x30, RawFrm, (outs), (ins), "wrmsr", [], IIC_WRMSR>, TB;
+let Defs = [EAX, EDX], Uses = [ECX] in
 def RDMSR : I<0x32, RawFrm, (outs), (ins), "rdmsr", [], IIC_RDMSR>, TB;
 
 let Defs = [RAX, RDX], Uses = [ECX] in
@@ -576,4 +578,10 @@ def INVPCID64 : I<0x82, MRMSrcMem, (outs), (ins GR64:$src1, i128mem:$src2),
 let Defs = [EFLAGS] in {
   def CLAC : I<0x01, MRM_CA, (outs), (ins), "clac", []>, TB;
   def STAC : I<0x01, MRM_CB, (outs), (ins), "stac", []>, TB;
+}
+
+//===----------------------------------------------------------------------===//
+// SMX Instruction
+let Uses = [RAX, RBX, RCX, RDX], Defs = [RAX, RBX, RCX] in {
+  def GETSEC : I<0x37, RawFrm, (outs), (ins), "getsec", []>, TB;
 }

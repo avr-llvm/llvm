@@ -16,7 +16,6 @@
 #include "RenderingSupport.h"
 #include "CoverageFilters.h"
 #include "CoverageReport.h"
-#include "CoverageSummary.h"
 #include "CoverageViewOptions.h"
 #include "SourceCoverageView.h"
 #include "llvm/ADT/SmallString.h"
@@ -325,10 +324,11 @@ int CodeCoverageTool::run(Command Cmd, int argc, const char **argv) {
 
     for (const auto &File : InputSourceFiles) {
       SmallString<128> Path(File);
-      if (std::error_code EC = sys::fs::make_absolute(Path)) {
-        errs() << "error: " << File << ": " << EC.message();
-        return 1;
-      }
+      if (!CompareFilenamesOnly)
+        if (std::error_code EC = sys::fs::make_absolute(Path)) {
+          errs() << "error: " << File << ": " << EC.message();
+          return 1;
+        }
       SourceFiles.push_back(Path.str());
     }
     return 0;
@@ -459,15 +459,11 @@ int CodeCoverageTool::report(int argc, const char **argv,
   if (!Coverage)
     return 1;
 
-  CoverageSummary Summarizer;
-  Summarizer.createSummaries(*Coverage);
-  CoverageReport Report(ViewOpts, Summarizer);
-  if (SourceFiles.empty() && Filters.empty()) {
+  CoverageReport Report(ViewOpts, std::move(Coverage));
+  if (SourceFiles.empty())
     Report.renderFileReports(llvm::outs());
-    return 0;
-  }
-
-  Report.renderFunctionReports(llvm::outs());
+  else
+    Report.renderFunctionReports(SourceFiles, llvm::outs());
   return 0;
 }
 

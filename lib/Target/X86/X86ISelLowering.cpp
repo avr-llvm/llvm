@@ -1845,8 +1845,7 @@ X86TargetLowering::getOptimalMemOpType(uint64_t Size,
                                        MachineFunction &MF) const {
   const Function *F = MF.getFunction();
   if ((!IsMemset || ZeroMemset) &&
-      !F->getAttributes().hasAttribute(AttributeSet::FunctionIndex,
-                                       Attribute::NoImplicitFloat)) {
+      !F->hasFnAttribute(Attribute::NoImplicitFloat)) {
     if (Size >= 16 &&
         (Subtarget->isUnalignedMemAccessFast() ||
          ((DstAlign == 0 || DstAlign >= 16) &&
@@ -2402,8 +2401,7 @@ static ArrayRef<MCPhysReg> get64BitArgumentXMMs(MachineFunction &MF,
   }
 
   const Function *Fn = MF.getFunction();
-  bool NoImplicitFloatOps = Fn->getAttributes().
-      hasAttribute(AttributeSet::FunctionIndex, Attribute::NoImplicitFloat);
+  bool NoImplicitFloatOps = Fn->hasFnAttribute(Attribute::NoImplicitFloat);
   assert(!(MF.getTarget().Options.UseSoftFloat && NoImplicitFloatOps) &&
          "SSE register cannot be used when SSE is disabled!");
   if (MF.getTarget().Options.UseSoftFloat || NoImplicitFloatOps ||
@@ -2571,8 +2569,7 @@ X86TargetLowering::LowerFormalArguments(SDValue Chain,
 
   // Figure out if XMM registers are in use.
   assert(!(MF.getTarget().Options.UseSoftFloat &&
-           Fn->getAttributes().hasAttribute(AttributeSet::FunctionIndex,
-                                            Attribute::NoImplicitFloat)) &&
+           Fn->hasFnAttribute(Attribute::NoImplicitFloat)) &&
          "SSE register cannot be used when SSE is disabled!");
 
   // 64-bit calling conventions support varargs and register parameters, so we
@@ -3132,11 +3129,8 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
         // unless we're building with the leopard linker or later, which
         // automatically synthesizes these stubs.
         OpFlags = X86II::MO_DARWIN_STUB;
-      } else if (Subtarget->isPICStyleRIPRel() &&
-                 isa<Function>(GV) &&
-                 cast<Function>(GV)->getAttributes().
-                   hasAttribute(AttributeSet::FunctionIndex,
-                                Attribute::NonLazyBind)) {
+      } else if (Subtarget->isPICStyleRIPRel() && isa<Function>(GV) &&
+                 cast<Function>(GV)->hasFnAttribute(Attribute::NonLazyBind)) {
         // If the function is marked as non-lazy, generate an indirect call
         // which loads from the GOT directly. This avoids runtime overhead
         // at the cost of eager binding (and one extra byte of encoding).
@@ -4142,7 +4136,7 @@ static bool isSHUFPMask(ArrayRef<int> Mask, MVT VT, bool Commuted = false) {
     return false;
 
   unsigned EltSize = VT.getVectorElementType().getSizeInBits();
-  bool symetricMaskRequired =
+  bool symmetricMaskRequired =
     (VT.getSizeInBits() >= 256) && (EltSize == 32);
 
   // VSHUFPSY divides the resulting vector into 4 chunks.
@@ -4175,7 +4169,7 @@ static bool isSHUFPMask(ArrayRef<int> Mask, MVT VT, bool Commuted = false) {
       // For VSHUFPSY, the mask of the second half must be the same as the
       // first but with the appropriate offsets. This works in the same way as
       // VPERMILPS works with masks.
-      if (!symetricMaskRequired || Idx < 0)
+      if (!symmetricMaskRequired || Idx < 0)
         continue;
       if (MaskVal[i] < 0) {
         MaskVal[i] = Idx - l;
@@ -4603,7 +4597,7 @@ static unsigned getShuffleVPERM2X128Immediate(ShuffleVectorSDNode *SVOp) {
   return (FstHalf | (SndHalf << 4));
 }
 
-// Symetric in-lane mask. Each lane has 4 elements (for imm8)
+// Symmetric in-lane mask. Each lane has 4 elements (for imm8)
 static bool isPermImmMask(ArrayRef<int> Mask, MVT VT, unsigned& Imm8) {
   unsigned EltSize = VT.getVectorElementType().getSizeInBits();
   if (EltSize < 32)
@@ -4652,7 +4646,7 @@ static bool isVPERMILPMask(ArrayRef<int> Mask, MVT VT) {
   unsigned EltSize = VT.getVectorElementType().getSizeInBits();
   if (VT.getSizeInBits() < 256 || EltSize < 32)
     return false;
-  bool symetricMaskRequired = (EltSize == 32);
+  bool symmetricMaskRequired = (EltSize == 32);
   unsigned NumElts = VT.getVectorNumElements();
 
   unsigned NumLanes = VT.getSizeInBits()/128;
@@ -4664,7 +4658,7 @@ static bool isVPERMILPMask(ArrayRef<int> Mask, MVT VT) {
     for (unsigned i = 0; i != LaneSize; ++i) {
       if (!isUndefOrInRange(Mask[i+l], l, l+LaneSize))
         return false;
-      if (symetricMaskRequired) {
+      if (symmetricMaskRequired) {
         if (ExpectedMaskVal[i] < 0 && Mask[i+l] >= 0) {
           ExpectedMaskVal[i] = Mask[i+l] - l;
           continue;
@@ -5480,6 +5474,8 @@ static bool getTargetShuffleMask(SDNode *N, MVT VT,
 
     if (auto *C = dyn_cast<Constant>(MaskCP->getConstVal())) {
       DecodePSHUFBMask(C, Mask);
+      if (Mask.empty())
+        return false;
       break;
     }
 
@@ -6224,8 +6220,7 @@ static SDValue LowerVectorBroadcast(SDValue Op, const X86Subtarget* Subtarget,
   // it may be detrimental to overall size. There needs to be a way to detect
   // that condition to know if this is truly a size win.
   const Function *F = DAG.getMachineFunction().getFunction();
-  bool OptForSize = F->getAttributes().
-    hasAttribute(AttributeSet::FunctionIndex, Attribute::OptimizeForSize);
+  bool OptForSize = F->hasFnAttribute(Attribute::OptimizeForSize);
 
   // Handle broadcasting a single constant scalar from the constant pool
   // into a vector.
@@ -10063,7 +10058,7 @@ static bool canWidenShuffleElements(ArrayRef<int> Mask,
   return true;
 }
 
-/// \brief Generic routine to split ector shuffle into half-sized shuffles.
+/// \brief Generic routine to split vector shuffle into half-sized shuffles.
 ///
 /// This routine just extracts two subvectors, shuffles them independently, and
 /// then concatenates them back together. This should work effectively with all
@@ -11315,7 +11310,7 @@ static bool isBlendMask(ArrayRef<int> MaskVals, MVT VT, bool hasSSE41,
   unsigned NumLanes = (NumElems - 1) / 8 + 1;
   unsigned NumElemsInLane = NumElems / NumLanes;
 
-  // Blend for v16i16 should be symetric for the both lanes.
+  // Blend for v16i16 should be symmetric for both lanes.
   for (unsigned i = 0; i < NumElemsInLane; ++i) {
 
     int SndLaneEltIdx = (NumLanes == 2) ? MaskVals[i + NumElemsInLane] : -1;
@@ -12197,7 +12192,7 @@ static
 SDValue getMOVDDup(SDValue &Op, SDLoc &dl, SDValue V1, SelectionDAG &DAG) {
   MVT VT = Op.getSimpleValueType();
 
-  // Canonizalize to v2f64.
+  // Canonicalize to v2f64.
   V1 = DAG.getNode(ISD::BITCAST, dl, MVT::v2f64, V1);
   return DAG.getNode(ISD::BITCAST, dl, VT,
                      getTargetShuffleNode(X86ISD::MOVDDUP, dl, MVT::v2f64,
@@ -12216,7 +12211,7 @@ SDValue getMOVLowToHigh(SDValue &Op, SDLoc &dl, SelectionDAG &DAG,
   if (HasSSE2 && VT == MVT::v2f64)
     return getTargetShuffleNode(X86ISD::MOVLHPD, dl, VT, V1, V2, DAG);
 
-  // v4f32 or v4i32: canonizalized to v4f32 (which is legal for SSE1)
+  // v4f32 or v4i32: canonicalize to v4f32 (which is legal for SSE1)
   return DAG.getNode(ISD::BITCAST, dl, VT,
                      getTargetShuffleNode(X86ISD::MOVLHPS, dl, MVT::v4f32,
                            DAG.getNode(ISD::BITCAST, dl, MVT::v4f32, V1),
@@ -12530,8 +12525,8 @@ X86TargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const {
   bool HasFp256    = Subtarget->hasFp256();
   bool HasInt256   = Subtarget->hasInt256();
   MachineFunction &MF = DAG.getMachineFunction();
-  bool OptForSize = MF.getFunction()->getAttributes().
-    hasAttribute(AttributeSet::FunctionIndex, Attribute::OptimizeForSize);
+  bool OptForSize =
+      MF.getFunction()->hasFnAttribute(Attribute::OptimizeForSize);
 
   // Check if we should use the experimental vector shuffle lowering. If so,
   // delegate completely to that code path.
@@ -15045,11 +15040,11 @@ static bool hasNonFlagsUse(SDValue Op) {
 /// equivalent.
 SDValue X86TargetLowering::EmitTest(SDValue Op, unsigned X86CC, SDLoc dl,
                                     SelectionDAG &DAG) const {
-  if (Op.getValueType() == MVT::i1)
-    // KORTEST instruction should be selected
-    return DAG.getNode(X86ISD::CMP, dl, MVT::i32, Op,
-                       DAG.getConstant(0, Op.getValueType()));
-
+  if (Op.getValueType() == MVT::i1) {
+    SDValue ExtOp = DAG.getNode(ISD::ZERO_EXTEND, dl, MVT::i8, Op);
+    return DAG.getNode(X86ISD::CMP, dl, MVT::i32, ExtOp,
+                       DAG.getConstant(0, MVT::i8));
+  }
   // CF and OF aren't always set the way we want. Determine which
   // of these we need.
   bool NeedCF = false;
@@ -15297,8 +15292,8 @@ SDValue X86TargetLowering::EmitCmp(SDValue Op0, SDValue Op1, unsigned X86CC,
     // if we're optimizing for size, however, as that'll allow better folding
     // of memory operations.
     if (Op0.getValueType() != MVT::i32 && Op0.getValueType() != MVT::i64 &&
-        !DAG.getMachineFunction().getFunction()->getAttributes().hasAttribute(
-             AttributeSet::FunctionIndex, Attribute::MinSize) &&
+        !DAG.getMachineFunction().getFunction()->hasFnAttribute(
+            Attribute::MinSize) &&
         !Subtarget->isAtom()) {
       unsigned ExtendOp =
           isX86CCUnsigned(X86CC) ? ISD::ZERO_EXTEND : ISD::SIGN_EXTEND;
@@ -17000,10 +16995,8 @@ SDValue X86TargetLowering::LowerVAARG(SDValue Op, SelectionDAG &DAG) const {
   if (ArgMode == 2) {
     // Sanity Check: Make sure using fp_offset makes sense.
     assert(!DAG.getTarget().Options.UseSoftFloat &&
-           !(DAG.getMachineFunction()
-                .getFunction()->getAttributes()
-                .hasAttribute(AttributeSet::FunctionIndex,
-                              Attribute::NoImplicitFloat)) &&
+           !(DAG.getMachineFunction().getFunction()->hasFnAttribute(
+               Attribute::NoImplicitFloat)) &&
            Subtarget->hasSSE1());
   }
 
@@ -17953,15 +17946,33 @@ SDValue X86TargetLowering::LowerRETURNADDR(SDValue Op,
 }
 
 SDValue X86TargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
-  MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+  X86MachineFunctionInfo *FuncInfo = MF.getInfo<X86MachineFunctionInfo>();
+  const X86RegisterInfo *RegInfo = Subtarget->getRegisterInfo();
+  EVT VT = Op.getValueType();
+
   MFI->setFrameAddressIsTaken(true);
 
-  EVT VT = Op.getValueType();
+  if (MF.getTarget().getMCAsmInfo()->usesWindowsCFI()) {
+    // Depth > 0 makes no sense on targets which use Windows unwind codes.  It
+    // is not possible to crawl up the stack without looking at the unwind codes
+    // simultaneously.
+    int FrameAddrIndex = FuncInfo->getFAIndex();
+    if (!FrameAddrIndex) {
+      // Set up a frame object for the return address.
+      unsigned SlotSize = RegInfo->getSlotSize();
+      FrameAddrIndex = MF.getFrameInfo()->CreateFixedObject(
+          SlotSize, /*Offset=*/INT64_MIN, /*IsImmutable=*/false);
+      FuncInfo->setFAIndex(FrameAddrIndex);
+    }
+    return DAG.getFrameIndex(FrameAddrIndex, VT);
+  }
+
+  unsigned FrameReg =
+      RegInfo->getPtrSizedFrameRegister(DAG.getMachineFunction());
   SDLoc dl(Op);  // FIXME probably not meaningful
   unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
-  const X86RegisterInfo *RegInfo = Subtarget->getRegisterInfo();
-  unsigned FrameReg = RegInfo->getPtrSizedFrameRegister(
-      DAG.getMachineFunction());
   assert(((FrameReg == X86::RBP && VT == MVT::i64) ||
           (FrameReg == X86::EBP && VT == MVT::i32)) &&
          "Invalid Frame Register!");
@@ -24611,7 +24622,7 @@ static SDValue PerformAndCombine(SDNode *N, SelectionDAG &DAG,
         uint64_t Mask = MaskNode->getZExtValue();
         uint64_t Shift = ShiftNode->getZExtValue();
         if (isMask_64(Mask)) {
-          uint64_t MaskSize = CountPopulation_64(Mask);
+          uint64_t MaskSize = countPopulation(Mask);
           if (Shift + MaskSize <= VT.getSizeInBits())
             return DAG.getNode(X86ISD::BEXTR, DL, VT, N0.getOperand(0),
                                DAG.getConstant(Shift | (MaskSize << 8), VT));
@@ -24744,8 +24755,8 @@ static SDValue PerformOrCombine(SDNode *N, SelectionDAG &DAG,
 
   // fold (or (x << c) | (y >> (64 - c))) ==> (shld64 x, y, c)
   MachineFunction &MF = DAG.getMachineFunction();
-  bool OptForSize = MF.getFunction()->getAttributes().
-    hasAttribute(AttributeSet::FunctionIndex, Attribute::OptimizeForSize);
+  bool OptForSize =
+      MF.getFunction()->hasFnAttribute(Attribute::OptimizeForSize);
 
   // SHLD/SHRD instructions have lower register pressure, but on some
   // platforms they have higher latency than the equivalent
@@ -25192,8 +25203,7 @@ static SDValue PerformSTORECombine(SDNode *N, SelectionDAG &DAG,
     return SDValue();
 
   const Function *F = DAG.getMachineFunction().getFunction();
-  bool NoImplicitFloatOps = F->getAttributes().
-    hasAttribute(AttributeSet::FunctionIndex, Attribute::NoImplicitFloat);
+  bool NoImplicitFloatOps = F->hasFnAttribute(Attribute::NoImplicitFloat);
   bool F64IsLegal = !DAG.getTarget().Options.UseSoftFloat && !NoImplicitFloatOps
                      && Subtarget->hasSSE2();
   if ((VT.isVector() ||

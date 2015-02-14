@@ -15,18 +15,27 @@
 
 namespace llvm {
 
+class raw_ostream;
+
 class PDBSymbolCompilandDetails : public PDBSymbol {
 public:
-  PDBSymbolCompilandDetails(std::unique_ptr<IPDBRawSymbol> DetailsSymbol);
+  PDBSymbolCompilandDetails(const IPDBSession &PDBSession,
+                            std::unique_ptr<IPDBRawSymbol> Symbol);
 
-  FORWARD_SYMBOL_METHOD(getBackEndBuild)
-  FORWARD_SYMBOL_METHOD(getBackEndMajor)
-  FORWARD_SYMBOL_METHOD(getBackEndMinor)
+  DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::CompilandDetails)
+
+  void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const override;
+
+  void getFrontEndVersion(VersionInfo &Version) const {
+    RawSymbol->getFrontEndVersion(Version);
+  }
+
+  void getBackEndVersion(VersionInfo &Version) const {
+    RawSymbol->getBackEndVersion(Version);
+  }
+
   FORWARD_SYMBOL_METHOD(getCompilerName)
   FORWARD_SYMBOL_METHOD(isEditAndContinueEnabled)
-  FORWARD_SYMBOL_METHOD(getFrontEndBuild)
-  FORWARD_SYMBOL_METHOD(getFrontEndMajor)
-  FORWARD_SYMBOL_METHOD(getFrontEndMinor)
   FORWARD_SYMBOL_METHOD(hasDebugInfo)
   FORWARD_SYMBOL_METHOD(hasManagedCode)
   FORWARD_SYMBOL_METHOD(hasSecurityChecks)
@@ -39,10 +48,6 @@ public:
   FORWARD_SYMBOL_METHOD(getLexicalParentId)
   FORWARD_SYMBOL_METHOD(getPlatform)
   FORWARD_SYMBOL_METHOD(getSymIndexId)
-
-  static bool classof(const PDBSymbol *S) {
-    return S->getSymTag() == PDB_SymType::CompilandDetails;
-  }
 };
 
 } // namespace llvm

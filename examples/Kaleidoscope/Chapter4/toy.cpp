@@ -6,9 +6,9 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
-#include "llvm/PassManager.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Transforms/Scalar.h"
 #include <cctype>
@@ -556,7 +556,7 @@ void *MCJITHelper::getPointerToFunction(Function *F) {
     }
 
     // Create a function pass manager for this engine
-    FunctionPassManager *FPM = new FunctionPassManager(OpenModule);
+    auto *FPM = new legacy::FunctionPassManager(OpenModule);
 
     // Set up the optimizer pipeline.  Start with registering info about how the
     // target lays out data structures.

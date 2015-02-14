@@ -3,17 +3,18 @@
 ; Uses the print-deref (+ analyze to print) pass to run
 ; isDereferenceablePointer() on many load instruction operands
 
+target datalayout = "e"
+
 declare zeroext i1 @return_i1()
 
 @globalstr = global [6 x i8] c"hello\00"
 
-define void @test(i32 addrspace(1)* byval %dparam) {
+define void @test(i32 addrspace(1)* dereferenceable(8) %dparam) {
 ; CHECK: The following are dereferenceable:
 ; CHECK: %globalptr
 ; CHECK: %alloca
 ; CHECK: %dparam
-; We haven't yet taught it to look through relocations
-; CHECK-NOT: %relocate
+; CHECK: %relocate
 ; CHECK-NOT: %nparam
 entry:
     %globalptr = getelementptr inbounds [6 x i8]* @globalstr, i32 0, i32 0

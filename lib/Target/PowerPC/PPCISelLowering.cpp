@@ -687,8 +687,10 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM,
 
   // With 32 condition bits, we don't need to sink (and duplicate) compares
   // aggressively in CodeGenPrep.
-  if (Subtarget.useCRBits())
+  if (Subtarget.useCRBits()) {
     setHasMultipleConditionRegisters();
+    setJumpIsExpensive();
+  }
 
   setMinFunctionAlignment(2);
   if (Subtarget.isDarwin())
@@ -806,8 +808,6 @@ const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PPCISD::SHL:             return "PPCISD::SHL";
   case PPCISD::CALL:            return "PPCISD::CALL";
   case PPCISD::CALL_NOP:        return "PPCISD::CALL_NOP";
-  case PPCISD::CALL_TLS:        return "PPCISD::CALL_TLS";
-  case PPCISD::CALL_NOP_TLS:    return "PPCISD::CALL_NOP_TLS";
   case PPCISD::MTCTR:           return "PPCISD::MTCTR";
   case PPCISD::BCTRL:           return "PPCISD::BCTRL";
   case PPCISD::BCTRL_LOAD_TOC:  return "PPCISD::BCTRL_LOAD_TOC";
@@ -841,8 +841,12 @@ const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PPCISD::ADD_TLS:         return "PPCISD::ADD_TLS";
   case PPCISD::ADDIS_TLSGD_HA:  return "PPCISD::ADDIS_TLSGD_HA";
   case PPCISD::ADDI_TLSGD_L:    return "PPCISD::ADDI_TLSGD_L";
+  case PPCISD::GET_TLS_ADDR:    return "PPCISD::GET_TLS_ADDR";
+  case PPCISD::ADDI_TLSGD_L_ADDR: return "PPCISD::ADDI_TLSGD_L_ADDR";
   case PPCISD::ADDIS_TLSLD_HA:  return "PPCISD::ADDIS_TLSLD_HA";
   case PPCISD::ADDI_TLSLD_L:    return "PPCISD::ADDI_TLSLD_L";
+  case PPCISD::GET_TLSLD_ADDR:  return "PPCISD::GET_TLSLD_ADDR";
+  case PPCISD::ADDI_TLSLD_L_ADDR: return "PPCISD::ADDI_TLSLD_L_ADDR";
   case PPCISD::ADDIS_DTPREL_HA: return "PPCISD::ADDIS_DTPREL_HA";
   case PPCISD::ADDI_DTPREL_L:   return "PPCISD::ADDI_DTPREL_L";
   case PPCISD::VADD_SPLAT:      return "PPCISD::VADD_SPLAT";
@@ -1573,7 +1577,7 @@ static bool GetLabelAccessInfo(const TargetMachine &TM,
 
   // If this is a reference to a global value that requires a non-lazy-ptr, make
   // sure that instruction lowering adds it.
-  if (GV && Subtarget.hasLazyResolverStub(GV, TM)) {
+  if (GV && Subtarget.hasLazyResolverStub(GV)) {
     HiOpFlags |= PPCII::MO_NLP_FLAG;
     LoOpFlags |= PPCII::MO_NLP_FLAG;
 
@@ -1701,27 +1705,6 @@ SDValue PPCTargetLowering::LowerBlockAddress(SDValue Op,
   return LowerLabelRef(TgtBAHi, TgtBALo, isPIC, DAG);
 }
 
-// Generate a call to __tls_get_addr for the given GOT entry Op.
-std::pair<SDValue,SDValue>
-PPCTargetLowering::lowerTLSCall(SDValue Op, SDLoc dl,
-                                SelectionDAG &DAG) const {
-
-  Type *IntPtrTy = getDataLayout()->getIntPtrType(*DAG.getContext());
-  TargetLowering::ArgListTy Args;
-  TargetLowering::ArgListEntry Entry;
-  Entry.Node = Op;
-  Entry.Ty = IntPtrTy;
-  Args.push_back(Entry);
-
-  TargetLowering::CallLoweringInfo CLI(DAG);
-  CLI.setDebugLoc(dl).setChain(DAG.getEntryNode())
-    .setCallee(CallingConv::C, IntPtrTy,
-               DAG.getTargetExternalSymbol("__tls_get_addr", getPointerTy()),
-               std::move(Args), 0);
-
-  return LowerCallTo(CLI);
-}
-
 SDValue PPCTargetLowering::LowerGlobalTLSAddress(SDValue Op,
                                               SelectionDAG &DAG) const {
 
@@ -1768,8 +1751,7 @@ SDValue PPCTargetLowering::LowerGlobalTLSAddress(SDValue Op,
   }
 
   if (Model == TLSModel::GeneralDynamic) {
-    SDValue TGA = DAG.getTargetGlobalAddress(GV, dl, PtrVT, 0,
-                                             PPCII::MO_TLSGD);
+    SDValue TGA = DAG.getTargetGlobalAddress(GV, dl, PtrVT, 0, 0);
     SDValue GOTPtr;
     if (is64bit) {
       setUsesTOCBasePtr(DAG);
@@ -1782,15 +1764,12 @@ SDValue PPCTargetLowering::LowerGlobalTLSAddress(SDValue Op,
       else
         GOTPtr = DAG.getNode(PPCISD::PPC32_PICGOT, dl, PtrVT);
     }
-    SDValue GOTEntry = DAG.getNode(PPCISD::ADDI_TLSGD_L, dl, PtrVT,
-                                   GOTPtr, TGA);
-    std::pair<SDValue, SDValue> CallResult = lowerTLSCall(GOTEntry, dl, DAG);
-    return CallResult.first;
+    return DAG.getNode(PPCISD::ADDI_TLSGD_L_ADDR, dl, PtrVT,
+                       GOTPtr, TGA, TGA);
   }
 
   if (Model == TLSModel::LocalDynamic) {
-    SDValue TGA = DAG.getTargetGlobalAddress(GV, dl, PtrVT, 0,
-                                             PPCII::MO_TLSLD);
+    SDValue TGA = DAG.getTargetGlobalAddress(GV, dl, PtrVT, 0, 0);
     SDValue GOTPtr;
     if (is64bit) {
       setUsesTOCBasePtr(DAG);
@@ -1803,13 +1782,10 @@ SDValue PPCTargetLowering::LowerGlobalTLSAddress(SDValue Op,
       else
         GOTPtr = DAG.getNode(PPCISD::PPC32_PICGOT, dl, PtrVT);
     }
-    SDValue GOTEntry = DAG.getNode(PPCISD::ADDI_TLSLD_L, dl, PtrVT,
-                                   GOTPtr, TGA);
-    std::pair<SDValue, SDValue> CallResult = lowerTLSCall(GOTEntry, dl, DAG);
-    SDValue TLSAddr = CallResult.first;
-    SDValue Chain = CallResult.second;
-    SDValue DtvOffsetHi = DAG.getNode(PPCISD::ADDIS_DTPREL_HA, dl, PtrVT,
-                                      Chain, TLSAddr, TGA);
+    SDValue TLSAddr = DAG.getNode(PPCISD::ADDI_TLSLD_L_ADDR, dl,
+                                  PtrVT, GOTPtr, TGA, TGA);
+    SDValue DtvOffsetHi = DAG.getNode(PPCISD::ADDIS_DTPREL_HA, dl,
+                                      PtrVT, TLSAddr, TGA);
     return DAG.getNode(PPCISD::ADDI_DTPREL_L, dl, PtrVT, DtvOffsetHi, TGA);
   }
 
@@ -2456,7 +2432,7 @@ PPCTargetLowering::LowerFormalArguments_32SVR4(
                  *DAG.getContext());
 
   // Reserve space for the linkage area on the stack.
-  unsigned LinkageSize = PPCFrameLowering::getLinkageSize(false, false, false);
+  unsigned LinkageSize = Subtarget.getFrameLowering()->getLinkageSize();
   CCInfo.AllocateStack(LinkageSize, PtrByteSize);
 
   CCInfo.AnalyzeFormalArguments(Ins, CC_PPC32_SVR4);
@@ -2666,9 +2642,7 @@ PPCTargetLowering::LowerFormalArguments_64SVR4(
   bool isImmutable = !(getTargetMachine().Options.GuaranteedTailCallOpt &&
                        (CallConv == CallingConv::Fast));
   unsigned PtrByteSize = 8;
-
-  unsigned LinkageSize = PPCFrameLowering::getLinkageSize(true, false,
-                                                          isELFv2ABI);
+  unsigned LinkageSize = Subtarget.getFrameLowering()->getLinkageSize();
 
   static const MCPhysReg GPR[] = {
     PPC::X3, PPC::X4, PPC::X5, PPC::X6,
@@ -3033,9 +3007,7 @@ PPCTargetLowering::LowerFormalArguments_Darwin(
   bool isImmutable = !(getTargetMachine().Options.GuaranteedTailCallOpt &&
                        (CallConv == CallingConv::Fast));
   unsigned PtrByteSize = isPPC64 ? 8 : 4;
-
-  unsigned LinkageSize = PPCFrameLowering::getLinkageSize(isPPC64, true,
-                                                          false);
+  unsigned LinkageSize = Subtarget.getFrameLowering()->getLinkageSize();
   unsigned ArgOffset = LinkageSize;
   // Area that is at least reserved in caller of this function.
   unsigned MinReservedArea = ArgOffset;
@@ -3496,8 +3468,9 @@ static SDValue EmitTailCallStoreFPAndRetAddr(SelectionDAG &DAG,
   if (SPDiff) {
     // Calculate the new stack slot for the return address.
     int SlotSize = isPPC64 ? 8 : 4;
-    int NewRetAddrLoc = SPDiff + PPCFrameLowering::getReturnSaveOffset(isPPC64,
-                                                                   isDarwinABI);
+    const PPCFrameLowering *FL =
+        MF.getSubtarget<PPCSubtarget>().getFrameLowering();
+    int NewRetAddrLoc = SPDiff + FL->getReturnSaveOffset();
     int NewRetAddr = MF.getFrameInfo()->CreateFixedObject(SlotSize,
                                                           NewRetAddrLoc, true);
     EVT VT = isPPC64 ? MVT::i64 : MVT::i32;
@@ -3509,8 +3482,7 @@ static SDValue EmitTailCallStoreFPAndRetAddr(SelectionDAG &DAG,
     // When using the 32/64-bit SVR4 ABI there is no need to move the FP stack
     // slot as the FP is never overwritten.
     if (isDarwinABI) {
-      int NewFPLoc =
-        SPDiff + PPCFrameLowering::getFramePointerSaveOffset(isPPC64, isDarwinABI);
+      int NewFPLoc = SPDiff + FL->getFramePointerSaveOffset();
       int NewFPIdx = MF.getFrameInfo()->CreateFixedObject(SlotSize, NewFPLoc,
                                                           true);
       SDValue NewFramePtrIdx = DAG.getFrameIndex(NewFPIdx, VT);
@@ -3833,23 +3805,6 @@ unsigned PrepareCall(SelectionDAG &DAG, SDValue &Callee, SDValue &InFlag,
   if (Callee.getNode()) {
     Ops.push_back(Chain);
     Ops.push_back(Callee);
-
-    // If this is a call to __tls_get_addr, find the symbol whose address
-    // is to be taken and add it to the list.  This will be used to 
-    // generate __tls_get_addr(<sym>@tlsgd) or __tls_get_addr(<sym>@tlsld).
-    // We find the symbol by walking the chain to the CopyFromReg, walking
-    // back from the CopyFromReg to the ADDI_TLSGD_L or ADDI_TLSLD_L, and
-    // pulling the symbol from that node.
-    if (ExternalSymbolSDNode *S = dyn_cast<ExternalSymbolSDNode>(Callee))
-      if (!strcmp(S->getSymbol(), "__tls_get_addr")) {
-        assert(!needIndirectCall && "Indirect call to __tls_get_addr???");
-        SDNode *AddI = Chain.getNode()->getOperand(2).getNode();
-        SDValue TGTAddr = AddI->getOperand(1);
-        assert(TGTAddr.getNode()->getOpcode() == ISD::TargetGlobalTLSAddress &&
-               "Didn't find target global TLS address where we expected one");
-        Ops.push_back(TGTAddr);
-        CallOpc = PPCISD::CALL_TLS;
-      }
   }
   // If this is a tail call add stack pointer delta.
   if (isTailCall)
@@ -3939,7 +3894,6 @@ PPCTargetLowering::FinishCall(CallingConv::ID CallConv, SDLoc dl,
                               SmallVectorImpl<SDValue> &InVals,
                               ImmutableCallSite *CS) const {
 
-  bool isELFv2ABI = Subtarget.isELFv2ABI();
   std::vector<EVT> NodeTys;
   SmallVector<SDValue, 8> Ops;
   unsigned CallOpc = PrepareCall(DAG, Callee, InFlag, Chain, CallSeqStart, dl,
@@ -4003,7 +3957,7 @@ PPCTargetLowering::FinishCall(CallingConv::ID CallConv, SDLoc dl,
 
       EVT PtrVT = DAG.getTargetLoweringInfo().getPointerTy();
       SDValue StackPtr = DAG.getRegister(PPC::X1, PtrVT);
-      unsigned TOCSaveOffset = PPCFrameLowering::getTOCSaveOffset(isELFv2ABI);
+      unsigned TOCSaveOffset = Subtarget.getFrameLowering()->getTOCSaveOffset();
       SDValue TOCOff = DAG.getIntPtrConstant(TOCSaveOffset);
       SDValue AddTOC = DAG.getNode(ISD::ADD, dl, MVT::i64, StackPtr, TOCOff);
 
@@ -4012,12 +3966,9 @@ PPCTargetLowering::FinishCall(CallingConv::ID CallConv, SDLoc dl,
       Ops.insert(std::next(Ops.begin()), AddTOC);
     } else if ((CallOpc == PPCISD::CALL) &&
                (!isLocalCall(Callee) ||
-                DAG.getTarget().getRelocationModel() == Reloc::PIC_)) {
+                DAG.getTarget().getRelocationModel() == Reloc::PIC_))
       // Otherwise insert NOP for non-local calls.
       CallOpc = PPCISD::CALL_NOP;
-    } else if (CallOpc == PPCISD::CALL_TLS)
-      // For 64-bit SVR4, TLS calls are always non-local.
-      CallOpc = PPCISD::CALL_NOP_TLS;
   }
 
   Chain = DAG.getNode(CallOpc, dl, NodeTys, Ops);
@@ -4112,7 +4063,7 @@ PPCTargetLowering::LowerCall_32SVR4(SDValue Chain, SDValue Callee,
                  *DAG.getContext());
 
   // Reserve space for the linkage area on the stack.
-  CCInfo.AllocateStack(PPCFrameLowering::getLinkageSize(false, false, false),
+  CCInfo.AllocateStack(Subtarget.getFrameLowering()->getLinkageSize(),
                        PtrByteSize);
 
   if (isVarArg) {
@@ -4348,8 +4299,7 @@ PPCTargetLowering::LowerCall_64SVR4(SDValue Chain, SDValue Callee,
   // area, and parameter passing area.  On ELFv1, the linkage area is 48 bytes
   // reserved space for [SP][CR][LR][2 x unused][TOC]; on ELFv2, the linkage
   // area is 32 bytes reserved space for [SP][CR][LR][TOC].
-  unsigned LinkageSize = PPCFrameLowering::getLinkageSize(true, false,
-                                                          isELFv2ABI);
+  unsigned LinkageSize = Subtarget.getFrameLowering()->getLinkageSize();
   unsigned NumBytes = LinkageSize;
   unsigned GPR_idx = 0, FPR_idx = 0, VR_idx = 0;
 
@@ -4831,7 +4781,7 @@ PPCTargetLowering::LowerCall_64SVR4(SDValue Chain, SDValue Callee,
     setUsesTOCBasePtr(DAG);
     SDValue Val = DAG.getCopyFromReg(Chain, dl, PPC::X2, MVT::i64);
     // TOC save area offset.
-    unsigned TOCSaveOffset = PPCFrameLowering::getTOCSaveOffset(isELFv2ABI);
+    unsigned TOCSaveOffset = Subtarget.getFrameLowering()->getTOCSaveOffset();
     SDValue PtrOff = DAG.getIntPtrConstant(TOCSaveOffset);
     SDValue AddPtr = DAG.getNode(ISD::ADD, dl, PtrVT, StackPtr, PtrOff);
     Chain = DAG.getStore(Val.getValue(1), dl, Val, AddPtr,
@@ -4893,8 +4843,7 @@ PPCTargetLowering::LowerCall_Darwin(SDValue Chain, SDValue Callee,
   // Count how many bytes are to be pushed on the stack, including the linkage
   // area, and parameter passing area.  We start with 24/48 bytes, which is
   // prereserved space for [SP][CR][LR][3 x unused].
-  unsigned LinkageSize = PPCFrameLowering::getLinkageSize(isPPC64, true,
-                                                          false);
+  unsigned LinkageSize = Subtarget.getFrameLowering()->getLinkageSize();
   unsigned NumBytes = LinkageSize;
 
   // Add up all the space actually used.
@@ -5352,7 +5301,6 @@ SDValue
 PPCTargetLowering::getReturnAddrFrameIndex(SelectionDAG & DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
   bool isPPC64 = Subtarget.isPPC64();
-  bool isDarwinABI = Subtarget.isDarwinABI();
   EVT PtrVT = DAG.getTargetLoweringInfo().getPointerTy();
 
   // Get current frame pointer save index.  The users of this index will be
@@ -5363,7 +5311,7 @@ PPCTargetLowering::getReturnAddrFrameIndex(SelectionDAG & DAG) const {
   // If the frame pointer save index hasn't been defined yet.
   if (!RASI) {
     // Find out what the fix offset of the frame pointer save area.
-    int LROffset = PPCFrameLowering::getReturnSaveOffset(isPPC64, isDarwinABI);
+    int LROffset = Subtarget.getFrameLowering()->getReturnSaveOffset();
     // Allocate the frame index for frame pointer save area.
     RASI = MF.getFrameInfo()->CreateFixedObject(isPPC64? 8 : 4, LROffset, false);
     // Save the result.
@@ -5376,7 +5324,6 @@ SDValue
 PPCTargetLowering::getFramePointerFrameIndex(SelectionDAG & DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
   bool isPPC64 = Subtarget.isPPC64();
-  bool isDarwinABI = Subtarget.isDarwinABI();
   EVT PtrVT = DAG.getTargetLoweringInfo().getPointerTy();
 
   // Get current frame pointer save index.  The users of this index will be
@@ -5387,9 +5334,7 @@ PPCTargetLowering::getFramePointerFrameIndex(SelectionDAG & DAG) const {
   // If the frame pointer save index hasn't been defined yet.
   if (!FPSI) {
     // Find out what the fix offset of the frame pointer save area.
-    int FPOffset = PPCFrameLowering::getFramePointerSaveOffset(isPPC64,
-                                                           isDarwinABI);
-
+    int FPOffset = Subtarget.getFrameLowering()->getFramePointerSaveOffset();
     // Allocate the frame index for frame pointer save area.
     FPSI = MF.getFrameInfo()->CreateFixedObject(isPPC64? 8 : 4, FPOffset, true);
     // Save the result.
@@ -7236,8 +7181,7 @@ PPCTargetLowering::emitEHSjLjSetJmp(MachineInstr *MI,
   // Naked functions never have a base pointer, and so we use r1. For all
   // other functions, this decision must be delayed until during PEI.
   unsigned BaseReg;
-  if (MF->getFunction()->getAttributes().hasAttribute(
-          AttributeSet::FunctionIndex, Attribute::Naked))
+  if (MF->getFunction()->hasFnAttribute(Attribute::Naked))
     BaseReg = Subtarget.isPPC64() ? PPC::X1 : PPC::R1;
   else
     BaseReg = Subtarget.isPPC64() ? PPC::BP8 : PPC::BP;
@@ -9743,14 +9687,12 @@ SDValue PPCTargetLowering::LowerRETURNADDR(SDValue Op,
   PPCFunctionInfo *FuncInfo = MF.getInfo<PPCFunctionInfo>();
   FuncInfo->setLRStoreRequired();
   bool isPPC64 = Subtarget.isPPC64();
-  bool isDarwinABI = Subtarget.isDarwinABI();
 
   if (Depth > 0) {
     SDValue FrameAddr = LowerFRAMEADDR(Op, DAG);
     SDValue Offset =
-
-      DAG.getConstant(PPCFrameLowering::getReturnSaveOffset(isPPC64, isDarwinABI),
-                      isPPC64? MVT::i64 : MVT::i32);
+        DAG.getConstant(Subtarget.getFrameLowering()->getReturnSaveOffset(),
+                        isPPC64 ? MVT::i64 : MVT::i32);
     return DAG.getLoad(getPointerTy(), dl, DAG.getEntryNode(),
                        DAG.getNode(ISD::ADD, dl, getPointerTy(),
                                    FrameAddr, Offset),
@@ -9778,8 +9720,7 @@ SDValue PPCTargetLowering::LowerFRAMEADDR(SDValue Op,
   // Naked functions never have a frame pointer, and so we use r1. For all
   // other functions, this decision must be delayed until during PEI.
   unsigned FrameReg;
-  if (MF.getFunction()->getAttributes().hasAttribute(
-        AttributeSet::FunctionIndex, Attribute::Naked))
+  if (MF.getFunction()->hasFnAttribute(Attribute::Naked))
     FrameReg = isPPC64 ? PPC::X1 : PPC::R1;
   else
     FrameReg = isPPC64 ? PPC::FP8 : PPC::FP;

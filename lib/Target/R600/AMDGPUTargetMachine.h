@@ -53,13 +53,25 @@ public:
   const AMDGPUIntrinsicInfo *getIntrinsicInfo() const override {
     return &IntrinsicInfo;
   }
-  TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
-
   TargetIRAnalysis getTargetIRAnalysis() override;
 
   TargetLoweringObjectFile *getObjFileLowering() const override {
     return TLOF;
   }
+};
+
+//===----------------------------------------------------------------------===//
+// R600 Target Machine (R600 -> Cayman)
+//===----------------------------------------------------------------------===//
+
+class R600TargetMachine : public AMDGPUTargetMachine {
+
+public:
+  R600TargetMachine(const Target &T, StringRef TT, StringRef FS,
+                    StringRef CPU, TargetOptions Options, Reloc::Model RM,
+                    CodeModel::Model CM, CodeGenOpt::Level OL);
+
+  TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 };
 
 //===----------------------------------------------------------------------===//
@@ -72,6 +84,8 @@ public:
   GCNTargetMachine(const Target &T, StringRef TT, StringRef FS,
                     StringRef CPU, TargetOptions Options, Reloc::Model RM,
                     CodeModel::Model CM, CodeGenOpt::Level OL);
+
+  TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 };
 
 } // End namespace llvm

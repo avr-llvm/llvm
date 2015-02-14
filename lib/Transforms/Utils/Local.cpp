@@ -17,6 +17,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/LibCallSemantics.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/ValueTracking.h"
@@ -1123,7 +1124,7 @@ bool llvm::replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
     // "deref" operation to a list of address elements, as new llvm.dbg.declare
     // will take a value storing address of the memory for variable, not
     // alloca itself.
-    SmallVector<int64_t, 4> NewDIExpr;
+    SmallVector<uint64_t, 4> NewDIExpr;
     NewDIExpr.push_back(dwarf::DW_OP_deref);
     if (DIExpr)
       for (unsigned i = 0, n = DIExpr.getNumElements(); i < n; ++i)
@@ -1260,7 +1261,7 @@ static bool markAliveBlocks(BasicBlock *BB,
       if (isa<ConstantPointerNull>(Callee) || isa<UndefValue>(Callee)) {
         changeToUnreachable(II, true);
         Changed = true;
-      } else if (II->doesNotThrow()) {
+      } else if (II->doesNotThrow() && canSimplifyInvokeNoUnwind(II)) {
         if (II->use_empty() && II->onlyReadsMemory()) {
           // jump to the normal destination branch.
           BranchInst::Create(II->getNormalDest(), II);
@@ -1334,6 +1335,8 @@ void llvm::combineMetadata(Instruction *K, const Instruction *J, ArrayRef<unsign
         K->setMetadata(Kind, MDNode::getMostGenericTBAA(JMD, KMD));
         break;
       case LLVMContext::MD_alias_scope:
+        K->setMetadata(Kind, MDNode::getMostGenericAliasScope(JMD, KMD));
+        break;
       case LLVMContext::MD_noalias:
         K->setMetadata(Kind, MDNode::intersect(JMD, KMD));
         break;

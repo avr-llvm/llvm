@@ -15,9 +15,16 @@
 
 namespace llvm {
 
+class raw_ostream;
+
 class PDBSymbolTypePointer : public PDBSymbol {
 public:
-  PDBSymbolTypePointer(std::unique_ptr<IPDBRawSymbol> PointerTypeSymbol);
+  PDBSymbolTypePointer(const IPDBSession &PDBSession,
+                       std::unique_ptr<IPDBRawSymbol> Symbol);
+
+  DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::PointerType)
+
+  void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const override;
 
   FORWARD_SYMBOL_METHOD(isConstType)
   FORWARD_SYMBOL_METHOD(getLength)
@@ -27,10 +34,6 @@ public:
   FORWARD_SYMBOL_METHOD(getTypeId)
   FORWARD_SYMBOL_METHOD(isUnalignedType)
   FORWARD_SYMBOL_METHOD(isVolatileType)
-
-  static bool classof(const PDBSymbol *S) {
-    return S->getSymTag() == PDB_SymType::PointerType;
-  }
 };
 
 } // namespace llvm

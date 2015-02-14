@@ -15,18 +15,21 @@
 
 namespace llvm {
 
+class raw_ostream;
+
 class PDBSymbolCompilandEnv : public PDBSymbol {
 public:
-  PDBSymbolCompilandEnv(std::unique_ptr<IPDBRawSymbol> CompilandEnvSymbol);
+  PDBSymbolCompilandEnv(const IPDBSession &PDBSession,
+                        std::unique_ptr<IPDBRawSymbol> Symbol);
+
+  DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::CompilandEnv)
+
+  void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const override;
 
   FORWARD_SYMBOL_METHOD(getLexicalParentId)
   FORWARD_SYMBOL_METHOD(getName)
   FORWARD_SYMBOL_METHOD(getSymIndexId)
   std::string getValue() const;
-
-  static bool classof(const PDBSymbol *S) {
-    return S->getSymTag() == PDB_SymType::CompilandEnv;
-  }
 };
 
 } // namespace llvm

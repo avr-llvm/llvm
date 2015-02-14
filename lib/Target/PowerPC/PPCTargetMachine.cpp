@@ -17,8 +17,8 @@
 #include "PPCTargetTransformInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/PassManager.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -162,11 +162,8 @@ PPC64TargetMachine::PPC64TargetMachine(const Target &T, StringRef TT,
 
 const PPCSubtarget *
 PPCTargetMachine::getSubtargetImpl(const Function &F) const {
-  AttributeSet FnAttrs = F.getAttributes();
-  Attribute CPUAttr =
-      FnAttrs.getAttribute(AttributeSet::FunctionIndex, "target-cpu");
-  Attribute FSAttr =
-      FnAttrs.getAttribute(AttributeSet::FunctionIndex, "target-features");
+  Attribute CPUAttr = F.getFnAttribute("target-cpu");
+  Attribute FSAttr = F.getFnAttribute("target-features");
 
   std::string CPU = !CPUAttr.hasAttribute(Attribute::None)
                         ? CPUAttr.getValueAsString().str()
@@ -266,6 +263,8 @@ void PPCPassConfig::addPreRegAlloc() {
   initializePPCVSXFMAMutatePass(*PassRegistry::getPassRegistry());
   insertPass(VSXFMAMutateEarly ? &RegisterCoalescerID : &MachineSchedulerID,
              &PPCVSXFMAMutateID);
+  if (getPPCTargetMachine().getRelocationModel() == Reloc::PIC_)
+    addPass(createPPCTLSDynamicCallPass());
 }
 
 void PPCPassConfig::addPreSched2() {

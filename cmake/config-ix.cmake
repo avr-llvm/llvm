@@ -431,6 +431,22 @@ if( MSVC )
   set(SHLIBEXT ".lib")
   set(stricmp "_stricmp")
   set(strdup "_strdup")
+
+  # See if the DIA SDK is available and usable.
+  set(MSVC_DIA_SDK_DIR "$ENV{VSINSTALLDIR}DIA SDK")
+
+  # Due to a bug in MSVC 2013's installation software, it is possible
+  # for MSVC 2013 to write the DIA SDK into the Visual Studio 2012
+  # install directory.  If this happens, the installation is corrupt
+  # and there's nothing we can do.  It happens with enough frequency
+  # though that we should handle it.  We do so by simply checking that
+  # the DIA SDK folder exists.  Should this happen you will need to
+  # uninstall VS 2012 and then re-install VS 2013.
+  if (IS_DIRECTORY ${MSVC_DIA_SDK_DIR})
+    set(HAVE_DIA_SDK 1)
+  else()
+    set(HAVE_DIA_SDK 0)
+  endif()
 endif( MSVC )
 
 if( PURE_WINDOWS )
@@ -522,6 +538,12 @@ else()
       message(STATUS "Go bindings disabled, need at least Go 1.2.")
     endif()
   endif()
+endif()
+
+find_program(GOLD_EXECUTABLE NAMES ld.gold ld DOC "The gold linker")
+if(GOLD_EXECUTABLE)
+	set(LLVM_BINUTILS_INCDIR "" CACHE PATH
+		"PATH to binutils/include containing plugin-api.h for gold plugin.")
 endif()
 
 include(FindOCaml)

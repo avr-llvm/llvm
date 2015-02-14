@@ -62,6 +62,25 @@ public:
     MDTupleKind,
     MDLocationKind,
     GenericDebugNodeKind,
+    MDSubrangeKind,
+    MDEnumeratorKind,
+    MDBasicTypeKind,
+    MDDerivedTypeKind,
+    MDCompositeTypeKind,
+    MDSubroutineTypeKind,
+    MDFileKind,
+    MDCompileUnitKind,
+    MDSubprogramKind,
+    MDLexicalBlockKind,
+    MDLexicalBlockFileKind,
+    MDNamespaceKind,
+    MDTemplateTypeParameterKind,
+    MDTemplateValueParameterKind,
+    MDGlobalVariableKind,
+    MDLocalVariableKind,
+    MDExpressionKind,
+    MDObjCPropertyKind,
+    MDImportedEntityKind,
     ConstantAsMetadataKind,
     LocalAsMetadataKind,
     MDStringKind
@@ -770,10 +789,22 @@ public:
   /// \pre No operands (or operands' operands, etc.) have \a isTemporary().
   void resolveCycles();
 
+  /// \brief Replace a temporary node with a permanent one.
+  ///
+  /// Try to create a uniqued version of \c N -- in place, if possible -- and
+  /// return it.  If \c N cannot be uniqued, return a distinct node instead.
+  template <class T>
+  static typename std::enable_if<std::is_base_of<MDNode, T>::value, T *>::type
+  replaceWithPermanent(std::unique_ptr<T, TempMDNodeDeleter> N) {
+    return cast<T>(N.release()->replaceWithPermanentImpl());
+  }
+
   /// \brief Replace a temporary node with a uniqued one.
   ///
   /// Create a uniqued version of \c N -- in place, if possible -- and return
   /// it.  Takes ownership of the temporary node.
+  ///
+  /// \pre N does not self-reference.
   template <class T>
   static typename std::enable_if<std::is_base_of<MDNode, T>::value, T *>::type
   replaceWithUniqued(std::unique_ptr<T, TempMDNodeDeleter> N) {
@@ -791,6 +822,7 @@ public:
   }
 
 private:
+  MDNode *replaceWithPermanentImpl();
   MDNode *replaceWithUniquedImpl();
   MDNode *replaceWithDistinctImpl();
 
@@ -865,9 +897,14 @@ public:
 
   /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static bool classof(const Metadata *MD) {
-    return MD->getMetadataID() == MDTupleKind ||
-           MD->getMetadataID() == MDLocationKind ||
-           MD->getMetadataID() == GenericDebugNodeKind;
+    switch (MD->getMetadataID()) {
+    default:
+      return false;
+#define HANDLE_MDNODE_LEAF(CLASS)                                              \
+  case CLASS##Kind:                                                            \
+    return true;
+#include "llvm/IR/Metadata.def"
+    }
   }
 
   /// \brief Check whether MDNode is a vtable access.
@@ -879,6 +916,7 @@ public:
   static MDNode *getMostGenericTBAA(MDNode *A, MDNode *B);
   static MDNode *getMostGenericFPMath(MDNode *A, MDNode *B);
   static MDNode *getMostGenericRange(MDNode *A, MDNode *B);
+  static MDNode *getMostGenericAliasScope(MDNode *A, MDNode *B);
 };
 
 /// \brief Tuple of metadata.

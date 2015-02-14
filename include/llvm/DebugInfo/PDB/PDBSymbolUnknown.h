@@ -11,13 +11,17 @@
 #define LLVM_DEBUGINFO_PDB_PDBSYMBOLUNKNOWN_H
 
 #include "PDBSymbol.h"
-#include "PDBTypes.h"
 
 namespace llvm {
 
+class raw_ostream;
+
 class PDBSymbolUnknown : public PDBSymbol {
 public:
-  PDBSymbolUnknown(std::unique_ptr<IPDBRawSymbol> UnknownSymbol);
+  PDBSymbolUnknown(const IPDBSession &PDBSession,
+                   std::unique_ptr<IPDBRawSymbol> UnknownSymbol);
+
+  void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const override;
 
   static bool classof(const PDBSymbol *S) {
     return (S->getSymTag() == PDB_SymType::None ||

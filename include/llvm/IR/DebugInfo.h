@@ -691,6 +691,8 @@ class DILexicalBlockFile : public DIScope {
 public:
   explicit DILexicalBlockFile(const MDNode *N = nullptr) : DIScope(N) {}
   DIScope getContext() const {
+    // FIXME: This logic is horrible.  getScope() returns a DILexicalBlock, but
+    // then we check if it's a subprogram?  WHAT?!?
     if (getScope().isSubprogram())
       return getScope();
     return getScope().getContext();
@@ -722,15 +724,9 @@ public:
       : DIDescriptor(N) {}
 
   StringRef getName() const { return getHeaderField(1); }
-  unsigned getLineNumber() const { return getHeaderFieldAs<unsigned>(2); }
-  unsigned getColumnNumber() const { return getHeaderFieldAs<unsigned>(3); }
 
   DIScopeRef getContext() const { return getFieldAs<DIScopeRef>(1); }
   DITypeRef getType() const { return getFieldAs<DITypeRef>(2); }
-  StringRef getFilename() const { return getFieldAs<DIFile>(3).getFilename(); }
-  StringRef getDirectory() const {
-    return getFieldAs<DIFile>(3).getDirectory();
-  }
   bool Verify() const;
 };
 
@@ -741,16 +737,10 @@ public:
       : DIDescriptor(N) {}
 
   StringRef getName() const { return getHeaderField(1); }
-  unsigned getLineNumber() const { return getHeaderFieldAs<unsigned>(2); }
-  unsigned getColumnNumber() const { return getHeaderFieldAs<unsigned>(3); }
 
   DIScopeRef getContext() const { return getFieldAs<DIScopeRef>(1); }
   DITypeRef getType() const { return getFieldAs<DITypeRef>(2); }
   Metadata *getValue() const;
-  StringRef getFilename() const { return getFieldAs<DIFile>(4).getFilename(); }
-  StringRef getDirectory() const {
-    return getFieldAs<DIFile>(4).getDirectory();
-  }
   bool Verify() const;
 };
 
@@ -861,11 +851,11 @@ public:
   uint64_t getElement(unsigned Idx) const;
 
   /// \brief Return whether this is a piece of an aggregate variable.
-  bool isVariablePiece() const;
-  /// \brief Return the offset of this piece in bytes.
-  uint64_t getPieceOffset() const;
-  /// \brief Return the size of this piece in bytes.
-  uint64_t getPieceSize() const;
+  bool isBitPiece() const;
+  /// \brief Return the offset of this piece in bits.
+  uint64_t getBitPieceOffset() const;
+  /// \brief Return the size of this piece in bits.
+  uint64_t getBitPieceSize() const;
 
   class iterator;
   /// \brief A lightweight wrapper around an element of a DIExpression.
@@ -916,9 +906,9 @@ public:
   private:
     void increment() {
       switch (**this) {
-      case dwarf::DW_OP_piece: std::advance(I, 3); break;
-      case dwarf::DW_OP_plus:  std::advance(I, 2); break;
-      case dwarf::DW_OP_deref: std::advance(I, 1); break;
+      case dwarf::DW_OP_bit_piece: std::advance(I, 3); break;
+      case dwarf::DW_OP_plus:      std::advance(I, 2); break;
+      case dwarf::DW_OP_deref:     std::advance(I, 1); break;
       default:
         llvm_unreachable("unsupported operand");
       }

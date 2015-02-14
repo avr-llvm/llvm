@@ -11,46 +11,45 @@
 // does not make relocation semantics or variable liveness explicit.  That's
 // done by RewriteStatepointsForGC.
 //
+// Terminology:
+// - A call is said to be "parseable" if there is a stack map generated for the
+// return PC of the call.  A runtime can determine where values listed in the
+// deopt arguments and (after RewriteStatepointsForGC) gc arguments are located
+// on the stack when the code is suspended inside such a call.  Every parse
+// point is represented by a call wrapped in an gc.statepoint intrinsic.  
+// - A "poll" is an explicit check in the generated code to determine if the
+// runtime needs the generated code to cooperate by calling a helper routine
+// and thus suspending its execution at a known state. The call to the helper
+// routine will be parseable.  The (gc & runtime specific) logic of a poll is
+// assumed to be provided in a function of the name "gc.safepoint_poll".
+//
+// We aim to insert polls such that running code can quickly be brought to a
+// well defined state for inspection by the collector.  In the current
+// implementation, this is done via the insertion of poll sites at method entry
+// and the backedge of most loops.  We try to avoid inserting more polls than
+// are neccessary to ensure a finite period between poll sites.  This is not
+// because the poll itself is expensive in the generated code; it's not.  Polls
+// do tend to impact the optimizer itself in negative ways; we'd like to avoid
+// perturbing the optimization of the method as much as we can.
+//
+// We also need to make most call sites parseable.  The callee might execute a
+// poll (or otherwise be inspected by the GC).  If so, the entire stack
+// (including the suspended frame of the current method) must be parseable.
+//
 // This pass will insert:
-//   - Call parse points ("call safepoints") for any call which may need to
-//   reach a safepoint during the execution of the callee function.
-//   - Backedge safepoint polls and entry safepoint polls to ensure that
-//   executing code reaches a safepoint poll in a finite amount of time.
-//   - We do not currently support return statepoints, but adding them would not
-//   be hard.  They are not required for correctness - entry safepoints are an
-//   alternative - but some GCs may prefer them.  Patches welcome.
+// - Call parse points ("call safepoints") for any call which may need to
+// reach a safepoint during the execution of the callee function.
+// - Backedge safepoint polls and entry safepoint polls to ensure that
+// executing code reaches a safepoint poll in a finite amount of time.
 //
-//   There are restrictions on the IR accepted.  We require that:
-//   - Pointer values may not be cast to integers and back.
-//   - Pointers to GC objects must be tagged with address space #1
-//   - Pointers loaded from the heap or global variables must refer to the
-//    base of an object.  In practice, interior pointers are probably fine as
-//   long as your GC can handle them, but exterior pointers loaded to from the
-//   heap or globals are explicitly unsupported at this time.
-//
-//   In addition to these fundemental limitations, we currently do not support:
-//   - use of indirectbr (in loops which need backedge safepoints)
-//   - aggregate types which contain pointers to GC objects
-//   - constant pointers to GC objects (other than null)
-//   - use of gc_root
-//
-//   Patches welcome for the later class of items.
-//
-//   This code is organized in two key concepts:
-//   - "parse point" - at these locations (all calls in the current
-//   implementation), the garbage collector must be able to inspect
-//   and modify all pointers to garbage collected objects.  The objects
-//   may be arbitrarily relocated and thus the pointers may be modified.
-//   - "poll" - this is a location where the compiled code needs to
-//   check (or poll) if the running thread needs to collaborate with
-//   the garbage collector by taking some action.  In this code, the
-//   checking condition and action are abstracted via a frontend
-//   provided "safepoint_poll" function.
+// We do not currently support return statepoints, but adding them would not
+// be hard.  They are not required for correctness - entry safepoints are an
+// alternative - but some GCs may prefer them.  Patches welcome.
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Pass.h"
-#include "llvm/PassManager.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/LoopPass.h"
@@ -297,8 +296,7 @@ static void scanOneBB(Instruction *start, Instruction *end,
     // without encountering end first
     if (itr->isTerminator()) {
       BasicBlock *BB = itr->getParent();
-      for (succ_iterator PI = succ_begin(BB), E = succ_end(BB); PI != E; ++PI) {
-        BasicBlock *Succ = *PI;
+      for (BasicBlock *Succ : successors(BB)) {
         if (seen.count(Succ) == 0) {
           worklist.push_back(Succ);
           seen.insert(Succ);
@@ -336,9 +334,7 @@ bool PlaceBackedgeSafepointsImpl::runOnLoop(Loop *L, LPPassManager &LPM) {
   DT.recalculate(*header->getParent());
 
   bool modified = false;
-  for (pred_iterator PI = pred_begin(header), E = pred_end(header); PI != E;
-       PI++) {
-    BasicBlock *pred = *PI;
+  for (BasicBlock *pred : predecessors(header)) {
     if (!L->contains(pred)) {
       // This is not a backedge, it's coming from outside the loop
       continue;
@@ -470,9 +466,8 @@ static Instruction *findLocationForEntrySafepoint(Function &F,
 static void findCallSafepoints(Function &F,
                                std::vector<CallSite> &Found /*rval*/) {
   assert(Found.empty() && "must be empty!");
-  for (inst_iterator itr = inst_begin(F), end = inst_end(F); itr != end;
-       itr++) {
-    Instruction *inst = &*itr;
+  for (Instruction &I : inst_range(F)) {
+    Instruction *inst = &I;
     if (isa<CallInst>(inst) || isa<InvokeInst>(inst)) {
       CallSite CS(inst);
 
@@ -501,10 +496,23 @@ template <typename T> static void unique_unsorted(std::vector<T> &vec) {
   }
 }
 
+static std::string GCSafepointPollName("gc.safepoint_poll");
+
+static bool isGCSafepointPoll(Function &F) {
+  return F.getName().equals(GCSafepointPollName);
+}
+
 bool PlaceSafepoints::runOnFunction(Function &F) {
   if (F.isDeclaration() || F.empty()) {
     // This is a declaration, nothing to do.  Must exit early to avoid crash in
     // dom tree calculation
+    return false;
+  }
+
+  if (isGCSafepointPoll(F)) {
+    // Given we're inlining this inside of safepoint poll insertion, this
+    // doesn't make any sense.  Note that we do make any contained calls
+    // parseable after we inline a poll.  
     return false;
   }
 
@@ -531,9 +539,10 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
     // need the pass manager to handle scheduling all the loop passes
     // appropriately.  Doing this by hand is painful and just not worth messing
     // with for the moment.
-    FunctionPassManager FPM(F.getParent());
+    legacy::FunctionPassManager FPM(F.getParent());
+    bool CanAssumeCallSafepoints = EnableCallSafepoints;
     PlaceBackedgeSafepointsImpl *PBS =
-        new PlaceBackedgeSafepointsImpl(EnableCallSafepoints);
+      new PlaceBackedgeSafepointsImpl(CanAssumeCallSafepoints);
     FPM.add(PBS);
     // Note: While the analysis pass itself won't modify the IR, LoopSimplify
     // (which it depends on) may.  i.e. analysis must be recalculated after run
@@ -738,7 +747,8 @@ InsertSafepointPoll(DominatorTree &DT, Instruction *term,
   // different type inserted previously
   Function *F =
       dyn_cast<Function>(M->getOrInsertFunction("gc.safepoint_poll", ftype));
-  assert(F && !F->empty() && "definition must exist");
+  assert(F && "void @gc.safepoint_poll() must be defined");
+  assert(!F->empty() && "gc.safepoint_poll must be a non-empty function");
   CallInst *poll = CallInst::Create(F, "", term);
 
   // Record some information about the call site we're replacing
@@ -861,7 +871,7 @@ static Value *ReplaceWithStatepoint(const CallSite &CS, /* to replace */
   IRBuilder<> Builder(insertBefore);
   // First, create the statepoint (with all live ptrs as arguments).
   std::vector<llvm::Value *> args;
-  // target, #args, unused, args
+  // target, #call args, unused, call args..., #deopt args, deopt args..., gc args...
   Value *Target = CS.getCalledValue();
   args.push_back(Target);
   int callArgSize = CS.arg_size();
@@ -872,6 +882,14 @@ static Value *ReplaceWithStatepoint(const CallSite &CS, /* to replace */
 
   // Copy all the arguments of the original call
   args.insert(args.end(), CS.arg_begin(), CS.arg_end());
+
+  // # of deopt arguments: this pass currently does not support the
+  // identification of deopt arguments.  If this is interesting to you,
+  // please ask on llvm-dev.
+  args.push_back(ConstantInt::get(Type::getInt32Ty(M->getContext()), 0));
+
+  // Note: The gc args are not filled in at this time, that's handled by
+  // RewriteStatepointsForGC (which is currently under review).
 
   // Create the statepoint given all the arguments
   Instruction *token = nullptr;
@@ -941,18 +959,7 @@ static Value *ReplaceWithStatepoint(const CallSite &CS, /* to replace */
     Instruction *gc_result = nullptr;
     std::vector<Type *> types;     // one per 'any' type
     types.push_back(CS.getType()); // result type
-    auto get_gc_result_id = [&](Type &Ty) {
-      if (Ty.isIntegerTy()) {
-        return Intrinsic::experimental_gc_result_int;
-      } else if (Ty.isFloatingPointTy()) {
-        return Intrinsic::experimental_gc_result_float;
-      } else if (Ty.isPointerTy()) {
-        return Intrinsic::experimental_gc_result_ptr;
-      } else {
-        llvm_unreachable("non java type encountered");
-      }
-    };
-    Intrinsic::ID Id = get_gc_result_id(*CS.getType());
+    Intrinsic::ID Id = Intrinsic::experimental_gc_result;
     Value *gc_result_func = Intrinsic::getDeclaration(M, Id, types);
 
     std::vector<Value *> args;

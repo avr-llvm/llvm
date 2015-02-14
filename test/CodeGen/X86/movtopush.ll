@@ -4,6 +4,9 @@
 
 declare void @good(i32 %a, i32 %b, i32 %c, i32 %d)
 declare void @inreg(i32 %a, i32 inreg %b, i32 %c, i32 %d)
+declare void @oneparam(i32 %a)
+declare void @eightparams(i32 %a, i32 %b, i32 %c, i32 %d, i32 %e, i32 %f, i32 %g, i32 %h)
+
 
 ; Here, we should have a reserved frame, so we don't expect pushes
 ; NORMAL-LABEL: test1:
@@ -100,7 +103,8 @@ entry:
 ; NORMAL-NEXT: addl $16, %esp
 define void @test3(i32 %k) optsize {
 entry:
-  call void @good(i32 %k, i32 2, i32 3, i32 4)
+  %f = add i32 %k, 1
+  call void @good(i32 %f, i32 2, i32 3, i32 4)
   ret void
 }
 
@@ -132,6 +136,34 @@ define void @test5(i32 %k) {
 entry:
   %a = alloca i32, i32 %k
   call void @good(i32 1, i32 2, i32 3, i32 4)
+  ret void
+}
+
+; When the alignment adds up, do the transformation
+; ALIGNED-LABEL: test5b:
+; ALIGNED: pushl   $8
+; ALIGNED-NEXT: pushl   $7
+; ALIGNED-NEXT: pushl   $6
+; ALIGNED-NEXT: pushl   $5
+; ALIGNED-NEXT: pushl   $4
+; ALIGNED-NEXT: pushl   $3
+; ALIGNED-NEXT: pushl   $2
+; ALIGNED-NEXT: pushl   $1
+; ALIGNED-NEXT: call
+define void @test5b() optsize {
+entry:
+  call void @eightparams(i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8)
+  ret void
+}
+
+; When having to compensate for the alignment isn't worth it,
+; don't use pushes.
+; ALIGNED-LABEL: test5c:
+; ALIGNED: movl $1, (%esp)
+; ALIGNED-NEXT: call
+define void @test5c() optsize {
+entry:
+  call void @oneparam(i32 1)
   ret void
 }
 
@@ -169,21 +201,20 @@ entry:
   ret void
 }
 
-; But we don't want to fold stack-relative loads into the push,
-; because the offset will be wrong
+; Fold stack-relative loads into the push, with correct offset
+; In particular, at the second push, %b was at 12(%esp) and
+; %a wast at 8(%esp), but the second push bumped %esp, so %a
+; is now it at 12(%esp)
 ; NORMAL-LABEL: test8:
-; NORMAL-NOT: subl {{.*}} %esp
-; NORMAL: movl 4(%esp), [[EAX:%e..]]
-; NORMAL-NEXT: pushl   $4
-; NORMAL-NEXT: pushl   [[EAX]]
-; NORMAL-NEXT: pushl   $2
+; NORMAL: pushl   $4
+; NORMAL-NEXT: pushl   12(%esp)
+; NORMAL-NEXT: pushl   12(%esp)
 ; NORMAL-NEXT: pushl   $1
 ; NORMAL-NEXT: call
 ; NORMAL-NEXT: addl $16, %esp
-define void @test8(i32* %ptr) optsize {
+define void @test8(i32 %a, i32 %b) optsize {
 entry:
-  %val = ptrtoint i32* %ptr to i32
-  call void @good(i32 1, i32 2, i32 %val, i32 4)
+  call void @good(i32 1, i32 %a, i32 %b, i32 4)
   ret void
 }
 
@@ -254,5 +285,62 @@ define void @test11() optsize {
   %myload = load i32* @the_global
   store i32 42, i32* @the_global
   call void @good(i32 %myload, i32 2, i32 3, i32 4)
+  ret void
+}
+
+; Converting one mov into a push isn't worth it when 
+; doing so forces too much overhead for other calls.
+; NORMAL-LABEL: test12:
+; NORMAL: subl    $16, %esp
+; NORMAL-NEXT: movl    $4, 8(%esp)
+; NORMAL-NEXT: movl    $3, 4(%esp)
+; NORMAL-NEXT: movl    $1, (%esp)
+; NORMAL-NEXT: movl    $2, %eax
+; NORMAL-NEXT: calll _inreg
+; NORMAL-NEXT: movl    $8, 12(%esp)
+; NORMAL-NEXT: movl    $7, 8(%esp)
+; NORMAL-NEXT: movl    $6, 4(%esp)
+; NORMAL-NEXT: movl    $5, (%esp)
+; NORMAL-NEXT: calll _good
+; NORMAL-NEXT: movl    $12, 8(%esp)
+; NORMAL-NEXT: movl    $11, 4(%esp)
+; NORMAL-NEXT: movl    $9, (%esp)
+; NORMAL-NEXT: movl    $10, %eax
+; NORMAL-NEXT: calll _inreg
+; NORMAL-NEXT: addl $16, %esp
+define void @test12() optsize {
+entry:
+  call void @inreg(i32 1, i32 2, i32 3, i32 4)
+  call void @good(i32 5, i32 6, i32 7, i32 8)
+  call void @inreg(i32 9, i32 10, i32 11, i32 12)
+  ret void
+}
+
+; But if the gains outweigh the overhead, we should do it
+; NORMAL-LABEL: test12b:
+; NORMAL: pushl    $4
+; NORMAL-NEXT: pushl    $3
+; NORMAL-NEXT: pushl    $2
+; NORMAL-NEXT: pushl    $1
+; NORMAL-NEXT: calll _good
+; NORMAL-NEXT: addl    $16, %esp
+; NORMAL-NEXT: subl    $12, %esp
+; NORMAL-NEXT: movl    $8, 8(%esp)
+; NORMAL-NEXT: movl    $7, 4(%esp)
+; NORMAL-NEXT: movl    $5, (%esp)
+; NORMAL-NEXT: movl    $6, %eax
+; NORMAL-NEXT: calll _inreg
+; NORMAL-NEXT: addl    $12, %esp
+; NORMAL-NEXT: pushl    $12
+; NORMAL-NEXT: pushl    $11
+; NORMAL-NEXT: pushl    $10
+; NORMAL-NEXT: pushl    $9
+; NORMAL-NEXT: calll _good
+; NORMAL-NEXT: addl $16, %esp
+define void @test12b() optsize {
+entry:
+  call void @good(i32 1, i32 2, i32 3, i32 4)
+  call void @inreg(i32 5, i32 6, i32 7, i32 8)
+  call void @good(i32 9, i32 10, i32 11, i32 12)
   ret void
 }

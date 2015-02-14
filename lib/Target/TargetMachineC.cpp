@@ -17,7 +17,7 @@
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Module.h"
-#include "llvm/PassManager.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormattedStream.h"
@@ -179,7 +179,7 @@ LLVMTargetDataRef LLVMGetTargetMachineData(LLVMTargetMachineRef T) {
 
 void LLVMSetTargetMachineAsmVerbosity(LLVMTargetMachineRef T,
                                       LLVMBool VerboseAsm) {
-  unwrap(T)->setAsmVerbosityDefault(VerboseAsm);
+  unwrap(T)->Options.MCOptions.AsmVerbose = VerboseAsm;
 }
 
 static LLVMBool LLVMTargetMachineEmit(LLVMTargetMachineRef T, LLVMModuleRef M,
@@ -187,7 +187,7 @@ static LLVMBool LLVMTargetMachineEmit(LLVMTargetMachineRef T, LLVMModuleRef M,
   TargetMachine* TM = unwrap(T);
   Module* Mod = unwrap(M);
 
-  PassManager pass;
+  legacy::PassManager pass;
 
   std::string error;
 

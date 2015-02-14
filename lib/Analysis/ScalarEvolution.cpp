@@ -1364,7 +1364,24 @@ static const SCEV *getPreStartForSignExtend(const SCEVAddRecExpr *AR,
   const SCEVAddRecExpr *PreAR = dyn_cast<SCEVAddRecExpr>(
     SE->getAddRecExpr(PreStart, Step, L, SCEV::FlagAnyWrap));
 
-  if (PreAR && PreAR->getNoWrapFlags(SCEV::FlagNSW))
+  // WARNING: FIXME: the optimization below assumes that a sign-overflowing nsw
+  // operation is undefined behavior.  This is strictly more aggressive than the
+  // interpretation of nsw in other parts of LLVM (for instance, they may
+  // unconditionally hoist nsw arithmetic through control flow).  This logic
+  // needs to be revisited once we have a consistent semantics for poison
+  // values.
+  //
+  // "{S,+,X} is <nsw>" and "{S,+,X} is evaluated at least once" implies "S+X
+  // does not sign-overflow" (we'd have undefined behavior if it did).  If
+  // `L->getExitingBlock() == L->getLoopLatch()` then `PreAR` (= {S,+,X}<nsw>)
+  // is evaluated every-time `AR` (= {S+X,+,X}) is evaluated, and hence within
+  // `AR` we are safe to assume that "S+X" will not sign-overflow.
+  //
+
+  BasicBlock *ExitingBlock = L->getExitingBlock();
+  BasicBlock *LatchBlock = L->getLoopLatch();
+  if (PreAR && PreAR->getNoWrapFlags(SCEV::FlagNSW) &&
+      ExitingBlock != nullptr && ExitingBlock == LatchBlock)
     return PreStart;
 
   // 2. Direct overflow check on the step operation's expression.
@@ -1533,8 +1550,16 @@ const SCEV *ScalarEvolution::getSignExtendExpr(const SCEV *Op,
                        getMulExpr(WideMaxBECount,
                                   getZeroExtendExpr(Step, WideTy)));
           if (SAdd == OperandExtendedAdd) {
-            // Cache knowledge of AR NSW, which is propagated to this AddRec.
-            const_cast<SCEVAddRecExpr *>(AR)->setNoWrapFlags(SCEV::FlagNSW);
+            // If AR wraps around then
+            //
+            //    abs(Step) * MaxBECount > unsigned-max(AR->getType())
+            // => SAdd != OperandExtendedAdd
+            //
+            // Thus (AR is not NW => SAdd != OperandExtendedAdd) <=>
+            // (SAdd == OperandExtendedAdd => AR is NW)
+
+            const_cast<SCEVAddRecExpr *>(AR)->setNoWrapFlags(SCEV::FlagNW);
+
             // Return the expression with the addrec on the outside.
             return getAddRecExpr(getSignExtendAddRecStart(AR, Ty, this),
                                  getZeroExtendExpr(Step, Ty),
@@ -4280,9 +4305,10 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
       case ICmpInst::ICMP_SGE:
         // a >s b ? a+x : b+x  ->  smax(a, b)+x
         // a >s b ? b+x : a+x  ->  smin(a, b)+x
-        if (LHS->getType() == U->getType()) {
-          const SCEV *LS = getSCEV(LHS);
-          const SCEV *RS = getSCEV(RHS);
+        if (getTypeSizeInBits(LHS->getType()) <=
+            getTypeSizeInBits(U->getType())) {
+          const SCEV *LS = getNoopOrSignExtend(getSCEV(LHS), U->getType());
+          const SCEV *RS = getNoopOrSignExtend(getSCEV(RHS), U->getType());
           const SCEV *LA = getSCEV(U->getOperand(1));
           const SCEV *RA = getSCEV(U->getOperand(2));
           const SCEV *LDiff = getMinusSCEV(LA, LS);
@@ -4303,9 +4329,10 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
       case ICmpInst::ICMP_UGE:
         // a >u b ? a+x : b+x  ->  umax(a, b)+x
         // a >u b ? b+x : a+x  ->  umin(a, b)+x
-        if (LHS->getType() == U->getType()) {
-          const SCEV *LS = getSCEV(LHS);
-          const SCEV *RS = getSCEV(RHS);
+        if (getTypeSizeInBits(LHS->getType()) <=
+            getTypeSizeInBits(U->getType())) {
+          const SCEV *LS = getNoopOrZeroExtend(getSCEV(LHS), U->getType());
+          const SCEV *RS = getNoopOrZeroExtend(getSCEV(RHS), U->getType());
           const SCEV *LA = getSCEV(U->getOperand(1));
           const SCEV *RA = getSCEV(U->getOperand(2));
           const SCEV *LDiff = getMinusSCEV(LA, LS);
@@ -4320,11 +4347,11 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
         break;
       case ICmpInst::ICMP_NE:
         // n != 0 ? n+x : 1+x  ->  umax(n, 1)+x
-        if (LHS->getType() == U->getType() &&
-            isa<ConstantInt>(RHS) &&
-            cast<ConstantInt>(RHS)->isZero()) {
-          const SCEV *One = getConstant(LHS->getType(), 1);
-          const SCEV *LS = getSCEV(LHS);
+        if (getTypeSizeInBits(LHS->getType()) <=
+                getTypeSizeInBits(U->getType()) &&
+            isa<ConstantInt>(RHS) && cast<ConstantInt>(RHS)->isZero()) {
+          const SCEV *One = getConstant(U->getType(), 1);
+          const SCEV *LS = getNoopOrZeroExtend(getSCEV(LHS), U->getType());
           const SCEV *LA = getSCEV(U->getOperand(1));
           const SCEV *RA = getSCEV(U->getOperand(2));
           const SCEV *LDiff = getMinusSCEV(LA, LS);
@@ -4335,11 +4362,11 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
         break;
       case ICmpInst::ICMP_EQ:
         // n == 0 ? 1+x : n+x  ->  umax(n, 1)+x
-        if (LHS->getType() == U->getType() &&
-            isa<ConstantInt>(RHS) &&
-            cast<ConstantInt>(RHS)->isZero()) {
-          const SCEV *One = getConstant(LHS->getType(), 1);
-          const SCEV *LS = getSCEV(LHS);
+        if (getTypeSizeInBits(LHS->getType()) <=
+                getTypeSizeInBits(U->getType()) &&
+            isa<ConstantInt>(RHS) && cast<ConstantInt>(RHS)->isZero()) {
+          const SCEV *One = getConstant(U->getType(), 1);
+          const SCEV *LS = getNoopOrZeroExtend(getSCEV(LHS), U->getType());
           const SCEV *LA = getSCEV(U->getOperand(1));
           const SCEV *RA = getSCEV(U->getOperand(2));
           const SCEV *LDiff = getMinusSCEV(LA, One);
@@ -7011,8 +7038,8 @@ ScalarEvolution::isImpliedCondOperandsHelper(ICmpInst::Predicate Pred,
   return false;
 }
 
-// Verify if an linear IV with positive stride can overflow when in a 
-// less-than comparison, knowing the invariant term of the comparison, the 
+// Verify if an linear IV with positive stride can overflow when in a
+// less-than comparison, knowing the invariant term of the comparison, the
 // stride and the knowledge of NSW/NUW flags on the recurrence.
 bool ScalarEvolution::doesIVOverflowOnLT(const SCEV *RHS, const SCEV *Stride,
                                          bool IsSigned, bool NoWrap) {
@@ -7040,7 +7067,7 @@ bool ScalarEvolution::doesIVOverflowOnLT(const SCEV *RHS, const SCEV *Stride,
   return (MaxValue - MaxStrideMinusOne).ult(MaxRHS);
 }
 
-// Verify if an linear IV with negative stride can overflow when in a 
+// Verify if an linear IV with negative stride can overflow when in a
 // greater-than comparison, knowing the invariant term of the comparison,
 // the stride and the knowledge of NSW/NUW flags on the recurrence.
 bool ScalarEvolution::doesIVOverflowOnGT(const SCEV *RHS, const SCEV *Stride,
@@ -7071,7 +7098,7 @@ bool ScalarEvolution::doesIVOverflowOnGT(const SCEV *RHS, const SCEV *Stride,
 
 // Compute the backedge taken count knowing the interval difference, the
 // stride and presence of the equality in the comparison.
-const SCEV *ScalarEvolution::computeBECount(const SCEV *Delta, const SCEV *Step, 
+const SCEV *ScalarEvolution::computeBECount(const SCEV *Delta, const SCEV *Step,
                                             bool Equality) {
   const SCEV *One = getConstant(Step->getType(), 1);
   Delta = Equality ? getAddExpr(Delta, Step)
@@ -7111,7 +7138,7 @@ ScalarEvolution::HowManyLessThans(const SCEV *LHS, const SCEV *RHS,
 
   // Avoid proven overflow cases: this will ensure that the backedge taken count
   // will not generate any unsigned overflow. Relaxed no-overflow conditions
-  // exploit NoWrapFlags, allowing to optimize in presence of undefined 
+  // exploit NoWrapFlags, allowing to optimize in presence of undefined
   // behaviors like the case of C language.
   if (!Stride->isOne() && doesIVOverflowOnLT(RHS, Stride, IsSigned, NoWrap))
     return getCouldNotCompute();
@@ -7191,7 +7218,7 @@ ScalarEvolution::HowManyGreaterThans(const SCEV *LHS, const SCEV *RHS,
 
   // Avoid proven overflow cases: this will ensure that the backedge taken count
   // will not generate any unsigned overflow. Relaxed no-overflow conditions
-  // exploit NoWrapFlags, allowing to optimize in presence of undefined 
+  // exploit NoWrapFlags, allowing to optimize in presence of undefined
   // behaviors like the case of C language.
   if (!Stride->isOne() && doesIVOverflowOnGT(RHS, Stride, IsSigned, NoWrap))
     return getCouldNotCompute();
@@ -7239,7 +7266,7 @@ ScalarEvolution::HowManyGreaterThans(const SCEV *LHS, const SCEV *RHS,
   if (isa<SCEVConstant>(BECount))
     MaxBECount = BECount;
   else
-    MaxBECount = computeBECount(getConstant(MaxStart - MinEnd), 
+    MaxBECount = computeBECount(getConstant(MaxStart - MinEnd),
                                 getConstant(MinStride), false);
 
   if (isa<SCEVCouldNotCompute>(MaxBECount))
@@ -8000,17 +8027,17 @@ void ScalarEvolution::print(raw_ostream &OS, const Module *) const {
 
 ScalarEvolution::LoopDisposition
 ScalarEvolution::getLoopDisposition(const SCEV *S, const Loop *L) {
-  SmallVector<std::pair<const Loop *, LoopDisposition>, 2> &Values = LoopDispositions[S];
-  for (unsigned u = 0; u < Values.size(); u++) {
-    if (Values[u].first == L)
-      return Values[u].second;
+  auto &Values = LoopDispositions[S];
+  for (auto &V : Values) {
+    if (V.getPointer() == L)
+      return V.getInt();
   }
-  Values.push_back(std::make_pair(L, LoopVariant));
+  Values.emplace_back(L, LoopVariant);
   LoopDisposition D = computeLoopDisposition(S, L);
-  SmallVector<std::pair<const Loop *, LoopDisposition>, 2> &Values2 = LoopDispositions[S];
-  for (unsigned u = Values2.size(); u > 0; u--) {
-    if (Values2[u - 1].first == L) {
-      Values2[u - 1].second = D;
+  auto &Values2 = LoopDispositions[S];
+  for (auto &V : make_range(Values2.rbegin(), Values2.rend())) {
+    if (V.getPointer() == L) {
+      V.setInt(D);
       break;
     }
   }
@@ -8106,17 +8133,17 @@ bool ScalarEvolution::hasComputableLoopEvolution(const SCEV *S, const Loop *L) {
 
 ScalarEvolution::BlockDisposition
 ScalarEvolution::getBlockDisposition(const SCEV *S, const BasicBlock *BB) {
-  SmallVector<std::pair<const BasicBlock *, BlockDisposition>, 2> &Values = BlockDispositions[S];
-  for (unsigned u = 0; u < Values.size(); u++) {
-    if (Values[u].first == BB)
-      return Values[u].second;
+  auto &Values = BlockDispositions[S];
+  for (auto &V : Values) {
+    if (V.getPointer() == BB)
+      return V.getInt();
   }
-  Values.push_back(std::make_pair(BB, DoesNotDominateBlock));
+  Values.emplace_back(BB, DoesNotDominateBlock);
   BlockDisposition D = computeBlockDisposition(S, BB);
-  SmallVector<std::pair<const BasicBlock *, BlockDisposition>, 2> &Values2 = BlockDispositions[S];
-  for (unsigned u = Values2.size(); u > 0; u--) {
-    if (Values2[u - 1].first == BB) {
-      Values2[u - 1].second = D;
+  auto &Values2 = BlockDispositions[S];
+  for (auto &V : make_range(Values2.rbegin(), Values2.rend())) {
+    if (V.getPointer() == BB) {
+      V.setInt(D);
       break;
     }
   }

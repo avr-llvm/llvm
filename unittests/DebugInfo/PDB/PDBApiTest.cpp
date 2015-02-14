@@ -7,11 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <type_traits>
 #include <unordered_map>
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/DebugInfo/PDB/IPDBEnumChildren.h"
 #include "llvm/DebugInfo/PDB/IPDBRawSymbol.h"
+#include "llvm/DebugInfo/PDB/IPDBSession.h"
+#include "llvm/DebugInfo/PDB/IPDBSourceFile.h"
+
 #include "llvm/DebugInfo/PDB/PDBSymbol.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolAnnotation.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolBlock.h"
@@ -48,16 +51,6 @@
 #include "gtest/gtest.h"
 using namespace llvm;
 
-namespace std {
-  template<>
-  struct hash<PDB_SymType> {
-  public:
-    std::size_t operator()(PDB_SymType Symbol) const {
-      return std::hash<int>()(static_cast<int>(Symbol));
-    }
-  };
-}
-
 namespace {
 
 #define MOCK_SYMBOL_ACCESSOR(Func)                                             \
@@ -66,28 +59,61 @@ namespace {
     return ReturnType();                                                       \
   }
 
+class MockSession : public IPDBSession {
+  uint64_t getLoadAddress() const override { return 0; }
+  void setLoadAddress(uint64_t Address) override {}
+  std::unique_ptr<PDBSymbolExe> getGlobalScope() const override {
+    return nullptr;
+  }
+  std::unique_ptr<PDBSymbol> getSymbolById(uint32_t SymbolId) const override {
+    return nullptr;
+  }
+  std::unique_ptr<IPDBSourceFile>
+  getSourceFileById(uint32_t SymbolId) const override {
+    return nullptr;
+  }
+  std::unique_ptr<IPDBEnumSourceFiles> getAllSourceFiles() const override {
+    return nullptr;
+  }
+  std::unique_ptr<IPDBEnumSourceFiles> getSourceFilesForCompiland(
+      const PDBSymbolCompiland &Compiland) const override {
+    return nullptr;
+  }
+
+  std::unique_ptr<IPDBEnumDataStreams> getDebugStreams() const override {
+    return nullptr;
+  }
+};
+
 class MockRawSymbol : public IPDBRawSymbol {
 public:
-  MockRawSymbol(PDB_SymType SymType) : Type(SymType) {}
+  MockRawSymbol(PDB_SymType SymType)
+      : Type(SymType) {}
 
-  virtual void dump(llvm::raw_ostream &OS) const {}
+  void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const override {}
 
-  virtual std::unique_ptr<IPDBEnumSymbols>
+  std::unique_ptr<IPDBEnumSymbols>
+  findChildren(PDB_SymType Type) const override {
+    return nullptr;
+  }
+  std::unique_ptr<IPDBEnumSymbols>
   findChildren(PDB_SymType Type, StringRef Name,
-               PDB_NameSearchFlags Flags) const {
+               PDB_NameSearchFlags Flags) const override {
     return nullptr;
   }
-  virtual std::unique_ptr<IPDBEnumSymbols>
+  std::unique_ptr<IPDBEnumSymbols>
   findChildrenByRVA(PDB_SymType Type, StringRef Name, PDB_NameSearchFlags Flags,
-                    uint32_t RVA) const {
+                    uint32_t RVA) const override {
     return nullptr;
   }
-  virtual std::unique_ptr<IPDBEnumSymbols>
-  findInlineFramesByRVA(uint32_t RVA) const {
+  std::unique_ptr<IPDBEnumSymbols>
+  findInlineFramesByRVA(uint32_t RVA) const override {
     return nullptr;
   }
 
-  virtual void getDataBytes(llvm::SmallVector<uint8_t, 32> &bytes) const {}
+  void getDataBytes(llvm::SmallVector<uint8_t, 32> &bytes) const override {}
+  void getFrontEndVersion(VersionInfo &Version) const override {}
+  void getBackEndVersion(VersionInfo &Version) const override {}
 
   PDB_SymType getSymTag() const override { return Type; }
 
@@ -96,9 +122,6 @@ public:
   MOCK_SYMBOL_ACCESSOR(getAddressSection)
   MOCK_SYMBOL_ACCESSOR(getAge)
   MOCK_SYMBOL_ACCESSOR(getArrayIndexTypeId)
-  MOCK_SYMBOL_ACCESSOR(getBackEndBuild)
-  MOCK_SYMBOL_ACCESSOR(getBackEndMajor)
-  MOCK_SYMBOL_ACCESSOR(getBackEndMinor)
   MOCK_SYMBOL_ACCESSOR(getBaseDataOffset)
   MOCK_SYMBOL_ACCESSOR(getBaseDataSlot)
   MOCK_SYMBOL_ACCESSOR(getBaseSymbolId)
@@ -109,9 +132,6 @@ public:
   MOCK_SYMBOL_ACCESSOR(getCompilerName)
   MOCK_SYMBOL_ACCESSOR(getCount)
   MOCK_SYMBOL_ACCESSOR(getCountLiveRanges)
-  MOCK_SYMBOL_ACCESSOR(getFrontEndBuild)
-  MOCK_SYMBOL_ACCESSOR(getFrontEndMajor)
-  MOCK_SYMBOL_ACCESSOR(getFrontEndMinor)
   MOCK_SYMBOL_ACCESSOR(getLanguage)
   MOCK_SYMBOL_ACCESSOR(getLexicalParentId)
   MOCK_SYMBOL_ACCESSOR(getLibraryName)
@@ -189,6 +209,7 @@ public:
   MOCK_SYMBOL_ACCESSOR(hasDebugInfo)
   MOCK_SYMBOL_ACCESSOR(hasEH)
   MOCK_SYMBOL_ACCESSOR(hasEHa)
+  MOCK_SYMBOL_ACCESSOR(hasFramePointer)
   MOCK_SYMBOL_ACCESSOR(hasInlAsm)
   MOCK_SYMBOL_ACCESSOR(hasInlineAttribute)
   MOCK_SYMBOL_ACCESSOR(hasInterruptReturn)
@@ -251,6 +272,9 @@ public:
   MOCK_SYMBOL_ACCESSOR(isVirtualBaseClass)
   MOCK_SYMBOL_ACCESSOR(isVirtualInheritance)
   MOCK_SYMBOL_ACCESSOR(isVolatileType)
+  MOCK_SYMBOL_ACCESSOR(getValue)
+  MOCK_SYMBOL_ACCESSOR(wasInlined)
+  MOCK_SYMBOL_ACCESSOR(getUnused)
 
 private:
   PDB_SymType Type;
@@ -261,6 +285,8 @@ public:
   std::unordered_map<PDB_SymType, std::unique_ptr<PDBSymbol>> SymbolMap;
 
   void SetUp() override {
+    Session.reset(new MockSession());
+
     InsertItemWithTag(PDB_SymType::None);
     InsertItemWithTag(PDB_SymType::Exe);
     InsertItemWithTag(PDB_SymType::Compiland);
@@ -295,14 +321,6 @@ public:
     InsertItemWithTag(PDB_SymType::Max);
   }
 
-private:
-  void InsertItemWithTag(PDB_SymType Tag) {
-    auto RawSymbol = std::unique_ptr<IPDBRawSymbol>(new MockRawSymbol(Tag));
-    auto Symbol = PDBSymbol::create(std::move(RawSymbol));
-    SymbolMap.insert(std::make_pair(Tag, std::move(Symbol)));
-  }
-
-public:
   template <class ExpectedType> void VerifyDyncast(PDB_SymType Tag) {
     for (auto item = SymbolMap.begin(); item != SymbolMap.end(); ++item) {
       EXPECT_EQ(item->first == Tag, llvm::isa<ExpectedType>(*item->second));
@@ -317,6 +335,15 @@ public:
 
       EXPECT_EQ(should_match, llvm::isa<PDBSymbolUnknown>(*item->second));
     }
+  }
+
+private:
+  std::unique_ptr<IPDBSession> Session;
+
+  void InsertItemWithTag(PDB_SymType Tag) {
+    auto RawSymbol = llvm::make_unique<MockRawSymbol>(Tag);
+    auto Symbol = PDBSymbol::create(*Session, std::move(RawSymbol));
+    SymbolMap.insert(std::make_pair(Tag, std::move(Symbol)));
   }
 };
 

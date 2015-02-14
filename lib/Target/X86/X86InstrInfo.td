@@ -561,6 +561,11 @@ def AVX512ICC : Operand<i8> {
   let OperandType = "OPERAND_IMMEDIATE";
 }
 
+def XOPCC : Operand<i8> {
+  let PrintMethod = "printXOPCC";
+  let OperandType = "OPERAND_IMMEDIATE";
+}
+
 class ImmSExtAsmOperandClass : AsmOperandClass {
   let SuperClasses = [ImmAsmOperand];
   let RenderMethod = "addImmOperands";
@@ -2216,11 +2221,11 @@ let Predicates = [HasBMI2], Defs = [EFLAGS] in {
 
 def CountTrailingOnes : SDNodeXForm<imm, [{
   // Count the trailing ones in the immediate.
-  return getI8Imm(CountTrailingOnes_64(N->getZExtValue()));
+  return getI8Imm(countTrailingOnes(N->getZExtValue()));
 }]>;
 
 def BZHIMask : ImmLeaf<i64, [{
-  return isMask_64(Imm) && (CountTrailingOnes_64(Imm) > 32);
+  return isMask_64(Imm) && (countTrailingOnes<uint64_t>(Imm) > 32);
 }]>;
 
 let Predicates = [HasBMI2] in {

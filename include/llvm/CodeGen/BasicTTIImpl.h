@@ -150,6 +150,28 @@ public:
     return getTLI()->isTypeLegal(VT);
   }
 
+  unsigned getIntrinsicCost(Intrinsic::ID IID, Type *RetTy,
+                            ArrayRef<const Value *> Arguments) {
+    return BaseT::getIntrinsicCost(IID, RetTy, Arguments);
+  }
+
+  unsigned getIntrinsicCost(Intrinsic::ID IID, Type *RetTy,
+                            ArrayRef<Type *> ParamTys) {
+    if (IID == Intrinsic::cttz) {
+      if (getTLI()->isCheapToSpeculateCttz())
+        return TargetTransformInfo::TCC_Basic;
+      return TargetTransformInfo::TCC_Expensive;
+    }
+
+    if (IID == Intrinsic::ctlz) {
+       if (getTLI()->isCheapToSpeculateCtlz())
+        return TargetTransformInfo::TCC_Basic;
+      return TargetTransformInfo::TCC_Expensive;
+    }
+
+    return BaseT::getIntrinsicCost(IID, RetTy, ParamTys);
+  }
+
   unsigned getJumpBufAlignment() { return getTLI()->getJumpBufAlignment(); }
 
   unsigned getJumpBufSize() { return getTLI()->getJumpBufSize(); }
@@ -171,6 +193,25 @@ public:
     // By default, FP instructions are no more expensive since they are
     // implemented in HW.  Target specific TTI can override this.
     return TargetTransformInfo::TCC_Basic;
+  }
+
+  unsigned getOperationCost(unsigned Opcode, Type *Ty, Type *OpTy) {
+    const TargetLoweringBase *TLI = getTLI();
+    switch (Opcode) {
+    default: break;
+    case Instruction::Trunc: {
+      if (TLI->isTruncateFree(OpTy, Ty))
+        return TargetTransformInfo::TCC_Free;
+      return TargetTransformInfo::TCC_Basic;
+    }
+    case Instruction::ZExt: {
+      if (TLI->isZExtFree(OpTy, Ty))
+        return TargetTransformInfo::TCC_Free;
+      return TargetTransformInfo::TCC_Basic;
+    }
+    }
+
+    return BaseT::getOperationCost(Opcode, Ty, OpTy);
   }
 
   void getUnrollingPreferences(Loop *L, TTI::UnrollingPreferences &UP) {

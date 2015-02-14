@@ -12,10 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "InstrumentationBindings.h"
-
 #include "llvm-c/Core.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
-#include "llvm/PassManager.h"
 #include "llvm/Transforms/Instrumentation.h"
 
 using namespace llvm;

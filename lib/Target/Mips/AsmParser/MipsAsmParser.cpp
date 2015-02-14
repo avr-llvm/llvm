@@ -152,6 +152,9 @@ class MipsAsmParser : public MCTargetAsmParser {
   parseRegisterPair (OperandVector &Operands);
 
   MipsAsmParser::OperandMatchResultTy
+  parseMovePRegPair(OperandVector &Operands);
+
+  MipsAsmParser::OperandMatchResultTy
   parseRegisterList (OperandVector  &Operands);
 
   bool searchSymbolAlias(OperandVector &Operands);
@@ -683,6 +686,11 @@ public:
     Inst.addOperand(MCOperand::CreateReg(getGPRMM16Reg()));
   }
 
+  void addGPRMM16AsmRegMovePOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+    Inst.addOperand(MCOperand::CreateReg(getGPRMM16Reg()));
+  }
+
   /// Render the operand to an MCInst as a GPR64
   /// Asserts if the wrong number of operands are requested, or the operand
   /// is not a k_RegisterIndex compatible with RegKind_GPR
@@ -803,6 +811,12 @@ public:
     Inst.addOperand(MCOperand::CreateReg(RegNo));
   }
 
+  void addMovePRegPairOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 2 && "Invalid number of operands!");
+    for (auto RegNo : getRegList())
+      Inst.addOperand(MCOperand::CreateReg(RegNo));
+  }
+
   bool isReg() const override {
     // As a special case until we sort out the definition of div/divu, pretend
     // that $0/$zero are k_PhysRegister so that MCK_ZERO works correctly.
@@ -867,6 +881,25 @@ public:
     return 1 <= Val && Val <= 4;
   }
   bool isRegList() const { return Kind == k_RegList; }
+  bool isMovePRegPair() const {
+    if (Kind != k_RegList || RegList.List->size() != 2)
+      return false;
+
+    unsigned R0 = RegList.List->front();
+    unsigned R1 = RegList.List->back();
+
+    if ((R0 == Mips::A1 && R1 == Mips::A2) ||
+        (R0 == Mips::A1 && R1 == Mips::A3) ||
+        (R0 == Mips::A2 && R1 == Mips::A3) ||
+        (R0 == Mips::A0 && R1 == Mips::S5) ||
+        (R0 == Mips::A0 && R1 == Mips::S6) ||
+        (R0 == Mips::A0 && R1 == Mips::A1) ||
+        (R0 == Mips::A0 && R1 == Mips::A2) ||
+        (R0 == Mips::A0 && R1 == Mips::A3))
+      return true;
+
+    return false;
+  }
 
   StringRef getToken() const {
     assert(Kind == k_Token && "Invalid access!");
@@ -1052,6 +1085,12 @@ public:
     return (RegIdx.Index == 0 ||
             (RegIdx.Index >= 2 && RegIdx.Index <= 7) ||
             RegIdx.Index == 17);
+  }
+  bool isMM16AsmRegMoveP() const {
+    if (!(isRegIdx() && RegIdx.Kind))
+      return false;
+    return (RegIdx.Index == 0 || (RegIdx.Index >= 2 && RegIdx.Index <= 3) ||
+      (RegIdx.Index >= 16 && RegIdx.Index <= 20));
   }
   bool isFGRAsmReg() const {
     // AFGR64 is $0-$15 but we handle this in getAFGR64()
@@ -3036,6 +3075,45 @@ MipsAsmParser::parseRegisterPair(OperandVector &Operands) {
   return MatchOperand_Success;
 }
 
+MipsAsmParser::OperandMatchResultTy
+MipsAsmParser::parseMovePRegPair(OperandVector &Operands) {
+  MCAsmParser &Parser = getParser();
+  SmallVector<std::unique_ptr<MCParsedAsmOperand>, 8> TmpOperands;
+  SmallVector<unsigned, 10> Regs;
+
+  if (Parser.getTok().isNot(AsmToken::Dollar))
+    return MatchOperand_ParseFail;
+
+  SMLoc S = Parser.getTok().getLoc();
+
+  if (parseAnyRegister(TmpOperands) != MatchOperand_Success)
+    return MatchOperand_ParseFail;
+
+  MipsOperand *Reg = &static_cast<MipsOperand &>(*TmpOperands.back());
+  unsigned RegNo = isGP64bit() ? Reg->getGPR64Reg() : Reg->getGPR32Reg();
+  Regs.push_back(RegNo);
+
+  SMLoc E = Parser.getTok().getLoc();
+  if (Parser.getTok().isNot(AsmToken::Comma)) {
+    Error(E, "',' expected");
+    return MatchOperand_ParseFail;
+  }
+
+  // Remove comma.
+  Parser.Lex();
+
+  if (parseAnyRegister(TmpOperands) != MatchOperand_Success)
+    return MatchOperand_ParseFail;
+
+  Reg = &static_cast<MipsOperand &>(*TmpOperands.back());
+  RegNo = isGP64bit() ? Reg->getGPR64Reg() : Reg->getGPR32Reg();
+  Regs.push_back(RegNo);
+
+  Operands.push_back(MipsOperand::CreateRegList(Regs, S, E, *this));
+
+  return MatchOperand_Success;
+}
+
 MCSymbolRefExpr::VariantKind MipsAsmParser::getVariantKind(StringRef Symbol) {
 
   MCSymbolRefExpr::VariantKind VK =
@@ -3198,67 +3276,84 @@ bool MipsAsmParser::reportParseError(SMLoc Loc, Twine ErrorMsg) {
 bool MipsAsmParser::parseSetNoAtDirective() {
   MCAsmParser &Parser = getParser();
   // Line should look like: ".set noat".
-  // set at reg to 0.
+
+  // Set the $at register to $0.
   AssemblerOptions.back()->setATReg(0);
-  // eat noat
-  Parser.Lex();
+
+  Parser.Lex(); // Eat "noat".
+
   // If this is not the end of the statement, report an error.
   if (getLexer().isNot(AsmToken::EndOfStatement)) {
     reportParseError("unexpected token, expected end of statement");
     return false;
   }
+
+  getTargetStreamer().emitDirectiveSetNoAt();
   Parser.Lex(); // Consume the EndOfStatement.
   return false;
 }
 
 bool MipsAsmParser::parseSetAtDirective() {
+  // Line can be: ".set at", which sets $at to $1
+  //          or  ".set at=$reg", which sets $at to $reg.
   MCAsmParser &Parser = getParser();
-  // Line can be .set at - defaults to $1
-  // or .set at=$reg
-  int AtRegNo;
-  getParser().Lex();
+  Parser.Lex(); // Eat "at".
+
   if (getLexer().is(AsmToken::EndOfStatement)) {
+    // No register was specified, so we set $at to $1.
     AssemblerOptions.back()->setATReg(1);
+
+    getTargetStreamer().emitDirectiveSetAt();
     Parser.Lex(); // Consume the EndOfStatement.
     return false;
-  } else if (getLexer().is(AsmToken::Equal)) {
-    getParser().Lex(); // Eat the '='.
-    if (getLexer().isNot(AsmToken::Dollar)) {
+  }
+
+  if (getLexer().isNot(AsmToken::Equal)) {
+    reportParseError("unexpected token, expected equals sign");
+    return false;
+  }
+  Parser.Lex(); // Eat "=".
+
+  if (getLexer().isNot(AsmToken::Dollar)) {
+    if (getLexer().is(AsmToken::EndOfStatement)) {
+      reportParseError("no register specified");
+      return false;
+    } else {
       reportParseError("unexpected token, expected dollar sign '$'");
       return false;
     }
-    Parser.Lex(); // Eat the '$'.
-    const AsmToken &Reg = Parser.getTok();
-    if (Reg.is(AsmToken::Identifier)) {
-      AtRegNo = matchCPURegisterName(Reg.getIdentifier());
-    } else if (Reg.is(AsmToken::Integer)) {
-      AtRegNo = Reg.getIntVal();
-    } else {
-      reportParseError("unexpected token, expected identifier or integer");
-      return false;
-    }
+  }
+  Parser.Lex(); // Eat "$".
 
-    if (AtRegNo < 0 || AtRegNo > 31) {
-      reportParseError("unexpected token in statement");
-      return false;
-    }
-
-    if (!AssemblerOptions.back()->setATReg(AtRegNo)) {
-      reportParseError("invalid register");
-      return false;
-    }
-    getParser().Lex(); // Eat the register.
-
-    if (getLexer().isNot(AsmToken::EndOfStatement)) {
-      reportParseError("unexpected token, expected end of statement");
-      return false;
-    }
-    Parser.Lex(); // Consume the EndOfStatement.
-    return false;
+  // Find out what "reg" is.
+  unsigned AtRegNo;
+  const AsmToken &Reg = Parser.getTok();
+  if (Reg.is(AsmToken::Identifier)) {
+    AtRegNo = matchCPURegisterName(Reg.getIdentifier());
+  } else if (Reg.is(AsmToken::Integer)) {
+    AtRegNo = Reg.getIntVal();
   } else {
-    reportParseError("unexpected token in statement");
+    reportParseError("unexpected token, expected identifier or integer");
     return false;
   }
+
+  // Check if $reg is a valid register. If it is, set $at to $reg.
+  if (!AssemblerOptions.back()->setATReg(AtRegNo)) {
+    reportParseError("invalid register");
+    return false;
+  }
+  Parser.Lex(); // Eat "reg".
+
+  // If this is not the end of the statement, report an error.
+  if (getLexer().isNot(AsmToken::EndOfStatement)) {
+    reportParseError("unexpected token, expected end of statement");
+    return false;
+  }
+
+  getTargetStreamer().emitDirectiveSetAtWithArg(AtRegNo);
+
+  Parser.Lex(); // Consume the EndOfStatement.
+  return false;
 }
 
 bool MipsAsmParser::parseSetReorderDirective() {

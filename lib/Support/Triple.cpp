@@ -280,7 +280,7 @@ static Triple::ArchType parseARMArch(StringRef ArchName) {
     .Cases("v3", "v3m", isThumb ? Triple::UnknownArch : arch)
     .Cases("v4", "v4t", arch)
     .Cases("v5", "v5e", "v5t", "v5te", "v5tej", arch)
-    .Cases("v6", "v6j", "v6k", "v6m", arch)
+    .Cases("v6", "v6j", "v6k", "v6m", "v6sm", arch)
     .Cases("v6t2", "v6z", "v6zk", arch)
     .Cases("v7", "v7a", "v7em", "v7l", arch)
     .Cases("v7m", "v7r", "v7s", arch)
@@ -419,6 +419,7 @@ static Triple::SubArchType parseSubArch(StringRef SubArchName) {
     .EndsWith("v7s", Triple::ARMSubArch_v7s)
     .EndsWith("v6", Triple::ARMSubArch_v6)
     .EndsWith("v6m", Triple::ARMSubArch_v6m)
+    .EndsWith("v6sm", Triple::ARMSubArch_v6m)
     .EndsWith("v6t2", Triple::ARMSubArch_v6t2)
     .EndsWith("v5", Triple::ARMSubArch_v5)
     .EndsWith("v5e", Triple::ARMSubArch_v5)
@@ -822,7 +823,11 @@ void Triple::setOS(OSType Kind) {
 }
 
 void Triple::setEnvironment(EnvironmentType Kind) {
-  setEnvironmentName(getEnvironmentTypeName(Kind));
+  if (ObjectFormat == getDefaultFormat(*this))
+    return setEnvironmentName(getEnvironmentTypeName(Kind));
+
+  setEnvironmentName((getEnvironmentTypeName(Kind) + Twine("-") +
+                      getObjectFormatTypeName(ObjectFormat)).str());
 }
 
 void Triple::setObjectFormat(ObjectFormatType Kind) {
@@ -1072,7 +1077,7 @@ const char *Triple::getARMCPUForArch(StringRef MArch) const {
       .Case("v6j", "arm1136j-s")
       .Cases("v6z", "v6zk", "arm1176jzf-s")
       .Case("v6t2", "arm1156t2-s")
-      .Cases("v6m", "v6-m", "cortex-m0")
+      .Cases("v6m", "v6-m", "v6sm", "v6s-m", "cortex-m0")
       .Cases("v7", "v7a", "v7-a", "v7l", "v7-l", "cortex-a8")
       .Cases("v7s", "v7-s", "swift")
       .Cases("v7r", "v7-r", "cortex-r4")

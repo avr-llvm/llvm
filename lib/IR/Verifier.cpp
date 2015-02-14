@@ -191,7 +191,7 @@ class Verifier : public InstVisitor<Verifier>, VerifierSupport {
   SmallPtrSet<Instruction *, 16> InstsInThisBlock;
 
   /// \brief Keep track of the metadata nodes that have been checked already.
-  SmallPtrSet<Metadata *, 32> MDNodes;
+  SmallPtrSet<const Metadata *, 32> MDNodes;
 
   /// \brief The personality function referenced by the LandingPadInsts.
   /// All LandingPadInsts within the same function must use the same
@@ -290,9 +290,9 @@ private:
   void visitAliaseeSubExpr(SmallPtrSetImpl<const GlobalAlias *> &Visited,
                            const GlobalAlias &A, const Constant &C);
   void visitNamedMDNode(const NamedMDNode &NMD);
-  void visitMDNode(MDNode &MD);
-  void visitMetadataAsValue(MetadataAsValue &MD, Function *F);
-  void visitValueAsMetadata(ValueAsMetadata &MD, Function *F);
+  void visitMDNode(const MDNode &MD);
+  void visitMetadataAsValue(const MetadataAsValue &MD, Function *F);
+  void visitValueAsMetadata(const ValueAsMetadata &MD, Function *F);
   void visitComdat(const Comdat &C);
   void visitModuleIdents(const Module &M);
   void visitModuleFlags(const Module &M);
@@ -303,6 +303,8 @@ private:
   void visitBasicBlock(BasicBlock &BB);
   void visitRangeMetadata(Instruction& I, MDNode* Range, Type* Ty);
 
+#define HANDLE_SPECIALIZED_MDNODE_LEAF(CLASS) void visit##CLASS(const CLASS &N);
+#include "llvm/IR/Metadata.def"
 
   // InstVisitor overrides...
   using InstVisitor<Verifier>::visit;
@@ -595,11 +597,23 @@ void Verifier::visitNamedMDNode(const NamedMDNode &NMD) {
   }
 }
 
-void Verifier::visitMDNode(MDNode &MD) {
+void Verifier::visitMDNode(const MDNode &MD) {
   // Only visit each node once.  Metadata can be mutually recursive, so this
   // avoids infinite recursion here, as well as being an optimization.
   if (!MDNodes.insert(&MD).second)
     return;
+
+  switch (MD.getMetadataID()) {
+  default:
+    llvm_unreachable("Invalid MDNode subclass");
+  case Metadata::MDTupleKind:
+    break;
+#define HANDLE_SPECIALIZED_MDNODE_LEAF(CLASS)                                  \
+  case Metadata::CLASS##Kind:                                                  \
+    visit##CLASS(cast<CLASS>(MD));                                             \
+    break;
+#include "llvm/IR/Metadata.def"
+  }
 
   for (unsigned i = 0, e = MD.getNumOperands(); i != e; ++i) {
     Metadata *Op = MD.getOperand(i);
@@ -622,7 +636,7 @@ void Verifier::visitMDNode(MDNode &MD) {
   Assert1(MD.isResolved(), "All nodes should be resolved!", &MD);
 }
 
-void Verifier::visitValueAsMetadata(ValueAsMetadata &MD, Function *F) {
+void Verifier::visitValueAsMetadata(const ValueAsMetadata &MD, Function *F) {
   Assert1(MD.getValue(), "Expected valid value", &MD);
   Assert2(!MD.getValue()->getType()->isMetadataTy(),
           "Unexpected metadata round-trip through values", &MD, MD.getValue());
@@ -648,7 +662,7 @@ void Verifier::visitValueAsMetadata(ValueAsMetadata &MD, Function *F) {
   Assert1(ActualF == F, "function-local metadata used in wrong function", L);
 }
 
-void Verifier::visitMetadataAsValue(MetadataAsValue &MDV, Function *F) {
+void Verifier::visitMetadataAsValue(const MetadataAsValue &MDV, Function *F) {
   Metadata *MD = MDV.getMetadata();
   if (auto *N = dyn_cast<MDNode>(MD)) {
     visitMDNode(*N);
@@ -662,6 +676,121 @@ void Verifier::visitMetadataAsValue(MetadataAsValue &MDV, Function *F) {
 
   if (auto *V = dyn_cast<ValueAsMetadata>(MD))
     visitValueAsMetadata(*V, F);
+}
+
+void Verifier::visitMDLocation(const MDLocation &N) {
+  Assert1(N.getScope(), "location requires a valid scope", &N);
+  if (auto *IA = N.getInlinedAt())
+    Assert2(isa<MDLocation>(IA), "inlined-at should be a location", &N, IA);
+}
+
+void Verifier::visitGenericDebugNode(const GenericDebugNode &N) {
+  Assert1(N.getTag(), "invalid tag", &N);
+}
+
+void Verifier::visitMDSubrange(const MDSubrange &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_subrange_type, "invalid tag", &N);
+}
+
+void Verifier::visitMDEnumerator(const MDEnumerator &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_enumerator, "invalid tag", &N);
+}
+
+void Verifier::visitMDBasicType(const MDBasicType &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_base_type ||
+              N.getTag() == dwarf::DW_TAG_unspecified_type,
+          "invalid tag", &N);
+}
+
+void Verifier::visitMDDerivedType(const MDDerivedType &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_typedef ||
+              N.getTag() == dwarf::DW_TAG_pointer_type ||
+              N.getTag() == dwarf::DW_TAG_ptr_to_member_type ||
+              N.getTag() == dwarf::DW_TAG_reference_type ||
+              N.getTag() == dwarf::DW_TAG_rvalue_reference_type ||
+              N.getTag() == dwarf::DW_TAG_const_type ||
+              N.getTag() == dwarf::DW_TAG_volatile_type ||
+              N.getTag() == dwarf::DW_TAG_restrict_type ||
+              N.getTag() == dwarf::DW_TAG_member ||
+              N.getTag() == dwarf::DW_TAG_inheritance ||
+              N.getTag() == dwarf::DW_TAG_friend,
+          "invalid tag", &N);
+}
+
+void Verifier::visitMDCompositeType(const MDCompositeType &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_array_type ||
+              N.getTag() == dwarf::DW_TAG_structure_type ||
+              N.getTag() == dwarf::DW_TAG_union_type ||
+              N.getTag() == dwarf::DW_TAG_enumeration_type ||
+              N.getTag() == dwarf::DW_TAG_subroutine_type ||
+              N.getTag() == dwarf::DW_TAG_class_type,
+          "invalid tag", &N);
+}
+
+void Verifier::visitMDSubroutineType(const MDSubroutineType &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_subroutine_type, "invalid tag", &N);
+}
+
+void Verifier::visitMDFile(const MDFile &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_file_type, "invalid tag", &N);
+}
+
+void Verifier::visitMDCompileUnit(const MDCompileUnit &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_compile_unit, "invalid tag", &N);
+}
+
+void Verifier::visitMDSubprogram(const MDSubprogram &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_subprogram, "invalid tag", &N);
+}
+
+void Verifier::visitMDLexicalBlock(const MDLexicalBlock &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_lexical_block, "invalid tag", &N);
+}
+
+void Verifier::visitMDLexicalBlockFile(const MDLexicalBlockFile &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_lexical_block, "invalid tag", &N);
+}
+
+void Verifier::visitMDNamespace(const MDNamespace &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_namespace, "invalid tag", &N);
+}
+
+void Verifier::visitMDTemplateTypeParameter(const MDTemplateTypeParameter &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_template_type_parameter, "invalid tag",
+          &N);
+}
+
+void Verifier::visitMDTemplateValueParameter(
+    const MDTemplateValueParameter &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_template_value_parameter ||
+              N.getTag() == dwarf::DW_TAG_GNU_template_template_param ||
+              N.getTag() == dwarf::DW_TAG_GNU_template_parameter_pack,
+          "invalid tag", &N);
+}
+
+void Verifier::visitMDGlobalVariable(const MDGlobalVariable &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_variable, "invalid tag", &N);
+}
+
+void Verifier::visitMDLocalVariable(const MDLocalVariable &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_auto_variable ||
+              N.getTag() == dwarf::DW_TAG_arg_variable,
+          "invalid tag", &N);
+}
+
+void Verifier::visitMDExpression(const MDExpression &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_expression, "invalid tag", &N);
+  Assert1(N.isValid(), "invalid expression", &N);
+}
+
+void Verifier::visitMDObjCProperty(const MDObjCProperty &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_APPLE_property, "invalid tag", &N);
+}
+
+void Verifier::visitMDImportedEntity(const MDImportedEntity &N) {
+  Assert1(N.getTag() == dwarf::DW_TAG_imported_module ||
+              N.getTag() == dwarf::DW_TAG_imported_declaration,
+          "invalid tag", &N);
 }
 
 void Verifier::visitComdat(const Comdat &C) {
@@ -690,7 +819,7 @@ void Verifier::visitModuleIdents(const Module &M) {
     const MDNode *N = Idents->getOperand(i);
     Assert1(N->getNumOperands() == 1,
             "incorrect number of operands in llvm.ident metadata", N);
-    Assert1(isa<MDString>(N->getOperand(0)),
+    Assert1(dyn_cast_or_null<MDString>(N->getOperand(0)),
             ("invalid value for llvm.ident metadata entry operand"
              "(the operand should be a string)"),
             N->getOperand(0));
@@ -741,7 +870,7 @@ Verifier::visitModuleFlag(const MDNode *Op,
   Module::ModFlagBehavior MFB;
   if (!Module::isValidModFlagBehavior(Op->getOperand(0), MFB)) {
     Assert1(
-        mdconst::dyn_extract<ConstantInt>(Op->getOperand(0)),
+        mdconst::dyn_extract_or_null<ConstantInt>(Op->getOperand(0)),
         "invalid behavior operand in module flag (expected constant integer)",
         Op->getOperand(0));
     Assert1(false,
@@ -2554,6 +2683,23 @@ bool Verifier::VerifyIntrinsicType(Type *Ty,
     Type * ReferenceType = ArgTys[D.getArgumentNumber()];
     PointerType *ThisArgType = dyn_cast<PointerType>(Ty);
     return (!ThisArgType || ThisArgType->getElementType() != ReferenceType);
+  }
+  case IITDescriptor::VecOfPtrsToElt: {
+    if (D.getArgumentNumber() >= ArgTys.size())
+      return true;
+    VectorType * ReferenceType =
+      dyn_cast<VectorType> (ArgTys[D.getArgumentNumber()]);
+    VectorType *ThisArgVecTy = dyn_cast<VectorType>(Ty);
+    if (!ThisArgVecTy || !ReferenceType || 
+        (ReferenceType->getVectorNumElements() !=
+         ThisArgVecTy->getVectorNumElements()))
+      return true;
+    PointerType *ThisArgEltTy =
+      dyn_cast<PointerType>(ThisArgVecTy->getVectorElementType());
+    if (!ThisArgEltTy)
+      return true;
+    return (!(ThisArgEltTy->getElementType() ==
+            ReferenceType->getVectorElementType()));
   }
   }
   llvm_unreachable("unhandled");

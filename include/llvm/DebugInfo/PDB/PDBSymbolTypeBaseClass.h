@@ -15,9 +15,16 @@
 
 namespace llvm {
 
+class raw_ostream;
+
 class PDBSymbolTypeBaseClass : public PDBSymbol {
 public:
-  PDBSymbolTypeBaseClass(std::unique_ptr<IPDBRawSymbol> BaseClassTypeSymbol);
+  PDBSymbolTypeBaseClass(const IPDBSession &PDBSession,
+                         std::unique_ptr<IPDBRawSymbol> Symbol);
+
+  DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::BaseClass)
+
+  void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const override;
 
   FORWARD_SYMBOL_METHOD(getAccess)
   FORWARD_SYMBOL_METHOD(getClassParentId)
@@ -46,10 +53,6 @@ public:
   // FORWARD_SYMBOL_METHOD(getVirtualBaseTableType)
   FORWARD_SYMBOL_METHOD(getVirtualTableShapeId)
   FORWARD_SYMBOL_METHOD(isVolatileType)
-
-  static bool classof(const PDBSymbol *S) {
-    return S->getSymTag() == PDB_SymType::BaseClass;
-  }
 };
 
 } // namespace llvm

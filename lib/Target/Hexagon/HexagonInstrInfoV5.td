@@ -67,29 +67,28 @@ def C4_fastcorner9_not : T_LOGICAL_2OP<"!fastcorner9", 0b000, 0, 0>,
   let Inst{20,13,7,4} = 0b1111;
 }
 
-def SDTHexagonFCONST32 : SDTypeProfile<1, 1, [
-                                            SDTCisVT<0, f32>,
-                                            SDTCisPtrTy<1>]>;
-def HexagonFCONST32 : SDNode<"HexagonISD::FCONST32",     SDTHexagonFCONST32>;
+def SDTHexagonFCONST32 : SDTypeProfile<1, 1, [SDTCisVT<0, f32>,
+                                              SDTCisPtrTy<1>]>;
+def HexagonFCONST32 : SDNode<"HexagonISD::FCONST32", SDTHexagonFCONST32>;
 
 let isReMaterializable = 1, isMoveImm = 1, isAsmParserOnly = 1 in
 def FCONST32_nsdata : LDInst<(outs IntRegs:$dst), (ins globaladdress:$global),
-              "$dst = CONST32(#$global)",
-              [(set (f32 IntRegs:$dst),
-              (HexagonFCONST32 tglobaladdr:$global))]>,
-               Requires<[HasV5T]>;
+                             "$dst = CONST32(#$global)",
+                             [(set F32:$dst,
+                              (HexagonFCONST32 tglobaladdr:$global))]>,
+                             Requires<[HasV5T]>;
 
 let isReMaterializable = 1, isMoveImm = 1, isAsmParserOnly = 1 in
 def CONST64_Float_Real : LDInst<(outs DoubleRegs:$dst), (ins f64imm:$src1),
-                       "$dst = CONST64(#$src1)",
-                       [(set DoubleRegs:$dst, fpimm:$src1)]>,
-          Requires<[HasV5T]>;
+                                "$dst = CONST64(#$src1)",
+                                [(set F64:$dst, fpimm:$src1)]>,
+                                Requires<[HasV5T]>;
 
 let isReMaterializable = 1, isMoveImm = 1, isAsmParserOnly = 1 in
 def CONST32_Float_Real : LDInst<(outs IntRegs:$dst), (ins f32imm:$src1),
-                       "$dst = CONST32(#$src1)",
-                       [(set IntRegs:$dst, fpimm:$src1)]>,
-          Requires<[HasV5T]>;
+                                "$dst = CONST32(#$src1)",
+                                [(set F32:$dst, fpimm:$src1)]>,
+                                Requires<[HasV5T]>;
 
 // Transfer immediate float.
 // Only works with single precision fp value.
@@ -98,28 +97,26 @@ def CONST32_Float_Real : LDInst<(outs IntRegs:$dst), (ins f32imm:$src1),
 // Make sure that complexity is more than the CONST32 pattern in
 // HexagonInstrInfo.td patterns.
 let isExtended = 1, opExtendable = 1, isMoveImm = 1, isReMaterializable = 1,
-isPredicable = 1, AddedComplexity = 30, validSubTargets = HasV5SubT,
-isCodeGenOnly = 1 in
+    isPredicable = 1, AddedComplexity = 30, validSubTargets = HasV5SubT,
+    isCodeGenOnly = 1 in
 def TFRI_f : ALU32_ri<(outs IntRegs:$dst), (ins f32Ext:$src1),
-           "$dst = #$src1",
-           [(set IntRegs:$dst, fpimm:$src1)]>,
-          Requires<[HasV5T]>;
+                      "$dst = #$src1",
+                      [(set F32:$dst, fpimm:$src1)]>,
+                      Requires<[HasV5T]>;
 
 let isExtended = 1, opExtendable = 2, isPredicated = 1,
-hasSideEffects = 0, validSubTargets = HasV5SubT, isCodeGenOnly = 1 in
+    hasSideEffects = 0, validSubTargets = HasV5SubT, isCodeGenOnly = 1 in
 def TFRI_cPt_f : ALU32_ri<(outs IntRegs:$dst),
                           (ins PredRegs:$src1, f32Ext:$src2),
-           "if ($src1) $dst = #$src2",
-           []>,
-          Requires<[HasV5T]>;
+                          "if ($src1) $dst = #$src2", []>,
+                          Requires<[HasV5T]>;
 
-let isPseudo = 1, isExtended = 1, opExtendable = 2, isPredicated = 1, 
+let isPseudo = 1, isExtended = 1, opExtendable = 2, isPredicated = 1,
     isPredicatedFalse = 1, hasSideEffects = 0, validSubTargets = HasV5SubT in
 def TFRI_cNotPt_f : ALU32_ri<(outs IntRegs:$dst),
                              (ins PredRegs:$src1, f32Ext:$src2),
-           "if (!$src1) $dst =#$src2",
-           []>,
-          Requires<[HasV5T]>;
+                             "if (!$src1) $dst = #$src2", []>,
+                             Requires<[HasV5T]>;
 
 def SDTHexagonI32I64: SDTypeProfile<1, 1, [SDTCisVT<0, i32>,
                                            SDTCisVT<1, i64>]>;
@@ -147,6 +144,8 @@ defm: Loadx_pat<load, f64, s11_3ExtPred, L2_loadrd_io>;
 
 defm: Storex_pat<store, F32, s11_2ExtPred, S2_storeri_io>;
 defm: Storex_pat<store, F64, s11_3ExtPred, S2_storerd_io>;
+def: Storex_simple_pat<store, F32, S2_storeri_io>;
+def: Storex_simple_pat<store, F64, S2_storerd_io>;
 
 let isFP = 1, hasNewValue = 1, opNewValue = 0 in
 class T_MInstFloat <string mnemonic, bits<3> MajOp, bits<3> MinOp>
@@ -189,6 +188,24 @@ def: Pat<(f32 (fmul F32:$src1, F32:$src2)),
 let Itinerary = M_tc_3x_SLOT23 in {
   def F2_sfmax : T_MInstFloat < "sfmax", 0b100, 0b000>;
   def F2_sfmin : T_MInstFloat < "sfmin", 0b100, 0b001>;
+}
+
+let AddedComplexity = 100, Predicates = [HasV5T] in {
+  def: Pat<(f32 (select (i1 (setolt F32:$src1, F32:$src2)),
+                        F32:$src1, F32:$src2)),
+           (F2_sfmin F32:$src1, F32:$src2)>;
+
+  def: Pat<(f32 (select (i1 (setogt F32:$src1, F32:$src2)),
+                        F32:$src2, F32:$src1)),
+           (F2_sfmin F32:$src1, F32:$src2)>;
+
+  def: Pat<(f32 (select (i1 (setogt F32:$src1, F32:$src2)),
+                        F32:$src1, F32:$src2)),
+           (F2_sfmax F32:$src1, F32:$src2)>;
+
+  def: Pat<(f32 (select (i1 (setolt F32:$src1, F32:$src2)),
+                        F32:$src2, F32:$src1)),
+           (F2_sfmax F32:$src1, F32:$src2)>;
 }
 
 def F2_sffixupn : T_MInstFloat < "sffixupn", 0b110, 0b000>;
@@ -702,6 +719,9 @@ def F2_sffms: T_sfmpy_acc <1, 0>;
 def F2_sffma_lib: T_sfmpy_acc <0, 1>;
 def F2_sffms_lib: T_sfmpy_acc <1, 1>;
 
+def : Pat <(f32 (fma F32:$src2, F32:$src3, F32:$src1)),
+           (F2_sffma F32:$src1, F32:$src2, F32:$src3)>;
+
 // Floating-point fused multiply add w/ additional scaling (2**pu).
 let isFP = 1, hasNewValue = 1 in
 def F2_sffma_sc: MInst <
@@ -742,6 +762,38 @@ def MUX_ri_f : ALU32_rr<(outs IntRegs:$dst),
       [(set F32:$dst, (f32 (select I1:$src1, fpimm:$src2, F32:$src3)))]>,
     Requires<[HasV5T]>;
 
+def: Pat<(select I1:$src1, F32:$src2, F32:$src3),
+         (C2_mux I1:$src1, F32:$src2, F32:$src3)>,
+     Requires<[HasV5T]>;
+
+def: Pat<(select (i1 (setult F32:$src1, F32:$src2)), F32:$src3, F32:$src4),
+         (C2_mux (F2_sfcmpgt F32:$src2, F32:$src1), F32:$src4, F32:$src3)>,
+     Requires<[HasV5T]>;
+
+def: Pat<(select I1:$src1, F64:$src2, F64:$src3),
+         (C2_vmux I1:$src1, F64:$src2, F64:$src3)>,
+    Requires<[HasV5T]>;
+
+def: Pat<(select (i1 (setult F64:$src1, F64:$src2)), F64:$src3, F64:$src4),
+         (C2_vmux (F2_dfcmpgt F64:$src2, F64:$src1), F64:$src3, F64:$src4)>,
+     Requires<[HasV5T]>;
+
+// Map from p0 = pnot(p0); r0 = select(p0, #i, r1)
+// => r0 = MUX_ir_f(p0, #i, r1)
+def: Pat<(select (not I1:$src1), fpimm:$src2, F32:$src3),
+         (MUX_ir_f I1:$src1, F32:$src3, fpimm:$src2)>,
+     Requires<[HasV5T]>;
+
+// Map from p0 = pnot(p0); r0 = mux(p0, r1, #i)
+// => r0 = MUX_ri_f(p0, r1, #i)
+def: Pat<(select (not I1:$src1), F32:$src2, fpimm:$src3),
+         (MUX_ri_f I1:$src1, fpimm:$src3, F32:$src2)>,
+     Requires<[HasV5T]>;
+
+def: Pat<(i32 (fp_to_sint F64:$src1)),
+         (LoReg (F2_conv_df2d_chop F64:$src1))>,
+     Requires<[HasV5T]>;
+
 //===----------------------------------------------------------------------===//
 // :natural forms of vasrh and vasrhub insns
 //===----------------------------------------------------------------------===//
@@ -768,7 +820,7 @@ class T_ASRHUB<bit isSat>
     let Inst{5} = isSat;
     let Inst{4-0} = Rd;
   }
-  
+
 def S5_asrhub_rnd_sat : T_ASRHUB <0>;
 def S5_asrhub_sat : T_ASRHUB <1>;
 
@@ -852,7 +904,6 @@ def F2_dfclass: ALU64Inst<(outs PredRegs:$Pd), (ins DoubleRegs:$Rss, u5Imm:$u5),
   }
 
 // Instructions to create floating point constant
-let hasNewValue = 1, opNewValue = 0 in
 class T_fimm <string mnemonic, RegisterClass RC, bits<4> RegType, bit isNeg>
   : ALU64Inst<(outs RC:$dst), (ins u10Imm:$src),
   "$dst = "#mnemonic#"(#$src)"#!if(isNeg, ":neg", ":pos"),
@@ -869,8 +920,11 @@ class T_fimm <string mnemonic, RegisterClass RC, bits<4> RegType, bit isNeg>
     let Inst{4-0}   = dst;
   }
 
+let hasNewValue = 1, opNewValue = 0 in {
 def F2_sfimm_p : T_fimm <"sfmake", IntRegs, 0b0110, 0>;
 def F2_sfimm_n : T_fimm <"sfmake", IntRegs, 0b0110, 1>;
+}
+
 def F2_dfimm_p : T_fimm <"dfmake", DoubleRegs, 0b1001, 0>;
 def F2_dfimm_n : T_fimm <"dfmake", DoubleRegs, 0b1001, 1>;
 
@@ -881,13 +935,3 @@ def : Pat <(fabs (f32 IntRegs:$src1)),
 def : Pat <(fneg (f32 IntRegs:$src1)),
            (S2_togglebit_i (f32 IntRegs:$src1), 31)>,
           Requires<[HasV5T]>;
-
-/*
-def : Pat <(fabs (f64 DoubleRegs:$src1)),
-          (S2_clrbit_i (f32 (EXTRACT_SUBREG DoubleRegs:$src1, subreg_hireg)), 31)>,
-          Requires<[HasV5T]>;
-
-def : Pat <(fabs (f64 DoubleRegs:$src1)),
-          (S2_clrbit_i (f32 (EXTRACT_SUBREG DoubleRegs:$src1, subreg_hireg)), 31)>,
-          Requires<[HasV5T]>;
-          */

@@ -4153,8 +4153,13 @@ bool SROA::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
   for (auto &P : AS.partitions()) {
     if (AllocaInst *NewAI = rewritePartition(AI, AS, P)) {
       Changed = true;
-      if (NewAI != &AI)
-        Pieces.push_back(Piece(NewAI, P.beginOffset(), P.size()));
+      if (NewAI != &AI) {
+        uint64_t SizeOfByte = 8;
+        uint64_t AllocaSize = DL->getTypeSizeInBits(NewAI->getAllocatedType());
+        // Don't include any padding.
+        uint64_t Size = std::min(AllocaSize, P.size() * SizeOfByte);
+        Pieces.push_back(Piece(NewAI, P.beginOffset() * SizeOfByte, Size));
+      }
     }
     ++NumPartitions;
   }
@@ -4175,15 +4180,20 @@ bool SROA::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
       // Create a piece expression describing the new partition or reuse AI's
       // expression if there is only one partition.
       DIExpression PieceExpr = Expr;
-      if (IsSplit || Expr.isVariablePiece()) {
+      if (IsSplit || Expr.isBitPiece()) {
         // If this alloca is already a scalar replacement of a larger aggregate,
         // Piece.Offset describes the offset inside the scalar.
-        unsigned Offset = Expr.isVariablePiece() ? Expr.getPieceOffset() : 0;
-        assert((Offset == 0 ||
-                Offset+Piece.Offset+Piece.Size <=
-                Expr.getPieceOffset()+Expr.getPieceSize()) &&
-                "inner piece is not inside original alloca");
-        PieceExpr = DIB.createPieceExpression(Offset+Piece.Offset, Piece.Size);
+        uint64_t Offset = Expr.isBitPiece() ? Expr.getBitPieceOffset() : 0;
+        uint64_t Start = Offset + Piece.Offset;
+        uint64_t Size = Piece.Size;
+        if (Expr.isBitPiece()) {
+          uint64_t AbsEnd = Expr.getBitPieceOffset() + Expr.getBitPieceSize();
+          if (Start >= AbsEnd)
+            // No need to describe a SROAed padding.
+            continue;
+          Size = std::min(Size, AbsEnd - Start);
+        }
+        PieceExpr = DIB.createBitPieceExpression(Start, Size);
       }
 
       // Remove any existing dbg.declare intrinsic describing the same alloca.

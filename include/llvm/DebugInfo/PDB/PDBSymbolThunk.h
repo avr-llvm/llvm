@@ -6,19 +6,26 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+
 #ifndef LLVM_DEBUGINFO_PDB_PDBSYMBOLTHUNK_H
 #define LLVM_DEBUGINFO_PDB_PDBSYMBOLTHUNK_H
 
-#include <string>
-
 #include "PDBSymbol.h"
 #include "PDBTypes.h"
+#include <string>
 
 namespace llvm {
 
+class raw_ostream;
+
 class PDBSymbolThunk : public PDBSymbol {
 public:
-  PDBSymbolThunk(std::unique_ptr<IPDBRawSymbol> ThunkSymbol);
+  PDBSymbolThunk(const IPDBSession &PDBSession,
+                 std::unique_ptr<IPDBRawSymbol> ThunkSymbol);
+
+  DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::Thunk)
+
+  void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const override;
 
   FORWARD_SYMBOL_METHOD(getAccess)
   FORWARD_SYMBOL_METHOD(getAddressOffset)
@@ -44,10 +51,6 @@ public:
   FORWARD_SYMBOL_METHOD(getVirtualAddress)
   FORWARD_SYMBOL_METHOD(getVirtualBaseOffset)
   FORWARD_SYMBOL_METHOD(isVolatileType)
-
-  static bool classof(const PDBSymbol *S) {
-    return S->getSymTag() == PDB_SymType::Thunk;
-  }
 };
 } // namespace llvm
 

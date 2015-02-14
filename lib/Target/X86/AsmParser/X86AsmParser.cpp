@@ -1964,7 +1964,6 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
     PatchedName = PatchedName.substr(0, Name.size()-1);
 
   // FIXME: Hack to recognize cmp<comparison code>{ss,sd,ps,pd}.
-  const MCExpr *ExtraImmOp = nullptr;
   if ((PatchedName.startswith("cmp") || PatchedName.startswith("vcmp")) &&
       (PatchedName.endswith("ss") || PatchedName.endswith("sd") ||
        PatchedName.endswith("ps") || PatchedName.endswith("pd"))) {
@@ -2007,25 +2006,46 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
       .Case("true_us",  0x1F)
       .Default(~0U);
     if (SSEComparisonCode != ~0U && (IsVCMP || SSEComparisonCode < 8)) {
-      ExtraImmOp = MCConstantExpr::Create(SSEComparisonCode,
-                                          getParser().getContext());
-      if (PatchedName.endswith("ss")) {
-        PatchedName = IsVCMP ? "vcmpss" : "cmpss";
-      } else if (PatchedName.endswith("sd")) {
-        PatchedName = IsVCMP ? "vcmpsd" : "cmpsd";
-      } else if (PatchedName.endswith("ps")) {
-        PatchedName = IsVCMP ? "vcmpps" : "cmpps";
-      } else {
-        assert(PatchedName.endswith("pd") && "Unexpected mnemonic!");
-        PatchedName = IsVCMP ? "vcmppd" : "cmppd";
-      }
+
+      Operands.push_back(X86Operand::CreateToken(PatchedName.slice(0, SSECCIdx),
+                                                 NameLoc));
+
+      const MCExpr *ImmOp = MCConstantExpr::Create(SSEComparisonCode,
+                                                   getParser().getContext());
+      Operands.push_back(X86Operand::CreateImm(ImmOp, NameLoc, NameLoc));
+
+      PatchedName = PatchedName.substr(PatchedName.size() - 2);
+    }
+  }
+
+  // FIXME: Hack to recognize vpcom<comparison code>{ub,uw,ud,uq,b,w,d,q}.
+  if (PatchedName.startswith("vpcom") &&
+      (PatchedName.endswith("b") || PatchedName.endswith("w") ||
+       PatchedName.endswith("d") || PatchedName.endswith("q"))) {
+    unsigned XOPIdx = PatchedName.drop_back().endswith("u") ? 2 : 1;
+    unsigned XOPComparisonCode = StringSwitch<unsigned>(
+      PatchedName.slice(5, PatchedName.size() - XOPIdx))
+      .Case("lt",    0x0)
+      .Case("le",    0x1)
+      .Case("gt",    0x2)
+      .Case("ge",    0x3)
+      .Case("eq",    0x4)
+      .Case("neq",   0x5)
+      .Case("false", 0x6)
+      .Case("true",  0x7)
+      .Default(~0U);
+    if (XOPComparisonCode != ~0U) {
+      Operands.push_back(X86Operand::CreateToken("vpcom", NameLoc));
+
+      const MCExpr *ImmOp = MCConstantExpr::Create(XOPComparisonCode,
+                                                   getParser().getContext());
+      Operands.push_back(X86Operand::CreateImm(ImmOp, NameLoc, NameLoc));
+
+      PatchedName = PatchedName.substr(PatchedName.size() - XOPIdx);
     }
   }
 
   Operands.push_back(X86Operand::CreateToken(PatchedName, NameLoc));
-
-  if (ExtraImmOp && !isParsingIntelSyntax())
-    Operands.push_back(X86Operand::CreateImm(ExtraImmOp, NameLoc, NameLoc));
 
   // Determine whether this is an instruction prefix.
   bool isPrefix =
@@ -2071,9 +2091,6 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
   if (getLexer().is(AsmToken::EndOfStatement) ||
       (isPrefix && getLexer().is(AsmToken::Slash)))
     Parser.Lex();
-
-  if (ExtraImmOp && isParsingIntelSyntax())
-    Operands.push_back(X86Operand::CreateImm(ExtraImmOp, NameLoc, NameLoc));
 
   // This is a terrible hack to handle "out[bwl]? %al, (%dx)" ->
   // "outb %al, %dx".  Out doesn't take a memory form, but this is a widely

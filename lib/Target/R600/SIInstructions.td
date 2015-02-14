@@ -1735,21 +1735,36 @@ defm V_MUL_HI_I32 : VOP3Inst <vop3<0x16c, 0x287>, "v_mul_hi_i32",
 
 } // isCommutable = 1, SchedRW = [WriteQuarterRate32]
 
+let SchedRW = [WriteFloatFMA, WriteSALU] in {
 defm V_DIV_SCALE_F32 : VOP3b_32 <vop3<0x16d, 0x1e0>, "v_div_scale_f32", []>;
+}
 
-let SchedRW = [WriteDouble] in {
+let SchedRW = [WriteDouble, WriteSALU] in {
 // Double precision division pre-scale.
 defm V_DIV_SCALE_F64 : VOP3b_64 <vop3<0x16e, 0x1e1>, "v_div_scale_f64", []>;
 } // let SchedRW = [WriteDouble]
 
-let isCommutable = 1 in {
-defm V_DIV_FMAS_F32 : VOP3Inst <vop3<0x16f, 0x1e2>, "v_div_fmas_f32",
+let isCommutable = 1, Uses = [VCC] in {
+
+// v_div_fmas_f32:
+//   result = src0 * src1 + src2
+//   if (vcc)
+//     result *= 2^32
+//
+defm V_DIV_FMAS_F32 : VOP3_VCC_Inst <vop3<0x16f, 0x1e2>, "v_div_fmas_f32",
   VOP_F32_F32_F32_F32, AMDGPUdiv_fmas
 >;
+
 let SchedRW = [WriteDouble] in {
-defm V_DIV_FMAS_F64 : VOP3Inst <vop3<0x170, 0x1e3>, "v_div_fmas_f64",
+// v_div_fmas_f64:
+//   result = src0 * src1 + src2
+//   if (vcc)
+//     result *= 2^64
+//
+defm V_DIV_FMAS_F64 : VOP3_VCC_Inst <vop3<0x170, 0x1e3>, "v_div_fmas_f64",
   VOP_F64_F64_F64_F64, AMDGPUdiv_fmas
 >;
+
 } // End SchedRW = [WriteDouble]
 } // End isCommutable = 1
 
@@ -2151,9 +2166,13 @@ def : Pat <
 //===----------------------------------------------------------------------===//
 
 let Predicates = [UnsafeFPMath] in {
-def : RcpPat<V_RCP_F64_e32, f64>;
-defm : RsqPat<V_RSQ_F64_e32, f64>;
-defm : RsqPat<V_RSQ_F32_e32, f32>;
+
+//def : RcpPat<V_RCP_F64_e32, f64>;
+//defm : RsqPat<V_RSQ_F64_e32, f64>;
+//defm : RsqPat<V_RSQ_F32_e32, f32>;
+
+def : RsqPat<V_RSQ_F32_e32, f32>;
+def : RsqPat<V_RSQ_F64_e32, f64>;
 }
 
 //===----------------------------------------------------------------------===//
@@ -2670,13 +2689,6 @@ def : Pat <
   (V_MUL_LEGACY_F32_e32 $src0, (V_RCP_LEGACY_F32_e32 $src1))
 >;
 
-def : Pat<
-  (fdiv f64:$src0, f64:$src1),
-  (V_MUL_F64 0 /* src0_modifiers */, $src0,
-             0 /* src1_modifiers */, (V_RCP_F64_e32 $src1),
-             0 /* clamp */, 0 /* omod */)
->;
-
 def : Pat <
   (int_AMDGPU_cube v4f32:$src),
   (REG_SEQUENCE VReg_128,
@@ -2877,8 +2889,8 @@ def : DSAtomicCmpXChg<DS_CMPST_RTN_B64, i64, atomic_cmp_swap_64_local>;
 multiclass MUBUFLoad_Pattern <MUBUF Instr_ADDR64, ValueType vt,
                               PatFrag constant_ld> {
   def : Pat <
-     (vt (constant_ld (MUBUFAddr64 v4i32:$srsrc, i64:$vaddr, i16:$offset))),
-     (Instr_ADDR64 $srsrc, $vaddr, $offset)
+     (vt (constant_ld (MUBUFAddr64 v4i32:$srsrc, i64:$vaddr, i32:$soffset, i16:$offset))),
+     (Instr_ADDR64 $srsrc, $vaddr, $soffset, $offset)
   >;
 }
 

@@ -10,10 +10,9 @@
 #ifndef LLVM_DEBUGINFO_PDB_IPDBDATASTREAM_H
 #define LLVM_DEBUGINFO_PDB_IPDBDATASTREAM_H
 
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/Optional.h"
-
 #include "PDBTypes.h"
+#include "llvm/ADT/Optional.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace llvm {
 
@@ -31,7 +30,7 @@ public:
   virtual llvm::Optional<RecordType> getItemAtIndex(uint32_t Index) const = 0;
   virtual bool getNext(RecordType &Record) = 0;
   virtual void reset() = 0;
-  virtual std::unique_ptr<IPDBDataStream> clone() const = 0;
+  virtual IPDBDataStream *clone() const = 0;
 };
 }
 

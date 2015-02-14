@@ -15,9 +15,16 @@
 
 namespace llvm {
 
+class raw_ostream;
+
 class PDBSymbolTypeVTableShape : public PDBSymbol {
 public:
-  PDBSymbolTypeVTableShape(std::unique_ptr<IPDBRawSymbol> VtblShapeSymbol);
+  PDBSymbolTypeVTableShape(const IPDBSession &PDBSession,
+                           std::unique_ptr<IPDBRawSymbol> VtblShapeSymbol);
+
+  DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::VTableShape)
+
+  void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const override;
 
   FORWARD_SYMBOL_METHOD(isConstType)
   FORWARD_SYMBOL_METHOD(getCount)
@@ -25,10 +32,6 @@ public:
   FORWARD_SYMBOL_METHOD(getSymIndexId)
   FORWARD_SYMBOL_METHOD(isUnalignedType)
   FORWARD_SYMBOL_METHOD(isVolatileType)
-
-  static bool classof(const PDBSymbol *S) {
-    return S->getSymTag() == PDB_SymType::VTableShape;
-  }
 };
 
 } // namespace llvm

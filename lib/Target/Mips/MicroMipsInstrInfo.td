@@ -192,6 +192,28 @@ class StoreLeftRightMM<string opstr, SDNode OpNode, RegisterOperand RO,
   let DecoderMethod = "DecodeMemMMImm12";
 }
 
+/// A register pair used by movep instruction.
+def MovePRegPairAsmOperand : AsmOperandClass {
+  let Name = "MovePRegPair";
+  let ParserMethod = "parseMovePRegPair";
+  let PredicateMethod = "isMovePRegPair";
+}
+
+def movep_regpair : Operand<i32> {
+  let EncoderMethod = "getMovePRegPairOpValue";
+  let ParserMatchClass = MovePRegPairAsmOperand;
+  let PrintMethod = "printRegisterList";
+  let DecoderMethod = "DecodeMovePRegPair";
+  let MIOperandInfo = (ops GPR32Opnd, GPR32Opnd);
+}
+
+class MovePMM16<string opstr, RegisterOperand RO> :
+MicroMipsInst16<(outs movep_regpair:$dst_regs), (ins RO:$rs, RO:$rt),
+                 !strconcat(opstr, "\t$dst_regs, $rs, $rt"), [],
+                 NoItinerary, FrmR> {
+  let isReMaterializable = 1;
+}
+
 /// A register pair used by load/store pair instructions.
 def RegPairAsmOperand : AsmOperandClass {
   let Name = "RegPair";
@@ -505,6 +527,7 @@ class StoreMultMM16<string opstr,
                     ComplexPattern Addr = addr> :
   MicroMipsInst16<(outs), (ins reglist16:$rt, mem_mm_4sp:$addr),
                   !strconcat(opstr, "\t$rt, $addr"), [], Itin, FrmI> {
+  let DecoderMethod = "DecodeMemMMReglistImm4Lsl2";
   let mayStore = 1;
 }
 
@@ -513,6 +536,7 @@ class LoadMultMM16<string opstr,
                    ComplexPattern Addr = addr> :
   MicroMipsInst16<(outs reglist16:$rt), (ins mem_mm_4sp:$addr),
                   !strconcat(opstr, "\t$rt, $addr"), [], Itin, FrmI> {
+  let DecoderMethod = "DecodeMemMMReglistImm4Lsl2";
   let mayLoad = 1;
 }
 
@@ -570,6 +594,7 @@ def ADDIUSP_MM : AddImmUSP<"addiusp">, ADDIUSP_FM_MM16;
 def MFHI16_MM : MoveFromHILOMM<"mfhi", GPR32Opnd, AC0>, MFHILO_FM_MM16<0x10>;
 def MFLO16_MM : MoveFromHILOMM<"mflo", GPR32Opnd, AC0>, MFHILO_FM_MM16<0x12>;
 def MOVE16_MM : MoveMM16<"move", GPR32Opnd>, MOVE_FM_MM16<0x03>;
+def MOVEP_MM : MovePMM16<"movep", GPRMM16OpndMoveP>, MOVEP_FM_MM16;
 def LI16_MM : LoadImmMM16<"li16", li_simm7, GPRMM16Opnd>, LI_FM_MM16,
               IsAsCheapAsAMove;
 def JALR16_MM : JumpLinkRegMM16<"jalr", GPR32Opnd>, JALR_FM_MM16<0x0e>;

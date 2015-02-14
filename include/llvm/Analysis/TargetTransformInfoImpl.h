@@ -18,8 +18,8 @@
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/IR/Operator.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/Operator.h"
 #include "llvm/IR/Type.h"
 
 namespace llvm {
@@ -421,8 +421,7 @@ public:
         return TTI::TCC_Free;
     }
 
-    // Otherwise delegate to the fully generic implementations.
-    return getOperationCost(
+    return static_cast<T *>(this)->getOperationCost(
         Operator::getOpcode(U), U->getType(),
         U->getNumOperands() == 1 ? U->getOperand(0)->getType() : nullptr);
   }

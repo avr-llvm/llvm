@@ -403,12 +403,9 @@ namespace {
     DAGCombiner(SelectionDAG &D, AliasAnalysis &A, CodeGenOpt::Level OL)
         : DAG(D), TLI(D.getTargetLoweringInfo()), Level(BeforeLegalizeTypes),
           OptLevel(OL), LegalOperations(false), LegalTypes(false), AA(A) {
-      AttributeSet FnAttrs =
-          DAG.getMachineFunction().getFunction()->getAttributes();
-      ForCodeSize =
-          FnAttrs.hasAttribute(AttributeSet::FunctionIndex,
-                               Attribute::OptimizeForSize) ||
-          FnAttrs.hasAttribute(AttributeSet::FunctionIndex, Attribute::MinSize);
+      auto *F = DAG.getMachineFunction().getFunction();
+      ForCodeSize = F->hasFnAttribute(Attribute::OptimizeForSize) ||
+                    F->hasFnAttribute(Attribute::MinSize);
     }
 
     /// Runs the dag combiner on all nodes in the work list
@@ -1184,10 +1181,8 @@ void DAGCombiner::Run(CombineLevel AtLevel) {
   LegalTypes = Level >= AfterLegalizeTypes;
 
   // Early exit if this basic block is in an optnone function.
-  AttributeSet FnAttrs =
-    DAG.getMachineFunction().getFunction()->getAttributes();
-  if (FnAttrs.hasAttribute(AttributeSet::FunctionIndex,
-                           Attribute::OptimizeNone))
+  if (DAG.getMachineFunction().getFunction()->hasFnAttribute(
+          Attribute::OptimizeNone))
     return;
 
   // Add all the dag nodes to the worklist.
@@ -1501,7 +1496,7 @@ SDValue DAGCombiner::visitTokenFactor(SDNode *N) {
       switch (Op.getOpcode()) {
       case ISD::EntryToken:
         // Entry tokens don't need to be added to the list. They are
-        // rededundant.
+        // redundant.
         Changed = true;
         break;
 
@@ -1530,7 +1525,7 @@ SDValue DAGCombiner::visitTokenFactor(SDNode *N) {
 
   SDValue Result;
 
-  // If we've change things around then replace token factor.
+  // If we've changed things around then replace token factor.
   if (Changed) {
     if (Ops.empty()) {
       // The entry token is the only possible outcome.
@@ -1540,8 +1535,11 @@ SDValue DAGCombiner::visitTokenFactor(SDNode *N) {
       Result = DAG.getNode(ISD::TokenFactor, SDLoc(N), MVT::Other, Ops);
     }
 
-    // Don't add users to work list.
-    return CombineTo(N, Result, false);
+    // Add users to worklist if AA is enabled, since it may introduce
+    // a lot of new chained token factors while removing memory deps.
+    bool UseAA = CombinerAA.getNumOccurrences() > 0 ? CombinerAA
+      : DAG.getSubtarget().useAA();
+    return CombineTo(N, Result, UseAA /*add to worklist*/);
   }
 
   return Result;
@@ -6690,19 +6688,15 @@ SDValue DAGCombiner::visitBITCAST(SDNode *N) {
 
   // If the input is a constant, let getNode fold it.
   if (isa<ConstantSDNode>(N0) || isa<ConstantFPSDNode>(N0)) {
-    SDValue Res = DAG.getNode(ISD::BITCAST, SDLoc(N), VT, N0);
-    if (Res.getNode() != N) {
-      if (!LegalOperations ||
-          TLI.isOperationLegal(Res.getNode()->getOpcode(), VT))
-        return Res;
-
-      // Folding it resulted in an illegal node, and it's too late to
-      // do that. Clean up the old node and forego the transformation.
-      // Ideally this won't happen very often, because instcombine
-      // and the earlier dagcombine runs (where illegal nodes are
-      // permitted) should have folded most of them already.
-      deleteAndRecombine(Res.getNode());
-    }
+    // If we can't allow illegal operations, we need to check that this is just
+    // a fp -> int or int -> conversion and that the resulting operation will
+    // be legal.
+    if (!LegalOperations ||
+        (isa<ConstantSDNode>(N0) && VT.isFloatingPoint() && !VT.isVector() &&
+         TLI.isOperationLegal(ISD::ConstantFP, VT)) ||
+        (isa<ConstantFPSDNode>(N0) && VT.isInteger() && !VT.isVector() &&
+         TLI.isOperationLegal(ISD::Constant, VT)))
+      return DAG.getNode(ISD::BITCAST, SDLoc(N), VT, N0);
   }
 
   // (conv (conv x, t1), t2) -> (conv x, t2)
@@ -7891,11 +7885,16 @@ SDValue DAGCombiner::visitFP_ROUND(SDNode *N) {
 
   // fold (fp_round (fp_round x)) -> (fp_round x)
   if (N0.getOpcode() == ISD::FP_ROUND) {
-    // This is a value preserving truncation if both round's are.
-    bool IsTrunc = N->getConstantOperandVal(1) == 1 &&
-                   N0.getNode()->getConstantOperandVal(1) == 1;
-    return DAG.getNode(ISD::FP_ROUND, SDLoc(N), VT, N0.getOperand(0),
-                       DAG.getIntPtrConstant(IsTrunc));
+    const bool NIsTrunc = N->getConstantOperandVal(1) == 1;
+    const bool N0IsTrunc = N0.getNode()->getConstantOperandVal(1) == 1;
+    // If the first fp_round isn't a value preserving truncation, it might
+    // introduce a tie in the second fp_round, that wouldn't occur in the
+    // single-step fp_round we want to fold to.
+    // In other words, double rounding isn't the same as rounding.
+    // Also, this is a value preserving truncation iff both fp_round's are.
+    if (DAG.getTarget().Options.UnsafeFPMath || N0IsTrunc)
+      return DAG.getNode(ISD::FP_ROUND, SDLoc(N), VT, N0.getOperand(0),
+                         DAG.getIntPtrConstant(NIsTrunc && N0IsTrunc));
   }
 
   // fold (fp_round (copysign X, Y)) -> (copysign (fp_round X), Y)
@@ -9485,7 +9484,7 @@ CheckForMaskedLoad(SDValue V, SDValue Ptr, SDValue Chain) {
   if (NotMaskLZ == 64) return Result;  // All zero mask.
 
   // See if we have a continuous run of bits.  If so, we have 0*1+0*
-  if (CountTrailingOnes_64(NotMask >> NotMaskTZ)+NotMaskTZ+NotMaskLZ != 64)
+  if (countTrailingOnes(NotMask >> NotMaskTZ) + NotMaskTZ + NotMaskLZ != 64)
     return Result;
 
   // Adjust NotMaskLZ down to be from the actual size of the int instead of i64.
@@ -9951,8 +9950,8 @@ bool DAGCombiner::MergeStoresOfConstantsOrVecElts(
 bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
   EVT MemVT = St->getMemoryVT();
   int64_t ElementSizeBytes = MemVT.getSizeInBits()/8;
-  bool NoVectors = DAG.getMachineFunction().getFunction()->getAttributes().
-    hasAttribute(AttributeSet::FunctionIndex, Attribute::NoImplicitFloat);
+  bool NoVectors = DAG.getMachineFunction().getFunction()->hasFnAttribute(
+      Attribute::NoImplicitFloat);
 
   // Don't merge vectors into wider inputs.
   if (MemVT.isVector() || !MemVT.isSimple())

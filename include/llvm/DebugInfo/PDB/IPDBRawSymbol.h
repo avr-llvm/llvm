@@ -10,15 +10,14 @@
 #ifndef LLVM_DEBUGINFO_PDB_IPDBRAWSYMBOL_H
 #define LLVM_DEBUGINFO_PDB_IPDBRAWSYMBOL_H
 
-#include <memory>
-
+#include "PDBTypes.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/COFF.h"
-#include "llvm/Support/raw_ostream.h"
-#include "PDBTypes.h"
+#include <memory>
 
 namespace llvm {
+
+class raw_ostream;
 
 /// IPDBRawSymbol defines an interface used to represent an arbitrary symbol.
 /// It exposes a monolithic interface consisting of accessors for the union of
@@ -29,7 +28,10 @@ class IPDBRawSymbol {
 public:
   virtual ~IPDBRawSymbol();
 
-  virtual void dump(llvm::raw_ostream &OS) const = 0;
+  virtual void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const = 0;
+
+  virtual std::unique_ptr<IPDBEnumSymbols>
+  findChildren(PDB_SymType Type) const = 0;
 
   virtual std::unique_ptr<IPDBEnumSymbols>
   findChildren(PDB_SymType Type, StringRef Name,
@@ -41,14 +43,12 @@ public:
   findInlineFramesByRVA(uint32_t RVA) const = 0;
 
   virtual void getDataBytes(llvm::SmallVector<uint8_t, 32> &bytes) const = 0;
+  virtual void getBackEndVersion(VersionInfo &Version) const = 0;
   virtual PDB_MemberAccess getAccess() const = 0;
   virtual uint32_t getAddressOffset() const = 0;
   virtual uint32_t getAddressSection() const = 0;
   virtual uint32_t getAge() const = 0;
   virtual uint32_t getArrayIndexTypeId() const = 0;
-  virtual uint32_t getBackEndBuild() const = 0;
-  virtual uint32_t getBackEndMajor() const = 0;
-  virtual uint32_t getBackEndMinor() const = 0;
   virtual uint32_t getBaseDataOffset() const = 0;
   virtual uint32_t getBaseDataSlot() const = 0;
   virtual uint32_t getBaseSymbolId() const = 0;
@@ -59,16 +59,14 @@ public:
   virtual std::string getCompilerName() const = 0;
   virtual uint32_t getCount() const = 0;
   virtual uint32_t getCountLiveRanges() const = 0;
-  virtual uint32_t getFrontEndBuild() const = 0;
-  virtual uint32_t getFrontEndMajor() const = 0;
-  virtual uint32_t getFrontEndMinor() const = 0;
+  virtual void getFrontEndVersion(VersionInfo &Version) const = 0;
   virtual PDB_Lang getLanguage() const = 0;
   virtual uint32_t getLexicalParentId() const = 0;
   virtual std::string getLibraryName() const = 0;
   virtual uint32_t getLiveRangeStartAddressOffset() const = 0;
   virtual uint32_t getLiveRangeStartAddressSection() const = 0;
   virtual uint32_t getLiveRangeStartRelativeVirtualAddress() const = 0;
-  virtual uint32_t getLocalBasePointerRegisterId() const = 0;
+  virtual PDB_RegisterId getLocalBasePointerRegisterId() const = 0;
   virtual uint32_t getLowerBoundId() const = 0;
   virtual uint32_t getMemorySpaceKind() const = 0;
   virtual std::string getName() const = 0;
@@ -83,7 +81,7 @@ public:
   virtual uint32_t getOffsetInUdt() const = 0;
   virtual PDB_Cpu getPlatform() const = 0;
   virtual uint32_t getRank() const = 0;
-  virtual uint32_t getRegisterId() const = 0;
+  virtual PDB_RegisterId getRegisterId() const = 0;
   virtual uint32_t getRegisterType() const = 0;
   virtual uint32_t getRelativeVirtualAddress() const = 0;
   virtual uint32_t getSamplerSlot() const = 0;
@@ -107,6 +105,7 @@ public:
   virtual std::string getUndecoratedName() const = 0;
   virtual uint32_t getUnmodifiedTypeId() const = 0;
   virtual uint32_t getUpperBoundId() const = 0;
+  virtual Variant getValue() const = 0;
   virtual uint32_t getVirtualBaseDispIndex() const = 0;
   virtual uint32_t getVirtualBaseOffset() const = 0;
   virtual uint32_t getVirtualTableShapeId() const = 0;
@@ -117,7 +116,7 @@ public:
   virtual int32_t getThisAdjust() const = 0;
   virtual int32_t getVirtualBasePointerOffset() const = 0;
   virtual PDB_LocType getLocationType() const = 0;
-  virtual COFF::MachineTypes getMachineType() const = 0;
+  virtual PDB_Machine getMachineType() const = 0;
   virtual PDB_ThunkOrdinal getThunkOrdinal() const = 0;
   virtual uint64_t getLength() const = 0;
   virtual uint64_t getLiveRangeLength() const = 0;
@@ -140,6 +139,7 @@ public:
   virtual bool hasDebugInfo() const = 0;
   virtual bool hasEH() const = 0;
   virtual bool hasEHa() const = 0;
+  virtual bool hasFramePointer() const = 0;
   virtual bool hasInlAsm() const = 0;
   virtual bool hasInlineAttribute() const = 0;
   virtual bool hasInterruptReturn() const = 0;
@@ -202,6 +202,8 @@ public:
   virtual bool isVirtualBaseClass() const = 0;
   virtual bool isVirtualInheritance() const = 0;
   virtual bool isVolatileType() const = 0;
+  virtual bool wasInlined() const = 0;
+  virtual std::string getUnused() const = 0;
 };
 
 } // namespace llvm

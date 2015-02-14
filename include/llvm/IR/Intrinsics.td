@@ -117,6 +117,7 @@ class LLVMVectorSameWidth<int num, LLVMType elty>
   ValueType ElTy = elty.VT;
 }
 class LLVMPointerTo<int num> : LLVMMatchType<num>;
+class LLVMVectorOfPointersToElt<int num> : LLVMMatchType<num>;
 
 // Match the type of another intrinsic parameter that is expected to be a
 // vector type, but change the element count to be half as many
@@ -410,6 +411,11 @@ def int_eh_typeid_for : Intrinsic<[llvm_i32_ty], [llvm_ptr_ty], [IntrNoMem]>;
 def int_eh_return_i32 : Intrinsic<[], [llvm_i32_ty, llvm_ptr_ty]>;
 def int_eh_return_i64 : Intrinsic<[], [llvm_i64_ty, llvm_ptr_ty]>;
 
+// eh.begincatch takes a pointer returned by a landingpad instruction and
+// returns the exception object pointer for the exception to be handled.
+def int_eh_begincatch : Intrinsic<[llvm_ptr_ty], [llvm_ptr_ty]>;
+def int_eh_endcatch : Intrinsic<[], []>;
+
 // __builtin_unwind_init is an undocumented GCC intrinsic that causes all
 // callee-saved registers to be saved and restored (regardless of whether they
 // are used) in the calling function. It is used by libgcc_eh.
@@ -584,6 +590,19 @@ def int_masked_load  : Intrinsic<[llvm_anyvector_ty],
                                  [LLVMPointerTo<0>, llvm_i32_ty,
                                   LLVMVectorSameWidth<0, llvm_i1_ty>, LLVMMatchType<0>],
                                  [IntrReadArgMem]>;
+
+def int_masked_gather: Intrinsic<[llvm_anyvector_ty],
+                                 [LLVMVectorOfPointersToElt<0>, llvm_i32_ty,
+                                  LLVMVectorSameWidth<0, llvm_i1_ty>,
+                                  LLVMMatchType<0>],
+                                 [IntrReadArgMem]>;
+
+def int_masked_scatter: Intrinsic<[],
+                                  [llvm_anyvector_ty,
+                                   LLVMVectorOfPointersToElt<0>, llvm_i32_ty,
+                                   LLVMVectorSameWidth<0, llvm_i1_ty>],
+                                  [IntrReadWriteArgMem]>;
+
 //===----------------------------------------------------------------------===//
 // Target-specific intrinsics
 //===----------------------------------------------------------------------===//

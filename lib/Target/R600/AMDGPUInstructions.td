@@ -590,7 +590,7 @@ applied.
 
 def legalshift32 : ImmLeaf <i32, [{return Imm >=0 && Imm < 32;}]>;
 def bfemask : PatLeaf <(imm), [{return isMask_32(N->getZExtValue());}],
-                            SDNodeXForm<imm, [{ return CurDAG->getTargetConstant(CountTrailingOnes_32(N->getZExtValue()), MVT::i32);}]>>;
+                            SDNodeXForm<imm, [{ return CurDAG->getTargetConstant(countTrailingOnes(N->getZExtValue()), MVT::i32);}]>>;
 
 class BFEPattern <Instruction BFE> : Pat <
   (and (srl i32:$x, legalshift32:$y), bfemask:$z),
@@ -668,17 +668,10 @@ class RcpPat<Instruction RcpInst, ValueType vt> : Pat <
   (RcpInst $src)
 >;
 
-multiclass RsqPat<Instruction RsqInst, ValueType vt> {
-  def : Pat <
-    (fdiv FP_ONE, (fsqrt vt:$src)),
-    (RsqInst $src)
-  >;
-
-  def : Pat <
-    (AMDGPUrcp (fsqrt vt:$src)),
-    (RsqInst $src)
-  >;
-}
+class RsqPat<Instruction RsqInst, ValueType vt> : Pat <
+  (AMDGPUrcp (fsqrt vt:$src)),
+  (RsqInst $src)
+>;
 
 include "R600Instructions.td"
 include "R700Instructions.td"

@@ -343,6 +343,12 @@ void Function::removeAttributes(unsigned i, AttributeSet attrs) {
   setAttributes(PAL);
 }
 
+void Function::addDereferenceableAttr(unsigned i, uint64_t Bytes) {
+  AttributeSet PAL = getAttributes();
+  PAL = PAL.addDereferenceableAttr(getContext(), i, Bytes);
+  setAttributes(PAL);
+}
+
 // Maintain the GC name for each function in an on-the-side table. This saves
 // allocating an additional word in Function for programs which do not use GC
 // (i.e., most programs) at the cost of increased overhead for clients which do
@@ -542,7 +548,8 @@ enum IIT_Info {
   IIT_VARARG = 28,
   IIT_HALF_VEC_ARG = 29,
   IIT_SAME_VEC_WIDTH_ARG = 30,
-  IIT_PTR_TO_ARG = 31
+  IIT_PTR_TO_ARG = 31,
+  IIT_VEC_OF_PTRS_TO_ELT = 32
 };
 
 
@@ -659,6 +666,12 @@ static void DecodeIITType(unsigned &NextElt, ArrayRef<unsigned char> Infos,
   case IIT_PTR_TO_ARG: {
     unsigned ArgInfo = (NextElt == Infos.size() ? 0 : Infos[NextElt++]);
     OutputTable.push_back(IITDescriptor::get(IITDescriptor::PtrToArgument,
+                                             ArgInfo));
+    return;
+  }
+  case IIT_VEC_OF_PTRS_TO_ELT: {
+    unsigned ArgInfo = (NextElt == Infos.size() ? 0 : Infos[NextElt++]);
+    OutputTable.push_back(IITDescriptor::get(IITDescriptor::VecOfPtrsToElt,
                                              ArgInfo));
     return;
   }
@@ -780,6 +793,15 @@ static Type *DecodeFixedType(ArrayRef<Intrinsic::IITDescriptor> &Infos,
   case IITDescriptor::PtrToArgument: {
     Type *Ty = Tys[D.getArgumentNumber()];
     return PointerType::getUnqual(Ty);
+  }
+  case IITDescriptor::VecOfPtrsToElt: {
+    Type *Ty = Tys[D.getArgumentNumber()];
+    VectorType *VTy = dyn_cast<VectorType>(Ty);
+    if (!VTy)
+      llvm_unreachable("Expected an argument of Vector Type");
+    Type *EltTy = VTy->getVectorElementType();
+    return VectorType::get(PointerType::getUnqual(EltTy),
+                           VTy->getNumElements());
   }
  }
   llvm_unreachable("unhandled");

@@ -12,7 +12,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/GCStrategy.h"
-#include "llvm/CodeGen/SelectionDAGISel.h"
 #include "ScheduleDAGSDNodes.h"
 #include "SelectionDAGBuilder.h"
 #include "llvm/ADT/PostOrderIterator.h"
@@ -33,6 +32,7 @@
 #include "llvm/CodeGen/ScheduleHazardRecognizer.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
 #include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Function.h"
@@ -930,7 +930,7 @@ void SelectionDAGISel::PrepareEHLandingPad() {
   const LandingPadInst *LPadInst = LLVMBB->getLandingPadInst();
   MF->getMMI().addPersonality(
       MBB, cast<Function>(LPadInst->getPersonalityFn()->stripPointerCasts()));
-  if (MF->getMMI().getPersonalityType() == EHPersonality::Win64SEH) {
+  if (MF->getMMI().getPersonalityType() == EHPersonality::MSVC_Win64SEH) {
     // Make virtual registers and a series of labels that fill in values for the
     // clauses.
     auto &RI = MF->getRegInfo();

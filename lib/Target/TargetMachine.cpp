@@ -25,7 +25,7 @@
 #include "llvm/MC/MCSectionMachO.h"
 #include "llvm/MC/MCTargetOptions.h"
 #include "llvm/MC/SectionKind.h"
-#include "llvm/PassManager.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
@@ -54,10 +54,8 @@ TargetMachine::~TargetMachine() {
 void TargetMachine::resetTargetOptions(const Function &F) const {
 #define RESET_OPTION(X, Y)                                                     \
   do {                                                                         \
-    if (F.hasFnAttribute(Y))                                                  \
-      Options.X = (F.getAttributes()                                          \
-                       .getAttribute(AttributeSet::FunctionIndex, Y)           \
-                       .getValueAsString() == "true");                         \
+    if (F.hasFnAttribute(Y))                                                   \
+      Options.X = (F.getFnAttribute(Y).getValueAsString() == "true");          \
   } while (0)
 
   RESET_OPTION(NoFramePointerElim, "no-frame-pointer-elim");
@@ -146,30 +144,6 @@ CodeGenOpt::Level TargetMachine::getOptLevel() const {
 void TargetMachine::setOptLevel(CodeGenOpt::Level Level) const {
   if (CodeGenInfo)
     CodeGenInfo->setOptLevel(Level);
-}
-
-bool TargetMachine::getAsmVerbosityDefault() const {
-  return Options.MCOptions.AsmVerbose;
-}
-
-void TargetMachine::setAsmVerbosityDefault(bool V) {
-  Options.MCOptions.AsmVerbose = V;
-}
-
-bool TargetMachine::getFunctionSections() const {
-  return Options.FunctionSections;
-}
-
-bool TargetMachine::getDataSections() const {
-  return Options.DataSections;
-}
-
-void TargetMachine::setFunctionSections(bool V) {
-  Options.FunctionSections = V;
-}
-
-void TargetMachine::setDataSections(bool V) {
-  Options.DataSections = V;
 }
 
 TargetIRAnalysis TargetMachine::getTargetIRAnalysis() {
