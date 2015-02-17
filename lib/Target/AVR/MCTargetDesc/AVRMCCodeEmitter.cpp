@@ -1,4 +1,4 @@
-//===-- AVRMCCodeEmitter.cpp - Convert Mips Code to Machine Code ---------===//
+//===-- AVRMCCodeEmitter.cpp - Convert AVR Code to Machine Code ---------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -224,6 +224,31 @@ getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
   if (Kind == MCExpr::Binary) {
     Expr = static_cast<const MCBinaryExpr*>(Expr)->getLHS();
     Kind = Expr->getKind();
+  }
+  
+  if(Kind == MCExpr::Target) {
+    const AVRMCExpr *AVRExpr = cast<AVRMCExpr>(Expr);
+
+    AVR::Fixups FixupKind = AVR::Fixups(0);
+    
+    switch (AVRExpr->getKind()) {
+      // FIXME: uncomment once the fixup types are implemented
+      
+      /*case AVRMCExpr::VK_AVR_LO8: {
+        FixupKind = AVR::fixup_AVR_LO8;
+        break;
+      }
+      case AVRMCExpr::VK_AVR_HI8: {
+        FixupKind = AVR::fixup_AVR_HI8;
+        break;
+      }*/
+      default: {
+        llvm_unreachable("Unsupported fixup kind for target expression!");
+      }
+    }
+    
+    Fixups.push_back(MCFixup::Create(0, AVRExpr, MCFixupKind(FixupKind)));
+    return 0;
   }
 
   assert (Kind == MCExpr::SymbolRef);
