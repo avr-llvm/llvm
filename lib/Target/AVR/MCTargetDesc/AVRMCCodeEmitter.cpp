@@ -234,14 +234,14 @@ getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
     switch (AVRExpr->getKind()) {
       // FIXME: uncomment once the fixup types are implemented
       
-      /*case AVRMCExpr::VK_AVR_LO8: {
-        FixupKind = AVR::fixup_AVR_LO8;
+      case AVRMCExpr::VK_AVR_LO8: {
+        FixupKind = AVR::fixup_8_lo8;
         break;
       }
       case AVRMCExpr::VK_AVR_HI8: {
-        FixupKind = AVR::fixup_AVR_HI8;
+        FixupKind = AVR::fixup_8_hi8;
         break;
-      }*/
+      }
       default: {
         llvm_unreachable("Unsupported fixup kind for target expression!");
       }

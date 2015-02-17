@@ -41,7 +41,7 @@ AVRMCExpr::EvaluateAsRelocatableImpl(MCValue &Res,
                                      const MCAsmLayout *Layout,
                                      const MCFixup *Fixup) const
 {
-  return false;
+  return Expr->EvaluateAsRelocatable(Res, Layout, Fixup);
 }
 
 void AVRMCExpr::visitUsedExpr(MCStreamer &Streamer) const {
