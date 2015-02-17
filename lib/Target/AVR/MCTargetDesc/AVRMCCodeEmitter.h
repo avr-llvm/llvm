@@ -31,8 +31,8 @@ class MCSubtargetInfo;
 class raw_ostream;
 
 class AVRMCCodeEmitter : public MCCodeEmitter {
-  AVRMCCodeEmitter(const AVRMCCodeEmitter &) LLVM_DELETED_FUNCTION;
-  void operator=(const AVRMCCodeEmitter &) LLVM_DELETED_FUNCTION;
+  AVRMCCodeEmitter(const AVRMCCodeEmitter &) = delete;
+  void operator=(const AVRMCCodeEmitter &) = delete;
   const MCInstrInfo &MCII;
   MCContext &Ctx;
   bool IsLittleEndian;
