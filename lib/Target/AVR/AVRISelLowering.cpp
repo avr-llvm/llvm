@@ -28,10 +28,8 @@
 using namespace llvm;
 
 AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
-  TargetLowering(tm), TM(tm)
+  TargetLowering(tm)
 {
-  TD = getDataLayout();
-
   // Set up the register classes.
   addRegisterClass(MVT::i8, &AVR::GPR8RegClass);
   addRegisterClass(MVT::i16, &AVR::DREGSRegClass);
@@ -892,7 +890,7 @@ LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
                  ArgLocs, *DAG.getContext());
 
-  analyzeArguments(MF.getFunction(), TD, 0, &Ins, ArgLocs, CCInfo, false,
+  analyzeArguments(MF.getFunction(), getDataLayout(), 0, &Ins, ArgLocs, CCInfo, false,
                    isVarArg);
 
   SDValue ArgValue;
@@ -1028,7 +1026,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     Callee = DAG.getTargetExternalSymbol(ES->getSymbol(), getPointerTy());
   }
 
-  analyzeArguments(F, TD, &Outs, 0, ArgLocs, CCInfo, true, isVarArg);
+  analyzeArguments(F, getDataLayout(), &Outs, 0, ArgLocs, CCInfo, true, isVarArg);
 
   // Get a count of how many bytes are to be pushed on the stack.
   unsigned NumBytes = CCInfo.getNextStackOffset();
@@ -1403,7 +1401,7 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   assert((Opc == AVR::Select16 || Opc == AVR::Select8)
          && "Unexpected instr type to insert");
 
-  const AVRInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
+  const AVRInstrInfo &TII = (const AVRInstrInfo&) *MI->getParent()->getParent()->getSubtarget().getInstrInfo();
   DebugLoc dl = MI->getDebugLoc();
 
   // To "insert" a SELECT instruction, we actually have to insert the diamond

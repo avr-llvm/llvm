@@ -156,9 +156,6 @@ private:
                           const SmallVectorImpl<ISD::InputArg> &Ins,
                           SDLoc dl, SelectionDAG &DAG,
                           SmallVectorImpl<SDValue> &InVals) const;
-private:
-  const DataLayout *TD;
-  const AVRTargetMachine &TM;
 };
 
 } // end namespace llvm
