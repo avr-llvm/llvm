@@ -350,7 +350,7 @@ namespace {
   /// @brief A class for maintaining the slot number definition
   /// as a placeholder for the actual definition for forward constants defs.
   class ConstantPlaceHolder : public ConstantExpr {
-    void operator=(const ConstantPlaceHolder &) LLVM_DELETED_FUNCTION;
+    void operator=(const ConstantPlaceHolder &) = delete;
   public:
     // allocate space for exactly one operand
     void *operator new(size_t s) {
@@ -555,9 +555,17 @@ Metadata *BitcodeReaderMDValueList::getValueFwdRef(unsigned Idx) {
   if (Metadata *MD = MDValuePtrs[Idx])
     return MD;
 
-  // Create and return a placeholder, which will later be RAUW'd.
-  AnyFwdRefs = true;
+  // Track forward refs to be resolved later.
+  if (AnyFwdRefs) {
+    MinFwdRef = std::min(MinFwdRef, Idx);
+    MaxFwdRef = std::max(MaxFwdRef, Idx);
+  } else {
+    AnyFwdRefs = true;
+    MinFwdRef = MaxFwdRef = Idx;
+  }
   ++NumFwdRefs;
+
+  // Create and return a placeholder, which will later be RAUW'd.
   Metadata *MD = MDNode::getTemporary(Context, None).release();
   MDValuePtrs[Idx].reset(MD);
   return MD;
@@ -573,7 +581,8 @@ void BitcodeReaderMDValueList::tryToResolveCycles() {
     return;
 
   // Resolve any cycles.
-  for (auto &MD : MDValuePtrs) {
+  for (unsigned I = MinFwdRef, E = MaxFwdRef + 1; I != E; ++I) {
+    auto &MD = MDValuePtrs[I];
     auto *N = dyn_cast_or_null<MDNode>(MD);
     if (!N)
       continue;
@@ -581,6 +590,9 @@ void BitcodeReaderMDValueList::tryToResolveCycles() {
     assert(!N->isTemporary() && "Unexpected forward reference");
     N->resolveCycles();
   }
+
+  // Make sure we return early again until there's another forward ref.
+  AnyFwdRefs = false;
 }
 
 Type *BitcodeReader::getTypeByID(unsigned ID) {
@@ -3065,12 +3077,27 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
         return Error("Invalid record");
 
       SmallVector<unsigned, 4> EXTRACTVALIdx;
+      Type *CurTy = Agg->getType();
       for (unsigned RecSize = Record.size();
            OpNum != RecSize; ++OpNum) {
+        bool IsArray = CurTy->isArrayTy();
+        bool IsStruct = CurTy->isStructTy();
         uint64_t Index = Record[OpNum];
+
+        if (!IsStruct && !IsArray)
+          return Error("EXTRACTVAL: Invalid type");
         if ((unsigned)Index != Index)
           return Error("Invalid value");
+        if (IsStruct && Index >= CurTy->subtypes().size())
+          return Error("EXTRACTVAL: Invalid struct index");
+        if (IsArray && Index >= CurTy->getArrayNumElements())
+          return Error("EXTRACTVAL: Invalid array index");
         EXTRACTVALIdx.push_back((unsigned)Index);
+
+        if (IsStruct)
+          CurTy = CurTy->subtypes()[Index];
+        else
+          CurTy = CurTy->subtypes()[0];
       }
 
       I = ExtractValueInst::Create(Agg, EXTRACTVALIdx);
@@ -3089,12 +3116,29 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
         return Error("Invalid record");
 
       SmallVector<unsigned, 4> INSERTVALIdx;
+      Type *CurTy = Agg->getType();
       for (unsigned RecSize = Record.size();
            OpNum != RecSize; ++OpNum) {
+        bool IsArray = CurTy->isArrayTy();
+        bool IsStruct = CurTy->isStructTy();
         uint64_t Index = Record[OpNum];
+
+        if (!IsStruct && !IsArray)
+          return Error("INSERTVAL: Invalid type");
+        if (!CurTy->isStructTy() && !CurTy->isArrayTy())
+          return Error("Invalid type");
         if ((unsigned)Index != Index)
           return Error("Invalid value");
+        if (IsStruct && Index >= CurTy->subtypes().size())
+          return Error("INSERTVAL: Invalid struct index");
+        if (IsArray && Index >= CurTy->getArrayNumElements())
+          return Error("INSERTVAL: Invalid array index");
+
         INSERTVALIdx.push_back((unsigned)Index);
+        if (IsStruct)
+          CurTy = CurTy->subtypes()[Index];
+        else
+          CurTy = CurTy->subtypes()[0];
       }
 
       I = InsertValueInst::Create(Agg, Val, INSERTVALIdx);

@@ -4174,16 +4174,20 @@ defm VPSRAD : PDI_binop_rmi<0xE2, 0x72, MRM4r, "vpsrad", X86vsra, X86vsrai,
                             VR128, v4i32, v4i32, bc_v4i32, loadv2i64,
                             SSE_INTSHIFT_ITINS_P, 0>, VEX_4V;
 
-let ExeDomain = SSEPackedInt, SchedRW = [WriteVecShift], hasSideEffects = 0 in {
+let ExeDomain = SSEPackedInt, SchedRW = [WriteVecShift] in {
   // 128-bit logical shifts.
   def VPSLLDQri : PDIi8<0x73, MRM7r,
-                    (outs VR128:$dst), (ins VR128:$src1, i32u8imm:$src2),
+                    (outs VR128:$dst), (ins VR128:$src1, u8imm:$src2),
                     "vpslldq\t{$src2, $src1, $dst|$dst, $src1, $src2}",
-                    []>, VEX_4V;
+                    [(set VR128:$dst,
+                      (v2i64 (X86vshldq VR128:$src1, (i8 imm:$src2))))]>,
+                    VEX_4V;
   def VPSRLDQri : PDIi8<0x73, MRM3r,
-                    (outs VR128:$dst), (ins VR128:$src1, i32u8imm:$src2),
+                    (outs VR128:$dst), (ins VR128:$src1, u8imm:$src2),
                     "vpsrldq\t{$src2, $src1, $dst|$dst, $src1, $src2}",
-                    []>, VEX_4V;
+                    [(set VR128:$dst,
+                      (v2i64 (X86vshrdq VR128:$src1, (i8 imm:$src2))))]>,
+                    VEX_4V;
   // PSRADQri doesn't exist in SSE[1-3].
 }
 } // Predicates = [HasAVX]
@@ -4216,19 +4220,19 @@ defm VPSRADY : PDI_binop_rmi<0xE2, 0x72, MRM4r, "vpsrad", X86vsra, X86vsrai,
                              VR256, v8i32, v4i32, bc_v4i32, loadv2i64,
                              SSE_INTSHIFT_ITINS_P, 0>, VEX_4V, VEX_L;
 
-let ExeDomain = SSEPackedInt, SchedRW = [WriteVecShift] in {
+let ExeDomain = SSEPackedInt, SchedRW = [WriteVecShift], hasSideEffects = 0 in {
   // 256-bit logical shifts.
   def VPSLLDQYri : PDIi8<0x73, MRM7r,
-                    (outs VR256:$dst), (ins VR256:$src1, i32u8imm:$src2),
+                    (outs VR256:$dst), (ins VR256:$src1, u8imm:$src2),
                     "vpslldq\t{$src2, $src1, $dst|$dst, $src1, $src2}",
                     [(set VR256:$dst,
-                      (int_x86_avx2_psll_dq_bs VR256:$src1, imm:$src2))]>,
+                      (v4i64 (X86vshldq VR256:$src1, (i8 imm:$src2))))]>,
                     VEX_4V, VEX_L;
   def VPSRLDQYri : PDIi8<0x73, MRM3r,
-                    (outs VR256:$dst), (ins VR256:$src1, i32u8imm:$src2),
+                    (outs VR256:$dst), (ins VR256:$src1, u8imm:$src2),
                     "vpsrldq\t{$src2, $src1, $dst|$dst, $src1, $src2}",
                     [(set VR256:$dst,
-                      (int_x86_avx2_psrl_dq_bs VR256:$src1, imm:$src2))]>,
+                      (v4i64 (X86vshrdq VR256:$src1, (i8 imm:$src2))))]>,
                     VEX_4V, VEX_L;
   // PSRADQYri doesn't exist in SSE[1-3].
 }
@@ -4265,13 +4269,17 @@ defm PSRAD : PDI_binop_rmi<0xE2, 0x72, MRM4r, "psrad", X86vsra, X86vsrai,
 let ExeDomain = SSEPackedInt, SchedRW = [WriteVecShift], hasSideEffects = 0 in {
   // 128-bit logical shifts.
   def PSLLDQri : PDIi8<0x73, MRM7r,
-                       (outs VR128:$dst), (ins VR128:$src1, i32u8imm:$src2),
+                       (outs VR128:$dst), (ins VR128:$src1, u8imm:$src2),
                        "pslldq\t{$src2, $dst|$dst, $src2}",
-                       [], IIC_SSE_INTSHDQ_P_RI>;
+                       [(set VR128:$dst,
+                         (v2i64 (X86vshldq VR128:$src1, (i8 imm:$src2))))],
+                       IIC_SSE_INTSHDQ_P_RI>;
   def PSRLDQri : PDIi8<0x73, MRM3r,
-                       (outs VR128:$dst), (ins VR128:$src1, i32u8imm:$src2),
+                       (outs VR128:$dst), (ins VR128:$src1, u8imm:$src2),
                        "psrldq\t{$src2, $dst|$dst, $src2}",
-                       [], IIC_SSE_INTSHDQ_P_RI>;
+                       [(set VR128:$dst,
+                         (v2i64 (X86vshrdq VR128:$src1, (i8 imm:$src2))))],
+                       IIC_SSE_INTSHDQ_P_RI>;
   // PSRADQri doesn't exist in SSE[1-3].
 }
 } // Constraints = "$src1 = $dst"
@@ -4283,12 +4291,6 @@ let Predicates = [HasAVX] in {
             (VPSRLDQri VR128:$src1, (BYTE_imm imm:$src2))>;
   def : Pat<(v2f64 (X86fsrl VR128:$src1, i32immSExt8:$src2)),
             (VPSRLDQri VR128:$src1, (BYTE_imm imm:$src2))>;
-
-  // Shift up / down and insert zero's.
-  def : Pat<(v2i64 (X86vshldq VR128:$src, (i8 imm:$amt))),
-            (VPSLLDQri VR128:$src, (BYTE_imm imm:$amt))>;
-  def : Pat<(v2i64 (X86vshrdq VR128:$src, (i8 imm:$amt))),
-            (VPSRLDQri VR128:$src, (BYTE_imm imm:$amt))>;
 }
 
 let Predicates = [HasAVX2] in {
@@ -4305,12 +4307,6 @@ let Predicates = [UseSSE2] in {
             (PSRLDQri VR128:$src1, (BYTE_imm imm:$src2))>;
   def : Pat<(v2f64 (X86fsrl VR128:$src1, i32immSExt8:$src2)),
             (PSRLDQri VR128:$src1, (BYTE_imm imm:$src2))>;
-
-  // Shift up / down and insert zero's.
-  def : Pat<(v2i64 (X86vshldq VR128:$src, (i8 imm:$amt))),
-            (PSLLDQri VR128:$src, (BYTE_imm imm:$amt))>;
-  def : Pat<(v2i64 (X86vshrdq VR128:$src, (i8 imm:$amt))),
-            (PSRLDQri VR128:$src, (BYTE_imm imm:$amt))>;
 }
 
 //===---------------------------------------------------------------------===//
@@ -5015,7 +5011,7 @@ def : InstAlias<"vmovd\t{$src, $dst|$dst, $src}",
 // Move Quadword Int to Packed Quadword Int
 //
 
-let SchedRW = [WriteLoad] in {
+let ExeDomain = SSEPackedInt, SchedRW = [WriteLoad] in {
 def VMOVQI2PQIrm : I<0x7E, MRMSrcMem, (outs VR128:$dst), (ins i64mem:$src),
                     "vmovq\t{$src, $dst|$dst, $src}",
                     [(set VR128:$dst,
@@ -5027,12 +5023,12 @@ def MOVQI2PQIrm : I<0x7E, MRMSrcMem, (outs VR128:$dst), (ins i64mem:$src),
                       (v2i64 (scalar_to_vector (loadi64 addr:$src))))],
                       IIC_SSE_MOVDQ>, XS,
                     Requires<[UseSSE2]>; // SSE2 instruction with XS Prefix
-} // SchedRW
+} // ExeDomain, SchedRW
 
 //===---------------------------------------------------------------------===//
 // Move Packed Quadword Int to Quadword Int
 //
-let SchedRW = [WriteStore] in {
+let ExeDomain = SSEPackedInt, SchedRW = [WriteStore] in {
 def VMOVPQI2QImr : VS2I<0xD6, MRMDestMem, (outs), (ins i64mem:$dst, VR128:$src),
                       "movq\t{$src, $dst|$dst, $src}",
                       [(store (i64 (vector_extract (v2i64 VR128:$src),
@@ -5043,7 +5039,7 @@ def MOVPQI2QImr : S2I<0xD6, MRMDestMem, (outs), (ins i64mem:$dst, VR128:$src),
                       [(store (i64 (vector_extract (v2i64 VR128:$src),
                                     (iPTR 0))), addr:$dst)],
                                     IIC_SSE_MOVDQ>;
-} // SchedRW
+} // ExeDomain, SchedRW
 
 // For disassembler only
 let isCodeGenOnly = 1, ForceDisassemble = 1, hasSideEffects = 0,
@@ -5064,7 +5060,7 @@ let Predicates = [UseSSE2] in
 def : Pat<(int_x86_sse2_storel_dq addr:$dst, VR128:$src),
           (MOVPQI2QImr addr:$dst, VR128:$src)>;
 
-let isCodeGenOnly = 1, AddedComplexity = 20 in {
+let ExeDomain = SSEPackedInt, isCodeGenOnly = 1, AddedComplexity = 20 in {
 def VMOVZQI2PQIrm : I<0x7E, MRMSrcMem, (outs VR128:$dst), (ins i64mem:$src),
                      "vmovq\t{$src, $dst|$dst, $src}",
                      [(set VR128:$dst,
@@ -5080,7 +5076,7 @@ def MOVZQI2PQIrm : I<0x7E, MRMSrcMem, (outs VR128:$dst), (ins i64mem:$src),
                                                  (loadi64 addr:$src))))))],
                                                  IIC_SSE_MOVDQ>,
                      XS, Requires<[UseSSE2]>, Sched<[WriteLoad]>;
-}
+} // ExeDomain, isCodeGenOnly, AddedComplexity
 
 let Predicates = [UseAVX], AddedComplexity = 20 in {
   def : Pat<(v2i64 (X86vzmovl (bc_v2i64 (loadv4f32 addr:$src)))),
@@ -5106,7 +5102,7 @@ def : Pat<(v4i64 (X86vzload addr:$src)),
 // Moving from XMM to XMM and clear upper 64 bits. Note, there is a bug in
 // IA32 document. movq xmm1, xmm2 does clear the high bits.
 //
-let SchedRW = [WriteVecLogic] in {
+let ExeDomain = SSEPackedInt, SchedRW = [WriteVecLogic] in {
 let AddedComplexity = 15 in
 def VMOVZPQILo2PQIrr : I<0x7E, MRMSrcReg, (outs VR128:$dst), (ins VR128:$src),
                         "vmovq\t{$src, $dst|$dst, $src}",
@@ -5119,9 +5115,9 @@ def MOVZPQILo2PQIrr : I<0x7E, MRMSrcReg, (outs VR128:$dst), (ins VR128:$src),
                     [(set VR128:$dst, (v2i64 (X86vzmovl (v2i64 VR128:$src))))],
                     IIC_SSE_MOVQ_RR>,
                       XS, Requires<[UseSSE2]>;
-} // SchedRW
+} // ExeDomain, SchedRW
 
-let isCodeGenOnly = 1, SchedRW = [WriteVecLogicLd] in {
+let ExeDomain = SSEPackedInt, isCodeGenOnly = 1, SchedRW = [WriteVecLogicLd] in {
 let AddedComplexity = 20 in
 def VMOVZPQILo2PQIrm : I<0x7E, MRMSrcMem, (outs VR128:$dst), (ins i128mem:$src),
                         "vmovq\t{$src, $dst|$dst, $src}",
@@ -5137,7 +5133,7 @@ def MOVZPQILo2PQIrm : I<0x7E, MRMSrcMem, (outs VR128:$dst), (ins i128mem:$src),
                                              IIC_SSE_MOVDQ>,
                       XS, Requires<[UseSSE2]>;
 }
-} // isCodeGenOnly, SchedRW
+} // ExeDomain, isCodeGenOnly, SchedRW
 
 let AddedComplexity = 20 in {
   let Predicates = [UseAVX] in {

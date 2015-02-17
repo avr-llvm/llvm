@@ -749,7 +749,7 @@ bool LLParser::ParseGlobal(const std::string &Name, LocTy NameLoc,
       return true;
   }
 
-  if (Ty->isFunctionTy() || Ty->isLabelTy())
+  if (Ty->isFunctionTy() || !PointerType::isValidElementType(Ty))
     return Error(TyLoc, "invalid type for global variable");
 
   GlobalValue *GVal = nullptr;
@@ -1637,6 +1637,7 @@ bool LLParser::ParseIndexList(SmallVectorImpl<unsigned> &Indices,
 
   while (EatIfPresent(lltok::comma)) {
     if (Lex.getKind() == lltok::MetadataVar) {
+      if (Indices.empty()) return TokError("expected index");
       AteExtraComma = true;
       return false;
     }
@@ -5113,16 +5114,16 @@ bool LLParser::ParseCall(Instruction *&Inst, PerFunctionState &PFS,
 ///   ::= 'alloca' 'inalloca'? Type (',' TypeAndValue)? (',' 'align' i32)?
 int LLParser::ParseAlloc(Instruction *&Inst, PerFunctionState &PFS) {
   Value *Size = nullptr;
-  LocTy SizeLoc;
+  LocTy SizeLoc, TyLoc;
   unsigned Alignment = 0;
   Type *Ty = nullptr;
 
   bool IsInAlloca = EatIfPresent(lltok::kw_inalloca);
 
-  if (ParseType(Ty)) return true;
+  if (ParseType(Ty, TyLoc)) return true;
 
-  if (!PointerType::isValidElementType(Ty))
-    return TokError("pointer to this type is invalid");
+  if (Ty->isFunctionTy() || !PointerType::isValidElementType(Ty))
+    return Error(TyLoc, "invalid type for alloca");
 
   bool AteExtraComma = false;
   if (EatIfPresent(lltok::comma)) {

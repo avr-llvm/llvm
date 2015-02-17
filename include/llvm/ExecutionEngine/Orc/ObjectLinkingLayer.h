@@ -34,8 +34,8 @@ protected:
   /// had been provided by this instance. Higher level layers are responsible
   /// for taking any action required to handle the missing symbols.
   class LinkedObjectSet {
-    LinkedObjectSet(const LinkedObjectSet&) LLVM_DELETED_FUNCTION;
-    void operator=(const LinkedObjectSet&) LLVM_DELETED_FUNCTION;
+    LinkedObjectSet(const LinkedObjectSet&) = delete;
+    void operator=(const LinkedObjectSet&) = delete;
   public:
     LinkedObjectSet(std::unique_ptr<RTDyldMemoryManager> MM)
         : MM(std::move(MM)), RTDyld(llvm::make_unique<RuntimeDyld>(&*this->MM)),
@@ -178,12 +178,6 @@ public:
     return Handle;
   }
 
-  /// @brief Map section addresses for the objects associated with the handle H.
-  void mapSectionAddress(ObjSetHandleT H, const void *LocalAddress,
-                         TargetAddress TargetAddr) {
-    H->mapSectionAddress(LocalAddress, TargetAddr);
-  }
-
   /// @brief Remove the set of objects associated with handle H.
   ///
   ///   All memory allocated for the objects will be freed, and the sections and
@@ -231,6 +225,21 @@ public:
         });
 
     return nullptr;
+  }
+
+  /// @brief Map section addresses for the objects associated with the handle H.
+  void mapSectionAddress(ObjSetHandleT H, const void *LocalAddress,
+                         TargetAddress TargetAddr) {
+    H->mapSectionAddress(LocalAddress, TargetAddr);
+  }
+
+  /// @brief Immediately emit and finalize the object set represented by the
+  ///        given handle.
+  /// @param H Handle for object set to emit/finalize.
+  void emitAndFinalize(ObjSetHandleT H) {
+    H->Finalize();
+    if (NotifyFinalized)
+      NotifyFinalized(H);
   }
 
 private:
