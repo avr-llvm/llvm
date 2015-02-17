@@ -42,8 +42,8 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setSchedulingPreference(Sched::RegPressure);
   setStackPointerRegisterToSaveRestore(AVR::SP);
 
-  setOperationAction(ISD::GlobalAddress, getPointerTy(), Custom);
-  setOperationAction(ISD::BlockAddress, getPointerTy(), Custom);
+  setOperationAction(ISD::GlobalAddress, MVT::i16, Custom);
+  setOperationAction(ISD::BlockAddress,  MVT::i16, Custom);
 
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i8, Expand);
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i16, Expand);
