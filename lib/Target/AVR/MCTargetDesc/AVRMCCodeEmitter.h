@@ -73,11 +73,11 @@ public:
       return getRelCondBrTargetEncoding(7, MI, OpNo, Fixups, STI);
   }
   
-  unsigned getRelCondBr12TargetEncoding(const MCInst &MI, unsigned OpNo,
+  unsigned getRelCondBr13TargetEncoding(const MCInst &MI, unsigned OpNo,
                                     SmallVectorImpl<MCFixup> &Fixups,
                                     const MCSubtargetInfo &STI) const
   {
-      return getRelCondBrTargetEncoding(12, MI, OpNo, Fixups, STI);
+      return getRelCondBrTargetEncoding(13, MI, OpNo, Fixups, STI);
   }
   
   unsigned getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,

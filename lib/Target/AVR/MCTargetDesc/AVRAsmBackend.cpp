@@ -29,6 +29,9 @@
 
 using namespace llvm;
 
+// FIXME: we are using this function for all relative fixups.
+// Is this what we should be doing?
+// Also, this will fail with 32 bit instructions.
 static unsigned adjustFixupRelCondbr(unsigned size,
                                   const MCFixup &Fixup, uint64_t Value,
                                   MCContext *Ctx = nullptr)
@@ -63,6 +66,11 @@ static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
   case AVR::fixup_7_pcrel:
   {
     Value = adjustFixupRelCondbr(7, Fixup, Value, Ctx);
+    break;
+  }
+  case AVR::fixup_13_pcrel:
+  {
+    Value = adjustFixupRelCondbr(13, Fixup, Value, Ctx);
     break;
   }
   }
@@ -105,12 +113,63 @@ void AVRAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
 const MCFixupKindInfo &AVRAsmBackend::
 getFixupKindInfo(MCFixupKind Kind) const {
   const static MCFixupKindInfo Infos[AVR::NumTargetFixupKinds] = {
+    // FIXME: all of the fixups are untested.
+    // Make sure every one works correctly. Many are probably broken.
+    //
     // This table *must* be in same the order of fixup_* kinds in
     // AVRFixupKinds.h.
     //
     // name                    offset  bits  flags
+    { "fixup_32",              0,      32,   0 },
+
     { "fixup_7_pcrel",         0,      7,    MCFixupKindInfo::FKF_IsPCRel },
-    { "fixup_12_pcrel",        0,      12,   MCFixupKindInfo::FKF_IsPCRel },
+    // FIXME: change `bits` to 13
+    { "fixup_13_pcrel",        0,      12,   MCFixupKindInfo::FKF_IsPCRel },
+
+    { "fixup_16",              0,      16,   0 },
+    { "fixup_16_pm",           0,      16,   0 },
+
+    { "fixup_lo8_ldi",         0,      8,    0 },
+    { "fixup_hi8_ldi",         0,      8,    0 },
+    { "fixup_hh8_ldi",         0,      8,    0 },
+
+    { "fixup_lo8_ldi_neg",     0,      8,    0 },
+    { "fixup_hi8_ldi_neg",     0,      8,    0 },
+    { "fixup_hh8_ldi_neg",     0,      8,    0 },
+		
+    { "fixup_lo8_ldi_pm",      0,      8,    0 },
+    { "fixup_hi8_ldi_pm",      0,      8,    0 },
+    { "fixup_hh8_ldi_pm",      0,      8,    0 },
+    
+    { "fixup_lo8_ldi_pm_neg",  0,      8,    0 },
+    { "fixup_hi8_ldi_pm_neg",  0,      8,    0 },
+    { "fixup_hh8_ldi_pm_neg",  0,      8,    0 },
+
+    { "fixup_call",            0,      0xff, 0 },
+    { "fixup_ldi",             0,      0xff, 0 },
+
+    { "fixup_6",               0,      6,    0 },
+    { "fixup_6_adiw",          0,      6,    0 },
+
+    { "fixup_ms8_ldi",         0,      8,    0 },
+    { "fixup_ms8_ldi_neg",     0,      8,    0 },
+
+    { "fixup_lo8_ldi_gs",      0,      8,    0 },
+    { "fixup_hi8_ldi_gs",      0,      8,    0 },
+
+    { "fixup_8",               0,      8,    0 },
+    { "fixup_8_lo8",           0,      8,    0 },
+    { "fixup_8_hi8",           0,      8,    0 },
+    { "fixup_8_hlo8",          0,      8,    0 },
+
+    { "fixup_sym_diff",        0,      0xff, 0 },
+    { "fixup_16_ldst",         0,      16,   0 },
+
+    { "fixup_lds_sts_16",      0,      16,   0 },
+
+    { "fixup_port6",           0,      0xff, 0 },
+    { "fixup_port5",           0,      0xff, 0 },
+
   };
 
   if (Kind < FirstTargetFixupKind)
@@ -131,7 +190,8 @@ bool AVRAsmBackend::writeNopData(uint64_t Count, MCObjectWriter *OW) const {
   // Check for a less than instruction size number of bytes
   // FIXME: 16 bit instructions are not handled yet here.
   // We shouldn't be using a hard coded number for instruction size.
-
+  // FIXME: I believe we are writing 4 null bytes for each NOP instead of 2.
+  
   // If the count is not 4-byte aligned, we must be writing data into the text
   // section (otherwise we have unaligned instructions, and thus have far
   // bigger problems), so just write zeros instead.

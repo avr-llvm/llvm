@@ -170,10 +170,10 @@ def rel_condbr_7_target : Operand<OtherVT>
     let EncoderMethod = "getRelCondBr7TargetEncoding";
 }
 
-def rel_condbr_12_target : Operand<OtherVT>
+def rel_condbr_13_target : Operand<OtherVT>
 {
     let PrintMethod = "print_pcrel_imm";
-    let EncoderMethod = "getRelCondBr12TargetEncoding";
+    let EncoderMethod = "getRelCondBr13TargetEncoding";
 }
 
 // Addressing mode pattern reg+imm6
@@ -644,7 +644,7 @@ isBranch = 1,
 isTerminator = 1 in
 def RJMPk : FBRk<0,
                  (outs),
-                 (ins rel_condbr_12_target:$target),
+                 (ins rel_condbr_13_target:$target),
                  "rjmp\t$target",
                  [(br bb:$target)]>;
 
@@ -687,7 +687,7 @@ let isCall = 1 in
   {
     def RCALL : FBRk<1,
                      (outs),
-                     (ins rel_condbr_12_target:$target),
+                     (ins rel_condbr_13_target:$target),
                      "rcall\t$target",
                      []>;
   }

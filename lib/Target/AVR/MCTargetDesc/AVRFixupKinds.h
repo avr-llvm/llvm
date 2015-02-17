@@ -22,9 +22,56 @@ namespace AVR {
   // MCFixupKindInfo Infos[AVR::NumTargetFixupKinds]
   // in MipsAsmBackend.cpp.
   //
+  // TODO: Document each fixup
   enum Fixups {
-    fixup_7_pcrel = FirstTargetFixupKind,
-    fixup_12_pcrel,
+    fixup_32 = FirstTargetFixupKind,
+
+    fixup_7_pcrel,
+    fixup_13_pcrel,
+
+    fixup_16,
+    fixup_16_pm,
+
+    fixup_lo8_ldi,
+    fixup_hi8_ldi,
+    fixup_hh8_ldi,
+
+    fixup_lo8_ldi_neg,
+    fixup_hi8_ldi_neg,
+    fixup_hh8_ldi_neg,
+
+    fixup_lo8_ldi_pm,
+    fixup_hi8_ldi_pm,
+    fixup_hh8_ldi_pm,
+
+    fixup_lo8_ldi_pm_neg,
+    fixup_hi8_ldi_pm_neg,
+    fixup_hh8_ldi_pm_neg,
+
+    fixup_call,
+    fixup_ldi,
+
+    fixup_6,
+    fixup_6_adiw,
+
+    fixup_ms8_ldi,
+    fixup_ms8_ldi_neg,
+
+    fixup_lo8_ldi_gs,
+    fixup_hi8_ldi_gs,
+
+    fixup_8,
+    fixup_8_lo8,
+    fixup_8_hi8,
+    fixup_8_hlo8,
+
+    fixup_sym_diff,
+    fixup_16_ldst,
+
+    fixup_lds_sts_16,
+
+    fixup_port6,
+    fixup_port5,
 
     // Marker
     LastTargetFixupKind,
