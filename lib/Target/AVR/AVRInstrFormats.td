@@ -69,14 +69,14 @@ class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
 class FRdRr<bits<4> opcode, bits<2> f, dag outs, dag ins, string asmstr,
             list<dag> pattern> : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<5> d;
-  bits<5> r;
+  bits<5> rd;
+  bits<5> rr;
 
   let Inst{15-12} = opcode;
   let Inst{11-10} = f;
-  let Inst{9} = r{4};
-  let Inst{8-4} = d;
-  let Inst{3-0} = r{3-0};
+  let Inst{9} = rr{4};
+  let Inst{8-4} = rd;
+  let Inst{3-0} = rr{3-0};
 }
 
 //===----------------------------------------------------------------------===//

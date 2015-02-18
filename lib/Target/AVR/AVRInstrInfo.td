@@ -297,14 +297,14 @@ def ADJCALLSTACKUP : Pseudo<(outs),
 // ADD Rd, Rr
 // Adds two 8-bit registers.
 let isCommutable = 1,
-Constraints = "$src = $dst",
+Constraints = "$src = $rd",
 Defs = [SREG] in
 def ADDRdRr : FRdRr<0b0000,
                     0b11,
-                    (outs GPR8:$dst),
-                    (ins GPR8:$src, GPR8:$src2),
-                    "add\t$dst, $src2",
-                    [(set GPR8:$dst, (add GPR8:$src, GPR8:$src2)),
+                    (outs GPR8:$rd),
+                    (ins GPR8:$src, GPR8:$rr),
+                    "add\t$rd, $rr",
+                    [(set GPR8:$rd, (add GPR8:$src, GPR8:$rr)),
                      (implicit SREG)]>;
 
 // ADDW Rd, Rr
@@ -321,15 +321,15 @@ def ADDWRdRr : Pseudo<(outs DREGS:$dst),
 // ADC Rd, Rr
 // Adds two 8-bit registers with carry.
 let isCommutable = 1,
-Constraints = "$src = $dst",
+Constraints = "$src = $rd",
 Uses = [SREG],
 Defs = [SREG] in
 def ADCRdRr : FRdRr<0b0001,
                     0b11,
-                    (outs GPR8:$dst),
-                    (ins GPR8:$src, GPR8:$src2),
-                    "adc\t$dst, $src2",
-                    [(set GPR8:$dst, (adde GPR8:$src, GPR8:$src2)),
+                    (outs GPR8:$rd),
+                    (ins GPR8:$src, GPR8:$rr),
+                    "adc\t$rd, $rr",
+                    [(set GPR8:$rd, (adde GPR8:$src, GPR8:$rr)),
                      (implicit SREG)]>;
 
 // ADCW Rd, Rr
@@ -357,14 +357,14 @@ def ADIWRdK : FWRdK<0b0,
 
 // SUB Rd, Rr
 // Subtracts the 8-bit value of Rr from Rd and places the value in Rd.
-let Constraints = "$src = $dst",
+let Constraints = "$src = $rd",
 Defs = [SREG] in
 def SUBRdRr : FRdRr<0b0001,
                     0b10,
-                    (outs GPR8:$dst),
-                    (ins GPR8:$src, GPR8:$src2),
-                    "sub\t$dst, $src2",
-                    [(set GPR8:$dst, (sub GPR8:$src, GPR8:$src2)),
+                    (outs GPR8:$rd),
+                    (ins GPR8:$src, GPR8:$rr),
+                    "sub\t$rd, $rr",
+                    [(set GPR8:$rd, (sub GPR8:$src, GPR8:$rr)),
                      (implicit SREG)]>;
 
 // SUBW Rd, Rr
@@ -394,15 +394,15 @@ def SUBIWRdK : Pseudo<(outs DLDREGS:$dst),
                       [(set DLDREGS:$dst, (sub DLDREGS:$src, imm:$src2)),
                        (implicit SREG)]>;
 
-let Constraints = "$src = $dst",
+let Constraints = "$src = $rd",
 Uses = [SREG],
 Defs = [SREG] in
 def SBCRdRr : FRdRr<0b0000,
                     0b10,
-                    (outs GPR8:$dst),
-                    (ins GPR8:$src, GPR8:$src2),
-                    "sbc\t$dst, $src2",
-                    [(set GPR8:$dst, (sube GPR8:$src, GPR8:$src2)),
+                    (outs GPR8:$rd),
+                    (ins GPR8:$src, GPR8:$rr),
+                    "sbc\t$rd, $rr",
+                    [(set GPR8:$rd, (sube GPR8:$src, GPR8:$rr)),
                      (implicit SREG)]>;
 
 let Constraints = "$src = $dst",
@@ -508,14 +508,14 @@ def MUL16RdRr : Mu1RdRr<(outs DREGS:$dst),
 
 /// AND Rd, Rr
 let isCommutable = 1,
-Constraints = "$src = $dst",
+Constraints = "$src = $rd",
 Defs = [SREG] in
 def ANDRdRr : FRdRr<0b0010,
                     0b00,
-                    (outs GPR8:$dst),
-                    (ins GPR8:$src, GPR8:$src2),
-                    "and\t$dst, $src2",
-                    [(set GPR8:$dst, (and GPR8:$src, GPR8:$src2)),
+                    (outs GPR8:$rd),
+                    (ins GPR8:$src, GPR8:$rr),
+                    "and\t$rd, $rr",
+                    [(set GPR8:$rd, (and GPR8:$src, GPR8:$rr)),
                      (implicit SREG)]>;
 
 let isCommutable = 1,
@@ -545,14 +545,14 @@ def ANDIWRdK : Pseudo<(outs DLDREGS:$dst),
                        (implicit SREG)]>;
 
 let isCommutable = 1,
-Constraints = "$src = $dst",
+Constraints = "$src = $rd",
 Defs = [SREG] in
 def ORRdRr : FRdRr<0b0010,
                    0b10,
-                   (outs GPR8:$dst),
-                   (ins GPR8:$src, GPR8:$src2),
-                   "or\t$dst, $src2",
-                   [(set GPR8:$dst, (or GPR8:$src, GPR8:$src2)),
+                   (outs GPR8:$rd),
+                   (ins GPR8:$src, GPR8:$rr),
+                   "or\t$rd, $rr",
+                   [(set GPR8:$rd, (or GPR8:$src, GPR8:$rr)),
                     (implicit SREG)]>;
 
 let isCommutable = 1,
@@ -582,14 +582,14 @@ def ORIWRdK : Pseudo<(outs DLDREGS:$dst),
                       (implicit SREG)]>;
 
 let isCommutable = 1,
-Constraints = "$src = $dst",
+Constraints = "$src = $rd",
 Defs = [SREG] in
 def EORRdRr : FRdRr<0b0010,
                     0b01,
-                    (outs GPR8:$dst),
-                    (ins GPR8:$src, GPR8:$src2),
-                    "eor\t$dst, $src2",
-                    [(set GPR8:$dst, (xor GPR8:$src, GPR8:$src2)),
+                    (outs GPR8:$rd),
+                    (ins GPR8:$src, GPR8:$rr),
+                    "eor\t$rd, $rr",
+                    [(set GPR8:$rd, (xor GPR8:$src, GPR8:$rr)),
                      (implicit SREG)]>;
 
 let isCommutable = 1,
@@ -729,9 +729,9 @@ let Defs = [SREG] in
 def CPRdRr : FRdRr<0b0001,
                    0b01,
                    (outs),
-                   (ins GPR8:$src, GPR8:$src2),
-                   "cp\t$src, $src2",
-                   [(AVRcmp GPR8:$src, GPR8:$src2), (implicit SREG)]>;
+                   (ins GPR8:$rd, GPR8:$rr),
+                   "cp\t$rd, $rr",
+                   [(AVRcmp GPR8:$rd, GPR8:$rr), (implicit SREG)]>;
 
 let Defs = [SREG] in
 def CPWRdRr : Pseudo<(outs),
@@ -744,9 +744,9 @@ Uses = [SREG] in
 def CPCRdRr : FRdRr<0b0000,
                     0b01,
                     (outs),
-                    (ins GPR8:$src, GPR8:$src2),
-                    "cpc\t$src, $src2",
-                    [(AVRcmpc GPR8:$src, GPR8:$src2), (implicit SREG)]>;
+                    (ins GPR8:$rd, GPR8:$rr),
+                    "cpc\t$rd, $rr",
+                    [(AVRcmpc GPR8:$rd, GPR8:$rr), (implicit SREG)]>;
 
 let Defs = [SREG],
 Uses = [SREG] in
@@ -974,9 +974,9 @@ def BRIDk : FBRsk<1,
 let hasSideEffects = 0 in
 def MOVRdRr : FRdRr<0b0010,
                     0b11,
-                    (outs GPR8:$dst),
-                    (ins GPR8:$src),
-                    "mov\t$dst, $src",
+                    (outs GPR8:$rd),
+                    (ins GPR8:$rr),
+                    "mov\t$rd, $rr",
                     []>;
 
 let hasSideEffects = 0 in
@@ -1280,14 +1280,14 @@ def POPWRd : Pseudo<(outs DREGS:$reg),
 // Bit and bit-test instructions
 // _______________________________
 
-let Constraints = "$src = $dst",
+let Constraints = "$src = $rd",
 Defs = [SREG] in
 def LSLRd : FRdRr<0b0000,
                   0b11,
-                  (outs GPR8:$dst),
+                  (outs GPR8:$rd),
                   (ins GPR8:$src),
-                  "lsl\t$dst",
-                  [(set GPR8:$dst, (AVRlsl GPR8:$src)), (implicit SREG)]>;
+                  "lsl\t$rd",
+                  [(set GPR8:$rd, (AVRlsl GPR8:$src)), (implicit SREG)]>;
 
 let Constraints = "$src = $dst",
 Defs = [SREG] in
@@ -1312,15 +1312,15 @@ def LSRWRd : Pseudo<(outs DREGS:$dst),
                     "lsrw\t$dst",
                     [(set DREGS:$dst, (AVRlsr DREGS:$src)), (implicit SREG)]>;
 
-let Constraints = "$src = $dst",
+let Constraints = "$rr = $rd",
 Defs = [SREG],
 Uses = [SREG] in
 def ROLRd : FRdRr<0b0001,
                   0b11,
-                  (outs GPR8:$dst),
-                  (ins GPR8:$src),
-                  "rol\t$dst",
-                  [(set GPR8:$dst, (AVRrol GPR8:$src)), (implicit SREG)]>;
+                  (outs GPR8:$rd),
+                  (ins GPR8:$rr),
+                  "rol\t$rd",
+                  [(set GPR8:$rd, (AVRrol GPR8:$rr)), (implicit SREG)]>;
 
 let Constraints = "$src = $dst",
 Defs = [SREG],
@@ -1405,13 +1405,13 @@ def SBRRdK : FRdK<0b0110,
 // Alias for EOR Rd, Rd
 // -------------
 // Clears all bits in a register.
-let Constraints = "$src = $dst, $dst = $src2",
+let Constraints = "$src = $rd, $rd = $src2",
 Defs = [SREG] in
 def CLRRd : FRdRr<0b0010,
                   0b01,
-                  (outs GPR8:$dst),
+                  (outs GPR8:$rd),
                   (ins GPR8:$src, GPR8:$src2),
-                  "clr\t$dst",
+                  "clr\t$rd",
                   []>;
 
 // SER Rd
