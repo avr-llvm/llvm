@@ -231,7 +231,7 @@ namespace {
                                       char ConstraintCode,
                                       std::vector<SDValue> &OutOps) override;
 
-    void EmitSpecialCodeForMain(MachineBasicBlock *BB, MachineFrameInfo *MFI);
+    void EmitSpecialCodeForMain();
 
     inline void getAddressOperands(X86ISelAddressMode &AM, SDValue &Base,
                                    SDValue &Scale, SDValue &Index,
@@ -393,17 +393,14 @@ static void MoveBelowOrigChain(SelectionDAG *CurDAG, SDValue Load,
     Ops.clear();
     Ops.push_back(NewChain);
   }
-  for (unsigned i = 1, e = OrigChain.getNumOperands(); i != e; ++i)
-    Ops.push_back(OrigChain.getOperand(i));
+  Ops.append(OrigChain->op_begin() + 1, OrigChain->op_end());
   CurDAG->UpdateNodeOperands(OrigChain.getNode(), Ops);
   CurDAG->UpdateNodeOperands(Load.getNode(), Call.getOperand(0),
                              Load.getOperand(1), Load.getOperand(2));
 
-  unsigned NumOps = Call.getNode()->getNumOperands();
   Ops.clear();
   Ops.push_back(SDValue(Load.getNode(), 1));
-  for (unsigned i = 1, e = NumOps; i != e; ++i)
-    Ops.push_back(Call.getOperand(i));
+  Ops.append(Call->op_begin() + 1, Call->op_end());
   CurDAG->UpdateNodeOperands(Call.getNode(), Ops);
 }
 
@@ -568,14 +565,18 @@ void X86DAGToDAGISel::PreprocessISelDAG() {
 
 /// EmitSpecialCodeForMain - Emit any code that needs to be executed only in
 /// the main function.
-void X86DAGToDAGISel::EmitSpecialCodeForMain(MachineBasicBlock *BB,
-                                             MachineFrameInfo *MFI) {
-  const TargetInstrInfo *TII = getInstrInfo();
+void X86DAGToDAGISel::EmitSpecialCodeForMain() {
   if (Subtarget->isTargetCygMing()) {
-    unsigned CallOp =
-      Subtarget->is64Bit() ? X86::CALL64pcrel32 : X86::CALLpcrel32;
-    BuildMI(BB, DebugLoc(),
-            TII->get(CallOp)).addExternalSymbol("__main");
+    TargetLowering::ArgListTy Args;
+
+    TargetLowering::CallLoweringInfo CLI(*CurDAG);
+    CLI.setChain(CurDAG->getRoot())
+        .setCallee(CallingConv::C, Type::getVoidTy(*CurDAG->getContext()),
+                   CurDAG->getExternalSymbol("__main", TLI->getPointerTy()),
+                   std::move(Args), 0);
+    const TargetLowering &TLI = CurDAG->getTargetLoweringInfo();
+    std::pair<SDValue, SDValue> Result = TLI.LowerCallTo(CLI);
+    CurDAG->setRoot(Result.second);
   }
 }
 
@@ -583,7 +584,7 @@ void X86DAGToDAGISel::EmitFunctionEntryCode() {
   // If this is main, emit special code for main.
   if (const Function *Fn = MF->getFunction())
     if (Fn->hasExternalLinkage() && Fn->getName() == "main")
-      EmitSpecialCodeForMain(MF->begin(), MF->getFrameInfo());
+      EmitSpecialCodeForMain();
 }
 
 static bool isDispSafeForFrameIndex(int64_t Val) {

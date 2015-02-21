@@ -192,14 +192,22 @@ public:
 
   NodeMetadata()
     : RS(Unprocessed), NumOpts(0), DeniedOpts(0), OptUnsafeEdges(nullptr),
-      VReg(0), everConservativelyAllocatable(false) {}
+      VReg(0)
+#ifndef NDEBUG
+      , everConservativelyAllocatable(false)
+#endif
+      {}
 
   // FIXME: Re-implementing default behavior to work around MSVC. Remove once
   // MSVC synthesizes move constructors properly.
   NodeMetadata(const NodeMetadata &Other)
     : RS(Other.RS), NumOpts(Other.NumOpts), DeniedOpts(Other.DeniedOpts),
       OptUnsafeEdges(new unsigned[NumOpts]), VReg(Other.VReg),
-      AllowedRegs(Other.AllowedRegs) {
+      AllowedRegs(Other.AllowedRegs)
+#ifndef NDEBUG
+      , everConservativelyAllocatable(Other.everConservativelyAllocatable)
+#endif
+  {
     if (NumOpts > 0) {
       std::copy(&Other.OptUnsafeEdges[0], &Other.OptUnsafeEdges[NumOpts],
                 &OptUnsafeEdges[0]);
@@ -211,7 +219,11 @@ public:
   NodeMetadata(NodeMetadata &&Other)
     : RS(Other.RS), NumOpts(Other.NumOpts), DeniedOpts(Other.DeniedOpts),
       OptUnsafeEdges(std::move(Other.OptUnsafeEdges)), VReg(Other.VReg),
-      AllowedRegs(std::move(Other.AllowedRegs)) {}
+      AllowedRegs(std::move(Other.AllowedRegs))
+#ifndef NDEBUG
+      , everConservativelyAllocatable(Other.everConservativelyAllocatable)
+#endif
+  {}
 
   // FIXME: Re-implementing default behavior to work around MSVC. Remove once
   // MSVC synthesizes move constructors properly.
@@ -224,6 +236,9 @@ public:
               OptUnsafeEdges.get());
     VReg = Other.VReg;
     AllowedRegs = Other.AllowedRegs;
+#ifndef NDEBUG
+    everConservativelyAllocatable = Other.everConservativelyAllocatable;
+#endif
     return *this;
   }
 
@@ -236,6 +251,9 @@ public:
     OptUnsafeEdges = std::move(Other.OptUnsafeEdges);
     VReg = Other.VReg;
     AllowedRegs = std::move(Other.AllowedRegs);
+#ifndef NDEBUG
+    everConservativelyAllocatable = Other.everConservativelyAllocatable;
+#endif
     return *this;
   }
 
@@ -257,10 +275,12 @@ public:
     assert(RS >= this->RS && "A node's reduction state can not be downgraded");
     this->RS = RS;
 
+#ifndef NDEBUG
     // Remember this state to assert later that a non-infinite register
     // option was available.
     if (RS == ConservativelyAllocatable)
       everConservativelyAllocatable = true;
+#endif
   }
 
 
@@ -286,9 +306,11 @@ public:
        &OptUnsafeEdges[NumOpts]);
   }
 
+#ifndef NDEBUG
   bool wasConservativelyAllocatable() const {
     return everConservativelyAllocatable;
   }
+#endif
 
 private:
   ReductionState RS;
@@ -297,7 +319,10 @@ private:
   std::unique_ptr<unsigned[]> OptUnsafeEdges;
   unsigned VReg;
   GraphMetadata::AllowedRegVecRef AllowedRegs;
+
+#ifndef NDEBUG
   bool everConservativelyAllocatable;
+#endif
 };
 
 class RegAllocSolverImpl {

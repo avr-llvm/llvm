@@ -44,6 +44,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -100,10 +101,12 @@ static unsigned getGVAlignmentLog2(const GlobalValue *GV, const DataLayout &TD,
 
 AsmPrinter::AsmPrinter(TargetMachine &tm, std::unique_ptr<MCStreamer> Streamer)
     : MachineFunctionPass(ID), TM(tm), MAI(tm.getMCAsmInfo()),
-      MII(tm.getSubtargetImpl()->getInstrInfo()),
       OutContext(Streamer->getContext()), OutStreamer(*Streamer.release()),
       LastMI(nullptr), LastFn(0), Counter(~0U), SetCounter(0) {
-  DD = nullptr; MMI = nullptr; LI = nullptr; MF = nullptr;
+  DD = nullptr;
+  MMI = nullptr;
+  LI = nullptr;
+  MF = nullptr;
   CurrentFnSym = CurrentFnSymForSize = nullptr;
   GCMetadataPrinters = nullptr;
   VerboseAsm = OutStreamer.isVerboseAsm();
@@ -138,7 +141,8 @@ const DataLayout &AsmPrinter::getDataLayout() const {
 }
 
 const MCSubtargetInfo &AsmPrinter::getSubtargetInfo() const {
-  return TM.getSubtarget<MCSubtargetInfo>();
+  assert(MF && "getSubtargetInfo requires a valid MachineFunction!");
+  return MF->getSubtarget<MCSubtargetInfo>();
 }
 
 void AsmPrinter::EmitToStreamer(MCStreamer &S, const MCInst &Inst) {
@@ -578,7 +582,7 @@ void AsmPrinter::EmitFunctionEntryLabel() {
 /// emitComments - Pretty-print comments for instructions.
 static void emitComments(const MachineInstr &MI, raw_ostream &CommentOS) {
   const MachineFunction *MF = MI.getParent()->getParent();
-  const TargetMachine &TM = MF->getTarget();
+  const TargetInstrInfo *TII = MF->getSubtarget().getInstrInfo();
 
   // Check for spills and reloads
   int FI;
@@ -588,24 +592,20 @@ static void emitComments(const MachineInstr &MI, raw_ostream &CommentOS) {
   // We assume a single instruction only has a spill or reload, not
   // both.
   const MachineMemOperand *MMO;
-  if (TM.getSubtargetImpl()->getInstrInfo()->isLoadFromStackSlotPostFE(&MI,
-                                                                       FI)) {
+  if (TII->isLoadFromStackSlotPostFE(&MI, FI)) {
     if (FrameInfo->isSpillSlotObjectIndex(FI)) {
       MMO = *MI.memoperands_begin();
       CommentOS << MMO->getSize() << "-byte Reload\n";
     }
-  } else if (TM.getSubtargetImpl()->getInstrInfo()->hasLoadFromStackSlot(
-                 &MI, MMO, FI)) {
+  } else if (TII->hasLoadFromStackSlot(&MI, MMO, FI)) {
     if (FrameInfo->isSpillSlotObjectIndex(FI))
       CommentOS << MMO->getSize() << "-byte Folded Reload\n";
-  } else if (TM.getSubtargetImpl()->getInstrInfo()->isStoreToStackSlotPostFE(
-                 &MI, FI)) {
+  } else if (TII->isStoreToStackSlotPostFE(&MI, FI)) {
     if (FrameInfo->isSpillSlotObjectIndex(FI)) {
       MMO = *MI.memoperands_begin();
       CommentOS << MMO->getSize() << "-byte Spill\n";
     }
-  } else if (TM.getSubtargetImpl()->getInstrInfo()->hasStoreToStackSlot(
-                 &MI, MMO, FI)) {
+  } else if (TII->hasStoreToStackSlot(&MI, MMO, FI)) {
     if (FrameInfo->isSpillSlotObjectIndex(FI))
       CommentOS << MMO->getSize() << "-byte Folded Spill\n";
   }
@@ -619,9 +619,8 @@ static void emitComments(const MachineInstr &MI, raw_ostream &CommentOS) {
 /// that is an implicit def.
 void AsmPrinter::emitImplicitDef(const MachineInstr *MI) const {
   unsigned RegNo = MI->getOperand(0).getReg();
-  OutStreamer.AddComment(
-      Twine("implicit-def: ") +
-      TM.getSubtargetImpl()->getRegisterInfo()->getName(RegNo));
+  OutStreamer.AddComment(Twine("implicit-def: ") +
+                         MMI->getContext().getRegisterInfo()->getName(RegNo));
   OutStreamer.AddBlankLine();
 }
 
@@ -631,7 +630,7 @@ static void emitKill(const MachineInstr *MI, AsmPrinter &AP) {
     const MachineOperand &Op = MI->getOperand(i);
     assert(Op.isReg() && "KILL instruction must have only register operands");
     Str += ' ';
-    Str += AP.TM.getSubtargetImpl()->getRegisterInfo()->getName(Op.getReg());
+    Str += AP.MMI->getContext().getRegisterInfo()->getName(Op.getReg());
     Str += (Op.isDef() ? "<def>" : "<kill>");
   }
   AP.OutStreamer.AddComment(Str);
@@ -693,8 +692,7 @@ static bool emitDebugValueComment(const MachineInstr *MI, AsmPrinter &AP) {
       Reg = MI->getOperand(0).getReg();
     } else {
       assert(MI->getOperand(0).isFI() && "Unknown operand type");
-      const TargetFrameLowering *TFI =
-          AP.TM.getSubtargetImpl()->getFrameLowering();
+      const TargetFrameLowering *TFI = AP.MF->getSubtarget().getFrameLowering();
       Offset += TFI->getFrameIndexReference(*AP.MF,
                                             MI->getOperand(0).getIndex(), Reg);
       Deref = true;
@@ -708,7 +706,7 @@ static bool emitDebugValueComment(const MachineInstr *MI, AsmPrinter &AP) {
     }
     if (Deref)
       OS << '[';
-    OS << AP.TM.getSubtargetImpl()->getRegisterInfo()->getName(Reg);
+    OS << AP.MMI->getContext().getRegisterInfo()->getName(Reg);
   }
 
   if (Deref)
@@ -843,7 +841,7 @@ void AsmPrinter::EmitFunctionBody() {
   // labels from collapsing together.  Just emit a noop.
   if ((MAI->hasSubsectionsViaSymbols() && !HasAnyRealCode)) {
     MCInst Noop;
-    TM.getSubtargetImpl()->getInstrInfo()->getNoopForMachoTarget(Noop);
+    MF->getSubtarget().getInstrInfo()->getNoopForMachoTarget(Noop);
     OutStreamer.AddComment("avoids zero-length function");
 
     // Targets can opt-out of emitting the noop here by leaving the opcode
@@ -916,10 +914,15 @@ bool AsmPrinter::doFinalization(Module &M) {
   JumpInstrTableInfo *JITI = getAnalysisIfAvailable<JumpInstrTableInfo>();
 
   if (JITI && !JITI->getTables().empty()) {
+    // Since we're at the module level we can't use a function specific
+    // MCSubtargetInfo - instead create one with the module defaults.
+    std::unique_ptr<MCSubtargetInfo> STI(TM.getTarget().createMCSubtargetInfo(
+        TM.getTargetTriple(), TM.getTargetCPU(), TM.getTargetFeatureString()));
     unsigned Arch = Triple(getTargetTriple()).getArch();
     bool IsThumb = (Arch == Triple::thumb || Arch == Triple::thumbeb);
+    const TargetInstrInfo *TII = TM.getSubtargetImpl()->getInstrInfo();
     MCInst TrapInst;
-    TM.getSubtargetImpl()->getInstrInfo()->getTrap(TrapInst);
+    TII->getTrap(TrapInst);
     unsigned LogAlignment = llvm::Log2_64(JITI->entryByteAlignment());
 
     // Emit the right section for these functions.
@@ -945,9 +948,8 @@ bool AsmPrinter::doFinalization(Module &M) {
         const MCSymbolRefExpr *TargetSymRef =
           MCSymbolRefExpr::Create(TargetSymbol, MCSymbolRefExpr::VK_PLT,
                                   OutContext);
-        TM.getSubtargetImpl()->getInstrInfo()->getUnconditionalBranch(
-            JumpToFun, TargetSymRef);
-        OutStreamer.EmitInstruction(JumpToFun, getSubtargetInfo());
+        TII->getUnconditionalBranch(JumpToFun, TargetSymRef);
+        OutStreamer.EmitInstruction(JumpToFun, *STI);
         ++Count;
       }
 
@@ -955,7 +957,7 @@ bool AsmPrinter::doFinalization(Module &M) {
       uint64_t Remaining = NextPowerOf2(Count) - Count;
       for (uint64_t C = 0; C < Remaining; ++C) {
         EmitAlignment(LogAlignment);
-        OutStreamer.EmitInstruction(TrapInst, getSubtargetInfo());
+        OutStreamer.EmitInstruction(TrapInst, *STI);
       }
 
     }
@@ -1181,23 +1183,16 @@ void AsmPrinter::EmitJumpTableInfo() {
   // the appropriate section.
   const Function *F = MF->getFunction();
   const TargetLoweringObjectFile &TLOF = getObjFileLowering();
-  bool JTInDiffSection = false;
-  if (// In PIC mode, we need to emit the jump table to the same section as the
-      // function body itself, otherwise the label differences won't make sense.
-      // FIXME: Need a better predicate for this: what about custom entries?
-      MJTI->getEntryKind() == MachineJumpTableInfo::EK_LabelDifference32 ||
-      // We should also do if the section name is NULL or function is declared
-      // in discardable section
-      // FIXME: this isn't the right predicate, should be based on the MCSection
-      // for the function.
-      F->isWeakForLinker()) {
+  bool JTInDiffSection = !TLOF.shouldPutJumpTableInFunctionSection(
+      MJTI->getEntryKind() == MachineJumpTableInfo::EK_LabelDifference32,
+      *F);
+  if (!JTInDiffSection) {
     OutStreamer.SwitchSection(TLOF.SectionForGlobal(F, *Mang, TM));
   } else {
     // Otherwise, drop it in the readonly section.
     const MCSection *ReadOnlySection =
         TLOF.getSectionForJumpTable(*F, *Mang, TM);
     OutStreamer.SwitchSection(ReadOnlySection);
-    JTInDiffSection = true;
   }
 
   EmitAlignment(Log2_32(
@@ -1219,7 +1214,7 @@ void AsmPrinter::EmitJumpTableInfo() {
     if (MJTI->getEntryKind() == MachineJumpTableInfo::EK_LabelDifference32 &&
         MAI->doesSetDirectiveSuppressesReloc()) {
       SmallPtrSet<const MachineBasicBlock*, 16> EmittedSets;
-      const TargetLowering *TLI = TM.getSubtargetImpl()->getTargetLowering();
+      const TargetLowering *TLI = MF->getSubtarget().getTargetLowering();
       const MCExpr *Base = TLI->getPICJumpTableRelocBaseExpr(MF,JTI,OutContext);
       for (unsigned ii = 0, ee = JTBBs.size(); ii != ee; ++ii) {
         const MachineBasicBlock *MBB = JTBBs[ii];
@@ -1263,9 +1258,8 @@ void AsmPrinter::EmitJumpTableEntry(const MachineJumpTableInfo *MJTI,
   case MachineJumpTableInfo::EK_Inline:
     llvm_unreachable("Cannot emit EK_Inline jump table entry");
   case MachineJumpTableInfo::EK_Custom32:
-    Value =
-        TM.getSubtargetImpl()->getTargetLowering()->LowerCustomJumpTableEntry(
-            MJTI, MBB, UID, OutContext);
+    Value = MF->getSubtarget().getTargetLowering()->LowerCustomJumpTableEntry(
+        MJTI, MBB, UID, OutContext);
     break;
   case MachineJumpTableInfo::EK_BlockAddress:
     // EK_BlockAddress - Each entry is a plain address of block, e.g.:
@@ -1304,7 +1298,7 @@ void AsmPrinter::EmitJumpTableEntry(const MachineJumpTableInfo *MJTI,
       break;
     }
     Value = MCSymbolRefExpr::Create(MBB->getSymbol(), OutContext);
-    const TargetLowering *TLI = TM.getSubtargetImpl()->getTargetLowering();
+    const TargetLowering *TLI = MF->getSubtarget().getTargetLowering();
     const MCExpr *Base = TLI->getPICJumpTableRelocBaseExpr(MF, UID, OutContext);
     Value = MCBinaryExpr::CreateSub(Value, Base, OutContext);
     break;
@@ -2074,7 +2068,7 @@ void AsmPrinter::printOffset(int64_t Offset, raw_ostream &OS) const {
 
 /// GetTempSymbol - Return the MCSymbol corresponding to the assembler
 /// temporary label with the specified stem and unique ID.
-MCSymbol *AsmPrinter::GetTempSymbol(Twine Name, unsigned ID) const {
+MCSymbol *AsmPrinter::GetTempSymbol(const Twine &Name, unsigned ID) const {
   const DataLayout *DL = TM.getDataLayout();
   return OutContext.GetOrCreateSymbol(Twine(DL->getPrivateGlobalPrefix()) +
                                       Name + Twine(ID));
@@ -2082,7 +2076,7 @@ MCSymbol *AsmPrinter::GetTempSymbol(Twine Name, unsigned ID) const {
 
 /// GetTempSymbol - Return an assembler temporary label with the specified
 /// stem.
-MCSymbol *AsmPrinter::GetTempSymbol(Twine Name) const {
+MCSymbol *AsmPrinter::GetTempSymbol(const Twine &Name) const {
   const DataLayout *DL = TM.getDataLayout();
   return OutContext.GetOrCreateSymbol(Twine(DL->getPrivateGlobalPrefix())+
                                       Name);

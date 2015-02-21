@@ -82,6 +82,13 @@ FunctionPass *createAggressiveDCEPass();
 
 //===----------------------------------------------------------------------===//
 //
+// BitTrackingDCE - This pass uses a bit-tracking DCE algorithm in order to
+// remove computations of dead bits.
+//
+FunctionPass *createBitTrackingDCEPass();
+
+//===----------------------------------------------------------------------===//
+//
 // SROA - Replace aggregates or pieces of aggregates with scalar SSA values.
 //
 FunctionPass *createSROAPass(bool RequiresDomTree = true);
@@ -425,6 +432,13 @@ FunctionPass *createStraightLineStrengthReducePass();
 // order following this pass.
 //
 ModulePass *createPlaceSafepointsPass();
+
+//===----------------------------------------------------------------------===//
+//
+// RewriteStatepointsForGC - Rewrite any gc.statepoints which do not yet have
+// explicit relocations to include explicit relocations.
+//
+FunctionPass *createRewriteStatepointsForGCPass();
 
 } // End llvm namespace
 

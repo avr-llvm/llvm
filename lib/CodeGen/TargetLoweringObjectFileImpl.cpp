@@ -228,25 +228,46 @@ const MCSection *TargetLoweringObjectFileELF::getExplicitSectionGlobal(
 /// DataSections.
 static StringRef getSectionPrefixForGlobal(SectionKind Kind) {
   if (Kind.isText())
-    return ".text.";
+    return ".text";
   if (Kind.isReadOnly())
-    return ".rodata.";
+    return ".rodata";
   if (Kind.isBSS())
-    return ".bss.";
+    return ".bss";
   if (Kind.isThreadData())
-    return ".tdata.";
+    return ".tdata";
   if (Kind.isThreadBSS())
-    return ".tbss.";
+    return ".tbss";
   if (Kind.isDataNoRel())
-    return ".data.";
+    return ".data";
   if (Kind.isDataRelLocal())
-    return ".data.rel.local.";
+    return ".data.rel.local";
   if (Kind.isDataRel())
-    return ".data.rel.";
+    return ".data.rel";
   if (Kind.isReadOnlyWithRelLocal())
-    return ".data.rel.ro.local.";
+    return ".data.rel.ro.local";
   assert(Kind.isReadOnlyWithRel() && "Unknown section kind");
-  return ".data.rel.ro.";
+  return ".data.rel.ro";
+}
+
+static const MCSection *
+getUniqueELFSection(MCContext &Ctx, const GlobalValue &GV, SectionKind Kind,
+                    Mangler &Mang, const TargetMachine &TM, unsigned Flags) {
+  StringRef Prefix = getSectionPrefixForGlobal(Kind);
+
+  SmallString<128> Name(Prefix);
+  bool UniqueSectionNames = TM.getUniqueSectionNames();
+  if (UniqueSectionNames) {
+    Name.push_back('.');
+    TM.getNameWithPrefix(Name, &GV, Mang, true);
+  }
+  StringRef Group = "";
+  if (const Comdat *C = getELFComdat(&GV)) {
+    Flags |= ELF::SHF_GROUP;
+    Group = C->getName();
+  }
+
+  return Ctx.getELFSection(Name, getELFSectionType(Name, Kind), Flags, 0, Group,
+                           !UniqueSectionNames);
 }
 
 const MCSection *TargetLoweringObjectFileELF::
@@ -264,21 +285,8 @@ SelectSectionForGlobal(const GlobalValue *GV, SectionKind Kind,
       EmitUniquedSection = TM.getDataSections();
   }
 
-  if (EmitUniquedSection || GV->hasComdat()) {
-    StringRef Prefix = getSectionPrefixForGlobal(Kind);
-
-    SmallString<128> Name(Prefix);
-    TM.getNameWithPrefix(Name, GV, Mang, true);
-
-    StringRef Group = "";
-    if (const Comdat *C = getELFComdat(GV)) {
-      Flags |= ELF::SHF_GROUP;
-      Group = C->getName();
-    }
-
-    return getContext().getELFSection(
-        Name.str(), getELFSectionType(Name.str(), Kind), Flags, 0, Group);
-  }
+  if (EmitUniquedSection || GV->hasComdat())
+    return getUniqueELFSection(getContext(), *GV, Kind, Mang, TM, Flags);
 
   if (Kind.isText()) return TextSection;
 
@@ -343,17 +351,15 @@ const MCSection *TargetLoweringObjectFileELF::getSectionForJumpTable(
   if (!EmitUniqueSection)
     return ReadOnlySection;
 
-  SmallString<128> Name(".rodata.");
-  TM.getNameWithPrefix(Name, &F, Mang, true);
+  return getUniqueELFSection(getContext(), F, SectionKind::getReadOnly(), Mang,
+                             TM, ELF::SHF_ALLOC);
+}
 
-  unsigned Flags = ELF::SHF_ALLOC;
-  StringRef Group = "";
-  if (C) {
-    Flags |= ELF::SHF_GROUP;
-    Group = C->getName();
-  }
-
-  return getContext().getELFSection(Name, ELF::SHT_PROGBITS, Flags, 0, Group);
+bool TargetLoweringObjectFileELF::shouldPutJumpTableInFunctionSection(
+    bool UsesLabelDifference, const Function &F) const {
+  // We can always create relative relocations, so use another section
+  // that can be marked non-executable.
+  return false;
 }
 
 /// getSectionForConstant - Given a mergeable constant with the

@@ -74,9 +74,7 @@ namespace {
   public:
     explicit PPCAsmPrinter(TargetMachine &TM,
                            std::unique_ptr<MCStreamer> Streamer)
-        : AsmPrinter(TM, std::move(Streamer)),
-          Subtarget(&TM.getSubtarget<PPCSubtarget>()), TOCLabelID(0),
-          SM(*this) {}
+        : AsmPrinter(TM, std::move(Streamer)), TOCLabelID(0), SM(*this) {}
 
     const char *getPassName() const override {
       return "PowerPC Assembly Printer";
@@ -102,6 +100,10 @@ namespace {
     void LowerPATCHPOINT(MCStreamer &OutStreamer, StackMaps &SM,
                          const MachineInstr &MI);
     void EmitTlsCall(const MachineInstr *MI, MCSymbolRefExpr::VariantKind VK);
+    bool runOnMachineFunction(MachineFunction &MF) override {
+      Subtarget = &MF.getSubtarget<PPCSubtarget>();
+      return AsmPrinter::runOnMachineFunction(MF);
+    }
   };
 
   /// PPCLinuxAsmPrinter - PowerPC assembly printer, customized for Linux
@@ -992,7 +994,7 @@ void PPCAsmPrinter::EmitInstruction(const MachineInstr *MI) {
 }
 
 void PPCLinuxAsmPrinter::EmitStartOfAsmFile(Module &M) {
-  if (Subtarget->isELFv2ABI()) {
+  if (static_cast<const PPCTargetMachine &>(TM).isELFv2ABI()) {
     PPCTargetStreamer *TS =
       static_cast<PPCTargetStreamer *>(OutStreamer.getTargetStreamer());
 
@@ -1000,7 +1002,8 @@ void PPCLinuxAsmPrinter::EmitStartOfAsmFile(Module &M) {
       TS->emitAbiVersion(2);
   }
 
-  if (Subtarget->isPPC64() || TM.getRelocationModel() != Reloc::PIC_)
+  if (static_cast<const PPCTargetMachine &>(TM).isPPC64() ||
+      TM.getRelocationModel() != Reloc::PIC_)
     return AsmPrinter::EmitStartOfAsmFile(M);
 
   if (M.getPICLevel() == PICLevel::Small)
@@ -1242,13 +1245,21 @@ void PPCDarwinAsmPrinter::EmitStartOfAsmFile(Module &M) {
     "ppc64le"
   };
 
-  unsigned Directive = Subtarget->getDarwinDirective();
-  if (Subtarget->hasMFOCRF() && Directive < PPC::DIR_970)
-    Directive = PPC::DIR_970;
-  if (Subtarget->hasAltivec() && Directive < PPC::DIR_7400)
-    Directive = PPC::DIR_7400;
-  if (Subtarget->isPPC64() && Directive < PPC::DIR_64)
-    Directive = PPC::DIR_64;
+  // Get the numerically largest directive.
+  // FIXME: How should we merge darwin directives?
+  unsigned Directive = PPC::DIR_NONE;
+  for (const Function &F : M) {
+    const PPCSubtarget &STI = TM.getSubtarget<PPCSubtarget>(F);
+    unsigned FDir = STI.getDarwinDirective();
+    Directive = Directive > FDir ? FDir : STI.getDarwinDirective();
+    if (STI.hasMFOCRF() && Directive < PPC::DIR_970)
+      Directive = PPC::DIR_970;
+    if (STI.hasAltivec() && Directive < PPC::DIR_7400)
+      Directive = PPC::DIR_7400;
+    if (STI.isPPC64() && Directive < PPC::DIR_64)
+      Directive = PPC::DIR_64;
+  }
+
   assert(Directive <= PPC::DIR_64 && "Directive out of range.");
 
   assert(Directive < array_lengthof(CPUDirectives) &&
@@ -1292,8 +1303,17 @@ static MCSymbol *GetAnonSym(MCSymbol *Sym, MCContext &Ctx) {
 void PPCDarwinAsmPrinter::
 EmitFunctionStubs(const MachineModuleInfoMachO::SymbolListTy &Stubs) {
   bool isPPC64 = TM.getDataLayout()->getPointerSizeInBits() == 64;
-  bool isDarwin = Subtarget->isDarwin();
-  
+
+  // Construct a local MCSubtargetInfo and shadow EmitToStreamer here.
+  // This is because the MachineFunction won't exist (but have not yet been
+  // freed) and since we're at the global level we can use the default
+  // constructed subtarget.
+  std::unique_ptr<MCSubtargetInfo> STI(TM.getTarget().createMCSubtargetInfo(
+      TM.getTargetTriple(), TM.getTargetCPU(), TM.getTargetFeatureString()));
+  auto EmitToStreamer = [&STI] (MCStreamer &S, const MCInst &Inst) {
+    S.EmitInstruction(Inst, *STI);
+  };
+
   const TargetLoweringObjectFileMachO &TLOFMacho = 
     static_cast<const TargetLoweringObjectFileMachO &>(getObjFileLowering());
 
@@ -1332,7 +1352,7 @@ EmitFunctionStubs(const MachineModuleInfoMachO::SymbolListTy &Stubs) {
       // mflr r11
       EmitToStreamer(OutStreamer, MCInstBuilder(PPC::MFLR).addReg(PPC::R11));
       // addis r11, r11, ha16(LazyPtr - AnonSymbol)
-      const MCExpr *SubHa16 = PPCMCExpr::CreateHa(Sub, isDarwin, OutContext);
+      const MCExpr *SubHa16 = PPCMCExpr::CreateHa(Sub, true, OutContext);
       EmitToStreamer(OutStreamer, MCInstBuilder(PPC::ADDIS)
         .addReg(PPC::R11)
         .addReg(PPC::R11)
@@ -1342,7 +1362,7 @@ EmitFunctionStubs(const MachineModuleInfoMachO::SymbolListTy &Stubs) {
 
       // ldu r12, lo16(LazyPtr - AnonSymbol)(r11)
       // lwzu r12, lo16(LazyPtr - AnonSymbol)(r11)
-      const MCExpr *SubLo16 = PPCMCExpr::CreateLo(Sub, isDarwin, OutContext);
+      const MCExpr *SubLo16 = PPCMCExpr::CreateLo(Sub, true, OutContext);
       EmitToStreamer(OutStreamer, MCInstBuilder(isPPC64 ? PPC::LDU : PPC::LWZU)
         .addReg(PPC::R12)
         .addExpr(SubLo16).addExpr(SubLo16)
@@ -1388,7 +1408,7 @@ EmitFunctionStubs(const MachineModuleInfoMachO::SymbolListTy &Stubs) {
 
     // lis r11, ha16(LazyPtr)
     const MCExpr *LazyPtrHa16 =
-      PPCMCExpr::CreateHa(LazyPtrExpr, isDarwin, OutContext);
+      PPCMCExpr::CreateHa(LazyPtrExpr, true, OutContext);
     EmitToStreamer(OutStreamer, MCInstBuilder(PPC::LIS)
       .addReg(PPC::R11)
       .addExpr(LazyPtrHa16));
@@ -1396,7 +1416,7 @@ EmitFunctionStubs(const MachineModuleInfoMachO::SymbolListTy &Stubs) {
     // ldu r12, lo16(LazyPtr)(r11)
     // lwzu r12, lo16(LazyPtr)(r11)
     const MCExpr *LazyPtrLo16 =
-      PPCMCExpr::CreateLo(LazyPtrExpr, isDarwin, OutContext);
+      PPCMCExpr::CreateLo(LazyPtrExpr, true, OutContext);
     EmitToStreamer(OutStreamer, MCInstBuilder(isPPC64 ? PPC::LDU : PPC::LWZU)
       .addReg(PPC::R12)
       .addExpr(LazyPtrLo16).addExpr(LazyPtrLo16)
@@ -1525,9 +1545,7 @@ bool PPCDarwinAsmPrinter::doFinalization(Module &M) {
 static AsmPrinter *
 createPPCAsmPrinterPass(TargetMachine &tm,
                         std::unique_ptr<MCStreamer> &&Streamer) {
-  const PPCSubtarget *Subtarget = &tm.getSubtarget<PPCSubtarget>();
-
-  if (Subtarget->isDarwin())
+  if (Triple(tm.getTargetTriple()).isMacOSX())
     return new PPCDarwinAsmPrinter(tm, std::move(Streamer));
   return new PPCLinuxAsmPrinter(tm, std::move(Streamer));
 }

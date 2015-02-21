@@ -970,7 +970,6 @@ def VPOPCNTD : VXForm_2<1987, (outs vrrc:$vD), (ins vrrc:$vB),
                         [(set v2i64:$vD, (ctpop v2i64:$vB))]>;
 
 let isCommutable = 1 in {
-let AddedComplexity = 500 in {
 // FIXME: Use AddedComplexity > 400 to ensure these patterns match before the 
 //        VSX equivalents. We need to fix this up at some point. Two possible
 //        solutions for this problem:
@@ -987,10 +986,10 @@ def VEQV  : VXForm_1<1668, (outs vrrc:$vD), (ins vrrc:$vA, vrrc:$vB),
 def VNAND : VXForm_1<1412, (outs vrrc:$vD), (ins vrrc:$vA, vrrc:$vB),
                      "vnand $vD, $vA, $vB", IIC_VecGeneral,
                      [(set v4i32:$vD, (vnot_ppc (and v4i32:$vA, v4i32:$vB)))]>;
+} // isCommutable
+
 def VORC : VXForm_1<1348, (outs vrrc:$vD), (ins vrrc:$vA, vrrc:$vB),
                       "vorc $vD, $vA, $vB", IIC_VecGeneral,
                       [(set v4i32:$vD, (or v4i32:$vA,
                                            (vnot_ppc v4i32:$vB)))]>;
-} // AddedComplexity = 500
-} // isCommutable
 } // end HasP8Altivec

@@ -60,7 +60,7 @@ private:
   std::map<const char *, const llvm::Mips16HardFloatInfo::FuncSignature *>
   StubsNeeded;
 
-  void emitInlineAsmStart(const MCSubtargetInfo &StartInfo) const override;
+  void emitInlineAsmStart() const override;
 
   void emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
                         const MCSubtargetInfo *EndInfo) const override;
@@ -102,8 +102,7 @@ public:
   explicit MipsAsmPrinter(TargetMachine &TM,
                           std::unique_ptr<MCStreamer> Streamer)
       : AsmPrinter(TM, std::move(Streamer)), MCP(nullptr),
-        InConstantPool(false), Subtarget(&TM.getSubtarget<MipsSubtarget>()),
-        MCInstLowering(*this) {}
+        InConstantPool(false), MCInstLowering(*this) {}
 
   const char *getPassName() const override {
     return "Mips Assembly Printer";

@@ -178,31 +178,32 @@ void FunctionRecordIterator::skipOtherFiles() {
 }
 
 ErrorOr<std::unique_ptr<CoverageMapping>>
-CoverageMapping::load(ObjectFileCoverageMappingReader &CoverageReader,
+CoverageMapping::load(CoverageMappingReader &CoverageReader,
                       IndexedInstrProfReader &ProfileReader) {
   auto Coverage = std::unique_ptr<CoverageMapping>(new CoverageMapping());
 
   std::vector<uint64_t> Counts;
   for (const auto &Record : CoverageReader) {
+    CounterMappingContext Ctx(Record.Expressions);
+
     Counts.clear();
     if (std::error_code EC = ProfileReader.getFunctionCounts(
             Record.FunctionName, Record.FunctionHash, Counts)) {
-      if (EC != instrprof_error::hash_mismatch &&
-          EC != instrprof_error::unknown_function)
+      if (EC == instrprof_error::hash_mismatch) {
+        Coverage->MismatchedFunctionCount++;
+        continue;
+      } else if (EC != instrprof_error::unknown_function)
         return EC;
-      Coverage->MismatchedFunctionCount++;
-      continue;
-    }
+    } else
+      Ctx.setCounts(Counts);
 
-    assert(Counts.size() != 0 && "Function's counts are empty");
-    FunctionRecord Function(Record.FunctionName, Record.Filenames,
-                            Counts.front());
-    CounterMappingContext Ctx(Record.Expressions, Counts);
+    assert(!Record.MappingRegions.empty() && "Function has no regions");
+    FunctionRecord Function(Record.FunctionName, Record.Filenames);
     for (const auto &Region : Record.MappingRegions) {
       ErrorOr<int64_t> ExecutionCount = Ctx.evaluate(Region.Count);
       if (!ExecutionCount)
         break;
-      Function.CountedRegions.push_back(CountedRegion(Region, *ExecutionCount));
+      Function.pushRegion(Region, *ExecutionCount);
     }
     if (Function.CountedRegions.size() != Record.MappingRegions.size()) {
       Coverage->MismatchedFunctionCount++;
@@ -313,7 +314,7 @@ public:
         popRegion();
       if (PrevRegion && PrevRegion->startLoc() == Region.startLoc() &&
           PrevRegion->endLoc() == Region.endLoc()) {
-        if (Region.Kind != coverage::CounterMappingRegion::SkippedRegion)
+        if (Region.Kind == coverage::CounterMappingRegion::CodeRegion)
           Segments.back().addCount(Region.ExecutionCount);
       } else {
         // Add this region to the stack.
@@ -333,8 +334,8 @@ public:
 std::vector<StringRef> CoverageMapping::getUniqueSourceFiles() const {
   std::vector<StringRef> Filenames;
   for (const auto &Function : getCoveredFunctions())
-    for (const auto &Filename : Function.Filenames)
-      Filenames.push_back(Filename);
+    Filenames.insert(Filenames.end(), Function.Filenames.begin(),
+                     Function.Filenames.end());
   std::sort(Filenames.begin(), Filenames.end());
   auto Last = std::unique(Filenames.begin(), Filenames.end());
   Filenames.erase(Last, Filenames.end());
@@ -360,7 +361,9 @@ static Optional<unsigned> findMainViewFileID(StringRef SourceFile,
       IsNotExpandedFile[CR.ExpandedFileID] = false;
   IsNotExpandedFile &= FilenameEquivalence;
   int I = IsNotExpandedFile.find_first();
-  return I != -1 ? I : None;
+  if (I == -1)
+    return None;
+  return I;
 }
 
 static Optional<unsigned> findMainViewFileID(const FunctionRecord &Function) {
@@ -369,7 +372,9 @@ static Optional<unsigned> findMainViewFileID(const FunctionRecord &Function) {
     if (CR.Kind == CounterMappingRegion::ExpansionRegion)
       IsNotExpandedFile[CR.ExpandedFileID] = false;
   int I = IsNotExpandedFile.find_first();
-  return I != -1 ? I : None;
+  if (I == -1)
+    return None;
+  return I;
 }
 
 /// Sort a nested sequence of regions from a single file.
@@ -425,8 +430,8 @@ CoverageMapping::getInstantiations(StringRef Filename) {
   for (const auto &InstantiationSet : InstantiationSetCollector) {
     if (InstantiationSet.second.size() < 2)
       continue;
-    for (auto Function : InstantiationSet.second)
-      Result.push_back(Function);
+    Result.insert(Result.end(), InstantiationSet.second.begin(),
+                  InstantiationSet.second.end());
   }
   return Result;
 }

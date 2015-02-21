@@ -14,6 +14,7 @@
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "LLVMContextImpl.h"
 #include "MetadataImpl.h"
+#include "llvm/IR/Function.h"
 
 using namespace llvm;
 
@@ -147,8 +148,8 @@ MDEnumerator *MDEnumerator::getImpl(LLVMContext &Context, int64_t Value,
 }
 
 MDBasicType *MDBasicType::getImpl(LLVMContext &Context, unsigned Tag,
-                                  MDString *Name, unsigned SizeInBits,
-                                  unsigned AlignInBits, unsigned Encoding,
+                                  MDString *Name, uint64_t SizeInBits,
+                                  uint64_t AlignInBits, unsigned Encoding,
                                   StorageType Storage, bool ShouldCreate) {
   assert(isCanonical(Name) && "Expected canonical MDString");
   DEFINE_GETIMPL_LOOKUP(
@@ -160,8 +161,8 @@ MDBasicType *MDBasicType::getImpl(LLVMContext &Context, unsigned Tag,
 
 MDDerivedType *MDDerivedType::getImpl(
     LLVMContext &Context, unsigned Tag, MDString *Name, Metadata *File,
-    unsigned Line, Metadata *Scope, Metadata *BaseType, unsigned SizeInBits,
-    unsigned AlignInBits, unsigned OffsetInBits, unsigned Flags,
+    unsigned Line, Metadata *Scope, Metadata *BaseType, uint64_t SizeInBits,
+    uint64_t AlignInBits, uint64_t OffsetInBits, unsigned Flags,
     Metadata *ExtraData, StorageType Storage, bool ShouldCreate) {
   assert(isCanonical(Name) && "Expected canonical MDString");
   DEFINE_GETIMPL_LOOKUP(MDDerivedType, (Tag, getString(Name), File, Line, Scope,
@@ -175,8 +176,8 @@ MDDerivedType *MDDerivedType::getImpl(
 
 MDCompositeType *MDCompositeType::getImpl(
     LLVMContext &Context, unsigned Tag, MDString *Name, Metadata *File,
-    unsigned Line, Metadata *Scope, Metadata *BaseType, unsigned SizeInBits,
-    unsigned AlignInBits, unsigned OffsetInBits, unsigned Flags,
+    unsigned Line, Metadata *Scope, Metadata *BaseType, uint64_t SizeInBits,
+    uint64_t AlignInBits, uint64_t OffsetInBits, unsigned Flags,
     Metadata *Elements, unsigned RuntimeLang, Metadata *VTableHolder,
     Metadata *TemplateParams, MDString *Identifier, StorageType Storage,
     bool ShouldCreate) {
@@ -199,7 +200,7 @@ MDSubroutineType *MDSubroutineType::getImpl(LLVMContext &Context,
                                             bool ShouldCreate) {
   DEFINE_GETIMPL_LOOKUP(MDSubroutineType, (Flags, TypeArray));
   Metadata *Ops[] = {nullptr,   nullptr, nullptr, nullptr,
-                     TypeArray, nullptr, nullptr};
+                     TypeArray, nullptr, nullptr, nullptr};
   DEFINE_GETIMPL_STORE(MDSubroutineType, (Flags), Ops);
 }
 
@@ -209,11 +210,8 @@ MDFile *MDFile::getImpl(LLVMContext &Context, MDString *Filename,
   assert(isCanonical(Filename) && "Expected canonical MDString");
   assert(isCanonical(Directory) && "Expected canonical MDString");
   DEFINE_GETIMPL_LOOKUP(MDFile, (getString(Filename), getString(Directory)));
-  Metadata *NodeOps[] = {Filename, Directory};
-  Metadata *Ops[] = {MDTuple::get(Context, NodeOps)};
-  return storeImpl(new (ArrayRef<Metadata *>(Ops).size())
-                       MDFile(Context, Storage, Ops),
-                   Storage, Context.pImpl->MDFiles);
+  Metadata *Ops[] = {Filename, Directory};
+  DEFINE_GETIMPL_STORE_NO_CONSTRUCTOR_ARGS(MDFile, Ops);
 }
 
 MDCompileUnit *MDCompileUnit::getImpl(
@@ -264,6 +262,11 @@ MDSubprogram *MDSubprogram::getImpl(
                        Ops);
 }
 
+void MDSubprogram::replaceFunction(Function *F) {
+  replaceFunction(F ? ConstantAsMetadata::get(F)
+                    : static_cast<ConstantAsMetadata *>(nullptr));
+}
+
 MDLexicalBlock *MDLexicalBlock::getImpl(LLVMContext &Context, Metadata *Scope,
                                         Metadata *File, unsigned Line,
                                         unsigned Column, StorageType Storage,
@@ -292,24 +295,24 @@ MDNamespace *MDNamespace::getImpl(LLVMContext &Context, Metadata *Scope,
   DEFINE_GETIMPL_STORE(MDNamespace, (Line), Ops);
 }
 
-MDTemplateTypeParameter *
-MDTemplateTypeParameter::getImpl(LLVMContext &Context, Metadata *Scope,
-                                 MDString *Name, Metadata *Type,
-                                 StorageType Storage, bool ShouldCreate) {
+MDTemplateTypeParameter *MDTemplateTypeParameter::getImpl(LLVMContext &Context,
+                                                          MDString *Name,
+                                                          Metadata *Type,
+                                                          StorageType Storage,
+                                                          bool ShouldCreate) {
   assert(isCanonical(Name) && "Expected canonical MDString");
-  DEFINE_GETIMPL_LOOKUP(MDTemplateTypeParameter,
-                        (Scope, getString(Name), Type));
-  Metadata *Ops[] = {Scope, Name, Type};
+  DEFINE_GETIMPL_LOOKUP(MDTemplateTypeParameter, (getString(Name), Type));
+  Metadata *Ops[] = {Name, Type};
   DEFINE_GETIMPL_STORE_NO_CONSTRUCTOR_ARGS(MDTemplateTypeParameter, Ops);
 }
 
 MDTemplateValueParameter *MDTemplateValueParameter::getImpl(
-    LLVMContext &Context, unsigned Tag, Metadata *Scope, MDString *Name,
-    Metadata *Type, Metadata *Value, StorageType Storage, bool ShouldCreate) {
+    LLVMContext &Context, unsigned Tag, MDString *Name, Metadata *Type,
+    Metadata *Value, StorageType Storage, bool ShouldCreate) {
   assert(isCanonical(Name) && "Expected canonical MDString");
   DEFINE_GETIMPL_LOOKUP(MDTemplateValueParameter,
-                        (Tag, Scope, getString(Name), Type, Value));
-  Metadata *Ops[] = {Scope, Name, Type, Value};
+                        (Tag, getString(Name), Type, Value));
+  Metadata *Ops[] = {Name, Type, Value};
   DEFINE_GETIMPL_STORE(MDTemplateValueParameter, (Tag), Ops);
 }
 

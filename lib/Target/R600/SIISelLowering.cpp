@@ -577,8 +577,7 @@ SDValue SITargetLowering::LowerFormalArguments(
 
       // Fill up the missing vector elements
       NumElements = Arg.VT.getVectorNumElements() - NumElements;
-      for (unsigned j = 0; j != NumElements; ++j)
-        Regs.push_back(DAG.getUNDEF(VT));
+      Regs.append(NumElements, DAG.getUNDEF(VT));
 
       InVals.push_back(DAG.getNode(ISD::BUILD_VECTOR, DL, Arg.VT, Regs));
       continue;
@@ -588,8 +587,8 @@ SDValue SITargetLowering::LowerFormalArguments(
   }
 
   if (Info->getShaderType() != ShaderType::COMPUTE) {
-    unsigned ScratchIdx = CCInfo.getFirstUnallocated(
-        AMDGPU::SGPR_32RegClass.begin(), AMDGPU::SGPR_32RegClass.getNumRegs());
+    unsigned ScratchIdx = CCInfo.getFirstUnallocated(ArrayRef<MCPhysReg>(
+        AMDGPU::SGPR_32RegClass.begin(), AMDGPU::SGPR_32RegClass.getNumRegs()));
     Info->ScratchOffsetReg = AMDGPU::SGPR_32RegClass.getRegister(ScratchIdx);
   }
   return Chain;
@@ -605,19 +604,8 @@ MachineBasicBlock * SITargetLowering::EmitInstrWithCustomInserter(
   switch (MI->getOpcode()) {
   default:
     return AMDGPUTargetLowering::EmitInstrWithCustomInserter(MI, BB);
-  case AMDGPU::BRANCH: return BB;
-  case AMDGPU::V_SUB_F64: {
-    unsigned DestReg = MI->getOperand(0).getReg();
-    BuildMI(*BB, I, MI->getDebugLoc(), TII->get(AMDGPU::V_ADD_F64), DestReg)
-      .addImm(0)  // SRC0 modifiers
-      .addReg(MI->getOperand(1).getReg())
-      .addImm(1)  // SRC1 modifiers
-      .addReg(MI->getOperand(2).getReg())
-      .addImm(0)  // CLAMP
-      .addImm(0); // OMOD
-    MI->eraseFromParent();
-    break;
-  }
+  case AMDGPU::BRANCH:
+    return BB;
   case AMDGPU::SI_RegisterStorePseudo: {
     MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
     unsigned Reg = MRI.createVirtualRegister(&AMDGPU::SReg_64RegClass);
@@ -681,8 +669,9 @@ bool SITargetLowering::isFMAFasterThanFMulAndFAdd(EVT VT) const {
   case MVT::f32:
     // This is as fast on some subtargets. However, we always have full rate f32
     // mad available which returns the same result as the separate operations
-    // which we should prefer over fma.
-    return false;
+    // which we should prefer over fma. We can't use this if we want to support
+    // denormals, so only report this in these cases.
+    return Subtarget->hasFP32Denormals() && Subtarget->hasFastFMAF32();
   case MVT::f64:
     return true;
   default:
@@ -778,15 +767,12 @@ SDValue SITargetLowering::LowerBRCOND(SDValue BRCOND,
   assert(Intr->getOpcode() == ISD::INTRINSIC_W_CHAIN);
 
   // Build the result and
-  SmallVector<EVT, 4> Res;
-  for (unsigned i = 1, e = Intr->getNumValues(); i != e; ++i)
-    Res.push_back(Intr->getValueType(i));
+  ArrayRef<EVT> Res(Intr->value_begin() + 1, Intr->value_end());
 
   // operands of the new intrinsic call
   SmallVector<SDValue, 4> Ops;
   Ops.push_back(BRCOND.getOperand(0));
-  for (unsigned i = 1, e = Intr->getNumOperands(); i != e; ++i)
-    Ops.push_back(Intr->getOperand(i));
+  Ops.append(Intr->op_begin() + 1, Intr->op_end());
   Ops.push_back(Target);
 
   // build the new intrinsic call
@@ -1646,6 +1632,11 @@ SDValue SITargetLowering::PerformDAGCombine(SDNode *N,
     if (VT != MVT::f32)
       break;
 
+    // Only do this if we are not trying to support denormals. v_mad_f32 does
+    // not support denormals ever.
+    if (Subtarget->hasFP32Denormals())
+      break;
+
     SDValue LHS = N->getOperand(0);
     SDValue RHS = N->getOperand(1);
 
@@ -1657,7 +1648,7 @@ SDValue SITargetLowering::PerformDAGCombine(SDNode *N,
       SDValue A = LHS.getOperand(0);
       if (A == LHS.getOperand(1)) {
         const SDValue Two = DAG.getConstantFP(2.0, MVT::f32);
-        return DAG.getNode(AMDGPUISD::MAD, DL, VT, Two, A, RHS);
+        return DAG.getNode(ISD::FMAD, DL, VT, Two, A, RHS);
       }
     }
 
@@ -1666,11 +1657,11 @@ SDValue SITargetLowering::PerformDAGCombine(SDNode *N,
       SDValue A = RHS.getOperand(0);
       if (A == RHS.getOperand(1)) {
         const SDValue Two = DAG.getConstantFP(2.0, MVT::f32);
-        return DAG.getNode(AMDGPUISD::MAD, DL, VT, Two, A, LHS);
+        return DAG.getNode(ISD::FMAD, DL, VT, Two, A, LHS);
       }
     }
 
-    break;
+    return SDValue();
   }
   case ISD::FSUB: {
     if (DCI.getDAGCombineLevel() < AfterLegalizeDAG)
@@ -1680,30 +1671,13 @@ SDValue SITargetLowering::PerformDAGCombine(SDNode *N,
 
     // Try to get the fneg to fold into the source modifier. This undoes generic
     // DAG combines and folds them into the mad.
-    if (VT == MVT::f32) {
+    //
+    // Only do this if we are not trying to support denormals. v_mad_f32 does
+    // not support denormals ever.
+    if (VT == MVT::f32 &&
+        !Subtarget->hasFP32Denormals()) {
       SDValue LHS = N->getOperand(0);
       SDValue RHS = N->getOperand(1);
-
-      if (LHS.getOpcode() == ISD::FMUL) {
-        // (fsub (fmul a, b), c) -> mad a, b, (fneg c)
-
-        SDValue A = LHS.getOperand(0);
-        SDValue B = LHS.getOperand(1);
-        SDValue C = DAG.getNode(ISD::FNEG, DL, VT, RHS);
-
-        return DAG.getNode(AMDGPUISD::MAD, DL, VT, A, B, C);
-      }
-
-      if (RHS.getOpcode() == ISD::FMUL) {
-        // (fsub c, (fmul a, b)) -> mad (fneg a), b, c
-
-        SDValue A = DAG.getNode(ISD::FNEG, DL, VT, RHS.getOperand(0));
-        SDValue B = RHS.getOperand(1);
-        SDValue C = LHS;
-
-        return DAG.getNode(AMDGPUISD::MAD, DL, VT, A, B, C);
-      }
-
       if (LHS.getOpcode() == ISD::FADD) {
         // (fsub (fadd a, a), c) -> mad 2.0, a, (fneg c)
 
@@ -1712,7 +1686,7 @@ SDValue SITargetLowering::PerformDAGCombine(SDNode *N,
           const SDValue Two = DAG.getConstantFP(2.0, MVT::f32);
           SDValue NegRHS = DAG.getNode(ISD::FNEG, DL, VT, RHS);
 
-          return DAG.getNode(AMDGPUISD::MAD, DL, VT, Two, A, NegRHS);
+          return DAG.getNode(ISD::FMAD, DL, VT, Two, A, NegRHS);
         }
       }
 
@@ -1722,9 +1696,11 @@ SDValue SITargetLowering::PerformDAGCombine(SDNode *N,
         SDValue A = RHS.getOperand(0);
         if (A == RHS.getOperand(1)) {
           const SDValue NegTwo = DAG.getConstantFP(-2.0, MVT::f32);
-          return DAG.getNode(AMDGPUISD::MAD, DL, VT, NegTwo, A, LHS);
+          return DAG.getNode(ISD::FMAD, DL, VT, NegTwo, A, LHS);
         }
       }
+
+      return SDValue();
     }
 
     break;
@@ -1758,9 +1734,7 @@ SDValue SITargetLowering::PerformDAGCombine(SDNode *N,
     if (Ptr.getOpcode() == ISD::SHL && AS != AMDGPUAS::PRIVATE_ADDRESS) {
       SDValue NewPtr = performSHLPtrCombine(Ptr.getNode(), AS, DCI);
       if (NewPtr) {
-        SmallVector<SDValue, 8> NewOps;
-        for (unsigned I = 0, E = MemNode->getNumOperands(); I != E; ++I)
-          NewOps.push_back(MemNode->getOperand(I));
+        SmallVector<SDValue, 8> NewOps(MemNode->op_begin(), MemNode->op_end());
 
         NewOps[N->getOpcode() == ISD::STORE ? 2 : 1] = NewPtr;
         return SDValue(DAG.UpdateNodeOperands(MemNode, NewOps), 0);
@@ -1938,8 +1912,7 @@ void SITargetLowering::adjustWritemask(MachineSDNode *&Node,
   // Adjust the writemask in the node
   std::vector<SDValue> Ops;
   Ops.push_back(DAG.getTargetConstant(NewDmask, MVT::i32));
-  for (unsigned i = 1, e = Node->getNumOperands(); i != e; ++i)
-    Ops.push_back(Node->getOperand(i));
+  Ops.insert(Ops.end(), Node->op_begin() + 1, Node->op_end());
   Node = (MachineSDNode*)DAG.UpdateNodeOperands(Node, Ops);
 
   // If we only got one lane, replace it with a copy
@@ -2196,8 +2169,7 @@ MachineSDNode *SITargetLowering::AdjustRegClass(MachineSDNode *N,
 
     // Copy remaining operands so we keep any chain and glue nodes that follow
     // the normal operands.
-    for (unsigned I = 2, E = N->getNumOperands(); I != E; ++I)
-      Ops.push_back(N->getOperand(I));
+    Ops.append(N->op_begin() + 2, N->op_end());
 
     return DAG.getMachineNode(NewOpcode, DL, N->getVTList(), Ops);
   }

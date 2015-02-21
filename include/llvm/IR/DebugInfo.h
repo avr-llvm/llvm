@@ -132,25 +132,20 @@ public:
   /// The three accessibility flags are mutually exclusive and rolled together
   /// in the first two bits.
   enum {
-    FlagAccessibility     = 1 << 0 | 1 << 1,
-    FlagPrivate           = 1,
-    FlagProtected         = 2,
-    FlagPublic            = 3,
-
-    FlagFwdDecl           = 1 << 2,
-    FlagAppleBlock        = 1 << 3,
-    FlagBlockByrefStruct  = 1 << 4,
-    FlagVirtual           = 1 << 5,
-    FlagArtificial        = 1 << 6,
-    FlagExplicit          = 1 << 7,
-    FlagPrototyped        = 1 << 8,
-    FlagObjcClassComplete = 1 << 9,
-    FlagObjectPointer     = 1 << 10,
-    FlagVector            = 1 << 11,
-    FlagStaticMember      = 1 << 12,
-    FlagLValueReference   = 1 << 13,
-    FlagRValueReference   = 1 << 14
+#define HANDLE_DI_FLAG(ID, NAME) Flag##NAME = ID,
+#include "llvm/IR/DebugInfoFlags.def"
+    FlagAccessibility = FlagPrivate | FlagProtected | FlagPublic
   };
+
+  static unsigned getFlag(StringRef Flag);
+  static const char *getFlagString(unsigned Flag);
+
+  /// \brief Split up a flags bitfield.
+  ///
+  /// Split \c Flags into \c SplitFlags, a vector of its components.  Returns
+  /// any remaining (unrecognized) bits.
+  static unsigned splitFlags(unsigned Flags,
+                             SmallVectorImpl<unsigned> &SplitFlags);
 
 protected:
   const MDNode *DbgNode;
@@ -252,6 +247,19 @@ public:
   void replaceAllUsesWith(MDNode *D);
 };
 
+#define RETURN_FROM_RAW(VALID, DEFAULT)                                        \
+  do {                                                                         \
+    if (auto *N = getRaw())                                                    \
+      return VALID;                                                            \
+    return DEFAULT;                                                            \
+  } while (false)
+#define RETURN_DESCRIPTOR_FROM_RAW(DESC, VALID)                                \
+  do {                                                                         \
+    if (auto *N = getRaw())                                                    \
+      return DESC(dyn_cast_or_null<MDNode>(VALID));                            \
+    return DESC(static_cast<const MDNode *>(nullptr));                         \
+  } while (false)
+
 /// \brief This is used to represent ranges, for array bounds.
 class DISubrange : public DIDescriptor {
   friend class DIDescriptor;
@@ -294,6 +302,7 @@ public:
 };
 
 template <typename T> class DIRef;
+typedef DIRef<DIDescriptor> DIDescriptorRef;
 typedef DIRef<DIScope> DIScopeRef;
 typedef DIRef<DIType> DITypeRef;
 typedef DITypedArray<DITypeRef> DITypeArray;
@@ -382,6 +391,12 @@ template <typename T> StringRef DIRef<T>::getName() const {
   const MDString *MS = cast<MDString>(Val);
   return MS->getString();
 }
+
+/// \brief Handle fields that are references to DIDescriptors.
+template <>
+DIDescriptorRef DIDescriptor::getFieldAs<DIDescriptorRef>(unsigned Elt) const;
+/// \brief Specialize DIRef constructor for DIDescriptorRef.
+template <> DIRef<DIDescriptor>::DIRef(const Metadata *V);
 
 /// \brief Handle fields that are references to DIScopes.
 template <> DIScopeRef DIDescriptor::getFieldAs<DIScopeRef>(unsigned Elt) const;
@@ -725,7 +740,6 @@ public:
 
   StringRef getName() const { return getHeaderField(1); }
 
-  DIScopeRef getContext() const { return getFieldAs<DIScopeRef>(1); }
   DITypeRef getType() const { return getFieldAs<DITypeRef>(2); }
   bool Verify() const;
 };
@@ -738,7 +752,6 @@ public:
 
   StringRef getName() const { return getHeaderField(1); }
 
-  DIScopeRef getContext() const { return getFieldAs<DIScopeRef>(1); }
   DITypeRef getType() const { return getFieldAs<DITypeRef>(2); }
   Metadata *getValue() const;
   bool Verify() const;
@@ -923,28 +936,18 @@ public:
 ///
 /// This object is not associated with any DWARF tag.
 class DILocation : public DIDescriptor {
+  MDLocation *getRaw() const { return dyn_cast_or_null<MDLocation>(get()); }
+
 public:
   explicit DILocation(const MDNode *N) : DIDescriptor(N) {}
 
-  unsigned getLineNumber() const {
-    if (auto *L = dyn_cast_or_null<MDLocation>(DbgNode))
-      return L->getLine();
-    return 0;
-  }
-  unsigned getColumnNumber() const {
-    if (auto *L = dyn_cast_or_null<MDLocation>(DbgNode))
-      return L->getColumn();
-    return 0;
-  }
+  unsigned getLineNumber() const { RETURN_FROM_RAW(N->getLine(), 0); }
+  unsigned getColumnNumber() const { RETURN_FROM_RAW(N->getColumn(), 0); }
   DIScope getScope() const {
-    if (auto *L = dyn_cast_or_null<MDLocation>(DbgNode))
-      return DIScope(dyn_cast_or_null<MDNode>(L->getScope()));
-    return DIScope(nullptr);
+    RETURN_DESCRIPTOR_FROM_RAW(DIScope, N->getScope());
   }
   DILocation getOrigLocation() const {
-    if (auto *L = dyn_cast_or_null<MDLocation>(DbgNode))
-      return DILocation(dyn_cast_or_null<MDNode>(L->getInlinedAt()));
-    return DILocation(nullptr);
+    RETURN_DESCRIPTOR_FROM_RAW(DILocation, N->getInlinedAt());
   }
   StringRef getFilename() const { return getScope().getFilename(); }
   StringRef getDirectory() const { return getScope().getDirectory(); }
@@ -1029,11 +1032,14 @@ class DIImportedEntity : public DIDescriptor {
 public:
   explicit DIImportedEntity(const MDNode *N) : DIDescriptor(N) {}
   DIScope getContext() const { return getFieldAs<DIScope>(1); }
-  DIScopeRef getEntity() const { return getFieldAs<DIScopeRef>(2); }
+  DIDescriptorRef getEntity() const { return getFieldAs<DIDescriptorRef>(2); }
   unsigned getLineNumber() const { return getHeaderFieldAs<unsigned>(1); }
   StringRef getName() const { return getHeaderField(2); }
   bool Verify() const;
 };
+
+#undef RETURN_FROM_RAW
+#undef RETURN_DESCRIPTOR_FROM_RAW
 
 /// \brief Find subprogram that is enclosing this scope.
 DISubprogram getDISubprogram(const MDNode *Scope);

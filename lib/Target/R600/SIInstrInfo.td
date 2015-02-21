@@ -363,7 +363,7 @@ class EXPCommon : InstSI<
 
 multiclass EXP_m {
 
-  let isPseudo = 1 in {
+  let isPseudo = 1, isCodeGenOnly = 1 in {
     def "" : EXPCommon, SIMCInstr <"exp", SISubtarget.NONE> ;
   }
 
@@ -380,6 +380,7 @@ class SOP1_Pseudo <string opName, dag outs, dag ins, list<dag> pattern> :
   SOP1 <outs, ins, "", pattern>,
   SIMCInstr<opName, SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
 }
 
 class SOP1_Real_si <sop1 op, string opName, dag outs, dag ins, string asm> :
@@ -419,12 +420,27 @@ multiclass SOP1_64_0 <sop1 op, string opName, list<dag> pattern> {
 
   def _si : SOP1_Real_si <op, opName, (outs SReg_64:$dst), (ins),
     opName#" $dst"> {
-    let SSRC0 = 0;
+    let ssrc0 = 0;
   }
 
   def _vi : SOP1_Real_vi <op, opName, (outs SReg_64:$dst), (ins),
     opName#" $dst"> {
-    let SSRC0 = 0;
+    let ssrc0 = 0;
+  }
+}
+
+// 64-bit input, no output
+multiclass SOP1_1 <sop1 op, string opName, list<dag> pattern> {
+  def "" : SOP1_Pseudo <opName, (outs), (ins SReg_64:$src0), pattern>;
+
+  def _si : SOP1_Real_si <op, opName, (outs), (ins SReg_64:$src0),
+    opName#" $src0"> {
+    let sdst = 0;
+  }
+
+  def _vi : SOP1_Real_vi <op, opName, (outs), (ins SReg_64:$src0),
+    opName#" $src0"> {
+    let sdst = 0;
   }
 }
 
@@ -438,7 +454,14 @@ class SOP2_Pseudo<string opName, dag outs, dag ins, list<dag> pattern> :
   SOP2<outs, ins, "", pattern>,
   SIMCInstr<opName, SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
   let Size = 4;
+
+  // Pseudo instructions have no encodings, but adding this field here allows
+  // us to do:
+  // let sdst = xxx in {
+  // for multiclasses that include both real and pseudo instructions.
+  field bits<7> sdst = 0;
 }
 
 class SOP2_Real_si<sop2 op, string opName, dag outs, dag ins, string asm> :
@@ -464,39 +487,31 @@ multiclass SOP2_SELECT_32 <sop2 op, string opName, list<dag> pattern> {
     opName#" $dst, $src0, $src1 [$scc]">;
 }
 
-multiclass SOP2_32 <sop2 op, string opName, list<dag> pattern> {
-  def "" : SOP2_Pseudo <opName, (outs SReg_32:$dst),
-    (ins SSrc_32:$src0, SSrc_32:$src1), pattern>;
+multiclass SOP2_m <sop2 op, string opName, dag outs, dag ins, string asm,
+                   list<dag> pattern> {
 
-  def _si : SOP2_Real_si <op, opName, (outs SReg_32:$dst),
-    (ins SSrc_32:$src0, SSrc_32:$src1), opName#" $dst, $src0, $src1">;
+  def "" : SOP2_Pseudo <opName, outs, ins, pattern>;
 
-  def _vi : SOP2_Real_vi <op, opName, (outs SReg_32:$dst),
-    (ins SSrc_32:$src0, SSrc_32:$src1), opName#" $dst, $src0, $src1">;
+  def _si : SOP2_Real_si <op, opName, outs, ins, asm>;
+
+  def _vi : SOP2_Real_vi <op, opName, outs, ins, asm>;
+
 }
 
-multiclass SOP2_64 <sop2 op, string opName, list<dag> pattern> {
-  def "" : SOP2_Pseudo <opName, (outs SReg_64:$dst),
-    (ins SSrc_64:$src0, SSrc_64:$src1), pattern>;
+multiclass SOP2_32 <sop2 op, string opName, list<dag> pattern> : SOP2_m <
+    op, opName, (outs SReg_32:$dst), (ins SSrc_32:$src0, SSrc_32:$src1),
+    opName#" $dst, $src0, $src1", pattern
+>;
 
-  def _si : SOP2_Real_si <op, opName, (outs SReg_64:$dst),
-    (ins SSrc_64:$src0, SSrc_64:$src1), opName#" $dst, $src0, $src1">;
+multiclass SOP2_64 <sop2 op, string opName, list<dag> pattern> : SOP2_m <
+    op, opName, (outs SReg_64:$dst), (ins SSrc_64:$src0, SSrc_64:$src1),
+    opName#" $dst, $src0, $src1", pattern
+>;
 
-  def _vi : SOP2_Real_vi <op, opName, (outs SReg_64:$dst),
-    (ins SSrc_64:$src0, SSrc_64:$src1), opName#" $dst, $src0, $src1">;
-}
-
-multiclass SOP2_64_32 <sop2 op, string opName, list<dag> pattern> {
-  def "" : SOP2_Pseudo <opName, (outs SReg_64:$dst),
-    (ins SSrc_64:$src0, SSrc_32:$src1), pattern>;
-
-  def _si : SOP2_Real_si <op, opName, (outs SReg_64:$dst),
-    (ins SSrc_64:$src0, SSrc_32:$src1), opName#" $dst, $src0, $src1">;
-
-  def _vi : SOP2_Real_vi <op, opName, (outs SReg_64:$dst),
-    (ins SSrc_64:$src0, SSrc_32:$src1), opName#" $dst, $src0, $src1">;
-}
-
+multiclass SOP2_64_32 <sop2 op, string opName, list<dag> pattern> : SOP2_m <
+    op, opName, (outs SReg_64:$dst), (ins SSrc_64:$src0, SSrc_32:$src1),
+    opName#" $dst, $src0, $src1", pattern
+>;
 
 class SOPC_Helper <bits<7> op, RegisterOperand rc, ValueType vt,
                     string opName, PatLeaf cond> : SOPC <
@@ -513,6 +528,7 @@ class SOPK_Pseudo <string opName, dag outs, dag ins, list<dag> pattern> :
   SOPK <outs, ins, "", pattern>,
   SIMCInstr<opName, SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
 }
 
 class SOPK_Real_si <sopk op, string opName, dag outs, dag ins, string asm> :
@@ -555,6 +571,7 @@ class SMRD_Pseudo <string opName, dag outs, dag ins, list<dag> pattern> :
   SMRD <outs, ins, "", pattern>,
   SIMCInstr<opName, SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
 }
 
 class SMRD_Real_si <bits<5> op, string opName, bit imm, dag outs, dag ins,
@@ -576,7 +593,11 @@ multiclass SMRD_m <bits<5> op, string opName, bit imm, dag outs, dag ins,
 
   def _si : SMRD_Real_si <op, opName, imm, outs, ins, asm>;
 
-  def _vi : SMRD_Real_vi <{0, 0, 0, op}, opName, imm, outs, ins, asm>;
+  // glc is only applicable to scalar stores, which are not yet
+  // implemented.
+  let glc = 0 in {
+    def _vi : SMRD_Real_vi <{0, 0, 0, op}, opName, imm, outs, ins, asm>;
+  }
 }
 
 multiclass SMRD_Helper <bits<5> op, string opName, RegisterClass baseClass,
@@ -804,6 +825,10 @@ class VOP1_Pseudo <dag outs, dag ins, list<dag> pattern, string opName> :
   VOP <opName>,
   SIMCInstr <opName#"_e32", SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
+
+  field bits<8> vdst;
+  field bits<9> src0;
 }
 
 multiclass VOP1_m <vop1 op, dag outs, dag ins, string asm, list<dag> pattern,
@@ -830,6 +855,7 @@ class VOP2_Pseudo <dag outs, dag ins, list<dag> pattern, string opName> :
   VOP <opName>,
   SIMCInstr<opName#"_e32", SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
 }
 
 multiclass VOP2SI_m <vop2 op, dag outs, dag ins, string asm, list<dag> pattern,
@@ -856,11 +882,22 @@ class VOP3DisableFields <bit HasSrc1, bit HasSrc2, bit HasModifiers> {
 
   bits<2> src0_modifiers = !if(HasModifiers, ?, 0);
   bits<2> src1_modifiers = !if(HasModifiers, !if(HasSrc1, ?, 0), 0);
-  bits<2> src2_modifiers = !if(HasModifiers, !if(HasSrc2, ? ,0) ,0);
+  bits<2> src2_modifiers = !if(HasModifiers, !if(HasSrc2, ?, 0), 0);
   bits<2> omod = !if(HasModifiers, ?, 0);
   bits<1> clamp = !if(HasModifiers, ?, 0);
   bits<9> src1 = !if(HasSrc1, ?, 0);
   bits<9> src2 = !if(HasSrc2, ?, 0);
+}
+
+class VOP3DisableModFields <bit HasSrc0Mods,
+                            bit HasSrc1Mods = 0,
+                            bit HasSrc2Mods = 0,
+                            bit HasOutputMods = 0> {
+  bits<2> src0_modifiers = !if(HasSrc0Mods, ?, 0);
+  bits<2> src1_modifiers = !if(HasSrc1Mods, ?, 0);
+  bits<2> src2_modifiers = !if(HasSrc2Mods, ?, 0);
+  bits<2> omod = !if(HasOutputMods, ?, 0);
+  bits<1> clamp = !if(HasOutputMods, ?, 0);
 }
 
 class VOP3_Pseudo <dag outs, dag ins, list<dag> pattern, string opName> :
@@ -868,6 +905,7 @@ class VOP3_Pseudo <dag outs, dag ins, list<dag> pattern, string opName> :
   VOP <opName>,
   SIMCInstr<opName#"_e64", SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
 }
 
 class VOP3_Real_si <bits<9> op, dag outs, dag ins, string asm, string opName> :
@@ -906,14 +944,16 @@ multiclass VOP3_m <vop op, dag outs, dag ins, string asm, list<dag> pattern,
 }
 
 // VOP3_m without source modifiers
-multiclass VOP3_m_nosrcmod <vop op, dag outs, dag ins, string asm, list<dag> pattern,
+multiclass VOP3_m_nomods <vop op, dag outs, dag ins, string asm, list<dag> pattern,
                    string opName, int NumSrcArgs, bit HasMods = 1> {
 
   def "" : VOP3_Pseudo <outs, ins, pattern, opName>;
 
   let src0_modifiers = 0,
       src1_modifiers = 0,
-      src2_modifiers = 0 in {
+      src2_modifiers = 0,
+      clamp = 0,
+      omod = 0 in {
     def _si : VOP3_Real_si <op.SI3, outs, ins, asm, opName>;
     def _vi : VOP3_Real_vi <op.VI3, outs, ins, asm, opName>;
   }
@@ -1021,7 +1061,7 @@ multiclass VOP3_C_m <vop op, dag outs, dag ins, string asm,
 // An instruction that is VOP2 on SI and VOP3 on VI, no modifiers.
 multiclass VOP2SI_3VI_m <vop3 op, string opName, dag outs, dag ins,
                          string asm, list<dag> pattern = []> {
-  let isPseudo = 1 in {
+  let isPseudo = 1, isCodeGenOnly = 1 in {
     def "" : VOPAnyCommon <outs, ins, "", pattern>,
              SIMCInstr<opName, SISubtarget.NONE>;
   }
@@ -1170,6 +1210,7 @@ class VOPC_Pseudo <dag outs, dag ins, list<dag> pattern, string opName> :
   VOP <opName>,
   SIMCInstr<opName#"_e32", SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
 }
 
 multiclass VOPC_m <vopc op, dag outs, dag ins, string asm, list<dag> pattern,
@@ -1197,6 +1238,19 @@ multiclass VOPC_Helper <vopc op, string opName,
                         opName, HasMods, DefExec>;
 }
 
+// Special case for class instructions which only have modifiers on
+// the 1st source operand.
+multiclass VOPC_Class_Helper <vopc op, string opName,
+                             dag ins32, string asm32, list<dag> pat32,
+                             dag out64, dag ins64, string asm64, list<dag> pat64,
+                             bit HasMods, bit DefExec> {
+  defm _e32 : VOPC_m <op, (outs), ins32, opName#asm32, pat32, opName, DefExec>;
+
+  defm _e64 : VOP3_C_m <op, out64, ins64, opName#"_e64"#asm64, pat64,
+                        opName, HasMods, DefExec>,
+                        VOP3DisableModFields<1, 0, 0>;
+}
+
 multiclass VOPCInst <vopc op, string opName,
                      VOPProfile P, PatLeaf cond = COND_NULL,
                      bit DefExec = 0> : VOPC_Helper <
@@ -1214,7 +1268,7 @@ multiclass VOPCInst <vopc op, string opName,
 >;
 
 multiclass VOPCClassInst <vopc op, string opName, VOPProfile P,
-                     bit DefExec = 0> : VOPC_Helper <
+                     bit DefExec = 0> : VOPC_Class_Helper <
   op, opName,
   P.Ins32, P.Asm32, [],
   (outs SReg_64:$dst), P.Ins64, P.Asm64,
@@ -1359,6 +1413,7 @@ class VINTRP_Pseudo <string opName, dag outs, dag ins, list<dag> pattern> :
   VINTRPCommon <outs, ins, "", pattern>,
   SIMCInstr<opName, SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
 }
 
 class VINTRP_Real_si <bits <2> op, string opName, dag outs, dag ins,
@@ -1394,6 +1449,7 @@ class DS_Pseudo <string opName, dag outs, dag ins, list<dag> pattern> :
   DS <outs, ins, "", pattern>,
   SIMCInstr <opName, SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
 }
 
 class DS_Real_si <bits<8> op, string opName, dag outs, dag ins, string asm> :
@@ -1566,8 +1622,10 @@ multiclass DS_1A2D_NORET_m <bits<8> op, string opName, dag outs, dag ins,
     def "" : DS_Pseudo <opName, outs, ins, pat>,
              AtomicNoRet<noRetOp, 0>;
 
-    def _si : DS_1A_Real_si <op, opName, outs, ins, asm>;
-    def _vi : DS_1A_Real_vi <op, opName, outs, ins, asm>;
+    let vdst = 0 in {
+      def _si : DS_1A_Real_si <op, opName, outs, ins, asm>;
+      def _vi : DS_1A_Real_vi <op, opName, outs, ins, asm>;
+    }
   }
 }
 
@@ -1586,7 +1644,7 @@ multiclass DS_1A1D_NORET_m <bits<8> op, string opName, dag outs, dag ins,
     def "" : DS_Pseudo <opName, outs, ins, pat>,
              AtomicNoRet<noRetOp, 0>;
 
-    let data1 = 0 in {
+    let data1 = 0, vdst = 0 in {
       def _si : DS_1A_Real_si <op, opName, outs, ins, asm>;
       def _vi : DS_1A_Real_vi <op, opName, outs, ins, asm>;
     }
@@ -1609,6 +1667,7 @@ class MTBUF_Pseudo <string opName, dag outs, dag ins, list<dag> pattern> :
   MTBUF <outs, ins, "", pattern>,
   SIMCInstr<opName, SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
 }
 
 class MTBUF_Real_si <bits<3> op, string opName, dag outs, dag ins,
@@ -1679,6 +1738,7 @@ class MUBUF_Pseudo <string opName, dag outs, dag ins, list<dag> pattern> :
   MUBUF <outs, ins, "", pattern>,
   SIMCInstr<opName, SISubtarget.NONE> {
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
 
   // dummy fields, so that we can use let statements around multiclasses
   bits<1> offen;
@@ -1780,8 +1840,8 @@ multiclass MUBUF_Atomic <mubuf op, string name, RegisterClass rc,
       defm _ADDR64 : MUBUFAtomicAddr64_m <
         op, name#"_addr64", (outs),
         (ins rc:$vdata, SReg_128:$srsrc, VReg_64:$vaddr,
-             mbuf_offset:$offset, slc:$slc),
-        name#" $vdata, $vaddr, $srsrc, 0 addr64"#"$offset"#"$slc", [], 0
+             mbuf_offset:$offset, SCSrc_32:$soffset, slc:$slc),
+        name#" $vdata, $vaddr, $srsrc, $soffset addr64"#"$offset"#"$slc", [], 0
       >;
 
       defm _OFFSET : MUBUFAtomicOffset_m <
@@ -1856,8 +1916,8 @@ multiclass MUBUF_Load_Helper <mubuf op, string name, RegisterClass regClass,
     let offen = 1, idxen = 1 in {
       defm _BOTHEN : MUBUF_m <op, name#"_bothen", (outs regClass:$vdata),
                            (ins SReg_128:$srsrc, VReg_64:$vaddr,
-                           SCSrc_32:$soffset, glc:$glc, slc:$slc, tfe:$tfe),
-                           name#" $vdata, $vaddr, $srsrc, $soffset, idxen offen"#"$glc"#"$slc"#"$tfe", []>;
+                           SCSrc_32:$soffset, mbuf_offset:$offset, glc:$glc, slc:$slc, tfe:$tfe),
+                           name#" $vdata, $vaddr, $srsrc, $soffset idxen offen"#"$offset"#"$glc"#"$slc"#"$tfe", []>;
     }
 
     let offen = 0, idxen = 0, glc = 0, slc = 0, tfe = 0 in {
@@ -1913,12 +1973,13 @@ multiclass MUBUF_Store_Helper <mubuf op, string name, RegisterClass vdataClass,
 }
 
 class FLAT_Load_Helper <bits<7> op, string asm, RegisterClass regClass> :
-      FLAT <op, (outs regClass:$data),
+      FLAT <op, (outs regClass:$vdst),
                 (ins VReg_64:$addr),
-            asm#" $data, $addr, [M0, FLAT_SCRATCH]", []> {
+            asm#" $vdst, $addr, [M0, FLAT_SCRATCH]", []> {
   let glc = 0;
   let slc = 0;
   let tfe = 0;
+  let data = 0;
   let mayLoad = 1;
 }
 
@@ -1934,6 +1995,7 @@ class FLAT_Store_Helper <bits<7> op, string name, RegisterClass vdataClass> :
   let glc = 0;
   let slc = 0;
   let tfe = 0;
+  let vdst = 0;
 }
 
 class MIMG_Mask <string op, int channels> {
@@ -1952,7 +2014,7 @@ class MIMG_NoSampler_Helper <bits<7> op, string asm,
   asm#" $vdata, $dmask, $unorm, $glc, $da, $r128,"
      #" $tfe, $lwe, $slc, $vaddr, $srsrc",
   []> {
-  let SSAMP = 0;
+  let ssamp = 0;
   let mayLoad = 1;
   let mayStore = 0;
   let hasPostISelHook = 1;

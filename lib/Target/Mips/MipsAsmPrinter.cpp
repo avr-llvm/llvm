@@ -59,7 +59,7 @@ MipsTargetStreamer &MipsAsmPrinter::getTargetStreamer() const {
 }
 
 bool MipsAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
-  Subtarget = &TM.getSubtarget<MipsSubtarget>();
+  Subtarget = &MF.getSubtarget<MipsSubtarget>();
 
   // Initialize TargetLoweringObjectFile.
   const_cast<TargetLoweringObjectFile &>(getObjFileLowering())
@@ -687,8 +687,21 @@ printRegisterList(const MachineInstr *MI, int opNum, raw_ostream &O) {
 }
 
 void MipsAsmPrinter::EmitStartOfAsmFile(Module &M) {
-  bool IsABICalls = Subtarget->isABICalls();
-  const MipsABIInfo &ABI = static_cast<const MipsTargetMachine &>(TM).getABI();
+
+  // Compute MIPS architecture attributes based on the default subtarget
+  // that we'd have constructed. Module level directives aren't LTO
+  // clean anyhow.
+  // FIXME: For ifunc related functions we could iterate over and look
+  // for a feature string that doesn't match the default one.
+  StringRef TT = TM.getTargetTriple();
+  StringRef CPU =
+      MIPS_MC::selectMipsCPU(TM.getTargetTriple(), TM.getTargetCPU());
+  StringRef FS = TM.getTargetFeatureString();
+  const MipsTargetMachine &MTM = static_cast<const MipsTargetMachine &>(TM);
+  const MipsSubtarget STI(TT, CPU, FS, MTM.isLittleEndian(), MTM);
+
+  bool IsABICalls = STI.isABICalls();
+  const MipsABIInfo &ABI = MTM.getABI();
   if (IsABICalls) {
     getTargetStreamer().emitDirectiveAbiCalls();
     Reloc::Model RM = TM.getRelocationModel();
@@ -708,13 +721,13 @@ void MipsAsmPrinter::EmitStartOfAsmFile(Module &M) {
   // NaN: At the moment we only support:
   // 1. .nan legacy (default)
   // 2. .nan 2008
-  Subtarget->isNaN2008() ? getTargetStreamer().emitDirectiveNaN2008()
-    : getTargetStreamer().emitDirectiveNaNLegacy();
+  STI.isNaN2008() ? getTargetStreamer().emitDirectiveNaN2008()
+                  : getTargetStreamer().emitDirectiveNaNLegacy();
 
   // TODO: handle O64 ABI
 
   if (ABI.IsEABI()) {
-    if (Subtarget->isGP32bit())
+    if (STI.isGP32bit())
       OutStreamer.SwitchSection(OutContext.getELFSection(".gcc_compiled_long32",
                                                          ELF::SHT_PROGBITS, 0));
     else
@@ -722,24 +735,23 @@ void MipsAsmPrinter::EmitStartOfAsmFile(Module &M) {
                                                          ELF::SHT_PROGBITS, 0));
   }
 
-  getTargetStreamer().updateABIInfo(*Subtarget);
+  getTargetStreamer().updateABIInfo(STI);
 
   // We should always emit a '.module fp=...' but binutils 2.24 does not accept
   // it. We therefore emit it when it contradicts the ABI defaults (-mfpxx or
   // -mfp64) and omit it otherwise.
-  if (ABI.IsO32() && (Subtarget->isABI_FPXX() || Subtarget->isFP64bit()))
+  if (ABI.IsO32() && (STI.isABI_FPXX() || STI.isFP64bit()))
     getTargetStreamer().emitDirectiveModuleFP();
 
   // We should always emit a '.module [no]oddspreg' but binutils 2.24 does not
   // accept it. We therefore emit it when it contradicts the default or an
   // option has changed the default (i.e. FPXX) and omit it otherwise.
-  if (ABI.IsO32() && (!Subtarget->useOddSPReg() || Subtarget->isABI_FPXX()))
-    getTargetStreamer().emitDirectiveModuleOddSPReg(Subtarget->useOddSPReg(),
+  if (ABI.IsO32() && (!STI.useOddSPReg() || STI.isABI_FPXX()))
+    getTargetStreamer().emitDirectiveModuleOddSPReg(STI.useOddSPReg(),
                                                     ABI.IsO32());
 }
 
-void MipsAsmPrinter::emitInlineAsmStart(
-    const MCSubtargetInfo &StartInfo) const {
+void MipsAsmPrinter::emitInlineAsmStart() const {
   MipsTargetStreamer &TS = getTargetStreamer();
 
   // GCC's choice of assembler options for inline assembly code ('at', 'macro'

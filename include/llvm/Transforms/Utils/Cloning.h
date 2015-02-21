@@ -95,8 +95,7 @@ struct ClonedCodeInfo {
 /// function, you can specify a ClonedCodeInfo object with the optional fifth
 /// parameter.
 ///
-BasicBlock *CloneBasicBlock(const BasicBlock *BB,
-                            ValueToValueMapTy &VMap,
+BasicBlock *CloneBasicBlock(const BasicBlock *BB, ValueToValueMapTy &VMap,
                             const Twine &NameSuffix = "", Function *F = nullptr,
                             ClonedCodeInfo *CodeInfo = nullptr);
 
@@ -112,8 +111,7 @@ BasicBlock *CloneBasicBlock(const BasicBlock *BB,
 /// If ModuleLevelChanges is false, VMap contains no non-identity GlobalValue
 /// mappings, and debug info metadata will not be cloned.
 ///
-Function *CloneFunction(const Function *F,
-                        ValueToValueMapTy &VMap,
+Function *CloneFunction(const Function *F, ValueToValueMapTy &VMap,
                         bool ModuleLevelChanges,
                         ClonedCodeInfo *CodeInfo = nullptr);
 
@@ -127,13 +125,45 @@ Function *CloneFunction(const Function *F,
 /// mappings.
 ///
 void CloneFunctionInto(Function *NewFunc, const Function *OldFunc,
-                       ValueToValueMapTy &VMap,
-                       bool ModuleLevelChanges,
+                       ValueToValueMapTy &VMap, bool ModuleLevelChanges,
                        SmallVectorImpl<ReturnInst*> &Returns,
                        const char *NameSuffix = "",
                        ClonedCodeInfo *CodeInfo = nullptr,
                        ValueMapTypeRemapper *TypeMapper = nullptr,
                        ValueMaterializer *Materializer = nullptr);
+
+/// A helper class used with CloneAndPruneIntoFromInst to change the default
+/// behavior while instructions are being cloned.
+class CloningDirector {
+public:
+  /// This enumeration describes the way CloneAndPruneIntoFromInst should
+  /// proceed after the CloningDirector has examined an instruction.
+  enum CloningAction {
+    ///< Continue cloning the instruction (default behavior).
+    CloneInstruction,
+    ///< Skip this instruction but continue cloning the current basic block.
+    SkipInstruction,
+    ///< Skip this instruction and stop cloning the current basic block.
+    StopCloningBB
+  };
+
+  virtual ~CloningDirector() = default;
+
+  /// Subclasses must override this function to customize cloning behavior.
+  virtual CloningAction handleInstruction(ValueToValueMapTy &VMap,
+                                          const Instruction *Inst,
+                                          BasicBlock *NewBB) = 0;
+};
+
+void CloneAndPruneIntoFromInst(Function *NewFunc, const Function *OldFunc,
+                               const Instruction *StartingInst,
+                               ValueToValueMapTy &VMap, bool ModuleLevelChanges,
+                               SmallVectorImpl<ReturnInst*> &Returns,
+                               const char *NameSuffix = "", 
+                               ClonedCodeInfo *CodeInfo = nullptr,
+                               const DataLayout *DL = nullptr,
+                               CloningDirector *Director = nullptr);
+
 
 /// CloneAndPruneFunctionInto - This works exactly like CloneFunctionInto,
 /// except that it does some simple constant prop and DCE on the fly.  The
@@ -147,8 +177,7 @@ void CloneFunctionInto(Function *NewFunc, const Function *OldFunc,
 /// mappings.
 ///
 void CloneAndPruneFunctionInto(Function *NewFunc, const Function *OldFunc,
-                               ValueToValueMapTy &VMap,
-                               bool ModuleLevelChanges,
+                               ValueToValueMapTy &VMap, bool ModuleLevelChanges,
                                SmallVectorImpl<ReturnInst*> &Returns,
                                const char *NameSuffix = "",
                                ClonedCodeInfo *CodeInfo = nullptr,
@@ -174,7 +203,7 @@ public:
 
   /// StaticAllocas - InlineFunction fills this in with all static allocas that
   /// get copied into the caller.
-  SmallVector<AllocaInst*, 4> StaticAllocas;
+  SmallVector<AllocaInst *, 4> StaticAllocas;
 
   /// InlinedCalls - InlineFunction fills this in with callsites that were
   /// inlined from the callee.  This is only filled in if CG is non-null.
@@ -196,9 +225,12 @@ public:
 /// exists in the instruction stream.  Similarly this will inline a recursive
 /// function by one level.
 ///
-bool InlineFunction(CallInst *C, InlineFunctionInfo &IFI, bool InsertLifetime = true);
-bool InlineFunction(InvokeInst *II, InlineFunctionInfo &IFI, bool InsertLifetime = true);
-bool InlineFunction(CallSite CS, InlineFunctionInfo &IFI, bool InsertLifetime = true);
+bool InlineFunction(CallInst *C, InlineFunctionInfo &IFI,
+                    bool InsertLifetime = true);
+bool InlineFunction(InvokeInst *II, InlineFunctionInfo &IFI,
+                    bool InsertLifetime = true);
+bool InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
+                    bool InsertLifetime = true);
 
 } // End llvm namespace
 

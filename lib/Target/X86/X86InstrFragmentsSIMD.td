@@ -212,6 +212,9 @@ def SDTVBroadcastm : SDTypeProfile<1, 2, [SDTCisVec<0>, SDTCisVec<1>]>;
 def SDTBlend : SDTypeProfile<1, 3, [SDTCisVec<0>, SDTCisSameAs<0,1>,
                              SDTCisSameAs<1,2>, SDTCisVT<3, i8>]>;
 
+def SDTFPBinOpRound : SDTypeProfile<1, 3, [      // fadd_round, fmul_round, etc.
+  SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>, SDTCisFP<0>, SDTCisInt<3>]>;
+
 def SDTFma : SDTypeProfile<1, 3, [SDTCisSameAs<0,1>,
                            SDTCisSameAs<1,2>, SDTCisSameAs<1,3>]>;
 def SDTFmaRound : SDTypeProfile<1, 4, [SDTCisSameAs<0,1>,
@@ -270,6 +273,11 @@ def X86Vextract   : SDNode<"X86ISD::VEXTRACT",  SDTypeProfile<1, 2,
 def X86Blendi    : SDNode<"X86ISD::BLENDI",   SDTBlend>;
 
 def X86Addsub    : SDNode<"X86ISD::ADDSUB", SDTFPBinOp>;
+
+def X86faddRnd   : SDNode<"X86ISD::FADD_RND",  SDTFPBinOpRound>;
+def X86fsubRnd   : SDNode<"X86ISD::FSUB_RND",  SDTFPBinOpRound>;
+def X86fmulRnd   : SDNode<"X86ISD::FMUL_RND",  SDTFPBinOpRound>;
+def X86fdivRnd   : SDNode<"X86ISD::FDIV_RND",  SDTFPBinOpRound>;
 
 def X86Fmadd     : SDNode<"X86ISD::FMADD",     SDTFma>;
 def X86Fnmadd    : SDNode<"X86ISD::FNMADD",    SDTFma>;
@@ -366,6 +374,15 @@ def extloadv2f32 : PatFrag<(ops node:$ptr), (v2f64 (extloadvf32 node:$ptr))>;
 def extloadv4f32 : PatFrag<(ops node:$ptr), (v4f64 (extloadvf32 node:$ptr))>;
 def extloadv8f32 : PatFrag<(ops node:$ptr), (v8f64 (extloadvf32 node:$ptr))>;
 
+// These are needed to match a scalar load that is used in a vector-only
+// math instruction such as the FP logical ops: andps, andnps, orps, xorps.
+// The memory operand is required to be a 128-bit load, so it must be converted
+// from a vector to a scalar.
+def loadf32_128 : PatFrag<(ops node:$ptr),
+  (f32 (vector_extract (loadv4f32 node:$ptr), (iPTR 0)))>;
+def loadf64_128 : PatFrag<(ops node:$ptr),
+  (f64 (vector_extract (loadv2f64 node:$ptr), (iPTR 0)))>;
+
 // Like 'store', but always requires 128-bit vector alignment.
 def alignedstore : PatFrag<(ops node:$val, node:$ptr),
                            (store node:$val, node:$ptr), [{
@@ -456,6 +473,16 @@ def memopfsf64 : PatFrag<(ops node:$ptr), (f64   (memop node:$ptr))>;
 def memopv4f32 : PatFrag<(ops node:$ptr), (v4f32 (memop node:$ptr))>;
 def memopv2f64 : PatFrag<(ops node:$ptr), (v2f64 (memop node:$ptr))>;
 def memopv2i64 : PatFrag<(ops node:$ptr), (v2i64 (memop node:$ptr))>;
+
+// These are needed to match a scalar memop that is used in a vector-only
+// math instruction such as the FP logical ops: andps, andnps, orps, xorps.
+// The memory operand is required to be a 128-bit load, so it must be converted
+// from a vector to a scalar.
+def memopfsf32_128 : PatFrag<(ops node:$ptr),
+  (f32 (vector_extract (memopv4f32 node:$ptr), (iPTR 0)))>;
+def memopfsf64_128 : PatFrag<(ops node:$ptr),
+  (f64 (vector_extract (memopv2f64 node:$ptr), (iPTR 0)))>;
+
 
 // SSSE3 uses MMX registers for some instructions. They aren't aligned on a
 // 16-byte boundary.

@@ -32,6 +32,7 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
@@ -90,9 +91,19 @@ void AsmPrinter::EmitInlineAsm(StringRef Str, const MDNode *LocMDNode,
   assert(MCAI && "No MCAsmInfo");
   if (!MCAI->useIntegratedAssembler() &&
       !OutStreamer.isIntegratedAssemblerRequired()) {
-    emitInlineAsmStart(TM.getSubtarget<MCSubtargetInfo>());
+    emitInlineAsmStart();
     OutStreamer.EmitRawText(Str);
-    emitInlineAsmEnd(TM.getSubtarget<MCSubtargetInfo>(), nullptr);
+    // If we have a machine function then grab the MCSubtarget off of that,
+    // otherwise we're at the module level and want to construct one from
+    // the default CPU and target triple.
+    if (MF) {
+      emitInlineAsmEnd(MF->getSubtarget<MCSubtargetInfo>(), nullptr);
+    } else {
+      std::unique_ptr<MCSubtargetInfo> STI(TM.getTarget().createMCSubtargetInfo(
+          TM.getTargetTriple(), TM.getTargetCPU(),
+          TM.getTargetFeatureString()));
+      emitInlineAsmEnd(*STI, nullptr);
+    }
     return;
   }
 
@@ -138,11 +149,14 @@ void AsmPrinter::EmitInlineAsm(StringRef Str, const MDNode *LocMDNode,
   // emitInlineAsmEnd().
   MCSubtargetInfo STIOrig = *STI;
 
-  MCTargetOptions MCOptions;
-  if (MF)
-    MCOptions = MF->getTarget().Options.MCOptions;
-  std::unique_ptr<MCTargetAsmParser> TAP(
-      TM.getTarget().createMCAsmParser(*STI, *Parser, *MII, MCOptions));
+  // We may create a new MCInstrInfo here since we might be at the module level
+  // and not have a MachineFunction to initialize the TargetInstrInfo from and
+  // we only need MCInstrInfo for asm parsing.
+  const MCInstrInfo *MII =
+      MF ? static_cast<const MCInstrInfo *>(MF->getSubtarget().getInstrInfo())
+         : static_cast<const MCInstrInfo *>(TM.getTarget().createMCInstrInfo());
+  std::unique_ptr<MCTargetAsmParser> TAP(TM.getTarget().createMCAsmParser(
+      *STI, *Parser, *MII, TM.Options.MCOptions));
   if (!TAP)
     report_fatal_error("Inline asm not supported by this streamer because"
                        " we don't have an asm parser for this target\n");
@@ -153,7 +167,7 @@ void AsmPrinter::EmitInlineAsm(StringRef Str, const MDNode *LocMDNode,
     TAP->SetFrameRegister(TRI->getFrameRegister(*MF));
   }
 
-  emitInlineAsmStart(STIOrig);
+  emitInlineAsmStart();
   // Don't implicitly switch to the text section before the asm.
   int Res = Parser->Run(/*NoInitialTextSection*/ true,
                         /*NoFinalize*/ true);
@@ -569,7 +583,7 @@ bool AsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
   return true;
 }
 
-void AsmPrinter::emitInlineAsmStart(const MCSubtargetInfo &StartInfo) const {}
+void AsmPrinter::emitInlineAsmStart() const {}
 
 void AsmPrinter::emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
                                   const MCSubtargetInfo *EndInfo) const {}

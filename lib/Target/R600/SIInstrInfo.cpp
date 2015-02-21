@@ -750,7 +750,7 @@ MachineInstr *SIInstrInfo::commuteInstruction(MachineInstr *MI,
       (!isOperandLegal(MI, Src0Idx, &Src1) ||
        !isOperandLegal(MI, Src1Idx, &Src0))) {
     return nullptr;
-    }
+  }
 
   if (!Src1.isReg()) {
     // Allow commuting instructions with Imm operands.
@@ -1151,6 +1151,8 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr *MI,
       return false;
     }
 
+    int RegClass = Desc.OpInfo[i].RegClass;
+
     switch (Desc.OpInfo[i].OperandType) {
     case MCOI::OPERAND_REGISTER:
       if (MI->getOperand(i).isImm()) {
@@ -1161,13 +1163,10 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr *MI,
     case AMDGPU::OPERAND_REG_IMM32:
       break;
     case AMDGPU::OPERAND_REG_INLINE_C:
-      if (MI->getOperand(i).isImm()) {
-        int RegClass = Desc.OpInfo[i].RegClass;
-        const TargetRegisterClass *RC = RI.getRegClass(RegClass);
-        if (!isInlineConstant(MI->getOperand(i), RC->getSize())) {
-          ErrInfo = "Illegal immediate value for operand.";
-          return false;
-        }
+      if (isLiteralConstant(MI->getOperand(i),
+                            RI.getRegClass(RegClass)->getSize())) {
+        ErrInfo = "Illegal immediate value for operand.";
+        return false;
       }
       break;
     case MCOI::OPERAND_IMMEDIATE:
@@ -1186,7 +1185,6 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr *MI,
     if (!MI->getOperand(i).isReg())
       continue;
 
-    int RegClass = Desc.OpInfo[i].RegClass;
     if (RegClass != -1) {
       unsigned Reg = MI->getOperand(i).getReg();
       if (TargetRegisterInfo::isVirtualRegister(Reg))
@@ -1226,34 +1224,6 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr *MI,
     }
     if (ConstantBusCount > 1) {
       ErrInfo = "VOP* instruction uses the constant bus more than once";
-      return false;
-    }
-  }
-
-  // Verify SRC1 for VOP2 and VOPC
-  if (Src1Idx != -1 && (isVOP2(Opcode) || isVOPC(Opcode))) {
-    const MachineOperand &Src1 = MI->getOperand(Src1Idx);
-    if (Src1.isImm()) {
-      ErrInfo = "VOP[2C] src1 cannot be an immediate.";
-      return false;
-    }
-  }
-
-  // Verify VOP3
-  if (isVOP3(Opcode)) {
-    if (Src0Idx != -1 &&
-        isLiteralConstant(MI->getOperand(Src0Idx), getOpSize(Opcode, Src0Idx))) {
-      ErrInfo = "VOP3 src0 cannot be a literal constant.";
-      return false;
-    }
-    if (Src1Idx != -1 &&
-        isLiteralConstant(MI->getOperand(Src1Idx), getOpSize(Opcode, Src1Idx))) {
-      ErrInfo = "VOP3 src1 cannot be a literal constant.";
-      return false;
-    }
-    if (Src2Idx != -1 &&
-        isLiteralConstant(MI->getOperand(Src2Idx), getOpSize(Opcode, Src2Idx))) {
-      ErrInfo = "VOP3 src2 cannot be a literal constant.";
       return false;
     }
   }

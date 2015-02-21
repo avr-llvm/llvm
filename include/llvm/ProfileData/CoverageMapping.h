@@ -28,7 +28,7 @@ namespace llvm {
 class IndexedInstrProfReader;
 namespace coverage {
 
-class ObjectFileCoverageMappingReader;
+class CoverageMappingReader;
 
 class CoverageMapping;
 struct CounterExpressions;
@@ -237,6 +237,8 @@ public:
                         ArrayRef<uint64_t> CounterValues = ArrayRef<uint64_t>())
       : Expressions(Expressions), CounterValues(CounterValues) {}
 
+  void setCounts(ArrayRef<uint64_t> Counts) { CounterValues = Counts; }
+
   void dump(const Counter &C, llvm::raw_ostream &OS) const;
   void dump(const Counter &C) const { dump(C, dbgs()); }
 
@@ -256,10 +258,14 @@ struct FunctionRecord {
   /// \brief The number of times this function was executed.
   uint64_t ExecutionCount;
 
-  FunctionRecord(StringRef Name, ArrayRef<StringRef> Filenames,
-                 uint64_t ExecutionCount)
-      : Name(Name), Filenames(Filenames.begin(), Filenames.end()),
-        ExecutionCount(ExecutionCount) {}
+  FunctionRecord(StringRef Name, ArrayRef<StringRef> Filenames)
+      : Name(Name), Filenames(Filenames.begin(), Filenames.end()) {}
+
+  void pushRegion(CounterMappingRegion Region, uint64_t Count) {
+    if (CountedRegions.empty())
+      ExecutionCount = Count;
+    CountedRegions.emplace_back(Region, Count);
+  }
 };
 
 /// \brief Iterator over Functions, optionally filtered to a single file.
@@ -333,10 +339,22 @@ struct CoverageSegment {
   CoverageSegment(unsigned Line, unsigned Col, bool IsRegionEntry)
       : Line(Line), Col(Col), Count(0), HasCount(false),
         IsRegionEntry(IsRegionEntry) {}
+
+  CoverageSegment(unsigned Line, unsigned Col, uint64_t Count,
+                  bool IsRegionEntry)
+      : Line(Line), Col(Col), Count(Count), HasCount(true),
+        IsRegionEntry(IsRegionEntry) {}
+
+  friend bool operator==(const CoverageSegment &L, const CoverageSegment &R) {
+    return std::tie(L.Line, L.Col, L.Count, L.HasCount, L.IsRegionEntry) ==
+           std::tie(R.Line, R.Col, R.Count, R.HasCount, R.IsRegionEntry);
+  }
+
   void setCount(uint64_t NewCount) {
     Count = NewCount;
     HasCount = true;
   }
+
   void addCount(uint64_t NewCount) { setCount(Count + NewCount); }
 };
 
@@ -384,7 +402,7 @@ class CoverageMapping {
 public:
   /// \brief Load the coverage mapping using the given readers.
   static ErrorOr<std::unique_ptr<CoverageMapping>>
-  load(ObjectFileCoverageMappingReader &CoverageReader,
+  load(CoverageMappingReader &CoverageReader,
        IndexedInstrProfReader &ProfileReader);
 
   /// \brief Load the coverage mapping from the given files.

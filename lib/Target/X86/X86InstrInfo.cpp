@@ -91,7 +91,7 @@ enum {
   TB_ALIGN_MASK  = 0xff << TB_ALIGN_SHIFT
 };
 
-struct X86OpTblEntry {
+struct X86MemoryFoldTableEntry {
   uint16_t RegOp;
   uint16_t MemOp;
   uint16_t Flags;
@@ -106,7 +106,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
           (STI.isTarget64BitLP64() ? X86::ADJCALLSTACKUP64 : X86::ADJCALLSTACKUP32)),
       Subtarget(STI), RI(STI) {
 
-  static const X86OpTblEntry OpTbl2Addr[] = {
+  static const X86MemoryFoldTableEntry MemoryFoldTable2Addr[] = {
     { X86::ADC32ri,     X86::ADC32mi,    0 },
     { X86::ADC32ri8,    X86::ADC32mi8,   0 },
     { X86::ADC32rr,     X86::ADC32mr,    0 },
@@ -269,17 +269,17 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::XOR8rr,      X86::XOR8mr,     0 }
   };
 
-  for (unsigned i = 0, e = array_lengthof(OpTbl2Addr); i != e; ++i) {
-    unsigned RegOp = OpTbl2Addr[i].RegOp;
-    unsigned MemOp = OpTbl2Addr[i].MemOp;
-    unsigned Flags = OpTbl2Addr[i].Flags;
+  for (unsigned i = 0, e = array_lengthof(MemoryFoldTable2Addr); i != e; ++i) {
+    unsigned RegOp = MemoryFoldTable2Addr[i].RegOp;
+    unsigned MemOp = MemoryFoldTable2Addr[i].MemOp;
+    unsigned Flags = MemoryFoldTable2Addr[i].Flags;
     AddTableEntry(RegOp2MemOpTable2Addr, MemOp2RegOpTable,
                   RegOp, MemOp,
                   // Index 0, folded load and store, no alignment requirement.
                   Flags | TB_INDEX_0 | TB_FOLDED_LOAD | TB_FOLDED_STORE);
   }
 
-  static const X86OpTblEntry OpTbl0[] = {
+  static const X86MemoryFoldTableEntry MemoryFoldTable0[] = {
     { X86::BT16ri8,     X86::BT16mi8,       TB_FOLDED_LOAD },
     { X86::BT32ri8,     X86::BT32mi8,       TB_FOLDED_LOAD },
     { X86::BT64ri8,     X86::BT64mi8,       TB_FOLDED_LOAD },
@@ -424,15 +424,15 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VCVTPS2PHYrr,       X86::VCVTPS2PHYmr,     TB_FOLDED_STORE }
   };
 
-  for (unsigned i = 0, e = array_lengthof(OpTbl0); i != e; ++i) {
-    unsigned RegOp      = OpTbl0[i].RegOp;
-    unsigned MemOp      = OpTbl0[i].MemOp;
-    unsigned Flags      = OpTbl0[i].Flags;
+  for (unsigned i = 0, e = array_lengthof(MemoryFoldTable0); i != e; ++i) {
+    unsigned RegOp      = MemoryFoldTable0[i].RegOp;
+    unsigned MemOp      = MemoryFoldTable0[i].MemOp;
+    unsigned Flags      = MemoryFoldTable0[i].Flags;
     AddTableEntry(RegOp2MemOpTable0, MemOp2RegOpTable,
                   RegOp, MemOp, TB_INDEX_0 | Flags);
   }
 
-  static const X86OpTblEntry OpTbl1[] = {
+  static const X86MemoryFoldTableEntry MemoryFoldTable1[] = {
     { X86::CMP16rr,         X86::CMP16rm,             0 },
     { X86::CMP32rr,         X86::CMP32rm,             0 },
     { X86::CMP64rr,         X86::CMP64rm,             0 },
@@ -657,6 +657,12 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VTESTPSYrr,      X86::VTESTPSYrm,          0 },
 
     // AVX2 foldable instructions
+
+    // VBROADCASTS{SD}rr register instructions were an AVX2 addition while the
+    // VBROADCASTS{SD}rm memory instructions were available from AVX1.
+    // TB_NO_REVERSE prevents unfolding from introducing an illegal instruction
+    // on AVX1 targets. The VPBROADCAST instructions are all AVX2 instructions
+    // so they don't need an equivalent limitation.
     { X86::VBROADCASTSSrr,  X86::VBROADCASTSSrm,      TB_NO_REVERSE },
     { X86::VBROADCASTSSYrr, X86::VBROADCASTSSYrm,     TB_NO_REVERSE },
     { X86::VBROADCASTSDYrr, X86::VBROADCASTSDYrm,     TB_NO_REVERSE },
@@ -833,17 +839,17 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VAESKEYGENASSIST128rr, X86::VAESKEYGENASSIST128rm, 0 }
   };
 
-  for (unsigned i = 0, e = array_lengthof(OpTbl1); i != e; ++i) {
-    unsigned RegOp = OpTbl1[i].RegOp;
-    unsigned MemOp = OpTbl1[i].MemOp;
-    unsigned Flags = OpTbl1[i].Flags;
+  for (unsigned i = 0, e = array_lengthof(MemoryFoldTable1); i != e; ++i) {
+    unsigned RegOp = MemoryFoldTable1[i].RegOp;
+    unsigned MemOp = MemoryFoldTable1[i].MemOp;
+    unsigned Flags = MemoryFoldTable1[i].Flags;
     AddTableEntry(RegOp2MemOpTable1, MemOp2RegOpTable,
                   RegOp, MemOp,
                   // Index 1, folded load
                   Flags | TB_INDEX_1 | TB_FOLDED_LOAD);
   }
 
-  static const X86OpTblEntry OpTbl2[] = {
+  static const X86MemoryFoldTableEntry MemoryFoldTable2[] = {
     { X86::ADC32rr,         X86::ADC32rm,       0 },
     { X86::ADC64rr,         X86::ADC64rm,       0 },
     { X86::ADD16rr,         X86::ADD16rm,       0 },
@@ -933,6 +939,11 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::DIVSSrr_Int,     X86::DIVSSrm_Int,   0 },
     { X86::DPPDrri,         X86::DPPDrmi,       TB_ALIGN_16 },
     { X86::DPPSrri,         X86::DPPSrmi,       TB_ALIGN_16 },
+
+    // FIXME: We should not be folding Fs* scalar loads into vector
+    // instructions because the vector instructions require vector-sized
+    // loads. Lowering should create vector-sized instructions (the Fv*
+    // variants below) to allow load folding.
     { X86::FsANDNPDrr,      X86::FsANDNPDrm,    TB_ALIGN_16 },
     { X86::FsANDNPSrr,      X86::FsANDNPSrm,    TB_ALIGN_16 },
     { X86::FsANDPDrr,       X86::FsANDPDrm,     TB_ALIGN_16 },
@@ -941,6 +952,15 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::FsORPSrr,        X86::FsORPSrm,      TB_ALIGN_16 },
     { X86::FsXORPDrr,       X86::FsXORPDrm,     TB_ALIGN_16 },
     { X86::FsXORPSrr,       X86::FsXORPSrm,     TB_ALIGN_16 },
+
+    { X86::FvANDNPDrr,      X86::FvANDNPDrm,    TB_ALIGN_16 },
+    { X86::FvANDNPSrr,      X86::FvANDNPSrm,    TB_ALIGN_16 },
+    { X86::FvANDPDrr,       X86::FvANDPDrm,     TB_ALIGN_16 },
+    { X86::FvANDPSrr,       X86::FvANDPSrm,     TB_ALIGN_16 },
+    { X86::FvORPDrr,        X86::FvORPDrm,      TB_ALIGN_16 },
+    { X86::FvORPSrr,        X86::FvORPSrm,      TB_ALIGN_16 },
+    { X86::FvXORPDrr,       X86::FvXORPDrm,     TB_ALIGN_16 },
+    { X86::FvXORPSrr,       X86::FvXORPSrm,     TB_ALIGN_16 },
     { X86::HADDPDrr,        X86::HADDPDrm,      TB_ALIGN_16 },
     { X86::HADDPSrr,        X86::HADDPSrm,      TB_ALIGN_16 },
     { X86::HSUBPDrr,        X86::HSUBPDrm,      TB_ALIGN_16 },
@@ -1142,14 +1162,17 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VDIVSSrr_Int,      X86::VDIVSSrm_Int,       0 },
     { X86::VDPPDrri,          X86::VDPPDrmi,           0 },
     { X86::VDPPSrri,          X86::VDPPSrmi,           0 },
-    { X86::VFsANDNPDrr,       X86::VFsANDNPDrm,        0 },
-    { X86::VFsANDNPSrr,       X86::VFsANDNPSrm,        0 },
-    { X86::VFsANDPDrr,        X86::VFsANDPDrm,         0 },
-    { X86::VFsANDPSrr,        X86::VFsANDPSrm,         0 },
-    { X86::VFsORPDrr,         X86::VFsORPDrm,          0 },
-    { X86::VFsORPSrr,         X86::VFsORPSrm,          0 },
-    { X86::VFsXORPDrr,        X86::VFsXORPDrm,         0 },
-    { X86::VFsXORPSrr,        X86::VFsXORPSrm,         0 },
+    // Do not fold VFs* loads because there are no scalar load variants for
+    // these instructions. When folded, the load is required to be 128-bits, so
+    // the load size would not match.
+    { X86::VFvANDNPDrr,       X86::VFvANDNPDrm,        0 },
+    { X86::VFvANDNPSrr,       X86::VFvANDNPSrm,        0 },
+    { X86::VFvANDPDrr,        X86::VFvANDPDrm,         0 },
+    { X86::VFvANDPSrr,        X86::VFvANDPSrm,         0 },
+    { X86::VFvORPDrr,         X86::VFvORPDrm,          0 },
+    { X86::VFvORPSrr,         X86::VFvORPSrm,          0 },
+    { X86::VFvXORPDrr,        X86::VFvXORPDrm,         0 },
+    { X86::VFvXORPSrr,        X86::VFvXORPSrm,         0 },
     { X86::VHADDPDrr,         X86::VHADDPDrm,          0 },
     { X86::VHADDPSrr,         X86::VHADDPSrm,          0 },
     { X86::VHSUBPDrr,         X86::VHSUBPDrm,          0 },
@@ -1590,17 +1613,17 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::SHA256RNDS2rr,     X86::SHA256RNDS2rm,       TB_ALIGN_16 }
   };
 
-  for (unsigned i = 0, e = array_lengthof(OpTbl2); i != e; ++i) {
-    unsigned RegOp = OpTbl2[i].RegOp;
-    unsigned MemOp = OpTbl2[i].MemOp;
-    unsigned Flags = OpTbl2[i].Flags;
+  for (unsigned i = 0, e = array_lengthof(MemoryFoldTable2); i != e; ++i) {
+    unsigned RegOp = MemoryFoldTable2[i].RegOp;
+    unsigned MemOp = MemoryFoldTable2[i].MemOp;
+    unsigned Flags = MemoryFoldTable2[i].Flags;
     AddTableEntry(RegOp2MemOpTable2, MemOp2RegOpTable,
                   RegOp, MemOp,
                   // Index 2, folded load
                   Flags | TB_INDEX_2 | TB_FOLDED_LOAD);
   }
 
-  static const X86OpTblEntry OpTbl3[] = {
+  static const X86MemoryFoldTableEntry MemoryFoldTable3[] = {
     // FMA foldable instructions
     { X86::VFMADDSSr231r,         X86::VFMADDSSr231m,         TB_ALIGN_NONE },
     { X86::VFMADDSDr231r,         X86::VFMADDSDr231m,         TB_ALIGN_NONE },
@@ -1806,17 +1829,17 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VMAXPDZ128rrkz,        X86::VMAXPDZ128rmkz,        0 }
   };
 
-  for (unsigned i = 0, e = array_lengthof(OpTbl3); i != e; ++i) {
-    unsigned RegOp = OpTbl3[i].RegOp;
-    unsigned MemOp = OpTbl3[i].MemOp;
-    unsigned Flags = OpTbl3[i].Flags;
+  for (unsigned i = 0, e = array_lengthof(MemoryFoldTable3); i != e; ++i) {
+    unsigned RegOp = MemoryFoldTable3[i].RegOp;
+    unsigned MemOp = MemoryFoldTable3[i].MemOp;
+    unsigned Flags = MemoryFoldTable3[i].Flags;
     AddTableEntry(RegOp2MemOpTable3, MemOp2RegOpTable,
                   RegOp, MemOp,
                   // Index 3, folded load
                   Flags | TB_INDEX_3 | TB_FOLDED_LOAD);
   }
 
-  static const X86OpTblEntry OpTbl4[] = {
+  static const X86MemoryFoldTableEntry MemoryFoldTable4[] = {
      // AVX-512 foldable instructions
     { X86::VADDPSZrrk,         X86::VADDPSZrmk,           0 },
     { X86::VADDPDZrrk,         X86::VADDPDZrmk,           0 },
@@ -1858,10 +1881,10 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VMAXPDZ128rrk,      X86::VMAXPDZ128rmk,        0 }
   };
 
-  for (unsigned i = 0, e = array_lengthof(OpTbl4); i != e; ++i) {
-    unsigned RegOp = OpTbl4[i].RegOp;
-    unsigned MemOp = OpTbl4[i].MemOp;
-    unsigned Flags = OpTbl4[i].Flags;
+  for (unsigned i = 0, e = array_lengthof(MemoryFoldTable4); i != e; ++i) {
+    unsigned RegOp = MemoryFoldTable4[i].RegOp;
+    unsigned MemOp = MemoryFoldTable4[i].MemOp;
+    unsigned Flags = MemoryFoldTable4[i].Flags;
     AddTableEntry(RegOp2MemOpTable4, MemOp2RegOpTable,
                   RegOp, MemOp,
                   // Index 4, folded load
@@ -1984,7 +2007,7 @@ int X86InstrInfo::getSPAdjust(const MachineInstr *MI) const {
   }
 }
 
-/// isFrameOperand - Return true and the FrameIndex if the specified
+/// Return true and the FrameIndex if the specified
 /// operand and follow operands form a reference to the stack frame.
 bool X86InstrInfo::isFrameOperand(const MachineInstr *MI, unsigned int Op,
                                   int &FrameIndex) const {
@@ -2111,8 +2134,7 @@ unsigned X86InstrInfo::isStoreToStackSlotPostFE(const MachineInstr *MI,
   return 0;
 }
 
-/// regIsPICBase - Return true if register is PIC base (i.e.g defined by
-/// X86::MOVPC32r.
+/// Return true if register is PIC base; i.e.g defined by X86::MOVPC32r.
 static bool regIsPICBase(unsigned BaseReg, const MachineRegisterInfo &MRI) {
   // Don't waste compile time scanning use-def chains of physregs.
   if (!TargetRegisterInfo::isVirtualRegister(BaseReg))
@@ -2308,8 +2330,7 @@ void X86InstrInfo::reMaterialize(MachineBasicBlock &MBB,
   NewMI->substituteRegister(Orig->getOperand(0).getReg(), DestReg, SubIdx, TRI);
 }
 
-/// hasLiveCondCodeDef - True if MI has a condition code def, e.g. EFLAGS, that
-/// is not marked dead.
+/// True if MI has a condition code def, e.g. EFLAGS, that is not marked dead.
 static bool hasLiveCondCodeDef(MachineInstr *MI) {
   for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
     MachineOperand &MO = MI->getOperand(i);
@@ -2321,8 +2342,7 @@ static bool hasLiveCondCodeDef(MachineInstr *MI) {
   return false;
 }
 
-/// getTruncatedShiftCount - check whether the shift count for a machine operand
-/// is non-zero.
+/// Check whether the shift count for a machine operand is non-zero.
 inline static unsigned getTruncatedShiftCount(MachineInstr *MI,
                                               unsigned ShiftAmtOperandIdx) {
   // The shift count is six bits with the REX.W prefix and five bits without.
@@ -2331,7 +2351,7 @@ inline static unsigned getTruncatedShiftCount(MachineInstr *MI,
   return Imm & ShiftCountMask;
 }
 
-/// isTruncatedShiftCountForLEA - check whether the given shift count is appropriate
+/// Check whether the given shift count is appropriate
 /// can be represented by a LEA instruction.
 inline static bool isTruncatedShiftCountForLEA(unsigned ShAmt) {
   // Left shift instructions can be transformed into load-effective-address
@@ -2413,10 +2433,9 @@ bool X86InstrInfo::classifyLEAReg(MachineInstr *MI, const MachineOperand &Src,
   return true;
 }
 
-/// convertToThreeAddressWithLEA - Helper for convertToThreeAddress when
-/// 16-bit LEA is disabled, use 32-bit LEA to form 3-address code by promoting
-/// to a 32-bit superregister and then truncating back down to a 16-bit
-/// subregister.
+/// Helper for convertToThreeAddress when 16-bit LEA is disabled, use 32-bit
+/// LEA to form 3-address code by promoting to a 32-bit superregister and then
+/// truncating back down to a 16-bit subregister.
 MachineInstr *
 X86InstrInfo::convertToThreeAddressWithLEA(unsigned MIOpc,
                                            MachineFunction::iterator &MFI,
@@ -2523,7 +2542,7 @@ X86InstrInfo::convertToThreeAddressWithLEA(unsigned MIOpc,
   return ExtMI;
 }
 
-/// convertToThreeAddress - This method must be implemented by targets that
+/// This method must be implemented by targets that
 /// set the M_CONVERTIBLE_TO_3_ADDR flag.  When this flag is set, the target
 /// may be able to convert a two-address instruction into a true
 /// three-address instruction on demand.  This allows the X86 target (for
@@ -2798,8 +2817,7 @@ X86InstrInfo::convertToThreeAddress(MachineFunction::iterator &MFI,
   return NewMI;
 }
 
-/// commuteInstruction - We have a few instructions that must be hacked on to
-/// commute them.
+/// We have a few instructions that must be hacked on to commute them.
 ///
 MachineInstr *
 X86InstrInfo::commuteInstruction(MachineInstr *MI, bool NewMI) const {
@@ -3090,7 +3108,7 @@ static X86::CondCode getCondFromBranchOpc(unsigned BrOpc) {
   }
 }
 
-/// getCondFromSETOpc - return condition code of a SET opcode.
+/// Return condition code of a SET opcode.
 static X86::CondCode getCondFromSETOpc(unsigned Opc) {
   switch (Opc) {
   default: return X86::COND_INVALID;
@@ -3113,7 +3131,7 @@ static X86::CondCode getCondFromSETOpc(unsigned Opc) {
   }
 }
 
-/// getCondFromCmovOpc - return condition code of a CMov opcode.
+/// Return condition code of a CMov opcode.
 X86::CondCode X86::getCondFromCMovOpc(unsigned Opc) {
   switch (Opc) {
   default: return X86::COND_INVALID;
@@ -3190,7 +3208,7 @@ unsigned X86::GetCondBranchFromCond(X86::CondCode CC) {
   }
 }
 
-/// GetOppositeBranchCondition - Return the inverse of the specified condition,
+/// Return the inverse of the specified condition,
 /// e.g. turning COND_E to COND_NE.
 X86::CondCode X86::GetOppositeBranchCondition(X86::CondCode CC) {
   switch (CC) {
@@ -3214,9 +3232,8 @@ X86::CondCode X86::GetOppositeBranchCondition(X86::CondCode CC) {
   }
 }
 
-/// getSwappedCondition - assume the flags are set by MI(a,b), return
-/// the condition code if we modify the instructions such that flags are
-/// set by MI(b,a).
+/// Assuming the flags are set by MI(a,b), return the condition code if we
+/// modify the instructions such that flags are set by MI(b,a).
 static X86::CondCode getSwappedCondition(X86::CondCode CC) {
   switch (CC) {
   default: return X86::COND_INVALID;
@@ -3233,7 +3250,7 @@ static X86::CondCode getSwappedCondition(X86::CondCode CC) {
   }
 }
 
-/// getSETFromCond - Return a set opcode for the given condition and
+/// Return a set opcode for the given condition and
 /// whether it has memory operand.
 unsigned X86::getSETFromCond(CondCode CC, bool HasMemoryOperand) {
   static const uint16_t Opc[16][2] = {
@@ -3259,7 +3276,7 @@ unsigned X86::getSETFromCond(CondCode CC, bool HasMemoryOperand) {
   return Opc[CC][HasMemoryOperand ? 1 : 0];
 }
 
-/// getCMovFromCond - Return a cmov opcode for the given condition,
+/// Return a cmov opcode for the given condition,
 /// register size in bytes, and operand type.
 unsigned X86::getCMovFromCond(CondCode CC, unsigned RegBytes,
                               bool HasMemoryOperand) {
@@ -3582,7 +3599,7 @@ void X86InstrInfo::insertSelect(MachineBasicBlock &MBB,
    BuildMI(MBB, I, DL, get(Opc), DstReg).addReg(FalseReg).addReg(TrueReg);
 }
 
-/// isHReg - Test if the given register is a physical h register.
+/// Test if the given register is a physical h register.
 static bool isHReg(unsigned Reg) {
   return X86::GR8_ABCD_HRegClass.contains(Reg);
 }
@@ -3989,7 +4006,7 @@ analyzeCompare(const MachineInstr *MI, unsigned &SrcReg, unsigned &SrcReg2,
   return false;
 }
 
-/// isRedundantFlagInstr - check whether the first instruction, whose only
+/// Check whether the first instruction, whose only
 /// purpose is to update flags, can be made redundant.
 /// CMPrr can be made redundant by SUBrr if the operands are the same.
 /// This function can be extended later on.
@@ -4032,7 +4049,7 @@ inline static bool isRedundantFlagInstr(MachineInstr *FlagI, unsigned SrcReg,
   return false;
 }
 
-/// isDefConvertible - check whether the definition can be converted
+/// Check whether the definition can be converted
 /// to remove a comparison against zero.
 inline static bool isDefConvertible(MachineInstr *MI) {
   switch (MI->getOpcode()) {
@@ -4118,8 +4135,7 @@ inline static bool isDefConvertible(MachineInstr *MI) {
   }
 }
 
-/// isUseDefConvertible - check whether the use can be converted
-/// to remove a comparison against zero.
+/// Check whether the use can be converted to remove a comparison against zero.
 static X86::CondCode isUseDefConvertible(MachineInstr *MI) {
   switch (MI->getOpcode()) {
   default: return X86::COND_INVALID;
@@ -4138,7 +4154,7 @@ static X86::CondCode isUseDefConvertible(MachineInstr *MI) {
   }
 }
 
-/// optimizeCompareInstr - Check if there exists an earlier instruction that
+/// Check if there exists an earlier instruction that
 /// operates on the same source operands and sets flags in the same way as
 /// Compare; remove Compare if possible.
 bool X86InstrInfo::
@@ -4429,7 +4445,7 @@ optimizeCompareInstr(MachineInstr *CmpInstr, unsigned SrcReg, unsigned SrcReg2,
   return true;
 }
 
-/// optimizeLoadInstr - Try to remove the load by folding it to a register
+/// Try to remove the load by folding it to a register
 /// operand at the use. We fold the load instructions if load defines a virtual
 /// register, the virtual register is used once in the same BB, and the
 /// instructions in-between do not load or store, and have no side effects.
@@ -4484,9 +4500,9 @@ MachineInstr *X86InstrInfo::optimizeLoadInstr(MachineInstr *MI,
   return nullptr;
 }
 
-/// Expand2AddrUndef - Expand a single-def pseudo instruction to a two-addr
-/// instruction with two undef reads of the register being defined.  This is
-/// used for mapping:
+/// Expand a single-def pseudo instruction to a two-addr
+/// instruction with two undef reads of the register being defined.
+/// This is used for mapping:
 ///   %xmm4 = V_SET0
 /// to:
 ///   %xmm4 = PXORrr %xmm4<undef>, %xmm4<undef>
@@ -4803,7 +4819,7 @@ X86InstrInfo::foldMemoryOperandImpl(MachineFunction &MF,
   return nullptr;
 }
 
-/// hasPartialRegUpdate - Return true for all instructions that only update
+/// Return true for all instructions that only update
 /// the first 32 or 64-bits of the destination register and leave the rest
 /// unmodified. This can be used to avoid folding loads if the instructions
 /// only update part of the destination register, and the non-updated part is
@@ -4865,7 +4881,7 @@ static bool hasPartialRegUpdate(unsigned Opcode) {
   return false;
 }
 
-/// getPartialRegUpdateClearance - Inform the ExeDepsFix pass how many idle
+/// Inform the ExeDepsFix pass how many idle
 /// instructions we would like before a partial register update.
 unsigned X86InstrInfo::
 getPartialRegUpdateClearance(const MachineInstr *MI, unsigned OpNum,
@@ -5841,7 +5857,7 @@ isSafeToMoveRegClassDefs(const TargetRegisterClass *RC) const {
            RC == &X86::RFP64RegClass || RC == &X86::RFP80RegClass);
 }
 
-/// getGlobalBaseReg - Return a virtual register initialized with the
+/// Return a virtual register initialized with the
 /// the global base register value. Output instructions required to
 /// initialize the register in the function entry block, if necessary.
 ///
@@ -5974,7 +5990,7 @@ void X86InstrInfo::setExecutionDomain(MachineInstr *MI, unsigned Domain) const {
   MI->setDesc(get(table[Domain-1]));
 }
 
-/// getNoopForMachoTarget - Return the noop instruction to use for a noop.
+/// Return the noop instruction to use for a noop.
 void X86InstrInfo::getNoopForMachoTarget(MCInst &NopInst) const {
   NopInst.setOpcode(X86::NOOP);
 }
@@ -6091,7 +6107,7 @@ hasHighOperandLatency(const InstrItineraryData *ItinData,
 }
 
 namespace {
-  /// CGBR - Create Global Base Reg pass. This initializes the PIC
+  /// Create Global Base Reg pass. This initializes the PIC
   /// global base register for x86-32.
   struct CGBR : public MachineFunctionPass {
     static char ID;

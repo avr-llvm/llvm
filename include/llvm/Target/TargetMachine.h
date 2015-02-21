@@ -113,7 +113,7 @@ public:
   template<typename STC> const STC &getSubtarget() const {
     return *static_cast<const STC*>(getSubtargetImpl());
   }
-  template <typename STC> const STC &getSubtarget(const Function *) const {
+  template <typename STC> const STC &getSubtarget(const Function &) const {
     return *static_cast<const STC*>(getSubtargetImpl());
   }
 
@@ -170,6 +170,8 @@ public:
   bool getAsmVerbosityDefault() const {
     return Options.MCOptions.AsmVerbose;
   }
+
+  bool getUniqueSectionNames() const { return Options.UniqueSectionNames; }
 
   /// Return true if data objects should be emitted into their own section,
   /// corresponds to -fdata-sections.

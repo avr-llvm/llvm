@@ -1,6 +1,7 @@
 add_llvm_library(LLVMScalarOpts
   ADCE.cpp
   AlignmentFromAssumptions.cpp
+  BDCE.cpp
   ConstantHoisting.cpp
   ConstantProp.cpp
   CorrelatedValuePropagation.cpp
@@ -30,6 +31,7 @@ add_llvm_library(LLVMScalarOpts
   PlaceSafepoints.cpp
   Reassociate.cpp
   Reg2Mem.cpp
+  RewriteStatepointsForGC.cpp
   SCCP.cpp
   SROA.cpp
   SampleProfile.cpp
