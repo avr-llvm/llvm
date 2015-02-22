@@ -14,4 +14,4 @@ before_script:
 
 script:
   - ./configure --enable-targets=avr
-  - make
+  - make -j 1
