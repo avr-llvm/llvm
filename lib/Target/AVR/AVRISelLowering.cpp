@@ -797,12 +797,12 @@ static void analyzeArguments(const Function *F, const DataLayout *TD,
                              SmallVectorImpl<CCValAssign> &ArgLocs,
                              CCState &CCInfo, bool IsCall, bool IsVarArg)
 {
-  static const uint16_t RegList8[] =
+  static const MCPhysReg RegList8[] =
   {
     AVR::R24, AVR::R22, AVR::R20, AVR::R18, AVR::R16, AVR::R14, AVR::R12,
     AVR::R10, AVR::R8
   };
-  static const uint16_t RegList16[] =
+  static const MCPhysReg RegList16[] =
   {
     AVR::R25R24, AVR::R23R22, AVR::R21R20, AVR::R19R18, AVR::R17R16,
     AVR::R15R14, AVR::R13R12, AVR::R11R10, AVR::R9R8
@@ -844,11 +844,11 @@ static void analyzeArguments(const Function *F, const DataLayout *TD,
     // If we have plenty of regs to pass the whole argument do it.
     if (!UsesStack && (Size <= RegsLeft))
     {
-      const uint16_t *RegList = (LocVT == MVT::i16) ? RegList16 : RegList8;
+      const MCPhysReg *RegList = (LocVT == MVT::i16) ? RegList16 : RegList8;
 
       for (unsigned j = 0; j != Size; ++j)
       {
-        unsigned Reg = CCInfo.AllocateReg(RegList, array_lengthof(RegList8));
+        unsigned Reg = CCInfo.AllocateReg(ArrayRef<MCPhysReg>(RegList, array_lengthof(RegList8)));
         CCInfo.addLoc(CCValAssign::getReg(ValNo++, LocVT, Reg, LocVT,
                                           CCValAssign::Full));
         --RegsLeft;
