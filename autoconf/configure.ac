@@ -73,6 +73,11 @@ if test ${srcdir} != "." ; then
   fi
 fi
 
+dnl Quit if it is an in-source build
+if test ${srcdir} == "." ; then
+  AC_MSG_ERROR([In-source builds are discouraged. Configure from a separate build directory.])
+fi
+
 dnl Default to empty (i.e. assigning the null string to) CFLAGS and CXXFLAGS,
 dnl instead of the autoconf default (for example, '-g -O2' for CC=gcc).
 : ${CFLAGS=}
@@ -267,6 +272,11 @@ AC_CACHE_CHECK([type of operating system we're going to host on],
     llvm_cv_no_link_all_option="-Wl,--no-whole-archive"
     llvm_cv_os_type="DragonFly"
     llvm_cv_platform_type="Unix" ;;
+  *-*-bitrig*)
+    llvm_cv_link_all_option="-Wl,--whole-archive"
+    llvm_cv_no_link_all_option="-Wl,--no-whole-archive"
+    llvm_cv_os_type="Bitrig"
+    llvm_cv_platform_type="Unix" ;;
   *-*-hpux*)
     llvm_cv_link_all_option="-Wl,--whole-archive"
     llvm_cv_no_link_all_option="-Wl,--no-whole-archive"
@@ -347,6 +357,8 @@ AC_CACHE_CHECK([type of operating system we're going to target],
     llvm_cv_target_os_type="NetBSD" ;;
   *-*-dragonfly*)
     llvm_cv_target_os_type="DragonFly" ;;
+  *-*-bitrig*)
+    llvm_cv_target_os_type="Bitrig" ;;
   *-*-hpux*)
     llvm_cv_target_os_type="HP-UX" ;;
   *-*-interix*)

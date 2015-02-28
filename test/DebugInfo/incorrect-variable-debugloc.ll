@@ -62,7 +62,7 @@ define i32 @_Z3fn1v() #0 {
 entry:
   %MyAlloca = alloca [64 x i8], align 32, !dbg !39
   %0 = ptrtoint [64 x i8]* %MyAlloca to i64, !dbg !39
-  %1 = load i32* @__asan_option_detect_stack_use_after_return, !dbg !39
+  %1 = load i32, i32* @__asan_option_detect_stack_use_after_return, !dbg !39
   %2 = icmp ne i32 %1, 0, !dbg !39
   br i1 %2, label %3, label %5
 
@@ -87,12 +87,12 @@ entry:
   %16 = add i64 %15, 0, !dbg !39
   %17 = inttoptr i64 %16 to i64*, !dbg !39
   store i64 -868083117767659023, i64* %17, !dbg !39
-  %i.i = getelementptr inbounds %struct.C* %8, i64 0, i32 1, i32 0, !dbg !39
+  %i.i = getelementptr inbounds %struct.C, %struct.C* %8, i64 0, i32 1, i32 0, !dbg !39
   %18 = ptrtoint i32* %i.i to i64, !dbg !39
   %19 = lshr i64 %18, 3, !dbg !39
   %20 = add i64 %19, 2147450880, !dbg !39
   %21 = inttoptr i64 %20 to i8*, !dbg !39
-  %22 = load i8* %21, !dbg !39
+  %22 = load i8, i8* %21, !dbg !39
   %23 = icmp ne i8 %22, 0, !dbg !39
   br i1 %23, label %24, label %30, !dbg !39
 
@@ -120,7 +120,7 @@ define void @_ZN1C5m_fn3Ev(%struct.C* nocapture %this) #1 align 2 {
 entry:
   %MyAlloca = alloca [64 x i8], align 32, !dbg !48
   %0 = ptrtoint [64 x i8]* %MyAlloca to i64, !dbg !48
-  %1 = load i32* @__asan_option_detect_stack_use_after_return, !dbg !48
+  %1 = load i32, i32* @__asan_option_detect_stack_use_after_return, !dbg !48
   %2 = icmp ne i32 %1, 0, !dbg !48
   br i1 %2, label %3, label %5
 
@@ -147,12 +147,12 @@ entry:
   store i64 -868083113472691727, i64* %17, !dbg !48
   tail call void @llvm.dbg.value(metadata %struct.C* %this, i64 0, metadata !30, metadata !{!"0x102"}), !dbg !48
   %call = call i32 @_ZN1A5m_fn1Ev(%struct.A* %8), !dbg !49
-  %i.i = getelementptr inbounds %struct.C* %this, i64 0, i32 1, i32 0, !dbg !50
+  %i.i = getelementptr inbounds %struct.C, %struct.C* %this, i64 0, i32 1, i32 0, !dbg !50
   %18 = ptrtoint i32* %i.i to i64, !dbg !50
   %19 = lshr i64 %18, 3, !dbg !50
   %20 = add i64 %19, 2147450880, !dbg !50
   %21 = inttoptr i64 %20 to i8*, !dbg !50
-  %22 = load i8* %21, !dbg !50
+  %22 = load i8, i8* %21, !dbg !50
   %23 = icmp ne i8 %22, 0, !dbg !50
   br i1 %23, label %24, label %30, !dbg !50
 
@@ -180,7 +180,7 @@ entry:
   store i64 -723401728380766731, i64* %34, !dbg !52
   %35 = add i64 %6, 56, !dbg !52
   %36 = inttoptr i64 %35 to i64*, !dbg !52
-  %37 = load i64* %36, !dbg !52
+  %37 = load i64, i64* %36, !dbg !52
   %38 = inttoptr i64 %37 to i8*, !dbg !52
   store i8 0, i8* %38, !dbg !52
   br label %42, !dbg !52

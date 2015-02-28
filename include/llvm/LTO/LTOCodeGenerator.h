@@ -67,6 +67,9 @@ struct LTOCodeGenerator {
   // Merge given module, return true on success.
   bool addModule(struct LTOModule *);
 
+  // Set the destination module.
+  void setModule(struct LTOModule *);
+
   void setTargetOptions(TargetOptions options);
   void setDebugInfo(lto_debug_model);
   void setCodePICModel(lto_codegen_model);
@@ -152,6 +155,7 @@ private:
   typedef StringMap<uint8_t> StringSet;
 
   void initialize();
+  void destroyMergedModule();
   std::unique_ptr<LLVMContext> OwnedContext;
   LLVMContext &Context;
   Linker IRLinker;
@@ -169,6 +173,7 @@ private:
   TargetOptions Options;
   lto_diagnostic_handler_t DiagHandler;
   void *DiagContext;
+  LTOModule *OwnedModule;
 };
 }
 #endif

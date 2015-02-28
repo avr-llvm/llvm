@@ -53,8 +53,9 @@ public:
   /// call dump() on the underlying RawSymbol, which allows us to discover
   /// unknown properties, but individual implementations of PDBSymbol may
   /// override the behavior to only dump known fields.
-  virtual void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level, PDB_DumpFlags Flags) const = 0;
-  void defaultDump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const;
+  virtual void dump(raw_ostream &OS, int Indent,
+                    PDBSymDumper &Dumper) const = 0;
+  void defaultDump(raw_ostream &OS, int Indent) const;
 
   PDB_SymType getSymTag() const;
 
@@ -83,9 +84,11 @@ public:
   const IPDBRawSymbol &getRawSymbol() const { return *RawSymbol; }
   IPDBRawSymbol &getRawSymbol() { return *RawSymbol; }
 
-protected:
+  const IPDBSession &getSession() const { return Session; }
+
   std::unique_ptr<IPDBEnumSymbols> getChildStats(TagStats &Stats) const;
 
+protected:
   const IPDBSession &Session;
   const std::unique_ptr<IPDBRawSymbol> RawSymbol;
 };

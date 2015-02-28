@@ -71,8 +71,6 @@ namespace llvm {
       /// though these are usually folded into other nodes.
       Hi, Lo,
 
-      TOC_ENTRY,
-
       /// The following two target-specific nodes are used for calls through
       /// function pointers in the 64-bit SVR4 ABI.
 
@@ -192,7 +190,7 @@ namespace llvm {
       PPC32_GOT,
 
       /// GPRC = address of _GLOBAL_OFFSET_TABLE_. Used by general dynamic and
-      /// local dynamic TLS  on PPC32.
+      /// local dynamic TLS on PPC32.
       PPC32_PICGOT,
 
       /// G8RC = ADDIS_GOT_TPREL_HA %X2, Symbol - Used by the initial-exec
@@ -283,6 +281,22 @@ namespace llvm {
       /// of outputs.
       XXSWAPD,
 
+      /// QVFPERM = This corresponds to the QPX qvfperm instruction.
+      QVFPERM,
+
+      /// QVGPCI = This corresponds to the QPX qvgpci instruction.
+      QVGPCI,
+
+      /// QVALIGNI = This corresponds to the QPX qvaligni instruction.
+      QVALIGNI,
+
+      /// QVESPLATI = This corresponds to the QPX qvesplati instruction.
+      QVESPLATI,
+
+      /// QBFLT = Access the underlying QPX floating-point boolean
+      /// representation.
+      QBFLT,
+
       /// CHAIN = STBRX CHAIN, GPRC, Ptr, Type - This is a
       /// byte-swapping store instruction.  It byte-swaps the low "Type" bits of
       /// the GPRC input, then stores it through Ptr.  Type can be either i16 or
@@ -309,21 +323,6 @@ namespace llvm {
       /// destination 64-bit register.
       LFIWZX,
 
-      /// G8RC = ADDIS_TOC_HA %X2, Symbol - For medium and large code model,
-      /// produces an ADDIS8 instruction that adds the TOC base register to
-      /// sym\@toc\@ha.
-      ADDIS_TOC_HA,
-
-      /// G8RC = LD_TOC_L Symbol, G8RReg - For medium and large code model,
-      /// produces a LD instruction with base register G8RReg and offset
-      /// sym\@toc\@l. Preceded by an ADDIS_TOC_HA to form a full 32-bit offset.
-      LD_TOC_L,
-
-      /// G8RC = ADDI_TOC_L G8RReg, Symbol - For medium code model, produces
-      /// an ADDI8 instruction that adds G8RReg to sym\@toc\@l.
-      /// Preceded by an ADDIS_TOC_HA to form a full 32-bit offset.
-      ADDI_TOC_L,
-
       /// VSRC, CHAIN = LXVD2X_LE CHAIN, Ptr - Occurs only for little endian.
       /// Maps directly to an lxvd2x instruction that will be followed by
       /// an xxswapd.
@@ -332,7 +331,16 @@ namespace llvm {
       /// CHAIN = STXVD2X CHAIN, VSRC, Ptr - Occurs only for little endian.
       /// Maps directly to an stxvd2x instruction that will be preceded by
       /// an xxswapd.
-      STXVD2X
+      STXVD2X,
+
+      /// QBRC, CHAIN = QVLFSb CHAIN, Ptr
+      /// The 4xf32 load used for v4i1 constants.
+      QVLFSb,
+
+      /// GPRC = TOC_ENTRY GA, TOC
+      /// Loads the entry for GA from the TOC, where the TOC base is given by
+      /// the last operand.
+      TOC_ENTRY
     };
   }
 
@@ -381,6 +389,10 @@ namespace llvm {
     /// size, return the constant being splatted.  The ByteSize field indicates
     /// the number of bytes of each element [124] -> [bhw].
     SDValue get_VSPLTI_elt(SDNode *N, unsigned ByteSize, SelectionDAG &DAG);
+
+    /// If this is a qvaligni shuffle mask, return the shift
+    /// amount, otherwise return -1.
+    int isQVALIGNIShuffleMask(SDNode *N);
   }
 
   class PPCTargetLowering : public TargetLowering {
@@ -497,9 +509,10 @@ namespace llvm {
     ConstraintWeight getSingleConstraintMatchWeight(
       AsmOperandInfo &info, const char *constraint) const override;
 
-    std::pair<unsigned, const TargetRegisterClass*>
-      getRegForInlineAsmConstraint(const std::string &Constraint,
-                                   MVT VT) const override;
+    std::pair<unsigned, const TargetRegisterClass *>
+    getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                 const std::string &Constraint,
+                                 MVT VT) const override;
 
     /// getByValTypeAlignment - Return the desired alignment for ByVal aggregate
     /// function arguments in the caller parameter area.  This is the actual
@@ -679,10 +692,14 @@ namespace llvm {
     SDValue LowerSRA_PARTS(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSIGN_EXTEND_INREG(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerMUL(SDValue Op, SelectionDAG &DAG) const;
+
+    SDValue LowerVectorLoad(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerVectorStore(SDValue Op, SelectionDAG &DAG) const;
 
     SDValue LowerCallResult(SDValue Chain, SDValue InFlag,
                             CallingConv::ID CallConv, bool isVarArg,

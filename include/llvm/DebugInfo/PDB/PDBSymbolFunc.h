@@ -22,9 +22,11 @@ public:
   PDBSymbolFunc(const IPDBSession &PDBSession,
                 std::unique_ptr<IPDBRawSymbol> FuncSymbol);
 
-  void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level, PDB_DumpFlags Flags) const override;
+  void dump(raw_ostream &OS, int Indent, PDBSymDumper &Dumper) const override;
 
   std::unique_ptr<PDBSymbolTypeFunctionSig> getSignature() const;
+  std::unique_ptr<PDBSymbolTypeUDT> getClassParent() const;
+  std::unique_ptr<IPDBEnumChildren<PDBSymbolData>> getArguments() const;
 
   DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::Function)
 
@@ -32,6 +34,7 @@ public:
   FORWARD_SYMBOL_METHOD(getAddressOffset)
   FORWARD_SYMBOL_METHOD(getAddressSection)
   FORWARD_SYMBOL_METHOD(getClassParentId)
+  FORWARD_SYMBOL_METHOD(isCompilerGenerated)
   FORWARD_SYMBOL_METHOD(isConstType)
   FORWARD_SYMBOL_METHOD(hasCustomCallingConvention)
   FORWARD_SYMBOL_METHOD(hasFarReturn)

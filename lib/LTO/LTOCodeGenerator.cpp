@@ -82,15 +82,26 @@ void LTOCodeGenerator::initialize() {
   CodeModel = LTO_CODEGEN_PIC_MODEL_DEFAULT;
   DiagHandler = nullptr;
   DiagContext = nullptr;
+  OwnedModule = nullptr;
 
   initializeLTOPasses();
 }
 
+void LTOCodeGenerator::destroyMergedModule() {
+  if (OwnedModule) {
+    assert(IRLinker.getModule() == &OwnedModule->getModule() &&
+           "The linker's module should be the same as the owned module");
+    delete OwnedModule;
+    OwnedModule = nullptr;
+  } else if (IRLinker.getModule())
+    IRLinker.deleteModule();
+}
+
 LTOCodeGenerator::~LTOCodeGenerator() {
+  destroyMergedModule();
+
   delete TargetMach;
   TargetMach = nullptr;
-
-  IRLinker.deleteModule();
 
   for (std::vector<char *>::iterator I = CodegenOptions.begin(),
                                      E = CodegenOptions.end();
@@ -139,6 +150,22 @@ bool LTOCodeGenerator::addModule(LTOModule *mod) {
     AsmUndefinedRefs[undefs[i]] = 1;
 
   return !ret;
+}
+
+void LTOCodeGenerator::setModule(LTOModule *Mod) {
+  assert(&Mod->getModule().getContext() == &Context &&
+         "Expected module in same context");
+
+  // Delete the old merged module.
+  destroyMergedModule();
+  AsmUndefinedRefs.clear();
+
+  OwnedModule = Mod;
+  IRLinker.setModule(&Mod->getModule());
+
+  const std::vector<const char*> &Undefs = Mod->getAsmUndefinedRefs();
+  for (int I = 0, E = Undefs.size(); I != E; ++I)
+    AsmUndefinedRefs[Undefs[I]] = 1;
 }
 
 void LTOCodeGenerator::setTargetOptions(TargetOptions options) {

@@ -887,14 +887,30 @@ defm DS_READ2ST64_B64 : DS_Load2_Helper <0x00000076, "ds_read2st64_b64", VReg_12
 // MUBUF Instructions
 //===----------------------------------------------------------------------===//
 
-//def BUFFER_LOAD_FORMAT_X : MUBUF_ <mubuf<0x00>, "buffer_load_format_x", []>;
-//def BUFFER_LOAD_FORMAT_XY : MUBUF_ <mubuf<0x01>, "buffer_load_format_xy", []>;
-//def BUFFER_LOAD_FORMAT_XYZ : MUBUF_ <mubuf<0x02>, "buffer_load_format_xyz", []>;
-defm BUFFER_LOAD_FORMAT_XYZW : MUBUF_Load_Helper <mubuf<0x03>, "buffer_load_format_xyzw", VReg_128>;
-//def BUFFER_STORE_FORMAT_X : MUBUF_ <mubuf<0x04>, "buffer_store_format_x", []>;
-//def BUFFER_STORE_FORMAT_XY : MUBUF_ <mubuf<0x05>, "buffer_store_format_xy", []>;
-//def BUFFER_STORE_FORMAT_XYZ : MUBUF_ <mubuf<0x06>, "buffer_store_format_xyz", []>;
-//def BUFFER_STORE_FORMAT_XYZW : MUBUF_ <mubuf<0x07>, "buffer_store_format_xyzw", []>;
+defm BUFFER_LOAD_FORMAT_X : MUBUF_Load_Helper <
+  mubuf<0x00>, "buffer_load_format_x", VGPR_32
+>;
+defm BUFFER_LOAD_FORMAT_XY : MUBUF_Load_Helper <
+  mubuf<0x01>, "buffer_load_format_xy", VReg_64
+>;
+defm BUFFER_LOAD_FORMAT_XYZ : MUBUF_Load_Helper <
+  mubuf<0x02>, "buffer_load_format_xyz", VReg_96
+>;
+defm BUFFER_LOAD_FORMAT_XYZW : MUBUF_Load_Helper <
+  mubuf<0x03>, "buffer_load_format_xyzw", VReg_128
+>;
+defm BUFFER_STORE_FORMAT_X : MUBUF_Store_Helper <
+  mubuf<0x04>, "buffer_store_format_x", VGPR_32
+>;
+defm BUFFER_STORE_FORMAT_XY : MUBUF_Store_Helper <
+  mubuf<0x05>, "buffer_store_format_xy", VReg_64
+>;
+defm BUFFER_STORE_FORMAT_XYZ : MUBUF_Store_Helper <
+  mubuf<0x06>, "buffer_store_format_xyz", VReg_96
+>;
+defm BUFFER_STORE_FORMAT_XYZW : MUBUF_Store_Helper <
+  mubuf<0x07>, "buffer_store_format_xyzw", VReg_128
+>;
 defm BUFFER_LOAD_UBYTE : MUBUF_Load_Helper <
   mubuf<0x08, 0x10>, "buffer_load_ubyte", VGPR_32, i32, az_extloadi8_global
 >;
@@ -1494,10 +1510,10 @@ defm V_XOR_B32 : VOP2Inst <vop2<0x1d, 0x15>, "v_xor_b32", VOP_I32_I32_I32>;
 defm V_MAC_F32 : VOP2Inst <vop2<0x1f, 0x16>, "v_mac_f32", VOP_F32_F32_F32>;
 } // End isCommutable = 1
 
-defm V_MADMK_F32 : VOP2Inst <vop2<0x20, 0x17>, "v_madmk_f32", VOP_F32_F32_F32>;
+defm V_MADMK_F32 : VOP2MADK <vop2<0x20, 0x17>, "v_madmk_f32">;
 
 let isCommutable = 1 in {
-defm V_MADAK_F32 : VOP2Inst <vop2<0x21, 0x18>, "v_madak_f32", VOP_F32_F32_F32>;
+defm V_MADAK_F32 : VOP2MADK <vop2<0x21, 0x18>, "v_madak_f32">;
 } // End isCommutable = 1
 
 let isCommutable = 1, Defs = [VCC] in { // Carry-out goes to VCC
@@ -2049,7 +2065,7 @@ def : Pat <
 /* int_SI_vs_load_input */
 def : Pat<
   (SIload_input v4i32:$tlst, imm:$attr_offset, i32:$buf_idx_vgpr),
-  (BUFFER_LOAD_FORMAT_XYZW_IDXEN $tlst, $buf_idx_vgpr, imm:$attr_offset, 0, 0, 0, 0)
+  (BUFFER_LOAD_FORMAT_XYZW_IDXEN $tlst, $buf_idx_vgpr, 0, imm:$attr_offset, 0, 0, 0)
 >;
 
 /* int_SI_export */
@@ -2898,8 +2914,9 @@ def : DSAtomicCmpXChg<DS_CMPST_RTN_B64, i64, atomic_cmp_swap_64_local>;
 multiclass MUBUFLoad_Pattern <MUBUF Instr_ADDR64, ValueType vt,
                               PatFrag constant_ld> {
   def : Pat <
-     (vt (constant_ld (MUBUFAddr64 v4i32:$srsrc, i64:$vaddr, i32:$soffset, i16:$offset))),
-     (Instr_ADDR64 $srsrc, $vaddr, $soffset, $offset)
+     (vt (constant_ld (MUBUFAddr64 v4i32:$srsrc, i64:$vaddr, i32:$soffset,
+                                   i16:$offset, i1:$glc, i1:$slc, i1:$tfe))),
+     (Instr_ADDR64 $srsrc, $vaddr, $soffset, $offset, $glc, $slc, $tfe)
   >;
 }
 
@@ -2935,7 +2952,7 @@ multiclass MUBUF_Load_Dword <ValueType vt, MUBUF offset, MUBUF offen, MUBUF idxe
     (vt (int_SI_buffer_load_dword v4i32:$rsrc, (i32 imm), i32:$soffset,
                                   imm:$offset, 0, 0, imm:$glc, imm:$slc,
                                   imm:$tfe)),
-    (offset $rsrc, (as_i16imm $offset), $soffset, (as_i1imm $glc),
+    (offset $rsrc, $soffset, (as_i16imm $offset), (as_i1imm $glc),
             (as_i1imm $slc), (as_i1imm $tfe))
   >;
 
@@ -2951,7 +2968,7 @@ multiclass MUBUF_Load_Dword <ValueType vt, MUBUF offset, MUBUF offen, MUBUF idxe
     (vt (int_SI_buffer_load_dword v4i32:$rsrc, i32:$vaddr, i32:$soffset,
                                   imm:$offset, 0, 1, imm:$glc, imm:$slc,
                                   imm:$tfe)),
-    (idxen $rsrc, $vaddr, (as_i16imm $offset), $soffset, (as_i1imm $glc),
+    (idxen $rsrc, $vaddr, $soffset, (as_i16imm $offset), (as_i1imm $glc),
            (as_i1imm $slc), (as_i1imm $tfe))
   >;
 

@@ -250,7 +250,7 @@ void emitSPUpdate(MachineBasicBlock &MBB, MachineBasicBlock::iterator &MBBI,
       }
     }
 
-    uint64_t ThisVal = (Offset > Chunk) ? Chunk : Offset;
+    uint64_t ThisVal = std::min(Offset, Chunk);
     if (ThisVal == (Is64BitTarget ? 8 : 4)) {
       // Use push / pop instead.
       unsigned Reg = isSub
@@ -581,7 +581,7 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
   bool Is64Bit = STI.is64Bit();
   // standard x86_64 and NaCl use 64-bit frame/stack pointers, x32 - 32-bit.
   const bool Uses64BitFramePtr = STI.isTarget64BitLP64() || STI.isTargetNaCl64();
-  bool IsWin64 = STI.isTargetWin64();
+  bool IsWin64 = STI.isCallingConvWin64(Fn->getCallingConv());
   // Not necessarily synonymous with IsWin64.
   bool IsWinEH = MF.getTarget().getMCAsmInfo()->usesWindowsCFI();
   bool NeedsWinEH = IsWinEH && Fn->needsUnwindTableEntry();
@@ -820,9 +820,19 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
     if (Is64Bit) {
       // Handle the 64-bit Windows ABI case where we need to call __chkstk.
       // Function prologue is responsible for adjusting the stack pointer.
-      BuildMI(MBB, MBBI, DL, TII.get(X86::MOV64ri), X86::RAX)
-        .addImm(NumBytes)
-        .setMIFlag(MachineInstr::FrameSetup);
+      if (isUInt<32>(NumBytes)) {
+        BuildMI(MBB, MBBI, DL, TII.get(X86::MOV32ri), X86::EAX)
+            .addImm(NumBytes)
+            .setMIFlag(MachineInstr::FrameSetup);
+      } else if (isInt<32>(NumBytes)) {
+        BuildMI(MBB, MBBI, DL, TII.get(X86::MOV64ri32), X86::RAX)
+            .addImm(NumBytes)
+            .setMIFlag(MachineInstr::FrameSetup);
+      } else {
+        BuildMI(MBB, MBBI, DL, TII.get(X86::MOV64ri), X86::RAX)
+            .addImm(NumBytes)
+            .setMIFlag(MachineInstr::FrameSetup);
+      }
     } else {
       // Allocate NumBytes-4 bytes on stack in case of isEAXAlive.
       // We'll also use 4 already allocated bytes for EAX.
@@ -863,8 +873,11 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
   int SEHFrameOffset = 0;
   if (IsWinEH && HasFP) {
     SEHFrameOffset = calculateSetFPREG(NumBytes);
-    addRegOffset(BuildMI(MBB, MBBI, DL, TII.get(X86::LEA64r), FramePtr),
-                 StackPtr, false, SEHFrameOffset);
+    if (SEHFrameOffset)
+      addRegOffset(BuildMI(MBB, MBBI, DL, TII.get(X86::LEA64r), FramePtr),
+                   StackPtr, false, SEHFrameOffset);
+    else
+      BuildMI(MBB, MBBI, DL, TII.get(X86::MOV64rr), FramePtr).addReg(StackPtr);
 
     if (NeedsWinEH)
       BuildMI(MBB, MBBI, DL, TII.get(X86::SEH_SetFrame))
@@ -967,8 +980,8 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
   bool Is64Bit = STI.is64Bit();
   // standard x86_64 and NaCl use 64-bit frame/stack pointers, x32 - 32-bit.
   const bool Uses64BitFramePtr = STI.isTarget64BitLP64() || STI.isTargetNaCl64();
+  bool HasFP = hasFP(MF);
   const bool Is64BitILP32 = STI.isTarget64BitILP32();
-  bool UseLEA = STI.useLeaForSP();
   unsigned SlotSize = RegInfo->getSlotSize();
   unsigned FramePtr = RegInfo->getFrameRegister(MF);
   unsigned MachineFramePtr =
@@ -978,10 +991,24 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
 
   bool IsWinEH = MF.getTarget().getMCAsmInfo()->usesWindowsCFI();
   bool NeedsWinEH = IsWinEH && MF.getFunction()->needsUnwindTableEntry();
+  bool UseLEAForSP = false;
+
+  // We can't use LEA instructions for adjusting the stack pointer if this is a
+  // leaf function in the Win64 ABI.  Only ADD instructions may be used to
+  // deallocate the stack.
+  if (STI.useLeaForSP()) {
+    if (!IsWinEH) {
+      // We *aren't* using the Win64 ABI which means we are free to use LEA.
+      UseLEAForSP = true;
+    } else if (HasFP) {
+      // We *have* a frame pointer which means we are permitted to use LEA.
+      UseLEAForSP = true;
+    }
+  }
 
   switch (RetOpcode) {
   default:
-    llvm_unreachable("Can only insert epilog into returning blocks");
+    llvm_unreachable("Can only insert epilogue into returning blocks");
   case X86::RETQ:
   case X86::RETL:
   case X86::RETIL:
@@ -1047,15 +1074,20 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
   if (RegInfo->needsStackRealignment(MF) || MFI->hasVarSizedObjects()) {
     if (RegInfo->needsStackRealignment(MF))
       MBBI = FirstCSPop;
-    if (IsWinEH) {
-      unsigned SEHFrameOffset = calculateSetFPREG(SEHStackAllocAmt);
-      addRegOffset(BuildMI(MBB, MBBI, DL, TII.get(X86::LEA64r), StackPtr),
-                   FramePtr, false, SEHStackAllocAmt - SEHFrameOffset);
-      --MBBI;
-    } else if (CSSize != 0) {
+    unsigned SEHFrameOffset = calculateSetFPREG(SEHStackAllocAmt);
+    uint64_t LEAAmount = IsWinEH ? SEHStackAllocAmt - SEHFrameOffset : -CSSize;
+
+    // There are only two legal forms of epilogue:
+    // - add SEHAllocationSize, %rsp
+    // - lea SEHAllocationSize(%FramePtr), %rsp
+    //
+    // 'mov %FramePtr, %rsp' will not be recognized as an epilogue sequence.
+    // However, we may use this sequence if we have a frame pointer because the
+    // effects of the prologue can safely be undone.
+    if (LEAAmount != 0) {
       unsigned Opc = getLEArOpcode(Uses64BitFramePtr);
       addRegOffset(BuildMI(MBB, MBBI, DL, TII.get(Opc), StackPtr),
-                   FramePtr, false, -CSSize);
+                   FramePtr, false, LEAAmount);
       --MBBI;
     } else {
       unsigned Opc = (Uses64BitFramePtr ? X86::MOV64rr : X86::MOV32rr);
@@ -1065,8 +1097,8 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
     }
   } else if (NumBytes) {
     // Adjust stack pointer back: ESP += numbytes.
-    emitSPUpdate(MBB, MBBI, StackPtr, NumBytes, Is64Bit, Uses64BitFramePtr, UseLEA,
-                 TII, *RegInfo);
+    emitSPUpdate(MBB, MBBI, StackPtr, NumBytes, Is64Bit, Uses64BitFramePtr,
+                 UseLEAForSP, TII, *RegInfo);
     --MBBI;
   }
 
@@ -1112,7 +1144,7 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
       // Check for possible merge with preceding ADD instruction.
       Offset += mergeSPUpdates(MBB, MBBI, StackPtr, true);
       emitSPUpdate(MBB, MBBI, StackPtr, Offset, Is64Bit, Uses64BitFramePtr,
-                   UseLEA, TII, *RegInfo);
+                   UseLEAForSP, TII, *RegInfo);
     }
 
     // Jump to label or value in register.
@@ -1160,8 +1192,8 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
 
     // Check for possible merge with preceding ADD instruction.
     delta += mergeSPUpdates(MBB, MBBI, StackPtr, true);
-    emitSPUpdate(MBB, MBBI, StackPtr, delta, Is64Bit, Uses64BitFramePtr, UseLEA, TII,
-                 *RegInfo);
+    emitSPUpdate(MBB, MBBI, StackPtr, delta, Is64Bit, Uses64BitFramePtr,
+                 UseLEAForSP, TII, *RegInfo);
   }
 }
 

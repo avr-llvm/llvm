@@ -1,4 +1,4 @@
-; RUN: llc -O0 -fast-isel-abort -verify-machineinstrs -relocation-model=dynamic-no-pic -mtriple=arm64-apple-ios < %s | FileCheck %s --check-prefix=ARM64
+; RUN: llc -O0 -fast-isel-abort=1 -verify-machineinstrs -relocation-model=dynamic-no-pic -mtriple=arm64-apple-ios < %s | FileCheck %s --check-prefix=ARM64
 
 @message = global [80 x i8] c"The LLVM Compiler Infrastructure\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", align 16
 @temp = common global [80 x i8] zeroinitializer, align 16
@@ -142,7 +142,7 @@ define void @test_distant_memcpy(i8* %dst) {
 ; ARM64: ldrb [[BYTE:w[0-9]+]], [x[[ADDR]]]
 ; ARM64: strb [[BYTE]], [x0]
   %array = alloca i8, i32 8192
-  %elem = getelementptr i8* %array, i32 8000
+  %elem = getelementptr i8, i8* %array, i32 8000
   call void @llvm.memcpy.p0i8.p0i8.i64(i8* %dst, i8* %elem, i64 1, i32 1, i1 false)
   ret void
 }

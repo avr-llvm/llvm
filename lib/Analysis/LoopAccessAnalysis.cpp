@@ -29,7 +29,7 @@ static cl::opt<unsigned, true>
 VectorizationFactor("force-vector-width", cl::Hidden,
                     cl::desc("Sets the SIMD width. Zero is autoselect."),
                     cl::location(VectorizerParams::VectorizationFactor));
-unsigned VectorizerParams::VectorizationFactor = 0;
+unsigned VectorizerParams::VectorizationFactor;
 
 static cl::opt<unsigned, true>
 VectorizationInterleave("force-vector-interleave", cl::Hidden,
@@ -37,11 +37,14 @@ VectorizationInterleave("force-vector-interleave", cl::Hidden,
                                  "Zero is autoselect."),
                         cl::location(
                             VectorizerParams::VectorizationInterleave));
-unsigned VectorizerParams::VectorizationInterleave = 0;
+unsigned VectorizerParams::VectorizationInterleave;
 
-/// When performing memory disambiguation checks at runtime do not make more
-/// than this number of comparisons.
-const unsigned VectorizerParams::RuntimeMemoryCheckThreshold = 8;
+static cl::opt<unsigned, true> RuntimeMemoryCheckThreshold(
+    "runtime-memory-check-threshold", cl::Hidden,
+    cl::desc("When performing memory disambiguation checks at runtime do not "
+             "generate more than this number of comparisons (default = 8)."),
+    cl::location(VectorizerParams::RuntimeMemoryCheckThreshold), cl::init(8));
+unsigned VectorizerParams::RuntimeMemoryCheckThreshold;
 
 /// Maximum SIMD width.
 const unsigned VectorizerParams::MaxVectorWidth = 64;
@@ -69,14 +72,15 @@ Value *llvm::stripIntegerCast(Value *V) {
 }
 
 const SCEV *llvm::replaceSymbolicStrideSCEV(ScalarEvolution *SE,
-                                            ValueToValueMap &PtrToStride,
+                                            const ValueToValueMap &PtrToStride,
                                             Value *Ptr, Value *OrigPtr) {
 
   const SCEV *OrigSCEV = SE->getSCEV(Ptr);
 
   // If there is an entry in the map return the SCEV of the pointer with the
   // symbolic stride replaced by one.
-  ValueToValueMap::iterator SI = PtrToStride.find(OrigPtr ? OrigPtr : Ptr);
+  ValueToValueMap::const_iterator SI =
+      PtrToStride.find(OrigPtr ? OrigPtr : Ptr);
   if (SI != PtrToStride.end()) {
     Value *StrideVal = SI->second;
 
@@ -99,11 +103,9 @@ const SCEV *llvm::replaceSymbolicStrideSCEV(ScalarEvolution *SE,
   return SE->getSCEV(Ptr);
 }
 
-void LoopAccessInfo::RuntimePointerCheck::insert(ScalarEvolution *SE, Loop *Lp,
-                                                 Value *Ptr, bool WritePtr,
-                                                 unsigned DepSetId,
-                                                 unsigned ASId,
-                                                 ValueToValueMap &Strides) {
+void LoopAccessInfo::RuntimePointerCheck::insert(
+    ScalarEvolution *SE, Loop *Lp, Value *Ptr, bool WritePtr, unsigned DepSetId,
+    unsigned ASId, const ValueToValueMap &Strides) {
   // Get the stride replaced scev.
   const SCEV *Sc = replaceSymbolicStrideSCEV(SE, Strides, Ptr);
   const SCEVAddRecExpr *AR = dyn_cast<SCEVAddRecExpr>(Sc);
@@ -188,9 +190,8 @@ public:
   /// \brief Check whether we can check the pointers at runtime for
   /// non-intersection.
   bool canCheckPtrAtRT(LoopAccessInfo::RuntimePointerCheck &RtCheck,
-                       unsigned &NumComparisons,
-                       ScalarEvolution *SE, Loop *TheLoop,
-                       ValueToValueMap &Strides,
+                       unsigned &NumComparisons, ScalarEvolution *SE,
+                       Loop *TheLoop, const ValueToValueMap &Strides,
                        bool ShouldCheckStride = false);
 
   /// \brief Goes over all memory accesses, checks whether a RT check is needed
@@ -239,8 +240,8 @@ private:
 } // end anonymous namespace
 
 /// \brief Check whether a pointer can participate in a runtime bounds check.
-static bool hasComputableBounds(ScalarEvolution *SE, ValueToValueMap &Strides,
-                                Value *Ptr) {
+static bool hasComputableBounds(ScalarEvolution *SE,
+                                const ValueToValueMap &Strides, Value *Ptr) {
   const SCEV *PtrScev = replaceSymbolicStrideSCEV(SE, Strides, Ptr);
   const SCEVAddRecExpr *AR = dyn_cast<SCEVAddRecExpr>(PtrScev);
   if (!AR)
@@ -252,12 +253,12 @@ static bool hasComputableBounds(ScalarEvolution *SE, ValueToValueMap &Strides,
 /// \brief Check the stride of the pointer and ensure that it does not wrap in
 /// the address space.
 static int isStridedPtr(ScalarEvolution *SE, const DataLayout *DL, Value *Ptr,
-                        const Loop *Lp, ValueToValueMap &StridesMap);
+                        const Loop *Lp, const ValueToValueMap &StridesMap);
 
 bool AccessAnalysis::canCheckPtrAtRT(
-    LoopAccessInfo::RuntimePointerCheck &RtCheck,
-    unsigned &NumComparisons, ScalarEvolution *SE, Loop *TheLoop,
-    ValueToValueMap &StridesMap, bool ShouldCheckStride) {
+    LoopAccessInfo::RuntimePointerCheck &RtCheck, unsigned &NumComparisons,
+    ScalarEvolution *SE, Loop *TheLoop, const ValueToValueMap &StridesMap,
+    bool ShouldCheckStride) {
   // Find pointers with computable bounds. We are going to use this information
   // to place a runtime bound check.
   bool CanDoRT = true;
@@ -523,7 +524,7 @@ public:
   ///
   /// Only checks sets with elements in \p CheckDeps.
   bool areDepsSafe(AccessAnalysis::DepCandidates &AccessSets,
-                   MemAccessInfoSet &CheckDeps, ValueToValueMap &Strides);
+                   MemAccessInfoSet &CheckDeps, const ValueToValueMap &Strides);
 
   /// \brief The maximum number of bytes of a vector register we can vectorize
   /// the accesses safely with.
@@ -568,7 +569,7 @@ private:
   /// Otherwise, this function returns true signaling a possible dependence.
   bool isDependent(const MemAccessInfo &A, unsigned AIdx,
                    const MemAccessInfo &B, unsigned BIdx,
-                   ValueToValueMap &Strides);
+                   const ValueToValueMap &Strides);
 
   /// \brief Check whether the data dependence could prevent store-load
   /// forwarding.
@@ -585,7 +586,7 @@ static bool isInBoundsGep(Value *Ptr) {
 
 /// \brief Check whether the access through \p Ptr has a constant stride.
 static int isStridedPtr(ScalarEvolution *SE, const DataLayout *DL, Value *Ptr,
-                        const Loop *Lp, ValueToValueMap &StridesMap) {
+                        const Loop *Lp, const ValueToValueMap &StridesMap) {
   const Type *Ty = Ptr->getType();
   assert(Ty->isPointerTy() && "Unexpected non-ptr");
 
@@ -705,7 +706,7 @@ bool MemoryDepChecker::couldPreventStoreLoadForward(unsigned Distance,
 
 bool MemoryDepChecker::isDependent(const MemAccessInfo &A, unsigned AIdx,
                                    const MemAccessInfo &B, unsigned BIdx,
-                                   ValueToValueMap &Strides) {
+                                   const ValueToValueMap &Strides) {
   assert (AIdx < BIdx && "Must pass arguments in program order");
 
   Value *APtr = A.getPointer();
@@ -793,11 +794,10 @@ bool MemoryDepChecker::isDependent(const MemAccessInfo &A, unsigned AIdx,
 
   assert(Val.isStrictlyPositive() && "Expect a positive value");
 
-  // Positive distance bigger than max vectorization factor.
   if (ATy != BTy) {
     DEBUG(dbgs() <<
           "LAA: ReadWrite-Write positive dependency with different types\n");
-    return false;
+    return true;
   }
 
   unsigned Distance = (unsigned) Val.getZExtValue();
@@ -819,6 +819,7 @@ bool MemoryDepChecker::isDependent(const MemAccessInfo &A, unsigned AIdx,
     return true;
   }
 
+  // Positive distance bigger than max vectorization factor.
   MaxSafeDepDistBytes = Distance < MaxSafeDepDistBytes ?
     Distance : MaxSafeDepDistBytes;
 
@@ -835,7 +836,7 @@ bool MemoryDepChecker::isDependent(const MemAccessInfo &A, unsigned AIdx,
 
 bool MemoryDepChecker::areDepsSafe(AccessAnalysis::DepCandidates &AccessSets,
                                    MemAccessInfoSet &CheckDeps,
-                                   ValueToValueMap &Strides) {
+                                   const ValueToValueMap &Strides) {
 
   MaxSafeDepDistBytes = -1U;
   while (!CheckDeps.empty()) {
@@ -921,7 +922,7 @@ bool LoopAccessInfo::canAnalyzeLoop() {
   return true;
 }
 
-void LoopAccessInfo::analyzeLoop(ValueToValueMap &Strides) {
+void LoopAccessInfo::analyzeLoop(const ValueToValueMap &Strides) {
 
   typedef SmallVector<Value*, 16> ValueVector;
   typedef SmallPtrSet<Value*, 16> ValueSet;
@@ -1114,8 +1115,7 @@ void LoopAccessInfo::analyzeLoop(ValueToValueMap &Strides) {
 
   // Check that we did not collect too many pointers or found an unsizeable
   // pointer.
-  if (!CanDoRT ||
-      NumComparisons > VectorizerParams::RuntimeMemoryCheckThreshold) {
+  if (!CanDoRT || NumComparisons > RuntimeMemoryCheckThreshold) {
     PtrRtCheck.reset();
     CanDoRT = false;
   }
@@ -1156,15 +1156,14 @@ void LoopAccessInfo::analyzeLoop(ValueToValueMap &Strides) {
                                          TheLoop, Strides, true);
       // Check that we did not collect too many pointers or found an unsizeable
       // pointer.
-      if (!CanDoRT ||
-          NumComparisons > VectorizerParams::RuntimeMemoryCheckThreshold) {
+      if (!CanDoRT || NumComparisons > RuntimeMemoryCheckThreshold) {
         if (!CanDoRT && NumComparisons > 0)
           emitAnalysis(LoopAccessReport()
                        << "cannot check memory dependencies at runtime");
         else
           emitAnalysis(LoopAccessReport()
                        << NumComparisons << " exceeds limit of "
-                       << VectorizerParams::RuntimeMemoryCheckThreshold
+                       << RuntimeMemoryCheckThreshold
                        << " dependent memory operations checked at runtime");
         DEBUG(dbgs() << "LAA: Can't vectorize with memory checks\n");
         PtrRtCheck.reset();
@@ -1301,7 +1300,8 @@ LoopAccessInfo::addRuntimeCheck(Instruction *Loc) const {
 LoopAccessInfo::LoopAccessInfo(Loop *L, ScalarEvolution *SE,
                                const DataLayout *DL,
                                const TargetLibraryInfo *TLI, AliasAnalysis *AA,
-                               DominatorTree *DT, ValueToValueMap &Strides)
+                               DominatorTree *DT,
+                               const ValueToValueMap &Strides)
     : TheLoop(L), SE(SE), DL(DL), TLI(TLI), AA(AA), DT(DT), NumLoads(0),
       NumStores(0), MaxSafeDepDistBytes(-1U), CanVecMem(false) {
   if (canAnalyzeLoop())
@@ -1326,8 +1326,8 @@ void LoopAccessInfo::print(raw_ostream &OS, unsigned Depth) const {
   OS << "\n";
 }
 
-const LoopAccessInfo &LoopAccessAnalysis::getInfo(Loop *L,
-                                                  ValueToValueMap &Strides) {
+const LoopAccessInfo &
+LoopAccessAnalysis::getInfo(Loop *L, const ValueToValueMap &Strides) {
   auto &LAI = LoopAccessInfoMap[L];
 
 #ifndef NDEBUG

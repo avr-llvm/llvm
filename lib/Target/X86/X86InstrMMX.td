@@ -223,7 +223,6 @@ def MMX_MOVD64rr : MMXI<0x6E, MRMSrcReg, (outs VR64:$dst), (ins GR32:$src),
                         [(set VR64:$dst,
                          (x86mmx (scalar_to_vector GR32:$src)))],
                         IIC_MMX_MOV_MM_RM>, Sched<[WriteMove]>;
-let canFoldAsLoad = 1 in
 def MMX_MOVD64rm : MMXI<0x6E, MRMSrcMem, (outs VR64:$dst), (ins i32mem:$src),
                         "movd\t{$src, $dst|$dst, $src}",
                         [(set VR64:$dst,
@@ -255,6 +254,11 @@ def MMX_MOVD64to64rr : MMXRI<0x6E, MRMSrcReg, (outs VR64:$dst), (ins GR64:$src),
                              [(set VR64:$dst, (bitconvert GR64:$src))],
                              IIC_MMX_MOV_MM_RM>, Sched<[WriteMove]>;
 
+let isCodeGenOnly = 1, ForceDisassemble = 1, hasSideEffects = 0, mayLoad = 1 in
+def MMX_MOVD64to64rm : MMXRI<0x6E, MRMSrcMem, (outs VR64:$dst),
+                             (ins i64mem:$src), "movd\t{$src, $dst|$dst, $src}",
+                             [], IIC_MMX_MOVQ_RM>, Sched<[WriteLoad]>;
+
 // These are 64 bit moves, but since the OS X assembler doesn't
 // recognize a register-register movq, we write them as
 // movd.
@@ -274,6 +278,12 @@ def MMX_MOVQ64rr_REV : MMXI<0x7F, MRMDestReg, (outs VR64:$dst), (ins VR64:$src),
                         IIC_MMX_MOVQ_RR>;
 }
 } // SchedRW
+
+let isCodeGenOnly = 1, ForceDisassemble = 1, hasSideEffects = 0, mayStore = 1 in
+def MMX_MOVD64from64rm : MMXRI<0x7E, MRMDestMem,
+                               (outs i64mem:$dst), (ins VR64:$src),
+                               "movd\t{$src, $dst|$dst, $src}",
+                               [], IIC_MMX_MOV_REG_MM>, Sched<[WriteStore]>;
 
 let SchedRW = [WriteLoad] in {
 let canFoldAsLoad = 1 in
@@ -460,6 +470,13 @@ defm MMX_PSRLQ : MMXI_binop_rmi_int<0xD3, 0x73, MRM2r, "psrlq",
                                     int_x86_mmx_psrl_q, int_x86_mmx_psrli_q,
                                     MMX_SHIFT_ITINS>;
 
+def : Pat<(int_x86_mmx_psrl_w VR64:$src1, (load_mvmmx addr:$src2)),
+          (MMX_PSRLWrm VR64:$src1, addr:$src2)>;
+def : Pat<(int_x86_mmx_psrl_d VR64:$src1, (load_mvmmx addr:$src2)),
+          (MMX_PSRLDrm VR64:$src1, addr:$src2)>;
+def : Pat<(int_x86_mmx_psrl_q VR64:$src1, (load_mvmmx addr:$src2)),
+          (MMX_PSRLQrm VR64:$src1, addr:$src2)>;
+
 defm MMX_PSLLW : MMXI_binop_rmi_int<0xF1, 0x71, MRM6r, "psllw",
                                     int_x86_mmx_psll_w, int_x86_mmx_pslli_w,
                                     MMX_SHIFT_ITINS>;
@@ -470,12 +487,24 @@ defm MMX_PSLLQ : MMXI_binop_rmi_int<0xF3, 0x73, MRM6r, "psllq",
                                     int_x86_mmx_psll_q, int_x86_mmx_pslli_q,
                                     MMX_SHIFT_ITINS>;
 
+def : Pat<(int_x86_mmx_psll_w VR64:$src1, (load_mvmmx addr:$src2)),
+          (MMX_PSLLWrm VR64:$src1, addr:$src2)>;
+def : Pat<(int_x86_mmx_psll_d VR64:$src1, (load_mvmmx addr:$src2)),
+          (MMX_PSLLDrm VR64:$src1, addr:$src2)>;
+def : Pat<(int_x86_mmx_psll_q VR64:$src1, (load_mvmmx addr:$src2)),
+          (MMX_PSLLQrm VR64:$src1, addr:$src2)>;
+
 defm MMX_PSRAW : MMXI_binop_rmi_int<0xE1, 0x71, MRM4r, "psraw",
                                     int_x86_mmx_psra_w, int_x86_mmx_psrai_w,
                                     MMX_SHIFT_ITINS>;
 defm MMX_PSRAD : MMXI_binop_rmi_int<0xE2, 0x72, MRM4r, "psrad",
                                     int_x86_mmx_psra_d, int_x86_mmx_psrai_d,
                                     MMX_SHIFT_ITINS>;
+
+def : Pat<(int_x86_mmx_psra_w VR64:$src1, (load_mvmmx addr:$src2)),
+          (MMX_PSRAWrm VR64:$src1, addr:$src2)>;
+def : Pat<(int_x86_mmx_psra_d VR64:$src1, (load_mvmmx addr:$src2)),
+          (MMX_PSRADrm VR64:$src1, addr:$src2)>;
 
 // Comparison Instructions
 defm MMX_PCMPEQB : MMXI_binop_rm_int<0x74, "pcmpeqb", int_x86_mmx_pcmpeq_b,

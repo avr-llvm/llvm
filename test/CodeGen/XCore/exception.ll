@@ -39,10 +39,10 @@ entry:
   unreachable
 }
 
-; CHECK-LABEL: fn_catch
+; CHECK-LABEL: fn_catch:
+; CHECK-NEXT: [[START:.L[a-zA-Z0-9_]+]]
 ; CHECK: .cfi_startproc
 ; CHECK: .cfi_personality 0, __gxx_personality_v0
-; CHECK: [[START:.L[a-zA-Z0-9_]+]]
 ; CHECK: .cfi_lsda 0, [[LSDA:.L[a-zA-Z0-9_]+]]
 ; CHECK: entsp 4
 ; CHECK: .cfi_def_cfa_offset 16
@@ -84,15 +84,15 @@ lpad:
   %2 = extractvalue { i8*, i32 } %0, 1
   %3 = call i8* @__cxa_begin_catch(i8* %1) nounwind
   %4 = bitcast i8* %3 to i32*
-  %5 = load i32* %4
+  %5 = load i32, i32* %4
   call void @__cxa_end_catch() nounwind
 
 ; CHECK: eq r0, r6, r5
 ; CHECK: bf r0, [[RETURN]]
 ; CHECK: mov r0, r4
 ; CHECK: bl _Unwind_Resume
-; CHECK: .cfi_endproc
 ; CHECK: [[END:.L[a-zA-Z0-9_]+]]
+; CHECK: .cfi_endproc
   %6 = icmp eq i32 %5, %2
   br i1 %6, label %Resume, label %Exit
 Resume:

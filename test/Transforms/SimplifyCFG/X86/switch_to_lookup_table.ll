@@ -58,8 +58,8 @@ return:
 ; CHECK-NEXT: %0 = icmp ult i32 %switch.tableidx, 7
 ; CHECK-NEXT: br i1 %0, label %switch.lookup, label %return
 ; CHECK: switch.lookup:
-; CHECK-NEXT: %switch.gep = getelementptr inbounds [7 x i32]* @switch.table, i32 0, i32 %switch.tableidx
-; CHECK-NEXT: %switch.load = load i32* %switch.gep
+; CHECK-NEXT: %switch.gep = getelementptr inbounds [7 x i32], [7 x i32]* @switch.table, i32 0, i32 %switch.tableidx
+; CHECK-NEXT: %switch.load = load i32, i32* %switch.gep
 ; CHECK-NEXT: ret i32 %switch.load
 ; CHECK: return:
 ; CHECK-NEXT: ret i32 15
@@ -97,8 +97,8 @@ sw.epilog:
 ; CHECK-NEXT: %switch.shiftamt = mul i32 %switch.tableidx, 8
 ; CHECK-NEXT: %switch.downshift = lshr i32 89655594, %switch.shiftamt
 ; CHECK-NEXT: %switch.masked = trunc i32 %switch.downshift to i8
-; CHECK-NEXT: %switch.gep = getelementptr inbounds [4 x float]* @switch.table1, i32 0, i32 %switch.tableidx
-; CHECK-NEXT: %switch.load = load float* %switch.gep
+; CHECK-NEXT: %switch.gep = getelementptr inbounds [4 x float], [4 x float]* @switch.table1, i32 0, i32 %switch.tableidx
+; CHECK-NEXT: %switch.load = load float, float* %switch.gep
 ; CHECK-NEXT: br label %sw.epilog
 ; CHECK: sw.epilog:
 ; CHECK-NEXT: %a.0 = phi i8 [ %switch.masked, %switch.lookup ], [ 7, %entry ]
@@ -144,8 +144,8 @@ return:
 ; CHECK-NEXT: %0 = icmp ult i32 %switch.tableidx, 4
 ; CHECK-NEXT: br i1 %0, label %switch.lookup, label %return
 ; CHECK: switch.lookup:
-; CHECK-NEXT: %switch.gep = getelementptr inbounds [4 x i8*]* @switch.table2, i32 0, i32 %switch.tableidx
-; CHECK-NEXT: %switch.load = load i8** %switch.gep
+; CHECK-NEXT: %switch.gep = getelementptr inbounds [4 x i8*], [4 x i8*]* @switch.table2, i32 0, i32 %switch.tableidx
+; CHECK-NEXT: %switch.load = load i8*, i8** %switch.gep
 ; CHECK-NEXT: ret i8* %switch.load
 }
 
@@ -173,8 +173,8 @@ sw.epilog:
 
 ; CHECK-LABEL: @earlyreturncrash(
 ; CHECK: switch.lookup:
-; CHECK-NEXT: %switch.gep = getelementptr inbounds [4 x i32]* @switch.table3, i32 0, i32 %switch.tableidx
-; CHECK-NEXT: %switch.load = load i32* %switch.gep
+; CHECK-NEXT: %switch.gep = getelementptr inbounds [4 x i32], [4 x i32]* @switch.table3, i32 0, i32 %switch.tableidx
+; CHECK-NEXT: %switch.load = load i32, i32* %switch.gep
 ; CHECK-NEXT: ret i32 %switch.load
 ; CHECK: sw.epilog:
 ; CHECK-NEXT: ret i32 7
@@ -749,7 +749,7 @@ return:
 
 ; CHECK-LABEL: @cprop(
 ; CHECK: switch.lookup:
-; CHECK: %switch.gep = getelementptr inbounds [7 x i32]* @switch.table5, i32 0, i32 %switch.tableidx
+; CHECK: %switch.gep = getelementptr inbounds [7 x i32], [7 x i32]* @switch.table5, i32 0, i32 %switch.tableidx
 }
 
 define i32 @unreachable_case(i32 %x)  {
@@ -778,7 +778,7 @@ return:
 
 ; CHECK-LABEL: @unreachable_case(
 ; CHECK: switch.lookup:
-; CHECK: getelementptr inbounds [9 x i32]* @switch.table6, i32 0, i32 %switch.tableidx
+; CHECK: getelementptr inbounds [9 x i32], [9 x i32]* @switch.table6, i32 0, i32 %switch.tableidx
 }
 
 define i32 @unreachable_default(i32 %x)  {
@@ -805,8 +805,8 @@ return:
 ; CHECK-NEXT: %switch.tableidx = sub i32 %x, 0
 ; CHECK-NOT: icmp
 ; CHECK-NOT: br 1i
-; CHECK-NEXT: %switch.gep = getelementptr inbounds [4 x i32]* @switch.table7, i32 0, i32 %switch.tableidx
-; CHECK-NEXT: %switch.load = load i32* %switch.gep
+; CHECK-NEXT: %switch.gep = getelementptr inbounds [4 x i32], [4 x i32]* @switch.table7, i32 0, i32 %switch.tableidx
+; CHECK-NEXT: %switch.load = load i32, i32* %switch.gep
 ; CHECK-NEXT: ret i32 %switch.load
 }
 

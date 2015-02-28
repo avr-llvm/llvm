@@ -136,6 +136,9 @@ public:
 
   bool isSafeToMoveRegClassDefs(const TargetRegisterClass *RC) const override;
 
+  bool FoldImmediate(MachineInstr *UseMI, MachineInstr *DefMI,
+                     unsigned Reg, MachineRegisterInfo *MRI) const final;
+
   bool isSALU(uint16_t Opcode) const {
     return get(Opcode).TSFlags & SIInstrFlags::SALU;
   }
@@ -254,6 +257,13 @@ public:
   // instruction opcode.
   unsigned getOpSize(uint16_t Opcode, unsigned OpNo) const {
     const MCOperandInfo &OpInfo = get(Opcode).OpInfo[OpNo];
+
+    if (OpInfo.RegClass == -1) {
+      // If this is an immediate operand, this must be a 32-bit literal.
+      assert(OpInfo.OperandType == MCOI::OPERAND_IMMEDIATE);
+      return 4;
+    }
+
     return RI.getRegClass(OpInfo.RegClass)->getSize();
   }
 

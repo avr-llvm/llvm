@@ -10,7 +10,7 @@
 #include "llvm/DebugInfo/PDB/PDBSymbolTypeArray.h"
 
 #include "llvm/DebugInfo/PDB/IPDBSession.h"
-#include "llvm/DebugInfo/PDB/PDBSymbol.h"
+#include "llvm/DebugInfo/PDB/PDBSymDumper.h"
 
 #include <utility>
 
@@ -20,12 +20,11 @@ PDBSymbolTypeArray::PDBSymbolTypeArray(const IPDBSession &PDBSession,
                                        std::unique_ptr<IPDBRawSymbol> Symbol)
     : PDBSymbol(PDBSession, std::move(Symbol)) {}
 
+std::unique_ptr<PDBSymbol> PDBSymbolTypeArray::getElementType() const {
+  return Session.getSymbolById(getTypeId());
+}
+
 void PDBSymbolTypeArray::dump(raw_ostream &OS, int Indent,
-                              PDB_DumpLevel Level, PDB_DumpFlags Flags) const {
-  OS << stream_indent(Indent);
-  if (auto ElementType = Session.getSymbolById(getTypeId()))
-    ElementType->dump(OS, 0, PDB_DumpLevel::Compact, PDB_DF_Children);
-  else
-    OS << "<unknown-element-type>";
-  OS << "[" << getLength() << "]";
+                              PDBSymDumper &Dumper) const {
+  Dumper.dump(*this, OS, Indent);
 }

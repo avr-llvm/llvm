@@ -2900,6 +2900,15 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     Out << ", ";
     TypePrinter.print(I.getType(), Out);
   } else if (Operand) {   // Print the normal way.
+    if (const auto *GEP = dyn_cast<GetElementPtrInst>(&I)) {
+      Out << ' ';
+      TypePrinter.print(GEP->getSourceElementType(), Out);
+      Out << ',';
+    } else if (const auto *LI = dyn_cast<LoadInst>(&I)) {
+      Out << ' ';
+      TypePrinter.print(LI->getType(), Out);
+      Out << ", ";
+    }
 
     // PrintAllTypes - Instructions who have operands of all the same type
     // omit the type from all but the first operand.  If the instruction has
@@ -3002,6 +3011,7 @@ static void WriteMDNodeComment(const MDNode *Node,
 void AssemblyWriter::writeMDNode(unsigned Slot, const MDNode *Node) {
   Out << '!' << Slot << " = ";
   printMDNodeBody(Node);
+  Out << "\n";
 }
 
 void AssemblyWriter::writeAllMDNodes() {
@@ -3019,7 +3029,6 @@ void AssemblyWriter::writeAllMDNodes() {
 void AssemblyWriter::printMDNodeBody(const MDNode *Node) {
   WriteMDNodeBodyInternal(Out, Node, &TypePrinter, &Machine, TheModule);
   WriteMDNodeComment(Node, Out);
-  Out << "\n";
 }
 
 void AssemblyWriter::writeAllAttributeGroups() {
@@ -3216,20 +3225,26 @@ void Metadata::printAsOperand(raw_ostream &ROS, bool PrintType,
 }
 
 // Value::dump - allow easy printing of Values from the debugger.
+LLVM_DUMP_METHOD
 void Value::dump() const { print(dbgs()); dbgs() << '\n'; }
 
 // Type::dump - allow easy printing of Types from the debugger.
+LLVM_DUMP_METHOD
 void Type::dump() const { print(dbgs()); dbgs() << '\n'; }
 
 // Module::dump() - Allow printing of Modules from the debugger.
+LLVM_DUMP_METHOD
 void Module::dump() const { print(dbgs(), nullptr); }
 
 // \brief Allow printing of Comdats from the debugger.
+LLVM_DUMP_METHOD
 void Comdat::dump() const { print(dbgs()); }
 
 // NamedMDNode::dump() - Allow printing of NamedMDNodes from the debugger.
+LLVM_DUMP_METHOD
 void NamedMDNode::dump() const { print(dbgs()); }
 
+LLVM_DUMP_METHOD
 void Metadata::dump() const {
   print(dbgs());
   dbgs() << '\n';

@@ -959,12 +959,6 @@ public:
     return false;
   }
 
-  /// Returns the maximal possible offset which can be used for loads / stores
-  /// from the global.
-  virtual unsigned getMaximalGlobalOffset() const {
-    return 0;
-  }
-
   /// Returns true if a cast between SrcAS and DestAS is a noop.
   virtual bool isNoopAddrSpaceCast(unsigned SrcAS, unsigned DestAS) const {
     return false;
@@ -1231,12 +1225,12 @@ protected:
 
   /// Return the largest legal super-reg register class of the register class
   /// for the specified type and its associated "cost".
-  virtual std::pair<const TargetRegisterClass*, uint8_t>
-  findRepresentativeClass(MVT VT) const;
+  virtual std::pair<const TargetRegisterClass *, uint8_t>
+  findRepresentativeClass(const TargetRegisterInfo *TRI, MVT VT) const;
 
   /// Once all of the register classes are added, this allows us to compute
   /// derived properties we expose.
-  void computeRegisterProperties();
+  void computeRegisterProperties(const TargetRegisterInfo *TRI);
 
   /// Indicate that the specified operation does not work with the specified
   /// type and indicate what to do about it.
@@ -1455,6 +1449,8 @@ public:
   virtual bool isTruncateFree(EVT /*VT1*/, EVT /*VT2*/) const {
     return false;
   }
+
+  virtual bool isProfitableToHoist(Instruction *I) const { return true; }
 
   /// Return true if any actual instruction that defines a value of type Ty1
   /// implicitly zero-extends the value to Ty2 in the result register.
@@ -1788,136 +1784,8 @@ private:
 
   ValueTypeActionImpl ValueTypeActions;
 
-public:
-  LegalizeKind
-  getTypeConversion(LLVMContext &Context, EVT VT) const {
-    // If this is a simple type, use the ComputeRegisterProp mechanism.
-    if (VT.isSimple()) {
-      MVT SVT = VT.getSimpleVT();
-      assert((unsigned)SVT.SimpleTy < array_lengthof(TransformToType));
-      MVT NVT = TransformToType[SVT.SimpleTy];
-      LegalizeTypeAction LA = ValueTypeActions.getTypeAction(SVT);
-
-      assert(
-        (LA == TypeLegal || LA == TypeSoftenFloat ||
-         ValueTypeActions.getTypeAction(NVT) != TypePromoteInteger)
-         && "Promote may not follow Expand or Promote");
-
-      if (LA == TypeSplitVector)
-        return LegalizeKind(LA, EVT::getVectorVT(Context,
-                                                 SVT.getVectorElementType(),
-                                                 SVT.getVectorNumElements()/2));
-      if (LA == TypeScalarizeVector)
-        return LegalizeKind(LA, SVT.getVectorElementType());
-      return LegalizeKind(LA, NVT);
-    }
-
-    // Handle Extended Scalar Types.
-    if (!VT.isVector()) {
-      assert(VT.isInteger() && "Float types must be simple");
-      unsigned BitSize = VT.getSizeInBits();
-      // First promote to a power-of-two size, then expand if necessary.
-      if (BitSize < 8 || !isPowerOf2_32(BitSize)) {
-        EVT NVT = VT.getRoundIntegerType(Context);
-        assert(NVT != VT && "Unable to round integer VT");
-        LegalizeKind NextStep = getTypeConversion(Context, NVT);
-        // Avoid multi-step promotion.
-        if (NextStep.first == TypePromoteInteger) return NextStep;
-        // Return rounded integer type.
-        return LegalizeKind(TypePromoteInteger, NVT);
-      }
-
-      return LegalizeKind(TypeExpandInteger,
-                          EVT::getIntegerVT(Context, VT.getSizeInBits()/2));
-    }
-
-    // Handle vector types.
-    unsigned NumElts = VT.getVectorNumElements();
-    EVT EltVT = VT.getVectorElementType();
-
-    // Vectors with only one element are always scalarized.
-    if (NumElts == 1)
-      return LegalizeKind(TypeScalarizeVector, EltVT);
-
-    // Try to widen vector elements until the element type is a power of two and
-    // promote it to a legal type later on, for example:
-    // <3 x i8> -> <4 x i8> -> <4 x i32>
-    if (EltVT.isInteger()) {
-      // Vectors with a number of elements that is not a power of two are always
-      // widened, for example <3 x i8> -> <4 x i8>.
-      if (!VT.isPow2VectorType()) {
-        NumElts = (unsigned)NextPowerOf2(NumElts);
-        EVT NVT = EVT::getVectorVT(Context, EltVT, NumElts);
-        return LegalizeKind(TypeWidenVector, NVT);
-      }
-
-      // Examine the element type.
-      LegalizeKind LK = getTypeConversion(Context, EltVT);
-
-      // If type is to be expanded, split the vector.
-      //  <4 x i140> -> <2 x i140>
-      if (LK.first == TypeExpandInteger)
-        return LegalizeKind(TypeSplitVector,
-                            EVT::getVectorVT(Context, EltVT, NumElts / 2));
-
-      // Promote the integer element types until a legal vector type is found
-      // or until the element integer type is too big. If a legal type was not
-      // found, fallback to the usual mechanism of widening/splitting the
-      // vector.
-      EVT OldEltVT = EltVT;
-      while (1) {
-        // Increase the bitwidth of the element to the next pow-of-two
-        // (which is greater than 8 bits).
-        EltVT = EVT::getIntegerVT(Context, 1 + EltVT.getSizeInBits()
-                                 ).getRoundIntegerType(Context);
-
-        // Stop trying when getting a non-simple element type.
-        // Note that vector elements may be greater than legal vector element
-        // types. Example: X86 XMM registers hold 64bit element on 32bit
-        // systems.
-        if (!EltVT.isSimple()) break;
-
-        // Build a new vector type and check if it is legal.
-        MVT NVT = MVT::getVectorVT(EltVT.getSimpleVT(), NumElts);
-        // Found a legal promoted vector type.
-        if (NVT != MVT() && ValueTypeActions.getTypeAction(NVT) == TypeLegal)
-          return LegalizeKind(TypePromoteInteger,
-                              EVT::getVectorVT(Context, EltVT, NumElts));
-      }
-
-      // Reset the type to the unexpanded type if we did not find a legal vector
-      // type with a promoted vector element type.
-      EltVT = OldEltVT;
-    }
-
-    // Try to widen the vector until a legal type is found.
-    // If there is no wider legal type, split the vector.
-    while (1) {
-      // Round up to the next power of 2.
-      NumElts = (unsigned)NextPowerOf2(NumElts);
-
-      // If there is no simple vector type with this many elements then there
-      // cannot be a larger legal vector type.  Note that this assumes that
-      // there are no skipped intermediate vector types in the simple types.
-      if (!EltVT.isSimple()) break;
-      MVT LargerVector = MVT::getVectorVT(EltVT.getSimpleVT(), NumElts);
-      if (LargerVector == MVT()) break;
-
-      // If this type is legal then widen the vector.
-      if (ValueTypeActions.getTypeAction(LargerVector) == TypeLegal)
-        return LegalizeKind(TypeWidenVector, LargerVector);
-    }
-
-    // Widen odd vectors to next power of two.
-    if (!VT.isPow2VectorType()) {
-      EVT NVT = VT.getPow2VectorType(Context);
-      return LegalizeKind(TypeWidenVector, NVT);
-    }
-
-    // Vectors with illegal element types are expanded.
-    EVT NVT = EVT::getVectorVT(Context, EltVT, VT.getVectorNumElements() / 2);
-    return LegalizeKind(TypeSplitVector, NVT);
-  }
+private:
+  LegalizeKind getTypeConversion(LLVMContext &Context, EVT VT) const;
 
 private:
   std::vector<std::pair<MVT, const TargetRegisterClass*> > AvailableRegClasses;
@@ -2657,7 +2525,8 @@ public:
   /// specific constraints and their prefixes, and also tie in the associated
   /// operand values.  If this returns an empty vector, and if the constraint
   /// string itself isn't empty, there was an error parsing.
-  virtual AsmOperandInfoVector ParseConstraints(ImmutableCallSite CS) const;
+  virtual AsmOperandInfoVector ParseConstraints(const TargetRegisterInfo *TRI,
+                                                ImmutableCallSite CS) const;
 
   /// Examine constraint type and operand type and determine a weight value.
   /// The operand object must already have been set up with the operand type.
@@ -2689,9 +2558,9 @@ public:
   ///
   /// This should only be used for C_Register constraints.  On error, this
   /// returns a register number of 0 and a null register class pointer.
-  virtual std::pair<unsigned, const TargetRegisterClass*>
-    getRegForInlineAsmConstraint(const std::string &Constraint,
-                                 MVT VT) const;
+  virtual std::pair<unsigned, const TargetRegisterClass *>
+  getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                               const std::string &Constraint, MVT VT) const;
 
   /// Try to replace an X constraint, which matches anything, with another that
   /// has more specific requirements based on the type of the corresponding

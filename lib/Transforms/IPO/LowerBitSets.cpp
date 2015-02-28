@@ -118,6 +118,35 @@ BitSetInfo BitSetBuilder::build() {
   return BSI;
 }
 
+void GlobalLayoutBuilder::addFragment(const std::set<uint64_t> &F) {
+  // Create a new fragment to hold the layout for F.
+  Fragments.emplace_back();
+  std::vector<uint64_t> &Fragment = Fragments.back();
+  uint64_t FragmentIndex = Fragments.size() - 1;
+
+  for (auto ObjIndex : F) {
+    uint64_t OldFragmentIndex = FragmentMap[ObjIndex];
+    if (OldFragmentIndex == 0) {
+      // We haven't seen this object index before, so just add it to the current
+      // fragment.
+      Fragment.push_back(ObjIndex);
+    } else {
+      // This index belongs to an existing fragment. Copy the elements of the
+      // old fragment into this one and clear the old fragment. We don't update
+      // the fragment map just yet, this ensures that any further references to
+      // indices from the old fragment in this fragment do not insert any more
+      // indices.
+      std::vector<uint64_t> &OldFragment = Fragments[OldFragmentIndex];
+      Fragment.insert(Fragment.end(), OldFragment.begin(), OldFragment.end());
+      OldFragment.clear();
+    }
+  }
+
+  // Update the fragment map to point our object indices to this fragment.
+  for (uint64_t ObjIndex : Fragment)
+    FragmentMap[ObjIndex] = FragmentIndex;
+}
+
 namespace {
 
 struct LowerBitSets : public ModulePass {
@@ -128,6 +157,7 @@ struct LowerBitSets : public ModulePass {
 
   const DataLayout *DL;
   IntegerType *Int1Ty;
+  IntegerType *Int8Ty;
   IntegerType *Int32Ty;
   Type *Int32PtrTy;
   IntegerType *Int64Ty;
@@ -144,7 +174,7 @@ struct LowerBitSets : public ModulePass {
               const DenseMap<GlobalVariable *, uint64_t> &GlobalLayout);
   Value *createBitSetTest(IRBuilder<> &B, const BitSetInfo &BSI,
                           GlobalVariable *BitSetGlobal, Value *BitOffset);
-  void
+  Value *
   lowerBitSetCall(CallInst *CI, const BitSetInfo &BSI,
                   GlobalVariable *BitSetGlobal, GlobalVariable *CombinedGlobal,
                   const DenseMap<GlobalVariable *, uint64_t> &GlobalLayout);
@@ -174,6 +204,7 @@ bool LowerBitSets::doInitialization(Module &M) {
     report_fatal_error("Data layout required");
 
   Int1Ty = Type::getInt1Ty(M.getContext());
+  Int8Ty = Type::getInt8Ty(M.getContext());
   Int32Ty = Type::getInt32Ty(M.getContext());
   Int32PtrTy = PointerType::getUnqual(Int32Ty);
   Int64Ty = Type::getInt64Ty(M.getContext());
@@ -186,8 +217,8 @@ bool LowerBitSets::doInitialization(Module &M) {
   return false;
 }
 
-/// Build a bit set for \param BitSet using the object layouts in
-/// \param GlobalLayout.
+/// Build a bit set for BitSet using the object layouts in
+/// GlobalLayout.
 BitSetInfo LowerBitSets::buildBitSet(
     MDString *BitSet,
     const DenseMap<GlobalVariable *, uint64_t> &GlobalLayout) {
@@ -213,8 +244,8 @@ BitSetInfo LowerBitSets::buildBitSet(
   return BSB.build();
 }
 
-/// Build a test that bit \param BitOffset mod sizeof(Bits)*8 is set in
-/// \param Bits. This pattern matches to the bt instruction on x86.
+/// Build a test that bit BitOffset mod sizeof(Bits)*8 is set in
+/// Bits. This pattern matches to the bt instruction on x86.
 static Value *createMaskedBitTest(IRBuilder<> &B, Value *Bits,
                                   Value *BitOffset) {
   auto BitsType = cast<IntegerType>(Bits->getType());
@@ -228,8 +259,8 @@ static Value *createMaskedBitTest(IRBuilder<> &B, Value *Bits,
   return B.CreateICmpNE(MaskedBits, ConstantInt::get(BitsType, 0));
 }
 
-/// Build a test that bit \param BitOffset is set in \param BSI, where
-/// \param BitSetGlobal is a global containing the bits in \param BSI.
+/// Build a test that bit BitOffset is set in BSI, where
+/// BitSetGlobal is a global containing the bits in BSI.
 Value *LowerBitSets::createBitSetTest(IRBuilder<> &B, const BitSetInfo &BSI,
                                       GlobalVariable *BitSetGlobal,
                                       Value *BitOffset) {
@@ -264,19 +295,16 @@ Value *LowerBitSets::createBitSetTest(IRBuilder<> &B, const BitSetInfo &BSI,
   }
 }
 
-/// Lower a llvm.bitset.test call to its implementation.
-void LowerBitSets::lowerBitSetCall(
+/// Lower a llvm.bitset.test call to its implementation. Returns the value to
+/// replace the call with.
+Value *LowerBitSets::lowerBitSetCall(
     CallInst *CI, const BitSetInfo &BSI, GlobalVariable *BitSetGlobal,
     GlobalVariable *CombinedGlobal,
     const DenseMap<GlobalVariable *, uint64_t> &GlobalLayout) {
   Value *Ptr = CI->getArgOperand(0);
 
-  if (BSI.containsValue(DL, GlobalLayout, Ptr)) {
-    CI->replaceAllUsesWith(
-        ConstantInt::getTrue(BitSetGlobal->getParent()->getContext()));
-    CI->eraseFromParent();
-    return;
-  }
+  if (BSI.containsValue(DL, GlobalLayout, Ptr))
+    return ConstantInt::getTrue(BitSetGlobal->getParent()->getContext());
 
   Constant *GlobalAsInt = ConstantExpr::getPtrToInt(CombinedGlobal, IntPtrTy);
   Constant *OffsetedGlobalAsInt = ConstantExpr::getAdd(
@@ -288,12 +316,8 @@ void LowerBitSets::lowerBitSetCall(
 
   Value *PtrAsInt = B.CreatePtrToInt(Ptr, IntPtrTy);
 
-  if (BSI.isSingleOffset()) {
-    Value *Eq = B.CreateICmpEQ(PtrAsInt, OffsetedGlobalAsInt);
-    CI->replaceAllUsesWith(Eq);
-    CI->eraseFromParent();
-    return;
-  }
+  if (BSI.isSingleOffset())
+    return B.CreateICmpEQ(PtrAsInt, OffsetedGlobalAsInt);
 
   Value *PtrOffset = B.CreateSub(PtrAsInt, OffsetedGlobalAsInt);
 
@@ -320,6 +344,10 @@ void LowerBitSets::lowerBitSetCall(
   Constant *BitSizeConst = ConstantInt::get(IntPtrTy, BSI.BitSize);
   Value *OffsetInRange = B.CreateICmpULT(BitOffset, BitSizeConst);
 
+  // If the bit set is all ones, testing against it is unnecessary.
+  if (BSI.isAllOnes())
+    return OffsetInRange;
+
   TerminatorInst *Term = SplitBlockAndInsertIfThen(OffsetInRange, CI, false);
   IRBuilder<> ThenB(Term);
 
@@ -334,9 +362,7 @@ void LowerBitSets::lowerBitSetCall(
   PHINode *P = B.CreatePHI(Int1Ty, 2);
   P->addIncoming(ConstantInt::get(Int1Ty, 0), InitialBB);
   P->addIncoming(Bit, ThenB.GetInsertBlock());
-
-  CI->replaceAllUsesWith(P);
-  CI->eraseFromParent();
+  return P;
 }
 
 /// Given a disjoint set of bitsets and globals, layout the globals, build the
@@ -347,8 +373,24 @@ void LowerBitSets::buildBitSetsFromGlobals(
     const std::vector<GlobalVariable *> &Globals) {
   // Build a new global with the combined contents of the referenced globals.
   std::vector<Constant *> GlobalInits;
-  for (GlobalVariable *G : Globals)
+  for (GlobalVariable *G : Globals) {
     GlobalInits.push_back(G->getInitializer());
+    uint64_t InitSize = DL->getTypeAllocSize(G->getInitializer()->getType());
+
+    // Compute the amount of padding required to align the next element to the
+    // next power of 2.
+    uint64_t Padding = NextPowerOf2(InitSize - 1) - InitSize;
+
+    // Cap at 128 was found experimentally to have a good data/instruction
+    // overhead tradeoff.
+    if (Padding > 128)
+      Padding = RoundUpToAlignment(InitSize, 128) - InitSize;
+
+    GlobalInits.push_back(
+        ConstantAggregateZero::get(ArrayType::get(Int8Ty, Padding)));
+  }
+  if (!GlobalInits.empty())
+    GlobalInits.pop_back();
   Constant *NewInit = ConstantStruct::getAnon(M.getContext(), GlobalInits);
   auto CombinedGlobal =
       new GlobalVariable(M, NewInit->getType(), /*isConstant=*/true,
@@ -360,7 +402,8 @@ void LowerBitSets::buildBitSetsFromGlobals(
   // Compute the offsets of the original globals within the new global.
   DenseMap<GlobalVariable *, uint64_t> GlobalLayout;
   for (unsigned I = 0; I != Globals.size(); ++I)
-    GlobalLayout[Globals[I]] = CombinedGlobalLayout->getElementOffset(I);
+    // Multiply by 2 to account for padding elements.
+    GlobalLayout[Globals[I]] = CombinedGlobalLayout->getElementOffset(I * 2);
 
   // For each bitset in this disjoint set...
   for (MDString *BS : BitSets) {
@@ -377,7 +420,10 @@ void LowerBitSets::buildBitSetsFromGlobals(
     // Lower each call to llvm.bitset.test for this bitset.
     for (CallInst *CI : BitSetTestCallSites[BS]) {
       ++NumBitSetCallsLowered;
-      lowerBitSetCall(CI, BSI, BitSetGlobal, CombinedGlobal, GlobalLayout);
+      Value *Lowered =
+          lowerBitSetCall(CI, BSI, BitSetGlobal, CombinedGlobal, GlobalLayout);
+      CI->replaceAllUsesWith(Lowered);
+      CI->eraseFromParent();
     }
   }
 
@@ -385,8 +431,9 @@ void LowerBitSets::buildBitSetsFromGlobals(
   // global from which we built the combined global, and replace references
   // to the original globals with references to the aliases.
   for (unsigned I = 0; I != Globals.size(); ++I) {
+    // Multiply by 2 to account for padding elements.
     Constant *CombinedGlobalIdxs[] = {ConstantInt::get(Int32Ty, 0),
-                                      ConstantInt::get(Int32Ty, I)};
+                                      ConstantInt::get(Int32Ty, I * 2)};
     Constant *CombinedGlobalElemPtr =
         ConstantExpr::getGetElementPtr(CombinedGlobal, CombinedGlobalIdxs);
     GlobalAlias *GAlias = GlobalAlias::create(
@@ -485,27 +532,66 @@ bool LowerBitSets::buildBitSets(Module &M) {
     // Build the list of bitsets and referenced globals in this disjoint set.
     std::vector<MDString *> BitSets;
     std::vector<GlobalVariable *> Globals;
+    llvm::DenseMap<MDString *, uint64_t> BitSetIndices;
+    llvm::DenseMap<GlobalVariable *, uint64_t> GlobalIndices;
     for (GlobalClassesTy::member_iterator MI = GlobalClasses.member_begin(I);
          MI != GlobalClasses.member_end(); ++MI) {
-      if ((*MI).is<MDString *>())
+      if ((*MI).is<MDString *>()) {
+        BitSetIndices[MI->get<MDString *>()] = BitSets.size();
         BitSets.push_back(MI->get<MDString *>());
-      else
+      } else {
+        GlobalIndices[MI->get<GlobalVariable *>()] = Globals.size();
         Globals.push_back(MI->get<GlobalVariable *>());
+      }
     }
 
-    // Order bitsets and globals by name for determinism. TODO: We may later
-    // want to use a more sophisticated ordering that lays out globals so as to
-    // minimize the sizes of the bitsets.
+    // For each bitset, build a set of indices that refer to globals referenced
+    // by the bitset.
+    std::vector<std::set<uint64_t>> BitSetMembers(BitSets.size());
+    if (BitSetNM) {
+      for (MDNode *Op : BitSetNM->operands()) {
+        // Op = { bitset name, global, offset }
+        if (!Op->getOperand(1))
+          continue;
+        auto I = BitSetIndices.find(cast<MDString>(Op->getOperand(0)));
+        if (I == BitSetIndices.end())
+          continue;
+
+        auto OpGlobal = cast<GlobalVariable>(
+            cast<ConstantAsMetadata>(Op->getOperand(1))->getValue());
+        BitSetMembers[I->second].insert(GlobalIndices[OpGlobal]);
+      }
+    }
+
+    // Order the sets of indices by size. The GlobalLayoutBuilder works best
+    // when given small index sets first.
+    std::stable_sort(
+        BitSetMembers.begin(), BitSetMembers.end(),
+        [](const std::set<uint64_t> &O1, const std::set<uint64_t> &O2) {
+          return O1.size() < O2.size();
+        });
+
+    // Create a GlobalLayoutBuilder and provide it with index sets as layout
+    // fragments. The GlobalLayoutBuilder tries to lay out members of fragments
+    // as close together as possible.
+    GlobalLayoutBuilder GLB(Globals.size());
+    for (auto &&MemSet : BitSetMembers)
+      GLB.addFragment(MemSet);
+
+    // Build a vector of globals with the computed layout.
+    std::vector<GlobalVariable *> OrderedGlobals(Globals.size());
+    auto OGI = OrderedGlobals.begin();
+    for (auto &&F : GLB.Fragments)
+      for (auto &&Offset : F)
+        *OGI++ = Globals[Offset];
+
+    // Order bitsets by name for determinism.
     std::sort(BitSets.begin(), BitSets.end(), [](MDString *S1, MDString *S2) {
       return S1->getString() < S2->getString();
     });
-    std::sort(Globals.begin(), Globals.end(),
-              [](GlobalVariable *GV1, GlobalVariable *GV2) {
-                return GV1->getName() < GV2->getName();
-              });
 
     // Build the bitsets from this disjoint set.
-    buildBitSetsFromGlobals(M, BitSets, Globals);
+    buildBitSetsFromGlobals(M, BitSets, OrderedGlobals);
   }
 
   return true;

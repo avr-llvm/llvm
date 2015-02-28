@@ -97,7 +97,15 @@ public:
   /// default, this is equal to CurrentFnSym.
   MCSymbol *CurrentFnSymForSize;
 
+  /// Map global GOT equivalent MCSymbols to GlobalVariables and keep track of
+  /// its number of uses by other globals.
+  typedef std::pair<const GlobalVariable *, unsigned> GOTEquivUsePair;
+  DenseMap<const MCSymbol *, GOTEquivUsePair> GlobalGOTEquivs;
+
 private:
+  MCSymbol *CurrentFnBegin;
+  MCSymbol *CurrentFnEnd;
+
   // The garbage collection metadata printer table.
   void *GCMetadataPrinters; // Really a DenseMap.
 
@@ -140,6 +148,9 @@ public:
   /// Return a unique ID for the current function.
   ///
   unsigned getFunctionNumber() const;
+
+  MCSymbol *getFunctionBegin() const { return CurrentFnBegin; }
+  MCSymbol *getFunctionEnd() const { return CurrentFnEnd; }
 
   /// Return information about object file lowering.
   const TargetLoweringObjectFile &getObjFileLowering() const;
@@ -242,6 +253,21 @@ public:
   /// \brief Print a general LLVM constant to the .s file.
   void EmitGlobalConstant(const Constant *CV);
 
+  /// \brief Unnamed constant global variables solely contaning a pointer to
+  /// another globals variable act like a global variable "proxy", or GOT
+  /// equivalents, i.e., it's only used to hold the address of the latter. One
+  /// optimization is to replace accesses to these proxies by using the GOT
+  /// entry for the final global instead. Hence, we select GOT equivalent
+  /// candidates among all the module global variables, avoid emitting them
+  /// unnecessarily and finally replace references to them by pc relative
+  /// accesses to GOT entries.
+  void computeGlobalGOTEquivs(Module &M);
+
+  /// \brief Constant expressions using GOT equivalent globals may not be
+  /// eligible for PC relative GOT entry conversion, in such cases we need to
+  /// emit the proxies we previously omitted in EmitGlobalVariable.
+  void emitGlobalGOTEquivs();
+
   //===------------------------------------------------------------------===//
   // Overridable Hooks
   //===------------------------------------------------------------------===//
@@ -310,6 +336,8 @@ public:
 
   /// Return an assembler temporary label with the specified stem.
   MCSymbol *GetTempSymbol(const Twine &Name) const;
+
+  MCSymbol *createTempSymbol(const Twine &Name, unsigned ID) const;
 
   /// Return the MCSymbol for a private symbol with global value name as its
   /// base, with the specified suffix.

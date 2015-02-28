@@ -731,7 +731,7 @@ void SelectionDAGLegalize::LegalizeStoreOps(SDNode *Node) {
         }
         case TargetLowering::Custom: {
           SDValue Res = TLI.LowerOperation(SDValue(Node, 0), DAG);
-          if (Res.getNode())
+          if (Res && Res != SDValue(Node, 0))
             ReplaceNode(SDValue(Node, 0), Res);
           return;
         }
@@ -843,7 +843,7 @@ void SelectionDAGLegalize::LegalizeStoreOps(SDNode *Node) {
         }
         case TargetLowering::Custom: {
           SDValue Res = TLI.LowerOperation(SDValue(Node, 0), DAG);
-          if (Res.getNode())
+          if (Res && Res != SDValue(Node, 0))
             ReplaceNode(SDValue(Node, 0), Res);
           return;
         }
@@ -3548,6 +3548,21 @@ void SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     break;
   }
   case ISD::FP_TO_FP16: {
+    if (!TM.Options.UseSoftFloat && TM.Options.UnsafeFPMath) {
+      SDValue Op = Node->getOperand(0);
+      MVT SVT = Op.getSimpleValueType();
+      if ((SVT == MVT::f64 || SVT == MVT::f80) &&
+          TLI.isOperationLegalOrCustom(ISD::FP_TO_FP16, MVT::f32)) {
+        // Under fastmath, we can expand this node into a fround followed by
+        // a float-half conversion.
+        SDValue FloatVal = DAG.getNode(ISD::FP_ROUND, dl, MVT::f32, Op,
+                                       DAG.getIntPtrConstant(0));
+        Results.push_back(
+            DAG.getNode(ISD::FP_TO_FP16, dl, MVT::i16, FloatVal));
+        break;
+      }
+    }
+
     RTLIB::Libcall LC =
         RTLIB::getFPROUND(Node->getOperand(0).getValueType(), MVT::f16);
     assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unable to expand fp_to_fp16");

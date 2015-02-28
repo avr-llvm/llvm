@@ -859,6 +859,131 @@ SIInstrInfo::isSafeToMoveRegClassDefs(const TargetRegisterClass *RC) const {
   return RC != &AMDGPU::EXECRegRegClass;
 }
 
+static void removeModOperands(MachineInstr &MI) {
+  unsigned Opc = MI.getOpcode();
+  int Src0ModIdx = AMDGPU::getNamedOperandIdx(Opc,
+                                              AMDGPU::OpName::src0_modifiers);
+  int Src1ModIdx = AMDGPU::getNamedOperandIdx(Opc,
+                                              AMDGPU::OpName::src1_modifiers);
+  int Src2ModIdx = AMDGPU::getNamedOperandIdx(Opc,
+                                              AMDGPU::OpName::src2_modifiers);
+
+  MI.RemoveOperand(Src2ModIdx);
+  MI.RemoveOperand(Src1ModIdx);
+  MI.RemoveOperand(Src0ModIdx);
+}
+
+bool SIInstrInfo::FoldImmediate(MachineInstr *UseMI, MachineInstr *DefMI,
+                                unsigned Reg, MachineRegisterInfo *MRI) const {
+  if (!MRI->hasOneNonDBGUse(Reg))
+    return false;
+
+  unsigned Opc = UseMI->getOpcode();
+  if (Opc == AMDGPU::V_MAD_F32) {
+    // Don't fold if we are using source modifiers. The new VOP2 instructions
+    // don't have them.
+    if (hasModifiersSet(*UseMI, AMDGPU::OpName::src0_modifiers) ||
+        hasModifiersSet(*UseMI, AMDGPU::OpName::src1_modifiers) ||
+        hasModifiersSet(*UseMI, AMDGPU::OpName::src2_modifiers)) {
+      return false;
+    }
+
+    MachineOperand *Src0 = getNamedOperand(*UseMI, AMDGPU::OpName::src0);
+    MachineOperand *Src1 = getNamedOperand(*UseMI, AMDGPU::OpName::src1);
+    MachineOperand *Src2 = getNamedOperand(*UseMI, AMDGPU::OpName::src2);
+
+    // Multiplied part is the constant: Use v_madmk_f32
+    // We should only expect these to be on src0 due to canonicalizations.
+    if (Src0->isReg() && Src0->getReg() == Reg) {
+      if (!Src1->isReg() ||
+          (Src1->isReg() && RI.isSGPRClass(MRI->getRegClass(Src1->getReg()))))
+        return false;
+
+      if (!Src2->isReg() ||
+          (Src2->isReg() && RI.isSGPRClass(MRI->getRegClass(Src2->getReg()))))
+        return false;
+
+      // We need to do some weird looking operand shuffling since the madmk
+      // operands are out of the normal expected order with the multiplied
+      // constant as the last operand.
+      //
+      // v_mad_f32 src0, src1, src2 -> v_madmk_f32 src0 * src2K + src1
+      // src0 -> src2 K
+      // src1 -> src0
+      // src2 -> src1
+
+      const int64_t Imm = DefMI->getOperand(1).getImm();
+
+      // FIXME: This would be a lot easier if we could return a new instruction
+      // instead of having to modify in place.
+
+      // Remove these first since they are at the end.
+      UseMI->RemoveOperand(AMDGPU::getNamedOperandIdx(AMDGPU::V_MAD_F32,
+                                                      AMDGPU::OpName::omod));
+      UseMI->RemoveOperand(AMDGPU::getNamedOperandIdx(AMDGPU::V_MAD_F32,
+                                                      AMDGPU::OpName::clamp));
+
+      unsigned Src1Reg = Src1->getReg();
+      unsigned Src1SubReg = Src1->getSubReg();
+      unsigned Src2Reg = Src2->getReg();
+      unsigned Src2SubReg = Src2->getSubReg();
+      Src0->setReg(Src1Reg);
+      Src0->setSubReg(Src1SubReg);
+      Src1->setReg(Src2Reg);
+      Src1->setSubReg(Src2SubReg);
+
+      Src2->ChangeToImmediate(Imm);
+
+      removeModOperands(*UseMI);
+      UseMI->setDesc(get(AMDGPU::V_MADMK_F32));
+
+      bool DeleteDef = MRI->hasOneNonDBGUse(Reg);
+      if (DeleteDef)
+        DefMI->eraseFromParent();
+
+      return true;
+    }
+
+    // Added part is the constant: Use v_madak_f32
+    if (Src2->isReg() && Src2->getReg() == Reg) {
+      // Not allowed to use constant bus for another operand.
+      // We can however allow an inline immediate as src0.
+      if (!Src0->isImm() &&
+          (Src0->isReg() && RI.isSGPRClass(MRI->getRegClass(Src0->getReg()))))
+        return false;
+
+      if (!Src1->isReg() ||
+          (Src1->isReg() && RI.isSGPRClass(MRI->getRegClass(Src1->getReg()))))
+        return false;
+
+      const int64_t Imm = DefMI->getOperand(1).getImm();
+
+      // FIXME: This would be a lot easier if we could return a new instruction
+      // instead of having to modify in place.
+
+      // Remove these first since they are at the end.
+      UseMI->RemoveOperand(AMDGPU::getNamedOperandIdx(AMDGPU::V_MAD_F32,
+                                                      AMDGPU::OpName::omod));
+      UseMI->RemoveOperand(AMDGPU::getNamedOperandIdx(AMDGPU::V_MAD_F32,
+                                                      AMDGPU::OpName::clamp));
+
+      Src2->ChangeToImmediate(Imm);
+
+      // These come before src2.
+      removeModOperands(*UseMI);
+      UseMI->setDesc(get(AMDGPU::V_MADAK_F32));
+
+      bool DeleteDef = MRI->hasOneNonDBGUse(Reg);
+      if (DeleteDef)
+        DefMI->eraseFromParent();
+
+      return true;
+    }
+  }
+
+  return false;
+}
+
 bool
 SIInstrInfo::isTriviallyReMaterializable(const MachineInstr *MI,
                                          AliasAnalysis *AA) const {
@@ -1745,7 +1870,10 @@ void SIInstrInfo::legalizeOperands(MachineInstr *MI) const {
                                               // This will be replaced later
                                               // with the new value of vaddr.
                   .addOperand(*SOffset)
-                  .addOperand(*Offset);
+                  .addOperand(*Offset)
+                  .addImm(0) // glc
+                  .addImm(0) // slc
+                  .addImm(0); // tfe
 
       MI->removeFromParent();
       MI = Addr64;
@@ -1925,6 +2053,9 @@ void SIInstrInfo::moveSMRDToVALU(MachineInstr *MI, MachineRegisterInfo &MRI) con
       MI->getOperand(1).setReg(SRsrc);
       MI->addOperand(*MBB->getParent(), MachineOperand::CreateImm(0));
       MI->addOperand(*MBB->getParent(), MachineOperand::CreateImm(ImmOffset));
+      MI->addOperand(*MBB->getParent(), MachineOperand::CreateImm(0)); // glc
+      MI->addOperand(*MBB->getParent(), MachineOperand::CreateImm(0)); // slc
+      MI->addOperand(*MBB->getParent(), MachineOperand::CreateImm(0)); // tfe
 
       const TargetRegisterClass *NewDstRC =
           RI.getRegClass(get(NewOpcode).OpInfo[0].RegClass);

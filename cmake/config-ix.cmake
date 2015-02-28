@@ -448,6 +448,8 @@ if( MSVC )
   else()
     set(HAVE_DIA_SDK 0)
   endif()
+else()
+  set(HAVE_DIA_SDK 0)
 endif( MSVC )
 
 if( PURE_WINDOWS )

@@ -773,22 +773,24 @@ void MipsAsmPrinter::emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
   getTargetStreamer().emitDirectiveSetPop();
 }
 
-void MipsAsmPrinter::EmitJal(MCSymbol *Symbol) {
+void MipsAsmPrinter::EmitJal(const MCSubtargetInfo &STI, MCSymbol *Symbol) {
   MCInst I;
   I.setOpcode(Mips::JAL);
   I.addOperand(
       MCOperand::CreateExpr(MCSymbolRefExpr::Create(Symbol, OutContext)));
-  OutStreamer.EmitInstruction(I, getSubtargetInfo());
+  OutStreamer.EmitInstruction(I, STI);
 }
 
-void MipsAsmPrinter::EmitInstrReg(unsigned Opcode, unsigned Reg) {
+void MipsAsmPrinter::EmitInstrReg(const MCSubtargetInfo &STI, unsigned Opcode,
+                                  unsigned Reg) {
   MCInst I;
   I.setOpcode(Opcode);
   I.addOperand(MCOperand::CreateReg(Reg));
-  OutStreamer.EmitInstruction(I, getSubtargetInfo());
+  OutStreamer.EmitInstruction(I, STI);
 }
 
-void MipsAsmPrinter::EmitInstrRegReg(unsigned Opcode, unsigned Reg1,
+void MipsAsmPrinter::EmitInstrRegReg(const MCSubtargetInfo &STI,
+                                     unsigned Opcode, unsigned Reg1,
                                      unsigned Reg2) {
   MCInst I;
   //
@@ -804,20 +806,22 @@ void MipsAsmPrinter::EmitInstrRegReg(unsigned Opcode, unsigned Reg1,
   I.setOpcode(Opcode);
   I.addOperand(MCOperand::CreateReg(Reg1));
   I.addOperand(MCOperand::CreateReg(Reg2));
-  OutStreamer.EmitInstruction(I, getSubtargetInfo());
+  OutStreamer.EmitInstruction(I, STI);
 }
 
-void MipsAsmPrinter::EmitInstrRegRegReg(unsigned Opcode, unsigned Reg1,
+void MipsAsmPrinter::EmitInstrRegRegReg(const MCSubtargetInfo &STI,
+                                        unsigned Opcode, unsigned Reg1,
                                         unsigned Reg2, unsigned Reg3) {
   MCInst I;
   I.setOpcode(Opcode);
   I.addOperand(MCOperand::CreateReg(Reg1));
   I.addOperand(MCOperand::CreateReg(Reg2));
   I.addOperand(MCOperand::CreateReg(Reg3));
-  OutStreamer.EmitInstruction(I, getSubtargetInfo());
+  OutStreamer.EmitInstruction(I, STI);
 }
 
-void MipsAsmPrinter::EmitMovFPIntPair(unsigned MovOpc, unsigned Reg1,
+void MipsAsmPrinter::EmitMovFPIntPair(const MCSubtargetInfo &STI,
+                                      unsigned MovOpc, unsigned Reg1,
                                       unsigned Reg2, unsigned FPReg1,
                                       unsigned FPReg2, bool LE) {
   if (!LE) {
@@ -825,59 +829,60 @@ void MipsAsmPrinter::EmitMovFPIntPair(unsigned MovOpc, unsigned Reg1,
     Reg1 = Reg2;
     Reg2 = temp;
   }
-  EmitInstrRegReg(MovOpc, Reg1, FPReg1);
-  EmitInstrRegReg(MovOpc, Reg2, FPReg2);
+  EmitInstrRegReg(STI, MovOpc, Reg1, FPReg1);
+  EmitInstrRegReg(STI, MovOpc, Reg2, FPReg2);
 }
 
-void MipsAsmPrinter::EmitSwapFPIntParams(Mips16HardFloatInfo::FPParamVariant PV,
+void MipsAsmPrinter::EmitSwapFPIntParams(const MCSubtargetInfo &STI,
+                                         Mips16HardFloatInfo::FPParamVariant PV,
                                          bool LE, bool ToFP) {
   using namespace Mips16HardFloatInfo;
   unsigned MovOpc = ToFP ? Mips::MTC1 : Mips::MFC1;
   switch (PV) {
   case FSig:
-    EmitInstrRegReg(MovOpc, Mips::A0, Mips::F12);
+    EmitInstrRegReg(STI, MovOpc, Mips::A0, Mips::F12);
     break;
   case FFSig:
-    EmitMovFPIntPair(MovOpc, Mips::A0, Mips::A1, Mips::F12, Mips::F14, LE);
+    EmitMovFPIntPair(STI, MovOpc, Mips::A0, Mips::A1, Mips::F12, Mips::F14, LE);
     break;
   case FDSig:
-    EmitInstrRegReg(MovOpc, Mips::A0, Mips::F12);
-    EmitMovFPIntPair(MovOpc, Mips::A2, Mips::A3, Mips::F14, Mips::F15, LE);
+    EmitInstrRegReg(STI, MovOpc, Mips::A0, Mips::F12);
+    EmitMovFPIntPair(STI, MovOpc, Mips::A2, Mips::A3, Mips::F14, Mips::F15, LE);
     break;
   case DSig:
-    EmitMovFPIntPair(MovOpc, Mips::A0, Mips::A1, Mips::F12, Mips::F13, LE);
+    EmitMovFPIntPair(STI, MovOpc, Mips::A0, Mips::A1, Mips::F12, Mips::F13, LE);
     break;
   case DDSig:
-    EmitMovFPIntPair(MovOpc, Mips::A0, Mips::A1, Mips::F12, Mips::F13, LE);
-    EmitMovFPIntPair(MovOpc, Mips::A2, Mips::A3, Mips::F14, Mips::F15, LE);
+    EmitMovFPIntPair(STI, MovOpc, Mips::A0, Mips::A1, Mips::F12, Mips::F13, LE);
+    EmitMovFPIntPair(STI, MovOpc, Mips::A2, Mips::A3, Mips::F14, Mips::F15, LE);
     break;
   case DFSig:
-    EmitMovFPIntPair(MovOpc, Mips::A0, Mips::A1, Mips::F12, Mips::F13, LE);
-    EmitInstrRegReg(MovOpc, Mips::A2, Mips::F14);
+    EmitMovFPIntPair(STI, MovOpc, Mips::A0, Mips::A1, Mips::F12, Mips::F13, LE);
+    EmitInstrRegReg(STI, MovOpc, Mips::A2, Mips::F14);
     break;
   case NoSig:
     return;
   }
 }
 
-void
-MipsAsmPrinter::EmitSwapFPIntRetval(Mips16HardFloatInfo::FPReturnVariant RV,
-                                    bool LE) {
+void MipsAsmPrinter::EmitSwapFPIntRetval(
+    const MCSubtargetInfo &STI, Mips16HardFloatInfo::FPReturnVariant RV,
+    bool LE) {
   using namespace Mips16HardFloatInfo;
   unsigned MovOpc = Mips::MFC1;
   switch (RV) {
   case FRet:
-    EmitInstrRegReg(MovOpc, Mips::V0, Mips::F0);
+    EmitInstrRegReg(STI, MovOpc, Mips::V0, Mips::F0);
     break;
   case DRet:
-    EmitMovFPIntPair(MovOpc, Mips::V0, Mips::V1, Mips::F0, Mips::F1, LE);
+    EmitMovFPIntPair(STI, MovOpc, Mips::V0, Mips::V1, Mips::F0, Mips::F1, LE);
     break;
   case CFRet:
-    EmitMovFPIntPair(MovOpc, Mips::V0, Mips::V1, Mips::F0, Mips::F1, LE);
+    EmitMovFPIntPair(STI, MovOpc, Mips::V0, Mips::V1, Mips::F0, Mips::F1, LE);
     break;
   case CDRet:
-    EmitMovFPIntPair(MovOpc, Mips::V0, Mips::V1, Mips::F0, Mips::F1, LE);
-    EmitMovFPIntPair(MovOpc, Mips::A0, Mips::A1, Mips::F2, Mips::F3, LE);
+    EmitMovFPIntPair(STI, MovOpc, Mips::V0, Mips::V1, Mips::F0, Mips::F1, LE);
+    EmitMovFPIntPair(STI, MovOpc, Mips::A0, Mips::A1, Mips::F2, Mips::F3, LE);
     break;
   case NoFPRet:
     break;
@@ -888,7 +893,14 @@ void MipsAsmPrinter::EmitFPCallStub(
     const char *Symbol, const Mips16HardFloatInfo::FuncSignature *Signature) {
   MCSymbol *MSymbol = OutContext.GetOrCreateSymbol(StringRef(Symbol));
   using namespace Mips16HardFloatInfo;
-  bool LE = Subtarget->isLittle();
+  bool LE = getDataLayout().isLittleEndian();
+  // Construct a local MCSubtargetInfo here.
+  // This is because the MachineFunction won't exist (but have not yet been
+  // freed) and since we're at the global level we can use the default
+  // constructed subtarget.
+  std::unique_ptr<MCSubtargetInfo> STI(TM.getTarget().createMCSubtargetInfo(
+      TM.getTargetTriple(), TM.getTargetCPU(), TM.getTargetFeatureString()));
+
   //
   // .global xxxx
   //
@@ -976,13 +988,10 @@ void MipsAsmPrinter::EmitFPCallStub(
       OutContext.GetOrCreateSymbol("__call_stub_fp_" + Twine(Symbol));
   OutStreamer.EmitSymbolAttribute(MType, MCSA_ELF_TypeFunction);
   OutStreamer.EmitLabel(Stub);
-  //
-  // we just handle non pic for now. these function will not be
-  // called otherwise. when the full stub generation is moved here
-  // we need to deal with pic.
-  //
-  if (TM.getRelocationModel() == Reloc::PIC_)
-    llvm_unreachable("should not be here if we are compiling pic");
+
+  // Only handle non-pic for now.
+  assert(TM.getRelocationModel() != Reloc::PIC_ &&
+         "should not be here if we are compiling pic");
   TS.emitDirectiveSetReorder();
   //
   // We need to add a MipsMCExpr class to MCTargetDesc to fully implement
@@ -999,22 +1008,22 @@ void MipsAsmPrinter::EmitFPCallStub(
   //
   // Mov $18, $31
 
-  EmitInstrRegRegReg(Mips::ADDu, Mips::S2, Mips::RA, Mips::ZERO);
+  EmitInstrRegRegReg(*STI, Mips::ADDu, Mips::S2, Mips::RA, Mips::ZERO);
 
-  EmitSwapFPIntParams(Signature->ParamSig, LE, true);
+  EmitSwapFPIntParams(*STI, Signature->ParamSig, LE, true);
 
   // Jal xxxx
   //
-  EmitJal(MSymbol);
+  EmitJal(*STI, MSymbol);
 
   // fix return values
-  EmitSwapFPIntRetval(Signature->RetSig, LE);
+  EmitSwapFPIntRetval(*STI, Signature->RetSig, LE);
   //
   // do the return
   // if (Signature->RetSig == NoFPRet)
   //  llvm_unreachable("should not be any stubs here with no return value");
   // else
-  EmitInstrReg(Mips::JR, Mips::S2);
+  EmitInstrReg(*STI, Mips::JR, Mips::S2);
 
   MCSymbol *Tmp = OutContext.CreateTempSymbol();
   OutStreamer.EmitLabel(Tmp);

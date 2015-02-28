@@ -1,9 +1,9 @@
-; RUN: llc < %s -mtriple=x86_64-darwin -x86-experimental-vector-widening-legalization -mattr=+mmx,+sse2 | FileCheck %s
+; RUN: llc < %s -march=x86-64 -mattr=+mmx,+sse2 | FileCheck %s
 
 define i32 @t0(i64 %x) {
 ; CHECK-LABEL: t0:
-; CHECK:       ## BB#0: ## %entry
-; CHECK-NEXT:    movd %rdi, %mm0
+; CHECK:       # BB#0:{{.*}} %entry
+; CHECK:    movd %[[REG1:[a-z]+]], %mm0
 ; CHECK-NEXT:    pshufw $238, %mm0, %mm0
 ; CHECK-NEXT:    movd %mm0, %eax
 ; CHECK-NEXT:    retq
@@ -21,9 +21,9 @@ entry:
 
 define i64 @t1(i64 %x, i32 %n) {
 ; CHECK-LABEL: t1:
-; CHECK:       ## BB#0: ## %entry
-; CHECK-NEXT:    movd %esi, %mm0
-; CHECK-NEXT:    movd %rdi, %mm1
+; CHECK:       # BB#0:{{.*}} %entry
+; CHECK:    movd %[[REG2:[a-z]+]], %mm0
+; CHECK-NEXT:    movd %[[REG1]], %mm1
 ; CHECK-NEXT:    psllq %mm0, %mm1
 ; CHECK-NEXT:    movd %mm1, %rax
 ; CHECK-NEXT:    retq
@@ -36,14 +36,14 @@ entry:
 
 define i64 @t2(i64 %x, i32 %n, i32 %w) {
 ; CHECK-LABEL: t2:
-; CHECK:       ## BB#0: ## %entry
-; CHECK-NEXT:    movd %esi, %mm0
-; CHECK-NEXT:    movd %edx, %mm1
-; CHECK-NEXT:    psllq %mm0, %mm1
-; CHECK-NEXT:    movd %rdi, %mm0
-; CHECK-NEXT:    por %mm1, %mm0
-; CHECK-NEXT:    movd %mm0, %rax
-; CHECK-NEXT:    retq
+; CHECK:       # BB#0:{{.*}} %entry
+; CHECK:  movd %[[REG4:[a-z]+]], %mm0
+; CHECK-NEXT:  movd %[[REG6:[a-z0-9]+]], %mm1
+; CHECK-NEXT:  psllq %mm0, %mm1
+; CHECK-NEXT:  movd %[[REG1]], %mm0
+; CHECK-NEXT:  por %mm1, %mm0
+; CHECK-NEXT:  movd %mm0, %rax
+; CHECK-NEXT:  retq
 entry:
   %0 = insertelement <2 x i32> undef, i32 %w, i32 0
   %1 = insertelement <2 x i32> %0, i32 0, i32 1
@@ -57,16 +57,15 @@ entry:
 
 define i64 @t3(<1 x i64>* %y, i32* %n) {
 ; CHECK-LABEL: t3:
-; CHECK:       ## BB#0: ## %entry
-; CHECK-NEXT:    movq (%rdi), %mm0
-; CHECK-NEXT:    movd (%rsi), %mm1
-; CHECK-NEXT:    psllq %mm1, %mm0
+; CHECK:       # BB#0:{{.*}} %entry
+; CHECK:    movq (%[[REG1]]), %mm0
+; CHECK-NEXT:    psllq (%[[REG3:[a-z]+]]), %mm0
 ; CHECK-NEXT:    movd %mm0, %rax
 ; CHECK-NEXT:    retq
 entry:
   %0 = bitcast <1 x i64>* %y to x86_mmx*
-  %1 = load x86_mmx* %0, align 8
-  %2 = load i32* %n, align 4
+  %1 = load x86_mmx, x86_mmx* %0, align 8
+  %2 = load i32, i32* %n, align 4
   %3 = tail call x86_mmx @llvm.x86.mmx.pslli.q(x86_mmx %1, i32 %2)
   %4 = bitcast x86_mmx %3 to i64
   ret i64 %4

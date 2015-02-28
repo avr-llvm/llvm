@@ -2,7 +2,7 @@
 
 define void @single_access_with_preloop(i32 *%arr, i32 *%a_len_ptr, i32 %n, i32 %offset) {
  entry:
-  %len = load i32* %a_len_ptr, !range !0
+  %len = load i32, i32* %a_len_ptr, !range !0
   %first.itr.check = icmp sgt i32 %n, 0
   br i1 %first.itr.check, label %loop, label %exit
 
@@ -16,7 +16,7 @@ define void @single_access_with_preloop(i32 *%arr, i32 *%a_len_ptr, i32 %n, i32 
   br i1 %abc, label %in.bounds, label %out.of.bounds, !prof !1
 
  in.bounds:
-  %addr = getelementptr i32* %arr, i32 %array.idx
+  %addr = getelementptr i32, i32* %arr, i32 %array.idx
   store i32 0, i32* %addr
   %next = icmp slt i32 %idx.next, %n
   br i1 %next, label %loop, label %exit
@@ -29,12 +29,23 @@ define void @single_access_with_preloop(i32 *%arr, i32 *%a_len_ptr, i32 %n, i32 
 }
 
 ; CHECK-LABEL: loop.preheader:
-; CHECK: [[safe_start:[^ ]+]] = sub i32 0, %offset
-; CHECK: [[safe_end:[^ ]+]] = sub i32 %len, %offset
-; CHECK: [[exit_preloop_at_cond:[^ ]+]] = icmp slt i32 %n, [[safe_start]]
-; CHECK: [[exit_preloop_at:[^ ]+]] = select i1 [[exit_preloop_at_cond]], i32 %n, i32 [[safe_start]]
-; CHECK: [[exit_mainloop_at_cond:[^ ]+]] = icmp slt i32 %n, [[safe_end]]
-; CHECK: [[exit_mainloop_at:[^ ]+]] = select i1 [[exit_mainloop_at_cond]], i32 %n, i32 [[safe_end]]
+; CHECK: [[not_safe_start:[^ ]+]] = add i32 %offset, -1
+; CHECK: [[not_n:[^ ]+]] = sub i32 -1, %n
+; CHECK: [[not_exit_preloop_at_cond_loclamp:[^ ]+]] = icmp sgt i32 [[not_safe_start]], [[not_n]]
+; CHECK: [[not_exit_preloop_at_loclamp:[^ ]+]] = select i1 [[not_exit_preloop_at_cond_loclamp]], i32 [[not_safe_start]], i32 [[not_n]]
+; CHECK: [[exit_preloop_at_loclamp:[^ ]+]] = sub i32 -1, [[not_exit_preloop_at_loclamp]]
+; CHECK: [[exit_preloop_at_cond:[^ ]+]] = icmp sgt i32 [[exit_preloop_at_loclamp]], 0
+; CHECK: [[exit_preloop_at:[^ ]+]] = select i1 [[exit_preloop_at_cond]], i32 [[exit_preloop_at_loclamp]], i32 0
+
+
+; CHECK: [[not_safe_start_2:[^ ]+]] = add i32 %offset, -1
+; CHECK: [[not_safe_end:[^ ]+]] = sub i32 [[not_safe_start_2]], %len
+; CHECK: [[not_exit_mainloop_at_cond_loclamp:[^ ]+]] = icmp sgt i32 [[not_safe_end]], [[not_n]]
+; CHECK: [[not_exit_mainloop_at_loclamp:[^ ]+]] = select i1 [[not_exit_mainloop_at_cond_loclamp]], i32 [[not_safe_end]], i32 [[not_n]]
+; CHECK: [[exit_mainloop_at_loclamp:[^ ]+]] = sub i32 -1, [[not_exit_mainloop_at_loclamp]]
+; CHECK: [[exit_mainloop_at_cmp:[^ ]+]] = icmp sgt i32 [[exit_mainloop_at_loclamp]], 0
+; CHECK: [[exit_mainloop_at:[^ ]+]] = select i1 [[exit_mainloop_at_cmp]], i32 [[exit_mainloop_at_loclamp]], i32 0
+
 
 ; CHECK-LABEL: in.bounds:
 ; CHECK: [[continue_mainloop_cond:[^ ]+]] = icmp slt i32 %idx.next, [[exit_mainloop_at]]

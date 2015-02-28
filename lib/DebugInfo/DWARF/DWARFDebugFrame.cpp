@@ -8,7 +8,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/DebugInfo/DWARF/DWARFDebugFrame.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/Dwarf.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -179,19 +181,6 @@ void FrameEntry::parseInstructions(DataExtractor Data, uint32_t *Offset,
   }
 }
 
-
-void FrameEntry::dumpInstructions(raw_ostream &OS) const {
-  // TODO: at the moment only instruction names are dumped. Expand this to
-  // dump operands as well.
-  for (const auto &Instr : Instructions) {
-    uint8_t Opcode = Instr.Opcode;
-    if (Opcode & DWARF_CFI_PRIMARY_OPCODE_MASK)
-      Opcode &= DWARF_CFI_PRIMARY_OPCODE_MASK;
-    OS << "  " << CallFrameString(Opcode) << ":\n";
-  }
-}
-
-
 namespace {
 /// \brief DWARF Common Information Entry (CIE)
 class CIE : public FrameEntry {
@@ -209,6 +198,9 @@ public:
 
   ~CIE() {
   }
+
+  uint64_t getCodeAlignmentFactor() const { return CodeAlignmentFactor; }
+  int64_t getDataAlignmentFactor() const { return DataAlignmentFactor; }
 
   void dumpHeader(raw_ostream &OS) const override {
     OS << format("%08x %08x %08x CIE",
@@ -246,13 +238,16 @@ public:
   // an offset to the CIE (provided by parsing the FDE header). The CIE itself
   // is obtained lazily once it's actually required.
   FDE(uint64_t Offset, uint64_t Length, int64_t LinkedCIEOffset,
-      uint64_t InitialLocation, uint64_t AddressRange)
+      uint64_t InitialLocation, uint64_t AddressRange,
+      CIE *Cie)
       : FrameEntry(FK_FDE, Offset, Length), LinkedCIEOffset(LinkedCIEOffset),
         InitialLocation(InitialLocation), AddressRange(AddressRange),
-        LinkedCIE(nullptr) {}
+        LinkedCIE(Cie) {}
 
   ~FDE() {
   }
+
+  CIE *getLinkedCIE() const { return LinkedCIE; }
 
   void dumpHeader(raw_ostream &OS) const override {
     OS << format("%08x %08x %08x FDE ",
@@ -261,9 +256,6 @@ public:
                  (int32_t)LinkedCIEOffset,
                  (uint32_t)InitialLocation,
                  (uint32_t)InitialLocation + (uint32_t)AddressRange);
-    if (LinkedCIE) {
-      OS << format("%p\n", LinkedCIE);
-    }
   }
 
   static bool classof(const FrameEntry *FE) {
@@ -277,8 +269,149 @@ private:
   uint64_t AddressRange;
   CIE *LinkedCIE;
 };
+
+/// \brief Types of operands to CF instructions.
+enum OperandType {
+  OT_Unset,
+  OT_None,
+  OT_Address,
+  OT_Offset,
+  OT_FactoredCodeOffset,
+  OT_SignedFactDataOffset,
+  OT_UnsignedFactDataOffset,
+  OT_Register,
+  OT_Expression
+};
+
 } // end anonymous namespace
 
+/// \brief Initialize the array describing the types of operands.
+static ArrayRef<OperandType[2]> getOperandTypes() {
+  static OperandType OpTypes[DW_CFA_restore+1][2];
+
+#define DECLARE_OP2(OP, OPTYPE0, OPTYPE1)       \
+  do {                                          \
+    OpTypes[OP][0] = OPTYPE0;                   \
+    OpTypes[OP][1] = OPTYPE1;                   \
+  } while (0)
+#define DECLARE_OP1(OP, OPTYPE0) DECLARE_OP2(OP, OPTYPE0, OT_None)
+#define DECLARE_OP0(OP) DECLARE_OP1(OP, OT_None)
+
+  DECLARE_OP1(DW_CFA_set_loc, OT_Address);
+  DECLARE_OP1(DW_CFA_advance_loc, OT_FactoredCodeOffset);
+  DECLARE_OP1(DW_CFA_advance_loc1, OT_FactoredCodeOffset);
+  DECLARE_OP1(DW_CFA_advance_loc2, OT_FactoredCodeOffset);
+  DECLARE_OP1(DW_CFA_advance_loc4, OT_FactoredCodeOffset);
+  DECLARE_OP1(DW_CFA_MIPS_advance_loc8, OT_FactoredCodeOffset);
+  DECLARE_OP2(DW_CFA_def_cfa, OT_Register, OT_Offset);
+  DECLARE_OP2(DW_CFA_def_cfa_sf, OT_Register, OT_SignedFactDataOffset);
+  DECLARE_OP1(DW_CFA_def_cfa_register, OT_Register);
+  DECLARE_OP1(DW_CFA_def_cfa_offset, OT_Offset);
+  DECLARE_OP1(DW_CFA_def_cfa_offset_sf, OT_SignedFactDataOffset);
+  DECLARE_OP1(DW_CFA_def_cfa_expression, OT_Expression);
+  DECLARE_OP1(DW_CFA_undefined, OT_Register);
+  DECLARE_OP1(DW_CFA_same_value, OT_Register);
+  DECLARE_OP2(DW_CFA_offset, OT_Register, OT_UnsignedFactDataOffset);
+  DECLARE_OP2(DW_CFA_offset_extended, OT_Register, OT_UnsignedFactDataOffset);
+  DECLARE_OP2(DW_CFA_offset_extended_sf, OT_Register, OT_SignedFactDataOffset);
+  DECLARE_OP2(DW_CFA_val_offset, OT_Register, OT_UnsignedFactDataOffset);
+  DECLARE_OP2(DW_CFA_val_offset_sf, OT_Register, OT_SignedFactDataOffset);
+  DECLARE_OP2(DW_CFA_register, OT_Register, OT_Register);
+  DECLARE_OP2(DW_CFA_expression, OT_Register, OT_Expression);
+  DECLARE_OP2(DW_CFA_val_expression, OT_Register, OT_Expression);
+  DECLARE_OP1(DW_CFA_restore, OT_Register);
+  DECLARE_OP1(DW_CFA_restore_extended, OT_Register);
+  DECLARE_OP0(DW_CFA_remember_state);
+  DECLARE_OP0(DW_CFA_restore_state);
+  DECLARE_OP0(DW_CFA_GNU_window_save);
+  DECLARE_OP1(DW_CFA_GNU_args_size, OT_Offset);
+  DECLARE_OP0(DW_CFA_nop);
+
+#undef DECLARE_OP0
+#undef DECLARE_OP1
+#undef DECLARE_OP2
+  return ArrayRef<OperandType[2]>(&OpTypes[0], DW_CFA_restore+1);
+}
+
+static ArrayRef<OperandType[2]> OpTypes = getOperandTypes();
+
+/// \brief Print \p Opcode's operand number \p OperandIdx which has
+/// value \p Operand.
+static void printOperand(raw_ostream &OS, uint8_t Opcode, unsigned OperandIdx,
+                         uint64_t Operand, uint64_t CodeAlignmentFactor,
+                         int64_t DataAlignmentFactor) {
+  assert(OperandIdx < 2);
+  OperandType Type = OpTypes[Opcode][OperandIdx];
+
+  switch (Type) {
+  case OT_Unset:
+    OS << " Unsupported " << (OperandIdx ? "second" : "first") << " operand to";
+    if (const char *OpcodeName = CallFrameString(Opcode))
+      OS << " " << OpcodeName;
+    else
+      OS << format(" Opcode %x",  Opcode);
+    break;
+  case OT_None:
+    break;
+  case OT_Address:
+    OS << format(" %" PRIx64, Operand);
+    break;
+  case OT_Offset:
+    // The offsets are all encoded in a unsigned form, but in practice
+    // consumers use them signed. It's most certainly legacy due to
+    // the lack of signed variants in the first Dwarf standards.
+    OS << format(" %+" PRId64, int64_t(Operand));
+    break;
+  case OT_FactoredCodeOffset: // Always Unsigned
+    if (CodeAlignmentFactor)
+      OS << format(" %" PRId64, Operand * CodeAlignmentFactor);
+    else
+      OS << format(" %" PRId64 "*code_alignment_factor" , Operand);
+    break;
+  case OT_SignedFactDataOffset:
+    if (DataAlignmentFactor)
+      OS << format(" %" PRId64, int64_t(Operand) * DataAlignmentFactor);
+    else
+      OS << format(" %" PRId64 "*data_alignment_factor" , int64_t(Operand));
+    break;
+  case OT_UnsignedFactDataOffset:
+    if (DataAlignmentFactor)
+      OS << format(" %" PRId64, Operand * DataAlignmentFactor);
+    else
+      OS << format(" %" PRId64 "*data_alignment_factor" , Operand);
+    break;
+  case OT_Register:
+    OS << format(" reg%" PRId64, Operand);
+    break;
+  case OT_Expression:
+    OS << " expression";
+    break;
+  }
+}
+
+void FrameEntry::dumpInstructions(raw_ostream &OS) const {
+  uint64_t CodeAlignmentFactor = 0;
+  int64_t DataAlignmentFactor = 0;
+  const CIE *Cie = dyn_cast<CIE>(this);
+
+  if (!Cie)
+    Cie = cast<FDE>(this)->getLinkedCIE();
+  if (Cie) {
+    CodeAlignmentFactor = Cie->getCodeAlignmentFactor();
+    DataAlignmentFactor = Cie->getDataAlignmentFactor();
+  }
+
+  for (const auto &Instr : Instructions) {
+    uint8_t Opcode = Instr.Opcode;
+    if (Opcode & DWARF_CFI_PRIMARY_OPCODE_MASK)
+      Opcode &= DWARF_CFI_PRIMARY_OPCODE_MASK;
+    OS << "  " << CallFrameString(Opcode) << ":";
+    for (unsigned i = 0; i < Instr.Ops.size(); ++i)
+      printOperand(OS, Opcode, i, Instr.Ops[i], CodeAlignmentFactor,
+                   DataAlignmentFactor);
+    OS << '\n';
+  }
+}
 
 DWARFDebugFrame::DWARFDebugFrame() {
 }
@@ -299,6 +432,7 @@ static void LLVM_ATTRIBUTE_UNUSED dumpDataAux(DataExtractor Data,
 
 void DWARFDebugFrame::parse(DataExtractor Data) {
   uint32_t Offset = 0;
+  DenseMap<uint32_t, CIE *> CIEs;
 
   while (Data.isValidOffset(Offset)) {
     uint32_t StartOffset = Offset;
@@ -338,9 +472,11 @@ void DWARFDebugFrame::parse(DataExtractor Data) {
       int64_t DataAlignmentFactor = Data.getSLEB128(&Offset);
       uint64_t ReturnAddressRegister = Data.getULEB128(&Offset);
 
-      Entries.emplace_back(new CIE(StartOffset, Length, Version,
-                                   StringRef(Augmentation), CodeAlignmentFactor,
-                                   DataAlignmentFactor, ReturnAddressRegister));
+      auto Cie = make_unique<CIE>(StartOffset, Length, Version,
+                                  StringRef(Augmentation), CodeAlignmentFactor,
+                                  DataAlignmentFactor, ReturnAddressRegister);
+      CIEs[StartOffset] = Cie.get();
+      Entries.emplace_back(std::move(Cie));
     } else {
       // FDE
       uint64_t CIEPointer = Id;
@@ -348,7 +484,8 @@ void DWARFDebugFrame::parse(DataExtractor Data) {
       uint64_t AddressRange = Data.getAddress(&Offset);
 
       Entries.emplace_back(new FDE(StartOffset, Length, CIEPointer,
-                                   InitialLocation, AddressRange));
+                                   InitialLocation, AddressRange,
+                                   CIEs[CIEPointer]));
     }
 
     Entries.back()->parseInstructions(Data, &Offset, EndStructureOffset);

@@ -47,7 +47,7 @@ declare i32 @memcmp(i8*, i8*, i32) nounwind readonly
 
 define i1 @PR2341(i8** %start_addr) {
 entry:
-	%tmp4 = load i8** %start_addr, align 4		; <i8*> [#uses=1]
+	%tmp4 = load i8*, i8** %start_addr, align 4		; <i8*> [#uses=1]
 	%tmp5 = call i32 @memcmp( i8* %tmp4, i8* getelementptr ([5 x i8]* @_2E_str, i32 0, i32 0), i32 4 ) nounwind readonly 		; <i32> [#uses=1]
 	%tmp6 = icmp eq i32 %tmp5, 0		; <i1> [#uses=1]
 	ret i1 %tmp6
@@ -114,11 +114,11 @@ for.end:		; preds = %for.cond20
 @hello_u = constant [8 x i8] c"hello_u\00"		; <[8 x i8]*> [#uses=1]
 
 define i32 @MemCpy() {
-  %h_p = getelementptr [2 x i8]* @h, i32 0, i32 0
-  %hel_p = getelementptr [4 x i8]* @hel, i32 0, i32 0
-  %hello_u_p = getelementptr [8 x i8]* @hello_u, i32 0, i32 0
+  %h_p = getelementptr [2 x i8], [2 x i8]* @h, i32 0, i32 0
+  %hel_p = getelementptr [4 x i8], [4 x i8]* @hel, i32 0, i32 0
+  %hello_u_p = getelementptr [8 x i8], [8 x i8]* @hello_u, i32 0, i32 0
   %target = alloca [1024 x i8]
-  %target_p = getelementptr [1024 x i8]* %target, i32 0, i32 0
+  %target_p = getelementptr [1024 x i8], [1024 x i8]* %target, i32 0, i32 0
   call void @llvm.memcpy.p0i8.p0i8.i32(i8* %target_p, i8* %h_p, i32 2, i32 2, i1 false)
   call void @llvm.memcpy.p0i8.p0i8.i32(i8* %target_p, i8* %hel_p, i32 4, i32 4, i1 false)
   call void @llvm.memcpy.p0i8.p0i8.i32(i8* %target_p, i8* %hello_u_p, i32 8, i32 8, i1 false)

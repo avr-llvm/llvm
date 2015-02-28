@@ -1,3 +1,12 @@
+//===---- IndirectionUtils.cpp - Utilities for call indirection in Orc ----===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+
 #include "llvm/ADT/Triple.h"
 #include "llvm/ExecutionEngine/Orc/CloneSubModule.h"
 #include "llvm/ExecutionEngine/Orc/IndirectionUtils.h"
@@ -5,9 +14,8 @@
 #include "llvm/IR/IRBuilder.h"
 #include <set>
 
-using namespace llvm;
-
 namespace llvm {
+namespace orc {
 
 GlobalVariable* createImplPointer(Function &F, const Twine &Name,
                                   Constant *Initializer) {
@@ -106,4 +114,5 @@ FullyPartitionedModule fullyPartition(Module &M) {
   return MP;
 }
 
-}
+} // End namespace orc.
+} // End namespace llvm.

@@ -6,8 +6,8 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/LegacyPassManager.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/TargetSelect.h"
@@ -19,7 +19,9 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
 using namespace llvm;
+using namespace llvm::orc;
 
 //===----------------------------------------------------------------------===//
 // Lexer
@@ -679,14 +681,18 @@ std::string MakeLegalFunctionName(std::string Name)
 
 class SessionContext {
 public:
-  SessionContext(LLVMContext &C) : Context(C) {}
+  SessionContext(LLVMContext &C)
+    : Context(C), TM(EngineBuilder().selectTarget()) {}
   LLVMContext& getLLVMContext() const { return Context; }
+  TargetMachine& getTarget() { return *TM; }
   void addPrototypeAST(std::unique_ptr<PrototypeAST> P);
   PrototypeAST* getPrototypeAST(const std::string &Name);
-  std::map<std::string, std::unique_ptr<FunctionAST>> FunctionDefs; 
 private:
   typedef std::map<std::string, std::unique_ptr<PrototypeAST>> PrototypeMap;
+  
   LLVMContext &Context;
+  std::unique_ptr<TargetMachine> TM;
+      
   PrototypeMap Prototypes;
 };
 
@@ -708,7 +714,9 @@ public:
     : Session(S),
       M(new Module(GenerateUniqueName("jit_module_"),
                    Session.getLLVMContext())),
-      Builder(Session.getLLVMContext()) {}
+      Builder(Session.getLLVMContext()) {
+    M->setDataLayout(Session.getTarget().getDataLayout());
+  }
 
   SessionContext& getSession() { return Session; }
   Module& getM() const { return *M; }
@@ -1137,15 +1145,27 @@ static std::unique_ptr<llvm::Module> IRGen(SessionContext &S,
   return C.takeM();
 }
 
+template <typename T>
+static std::vector<T> singletonSet(T t) {
+  std::vector<T> Vec;
+  Vec.push_back(std::move(t));
+  return Vec;
+}
+
 class KaleidoscopeJIT {
 public:
   typedef ObjectLinkingLayer<> ObjLayerT;
   typedef IRCompileLayer<ObjLayerT> CompileLayerT;
   typedef LazyEmittingLayer<CompileLayerT> LazyEmitLayerT;
-
   typedef LazyEmitLayerT::ModuleSetHandleT ModuleHandleT;
 
-  std::string Mangle(const std::string &Name) {
+  KaleidoscopeJIT(SessionContext &Session)
+    : Session(Session),
+      Mang(Session.getTarget().getDataLayout()),
+      CompileLayer(ObjectLayer, SimpleCompiler(Session.getTarget())),
+      LazyEmitLayer(CompileLayer) {}
+
+  std::string mangle(const std::string &Name) {
     std::string MangledName;
     {
       raw_string_ostream MangledNameStream(MangledName);
@@ -1154,76 +1174,76 @@ public:
     return MangledName;
   }
 
-  KaleidoscopeJIT(SessionContext &Session)
-    : TM(EngineBuilder().selectTarget()),
-      Mang(TM->getDataLayout()), Session(Session),
-      CompileLayer(ObjectLayer, SimpleCompiler(*TM)),
-      LazyEmitLayer(CompileLayer) {}
+  void addFunctionAST(std::unique_ptr<FunctionAST> FnAST) {
+    std::cerr << "Adding AST: " << FnAST->Proto->Name << "\n";
+    FunctionDefs[mangle(FnAST->Proto->Name)] = std::move(FnAST);
+  }
 
   ModuleHandleT addModule(std::unique_ptr<Module> M) {
-    if (!M->getDataLayout())
-      M->setDataLayout(TM->getDataLayout());
-
-    // The LazyEmitLayer takes lists of modules, rather than single modules, so
-    // we'll just build a single-element list.
-    std::vector<std::unique_ptr<Module>> S;
-    S.push_back(std::move(M));
-
     // We need a memory manager to allocate memory and resolve symbols for this
-    // new module. Create one that resolves symbols by looking back into the JIT.
+    // new module. Create one that resolves symbols by looking back into the
+    // JIT.
     auto MM = createLookasideRTDyldMM<SectionMemoryManager>(
-                [&](const std::string &Name) -> uint64_t {
+                [&](const std::string &Name) {
                   // First try to find 'Name' within the JIT.
-                  if (auto Symbol = findMangledSymbol(Name))
+                  if (auto Symbol = findSymbol(Name))
                     return Symbol.getAddress();
 
-                  // If we don't find 'Name' in the JIT, see if we have some AST
-                  // for it.
-                  auto DefI = Session.FunctionDefs.find(Name);
-                  if (DefI == Session.FunctionDefs.end())
-                    return 0;
-
-                  // We have AST for 'Name'. IRGen it, add it to the JIT, and
-                  // return the address for it.
-                  // FIXME: What happens if IRGen fails?
-                  addModule(IRGen(Session, *DefI->second));
-
-                  // Remove the function definition's AST now that we've
-                  // finished with it.
-                  Session.FunctionDefs.erase(DefI);
-
-                  return findMangledSymbol(Name).getAddress();
+                  // If we don't already have a definition of 'Name' then search
+                  // the ASTs.
+                  return searchFunctionASTs(Name);
                 },
                 [](const std::string &S) { return 0; } );
 
-    return LazyEmitLayer.addModuleSet(std::move(S), std::move(MM));
+    return LazyEmitLayer.addModuleSet(singletonSet(std::move(M)),
+                                      std::move(MM));
   }
 
   void removeModule(ModuleHandleT H) { LazyEmitLayer.removeModuleSet(H); }
 
-  JITSymbol findMangledSymbol(const std::string &Name) {
-    return LazyEmitLayer.findSymbol(Name, false);
+  JITSymbol findSymbol(const std::string &Name) {
+    return LazyEmitLayer.findSymbol(Name, true);
   }
 
-  JITSymbol findSymbol(const std::string &Name) {
-    return findMangledSymbol(Mangle(Name));
+  JITSymbol findSymbolIn(ModuleHandleT H, const std::string &Name) {
+    return LazyEmitLayer.findSymbolIn(H, Name, true);
+  }
+
+  JITSymbol findUnmangledSymbol(const std::string &Name) {
+    return findSymbol(mangle(Name));
   }
 
 private:
 
-  std::unique_ptr<TargetMachine> TM;
-  Mangler Mang;
-  SessionContext &Session;
+  // This method searches the FunctionDefs map for a definition of 'Name'. If it
+  // finds one it generates a stub for it and returns the address of the stub.
+  TargetAddress searchFunctionASTs(const std::string &Name) {
+    auto DefI = FunctionDefs.find(Name);
+    if (DefI == FunctionDefs.end())
+      return 0;
 
+    // Take the FunctionAST out of the map.
+    auto FnAST = std::move(DefI->second);
+    FunctionDefs.erase(DefI);
+
+    // IRGen the AST, add it to the JIT, and return the address for it.
+    auto H = addModule(IRGen(Session, *FnAST));
+    return findSymbolIn(H, Name).getAddress();
+  }
+
+  SessionContext &Session;
+  Mangler Mang;
   ObjLayerT ObjectLayer;
   CompileLayerT CompileLayer;
   LazyEmitLayerT LazyEmitLayer;
+
+  std::map<std::string, std::unique_ptr<FunctionAST>> FunctionDefs;
 };
 
 static void HandleDefinition(SessionContext &S, KaleidoscopeJIT &J) {
   if (auto F = ParseDefinition()) {
     S.addPrototypeAST(llvm::make_unique<PrototypeAST>(*F->Proto));
-    S.FunctionDefs[J.Mangle(F->Proto->Name)] = std::move(F);
+    J.addFunctionAST(std::move(F));
   } else {
     // Skip token for error recovery.
     getNextToken();
@@ -1253,7 +1273,7 @@ static void HandleTopLevelExpression(SessionContext &S, KaleidoscopeJIT &J) {
       auto H = J.addModule(C.takeM());
 
       // Get the address of the JIT'd function in memory.
-      auto ExprSymbol = J.findSymbol("__anon_expr");
+      auto ExprSymbol = J.findUnmangledSymbol("__anon_expr");
       
       // Cast it to the right type (takes no arguments, returns a double) so we
       // can call it as a native function.

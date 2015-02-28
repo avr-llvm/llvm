@@ -13,6 +13,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm-pdbdump.h"
+#include "CompilandDumper.h"
+#include "FunctionDumper.h"
+#include "LinePrinter.h"
+#include "TypeDumper.h"
+#include "VariableDumper.h"
+
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Config/config.h"
@@ -21,15 +28,19 @@
 #include "llvm/DebugInfo/PDB/IPDBSession.h"
 #include "llvm/DebugInfo/PDB/PDB.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolCompiland.h"
+#include "llvm/DebugInfo/PDB/PDBSymbolData.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolExe.h"
+#include "llvm/DebugInfo/PDB/PDBSymbolFunc.h"
+#include "llvm/DebugInfo/PDB/PDBSymbolThunk.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ConvertUTF.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Process.h"
-#include "llvm/Support/Signals.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Signals.h"
 
 #if defined(HAVE_DIA_SDK)
 #include <Windows.h>
@@ -45,71 +56,13 @@ cl::list<std::string> InputFilenames(cl::Positional,
                                      cl::desc("<input PDB files>"),
                                      cl::OneOrMore);
 
-cl::opt<bool> DumpHidden(
-    "hidden",
-    cl::desc("Attempt to find hidden symbols.  This can find additional\n"
-             "symbols that cannot be found otherwise.  For example, vtables\n"
-             "can only be found with an exhaustive search such as this.  Be\n"
-             "warned that the performance can be prohibitive on large PDB "
-             "files."));
-
-cl::opt<bool> DumpAll(
-    "all",
-    cl::desc("Specifies all other options except -hidden and -group-by"));
-cl::opt<bool> DumpObjFiles("compilands", cl::desc("Display object files"));
-cl::opt<bool> DumpFuncs("functions", cl::desc("Display function information"));
-cl::opt<bool> DumpData(
-    "data",
-    cl::desc("Display global, class, and constant variable information."));
-cl::opt<bool> DumpLabels("labels", cl::desc("Display labels"));
-cl::opt<bool> DumpPublic("public", cl::desc("Display public symbols"));
-cl::opt<bool> DumpClasses("classes", cl::desc("Display class type information"));
-cl::opt<bool> DumpEnums("enums", cl::desc("Display enum information"));
-cl::opt<bool> DumpFuncsigs("funcsigs",
-                           cl::desc("Display unique function signatures"));
-cl::opt<bool> DumpTypedefs("typedefs", cl::desc("Display typedefs"));
-cl::opt<bool> DumpThunks("thunks", cl::desc("Display thunks"));
-cl::opt<bool> DumpVtables(
-    "vtables",
-    cl::desc("Display virtual function tables (only with --exhaustive)"));
-
-static cl::opt<PDB_DumpType> DumpMode(
-    "group-by", cl::init(PDB_DumpType::ByType), cl::desc("Dump mode:"),
-    cl::values(
-        clEnumValN(PDB_DumpType::ByType, "type",
-                   "(Default) Display symbols grouped by type"),
-        clEnumValN(PDB_DumpType::ByObjFile, "compiland",
-                   "Display symbols grouped under their containing object "
-                   "file."),
-        clEnumValN(PDB_DumpType::Both, "both",
-                   "Display symbols grouped by type, and then by object file."),
-        clEnumValEnd));
-}
-
-#define SET_DUMP_FLAG_FROM_OPT(Var, Flag, Opt) \
-  if (opts::Opt) \
-    Var |= Flag;
-
-PDB_DumpFlags CalculateDumpFlags() {
-  PDB_DumpFlags Flags = PDB_DF_None;
-
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_Hidden, DumpHidden)
-
-  if (opts::DumpAll)
-    return Flags | PDB_DF_All;
-
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_ObjFiles, DumpObjFiles)
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_Functions, DumpFuncs)
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_Data, DumpData)
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_Labels, DumpLabels)
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_PublicSyms, DumpPublic)
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_Classes, DumpClasses)
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_Enums, DumpEnums)
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_Funcsigs, DumpFuncsigs)
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_Typedefs, DumpTypedefs)
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_Thunks, DumpThunks)
-  SET_DUMP_FLAG_FROM_OPT(Flags, PDB_DF_VTables, DumpVtables)
-  return Flags;
+cl::opt<bool> Compilands("compilands", cl::desc("Display compilands"));
+cl::opt<bool> Symbols("symbols",
+                      cl::desc("Display symbols for each compiland"));
+cl::opt<bool> Globals("globals", cl::desc("Dump global symbols"));
+cl::opt<bool> Types("types", cl::desc("Display types"));
+cl::opt<bool> ClassDefs("class-definitions",
+                        cl::desc("Display full class definitions"));
 }
 
 static void dumpInput(StringRef Path) {
@@ -120,21 +73,99 @@ static void dumpInput(StringRef Path) {
     outs() << " is available for your platform.";
     return;
   }
-  PDB_DumpFlags Flags = CalculateDumpFlags();
 
-  if (opts::DumpMode != opts::PDB_DumpType::ByObjFile)
-    Flags |= PDB_DF_Children;
+  LinePrinter Printer(2, outs());
+
   auto GlobalScope(Session->getGlobalScope());
-  GlobalScope->dump(outs(), 0, PDB_DumpLevel::Normal, Flags);
-  outs() << "\n";
+  std::string FileName(GlobalScope->getSymbolsFileName());
 
-  if (opts::DumpMode != opts::PDB_DumpType::ByType) {
+  WithColor(Printer, PDB_ColorItem::None).get() << "Summary for ";
+  WithColor(Printer, PDB_ColorItem::Path).get() << FileName;
+  Printer.Indent();
+  uint64_t FileSize = 0;
+
+  Printer.NewLine();
+  WithColor(Printer, PDB_ColorItem::Identifier).get() << "Size";
+  if (!llvm::sys::fs::file_size(FileName, FileSize)) {
+    Printer << ": " << FileSize << " bytes";
+  } else {
+    Printer << ": (Unable to obtain file size)";
+  }
+
+  Printer.NewLine();
+  WithColor(Printer, PDB_ColorItem::Identifier).get() << "Guid";
+  Printer << ": " << GlobalScope->getGuid();
+
+  Printer.NewLine();
+  WithColor(Printer, PDB_ColorItem::Identifier).get() << "Age";
+  Printer << ": " << GlobalScope->getAge();
+
+  Printer.NewLine();
+  WithColor(Printer, PDB_ColorItem::Identifier).get() << "Attributes";
+  Printer << ": ";
+  if (GlobalScope->hasCTypes())
+    outs() << "HasCTypes ";
+  if (GlobalScope->hasPrivateSymbols())
+    outs() << "HasPrivateSymbols ";
+  Printer.Unindent();
+
+  if (opts::Compilands) {
+    Printer.NewLine();
+    WithColor(Printer, PDB_ColorItem::SectionHeader).get()
+        << "---COMPILANDS---";
+    Printer.Indent();
     auto Compilands = GlobalScope->findAllChildren<PDBSymbolCompiland>();
-    while (auto Compiland = Compilands->getNext()) {
-      Compiland->dump(outs(), 0, PDB_DumpLevel::Detailed,
-                      Flags | PDB_DF_Children);
-      outs() << "\n";
+    CompilandDumper Dumper(Printer);
+    while (auto Compiland = Compilands->getNext())
+      Dumper.start(*Compiland, outs(), 2, false);
+    Printer.Unindent();
+  }
+
+  if (opts::Types) {
+    Printer.NewLine();
+    WithColor(Printer, PDB_ColorItem::SectionHeader).get() << "---TYPES---";
+    Printer.Indent();
+    TypeDumper Dumper(Printer, false, opts::ClassDefs);
+    Dumper.start(*GlobalScope, outs(), 2);
+    Printer.Unindent();
+  }
+
+  if (opts::Symbols) {
+    Printer.NewLine();
+    WithColor(Printer, PDB_ColorItem::SectionHeader).get() << "---SYMBOLS---";
+    Printer.Indent();
+    auto Compilands = GlobalScope->findAllChildren<PDBSymbolCompiland>();
+    CompilandDumper Dumper(Printer);
+    while (auto Compiland = Compilands->getNext())
+      Dumper.start(*Compiland, outs(), 2, true);
+    Printer.Unindent();
+  }
+
+  if (opts::Globals) {
+    Printer.NewLine();
+    WithColor(Printer, PDB_ColorItem::SectionHeader).get() << "---GLOBALS---";
+    Printer.Indent();
+    {
+      FunctionDumper Dumper(Printer);
+      auto Functions = GlobalScope->findAllChildren<PDBSymbolFunc>();
+      while (auto Function = Functions->getNext()) {
+        Printer.NewLine();
+        Dumper.start(*Function, FunctionDumper::PointerType::None, outs(), 2);
+      }
     }
+    {
+      auto Vars = GlobalScope->findAllChildren<PDBSymbolData>();
+      VariableDumper Dumper(Printer);
+      while (auto Var = Vars->getNext())
+        Dumper.start(*Var, outs(), 2);
+    }
+    {
+      auto Thunks = GlobalScope->findAllChildren<PDBSymbolThunk>();
+      CompilandDumper Dumper(Printer);
+      while (auto Thunk = Thunks->getNext())
+        Dumper.dump(*Thunk, outs(), 2);
+    }
+    Printer.Unindent();
   }
   outs().flush();
 }

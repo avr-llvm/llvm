@@ -96,7 +96,7 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &tm,
   addRegisterClass(MVT::f128, &SystemZ::FP128BitRegClass);
 
   // Compute derived properties from the register classes
-  computeRegisterProperties();
+  computeRegisterProperties(Subtarget.getRegisterInfo());
 
   // Set up special registers.
   setExceptionPointerRegister(SystemZ::R6D);
@@ -499,8 +499,10 @@ parseRegisterNumber(const std::string &Constraint,
   return std::make_pair(0U, nullptr);
 }
 
-std::pair<unsigned, const TargetRegisterClass *> SystemZTargetLowering::
-getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const {
+std::pair<unsigned, const TargetRegisterClass *>
+SystemZTargetLowering::getRegForInlineAsmConstraint(
+    const TargetRegisterInfo *TRI, const std::string &Constraint,
+    MVT VT) const {
   if (Constraint.size() == 1) {
     // GCC Constraint Letters
     switch (Constraint[0]) {
@@ -557,7 +559,7 @@ getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const {
                                  SystemZMC::FP64Regs);
     }
   }
-  return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);
+  return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
 }
 
 void SystemZTargetLowering::

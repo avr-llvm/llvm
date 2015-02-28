@@ -88,24 +88,22 @@
 ; CHECK-THUMB-FP: .cfi_startproc
 ; CHECK-THUMB-FP: sub    sp, #16
 ; CHECK-THUMB-FP: .cfi_def_cfa_offset 16
-; CHECK-THUMB-FP: push   {r4, r5, r7, lr}
-; CHECK-THUMB-FP: .cfi_def_cfa_offset 32
+; CHECK-THUMB-FP: push   {r4, lr}
+; CHECK-THUMB-FP: .cfi_def_cfa_offset 24
 ; CHECK-THUMB-FP: .cfi_offset lr, -20
-; CHECK-THUMB-FP: .cfi_offset r7, -24
-; CHECK-THUMB-FP: .cfi_offset r5, -28
-; CHECK-THUMB-FP: .cfi_offset r4, -32
+; CHECK-THUMB-FP: .cfi_offset r4, -24
 ; CHECK-THUMB-FP: sub    sp, #8
-; CHECK-THUMB-FP: .cfi_def_cfa_offset 40
+; CHECK-THUMB-FP: .cfi_def_cfa_offset 32
 
 ; CHECK-THUMB-FP-ELIM-LABEL: sum
 ; CHECK-THUMB-FP-ELIM: .cfi_startproc
 ; CHECK-THUMB-FP-ELIM: sub    sp, #16
 ; CHECK-THUMB-FP-ELIM: .cfi_def_cfa_offset 16
-; CHECK-THUMB-FP-ELIM: push   {r4, r5, r7, lr}
+; CHECK-THUMB-FP-ELIM: push   {r4, r6, r7, lr}
 ; CHECK-THUMB-FP-ELIM: .cfi_def_cfa_offset 32
 ; CHECK-THUMB-FP-ELIM: .cfi_offset lr, -20
 ; CHECK-THUMB-FP-ELIM: .cfi_offset r7, -24
-; CHECK-THUMB-FP-ELIM: .cfi_offset r5, -28
+; CHECK-THUMB-FP-ELIM: .cfi_offset r6, -28
 ; CHECK-THUMB-FP-ELIM: .cfi_offset r4, -32
 ; CHECK-THUMB-FP-ELIM: add    r7, sp, #8
 ; CHECK-THUMB-FP-ELIM: .cfi_def_cfa r7, 24
@@ -120,11 +118,11 @@ entry:
 
 for.body:                                         ; preds = %entry, %for.body
   %i.05 = phi i32 [ %inc, %for.body ], [ 0, %entry ]
-  %ap.cur = load i8** %vl, align 4
-  %ap.next = getelementptr i8* %ap.cur, i32 4
+  %ap.cur = load i8*, i8** %vl, align 4
+  %ap.next = getelementptr i8, i8* %ap.cur, i32 4
   store i8* %ap.next, i8** %vl, align 4
   %0 = bitcast i8* %ap.cur to i32*
-  %1 = load i32* %0, align 4
+  %1 = load i32, i32* %0, align 4
   %call = call i32 @foo(i32 %1) #1
   %inc = add nsw i32 %i.05, 1
   %exitcond = icmp eq i32 %inc, %count

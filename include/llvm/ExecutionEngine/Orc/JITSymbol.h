@@ -14,11 +14,12 @@
 #ifndef LLVM_EXECUTIONENGINE_ORC_JITSYMBOL_H
 #define LLVM_EXECUTIONENGINE_ORC_JITSYMBOL_H
 
-#include "llvm/Support/Compiler.h"
+#include "llvm/Support/DataTypes.h"
 #include <cassert>
 #include <functional>
 
 namespace llvm {
+namespace orc {
 
 /// @brief Represents an address in the target process's address space.
 typedef uint64_t TargetAddress;
@@ -67,6 +68,7 @@ private:
   GetAddressFtor GetAddress;
 };
 
-}
+} // End namespace orc.
+} // End namespace llvm.
 
 #endif // LLVM_EXECUTIONENGINE_ORC_JITSYMBOL_H

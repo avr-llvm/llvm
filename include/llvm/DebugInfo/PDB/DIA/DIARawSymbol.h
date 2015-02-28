@@ -19,12 +19,12 @@ class DIARawSymbol : public IPDBRawSymbol {
 public:
   DIARawSymbol(const DIASession &PDBSession, CComPtr<IDiaSymbol> DiaSymbol);
 
-  void dump(raw_ostream &OS, int Indent, PDB_DumpLevel Level) const override;
+  void dump(raw_ostream &OS, int Indent) const override;
 
   CComPtr<IDiaSymbol> getDiaSymbol() const { return Symbol; }
 
   std::unique_ptr<IPDBEnumSymbols>
-  DIARawSymbol::findChildren(PDB_SymType Type) const override;
+  findChildren(PDB_SymType Type) const override;
   std::unique_ptr<IPDBEnumSymbols>
   findChildren(PDB_SymType Type, StringRef Name,
                PDB_NameSearchFlags Flags) const override;
