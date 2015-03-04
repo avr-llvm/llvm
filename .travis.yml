@@ -14,5 +14,5 @@ before_script:
 
 script:
   - mkdir build && cd build
-  - cmake .. --enable-targets=avr
+  - cmake -DLLVM_TARGETS_TO_BUILD="AVR" .. 
   - make
