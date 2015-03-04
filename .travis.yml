@@ -14,5 +14,5 @@ before_script:
 
 script:
   - mkdir build && cd build
-  - ../configure --enable-targets=avr
-  - make -j 1
+  - cmake .. --enable-targets=avr
+  - make
