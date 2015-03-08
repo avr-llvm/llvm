@@ -320,15 +320,16 @@ class Mu1RdRr<dag outs, dag ins, string asmstr, list<dag> pattern>
 // r = multiplier = 4 bits
 // (Only accepts r16-r31)
 //===----------------------------------------------------------------------===//
-class Mu2RdRr<dag outs, dag ins, string asmstr, list<dag> pattern>
+class Mu2RdRr<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<5> d;              // accept 5 bits but only encode the lower 4
-  bits<5> r;              // accept 5 bits but only encode the lower 4
+  bits<5> rd;              // accept 5 bits but only encode the lower 4
+  bits<5> rr;              // accept 5 bits but only encode the lower 4
 
-  let Inst{15-8} = 0b00000010;
-  let Inst{7-4} = d{3-0};
-  let Inst{3-0} = r{3-0};
+  let Inst{15-9} = 0b0000001;
+  let Inst{8} = f;
+  let Inst{7-4} = rd{3-0};
+  let Inst{3-0} = rr{3-0};
 }
 
 //===----------------------------------------------------------------------===//

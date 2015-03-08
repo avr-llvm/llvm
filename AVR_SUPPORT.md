@@ -37,18 +37,18 @@ ORI    x
 EOR    x
 COM    x
 NEG    x
-SBR    x (untested)
+SBR    x
 CBR    not implemented
   * (I'm fairly sure we need to add a pseudo instruction and lower into compliment and ANDI)
 INC    x
 DEC    x
 DEC    x
-TST    x (untested)
-CLR    x (untested)
-SER    x (untested)
+TST    x
+CLR    x
+SER    x
 MUL    x
-MULS   not implemented
-MULSU  not implemented
+MULS   x
+MULSU  x
 FMUL   not implemented
 FMULS  not implemented
 FMULSU not implemented
@@ -60,10 +60,10 @@ SBIS   not implemented
 ### Branch Instructions
 ```
 RJMP    x
-IJMP    x (untested)
+IJMP    x
 EIJMP   x
 JMP     x
-RCALL   x (untested)
+RCALL   x
 ICALL   x
 EICALL  x
 CALL    x
@@ -72,7 +72,7 @@ RETI    x
 CPSE    not implemented
 CP      x
 CPC     x
-CPI     x (untested)
+CPI     x
 SBRC    not implemented
 SBRS    not implemented
 SBIC    not implemented
@@ -81,22 +81,22 @@ BRBS    not implemented
 BRBC    not implemented
 BREQ    x
 BRNE    x
-BRCS    x (untested)
-BRCC    x (untested)
+BRCS    x
+BRCC    x
 BRSH    x
 BRLO    x
 BRMI    x
 BRPL    x
 BRGE    x
 BRLT    x
-BRHS    x (untested)
-BRHC    x (untested)
-BRTS    x (untested)
-BRTC    x (untested)
-BRVS    x (untested)
-BRVC    x (untested)
-BRIE    x (untested)
-BRID    x (untested)
+BRHS    x
+BRHC    x
+BRTS    x
+BRTC    x
+BRVS    x
+BRVC    x
+BRIE    x
+BRID    x
 ```
 
 ### Data Transfer Instructions
@@ -106,17 +106,17 @@ MOVW           x
 LDI            x
 LDS            x
 LD Rr, P       x
-LD Rr, P+      x (untested)
-LD Rr, -P      x (untested)
+LD Rr, P+      x
+LD Rr, -P      x
 LDD            x
-STS            x (untested)
+STS            x
 ST Ptr, Rd     x
-ST P+, Rr      x (untested)
-ST -P, Rr      x (untested)
+ST P+, Rr      x
+ST -P, Rr      x
 STD            x
 LPM            not implemented (this variant implies Rd = r0)
-LPM Rd, Z      x (untested)
-LPM Rd, Z+     x (untested)
+LPM Rd, Z      x
+LPM Rd, Z+     x
 ELPM           not implemented
 SPM            not implemented
 SPM (postinc variant) not implemented
@@ -140,32 +140,32 @@ ASR    x
 SWAP   x
 BSET   not implemented
 BCLR   not implemented
-SBI    x (untested)
-CBI    x (untested)
+SBI    x
+CBI    x
 BST    not implemented
 BLD    not implemented
-SEC    x (untested)
-CLC    x (untested)
-SEN    x (untested)
-CLN    x (untested)
-SEZ    x (untested)
-CLZ    x (untested)
-SEI    x (untested)
-CLI    x (untested)
-SES    x (untested)
-CLS    x (untested)
-SEV    x (untested)
-CLV    x (untested)
-SET    x (untested)
-CLT    x (untested)
-SEH    x (untested)
-CLH    x (untested)
+SEC    x
+CLC    x
+SEN    x
+CLN    x
+SEZ    x
+CLZ    x
+SEI    x
+CLI    x
+SES    x
+CLS    x
+SEV    x
+CLV    x
+SET    x
+CLT    x
+SEH    x
+CLH    x
 ```
 
 ### MCU Control Instructions
 ```
-BREAK    x (untested)
-NOP      x (untested)
-SLEEP    x (untested)
-WDR      x (untested)
+BREAK    x
+NOP      x
+SLEEP    x
+WDR      x
 ```

@@ -502,6 +502,22 @@ def MUL16RdRr : Mu1RdRr<(outs DREGS:$dst),
                         []>,
                 Requires<[HasMUL]>;
 
+let isCommutable = 1,
+Defs = [R1, R0, SREG] in
+def MULSRdRr : Mu2RdRr<0,
+                       (outs GPR8:$dst),
+                       (ins GPR8:$rd, GPR8:$rr),
+                       "muls\t$rd, $rr",
+                       []>;
+
+let isCommutable = 1,
+Defs = [R1, R0, SREG] in
+def MULSURdRr : Mu2RdRr<1,
+                        (outs GPR8:$dst),
+                        (ins GPR8:$rd, GPR8:$rr),
+                        "mulsu\t$rd, $rr",
+                        []>;
+
 //_______________________________________
 // Logic Instructions
 //_______________________________________
