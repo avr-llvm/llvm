@@ -2,7 +2,19 @@
 
 Here is a working list of the assembly instructions to be implemented and whether we have a test case to handle each. For those interested in either implementing instructions or writing test cases, refer to [Atmel's AVR Instruction Set](http://www.atmel.com/images/doc0856.pdf) for documentation on each instruction.
 
-## Key
+## Testing your work
+
+LLVM provides the Integrated Tester `llvm-lit` to test your work, and this project makes good use of it. To make sure your new instruction(s) work as expected, create a matching test in 'test/MC/AVR', and run the following from the root of your build directory:
+
+```
+bin/llvm-lit ../test/MC/AVR/*
+```
+
+This will also run the other existing conformance tests. If any fail, feel free to tackle them and send in a pull request.
+
+## Instruction List
+
+### Key
 * `x` means that the instruction is supported and can be compiled to machine code
 * `pseudo` means that the instruction is supported, but only in assembly output (no machine code support)
 * `not implemented` means that no support exists whatsoever
