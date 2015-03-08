@@ -49,9 +49,9 @@ SER    x
 MUL    x
 MULS   x
 MULSU  x
-FMUL   not implemented
-FMULS  not implemented
-FMULSU not implemented
+FMUL   x
+FMULS  x
+FMULSU x
 DES    not implemented
 SBIC   not implemented
 SBIS   not implemented

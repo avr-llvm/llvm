@@ -332,25 +332,20 @@ class Mu2RdRr<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{3-0} = rr{3-0};
 }
 
-//===----------------------------------------------------------------------===//
-// Rest of multiplication instructions: <|0000|0011|fddd|frrr|>
-// f = secondary opcode = 2 bits
-// d = multiplicand = 3 bits
-// r = multiplier = 3 bits
-// (Only accepts r16-r23)
-//===----------------------------------------------------------------------===//
+// 0000 0011 fddd frrr
 class Mu3RdRr<bits<2> f, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<5> d;              // accept 5 bits but only encode the lower 3
-  bits<5> r;              // accept 5 bits but only encode the lower 3
+  bits<3> rd;              // accept 5 bits but only encode the lower 4
+  bits<3> rr;              // accept 5 bits but only encode the lower 4
 
   let Inst{15-8} = 0b00000011;
   let Inst{7} = f{1};
-  let Inst{6-4} = d{2-0};
+  let Inst{6-4} = rd;
   let Inst{3} = f{0};
-  let Inst{2-0} = r{2-0};
+  let Inst{2-0} = rr;
 }
+
 
 //===----------------------------------------------------------------------===//
 // Arithmetic word instructions (ADIW / SBIW): <|1001|011f|kkdd|kkkk|>

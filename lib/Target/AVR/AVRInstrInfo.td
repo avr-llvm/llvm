@@ -518,6 +518,30 @@ def MULSURdRr : Mu2RdRr<1,
                         "mulsu\t$rd, $rr",
                         []>;
 
+let isCommutable = 1,
+Defs = [R1, R0, SREG] in
+def FMUL : Mu3RdRr<0b01,
+                   (outs GPR8:$dst),
+                   (ins GPR8:$rd, GPR8:$rr),
+                   "fmul\t$rd, $rr",
+                   []>;
+
+let isCommutable = 1,
+Defs = [R1, R0, SREG] in
+def FMULS : Mu3RdRr<0b10,
+                    (outs GPR8:$dst),
+                    (ins GPR8:$rd, GPR8:$rr),
+                    "fmuls\t$rd, $rr",
+                    []>;
+
+let isCommutable = 1,
+Defs = [R1, R0, SREG] in
+def FMULSU : Mu3RdRr<0b11,
+                     (outs GPR8:$dst),
+                     (ins GPR8:$rd, GPR8:$rr),
+                     "fmulsu\t$rd, $rr",
+                     []>;
+
 //_______________________________________
 // Logic Instructions
 //_______________________________________
