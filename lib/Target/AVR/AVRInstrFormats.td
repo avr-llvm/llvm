@@ -547,3 +547,19 @@ class FFL<bit b, bits<3> f, dag outs, dag ins, string asmstr, list<dag> pattern>
   
   let Inst{3-0} = 0b1000;
 }
+
+// <|1001|0100|bfff|1000>
+class FS<bit b, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  bits<3> s;
+
+  let Inst{15-12} = 0b1001;
+
+  let Inst{11-8} = 0b0100;
+
+  let Inst{7} = b;
+  let Inst{6-4} = s;
+
+  let Inst{3-0} = 0b1000;
+}

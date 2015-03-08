@@ -1510,6 +1510,18 @@ def SERRd : FRd<0b1110,
 // I - 111 (interrupt)
 //===----------------------------------------------------------------------===//
 
+def BSET : FS<0,
+              (outs),
+              (ins i8imm:$s),
+              "bset\t$s",
+              []>;
+
+def BCLR : FS<1,
+              (outs),
+              (ins i8imm:$s),
+              "bclr\t$s",
+              []>;
+
 def SEC : FFL<0,
               0b000,
               (outs),

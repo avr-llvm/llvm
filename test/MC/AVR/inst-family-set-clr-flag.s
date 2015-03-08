@@ -49,9 +49,9 @@ foo:
 
 ; BSET
 ; CHECK: bset 4               ; encoding: [0x48,0x94]  
-; CHECK: bset 2               ; encoding: [0x48,0x94]  
-; CHECK: bset 0               ; encoding: [0x48,0x94]  
-; CHECK: bset 1               ; encoding: [0x48,0x94]  
+; CHECK: bset 2               ; encoding: [0x28,0x94]  
+; CHECK: bset 0               ; encoding: [0x08,0x94]  
+; CHECK: bset 1               ; encoding: [0x18,0x94]  
 
 
 ; BCLR
@@ -75,7 +75,7 @@ foo:
 
 ; Interrupt (I flag)
 ; CHECK: sei                  ; encoding: [0x78,0x94]
-; CHECK: sez                  ; encoding: [0xf8,0x94]
+; CHECK: cli                  ; encoding: [0xf8,0x94]
 
 ; Signed test (S flag)
 ; CHECK: ses                  ; encoding: [0x48,0x94]

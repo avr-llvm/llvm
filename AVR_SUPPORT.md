@@ -138,8 +138,8 @@ ROL    x
 ROR    x
 ASR    x
 SWAP   x
-BSET   not implemented
-BCLR   not implemented
+BSET   x
+BCLR   x
 SBI    x
 CBI    x
 BST    not implemented
