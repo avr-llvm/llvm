@@ -114,7 +114,7 @@ ST Ptr, Rd     x
 ST P+, Rr      x
 ST -P, Rr      x
 STD            x
-LPM            not implemented (this variant implies Rd = r0)
+LPM            x
 LPM Rd, Z      x
 LPM Rd, Z+     x
 ELPM           not implemented
@@ -124,10 +124,10 @@ IN             x
 OUT            x
 PUSH           x
 POP            x
-XCH
-LAS
-LAC
-LAT
+XCH            not implemented
+LAS            not implemented
+LAC            not implemented
+LAT            not implemented
 ```
 
 ### Bit and Bit-test instructions

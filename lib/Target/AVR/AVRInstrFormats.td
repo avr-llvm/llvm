@@ -258,12 +258,12 @@ class FTST<dag outs, dag ins, string asmstr, list<dag> pattern>
 
 //===---------------------------------------------------------------------===//
 // Special format for the LPM instruction
-// LPM Rd, Z
+// LPM Rd, Z[+]
 // <|1001|000d|dddd|0ttt>
 // d = destination register
 // t = type (0b100 for regular version, 0b101 for post-increment)
 //===---------------------------------------------------------------------===//
-class FLPM<bits<3> t, dag outs, dag ins, string asmstr, list<dag> pattern>
+class FLPMX<bits<3> t, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
    bits<5> reg;
