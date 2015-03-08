@@ -89,13 +89,13 @@ class FRdRr<bits<4> opcode, bits<2> f, dag outs, dag ins, string asmstr,
 class FRdK<bits<4> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<5> d;              // accept 5 bits but only encode the lower 4
-  bits<8> K;
+  bits<5> rd;              // accept 5 bits but only encode the lower 4
+  bits<8> k;
 
   let Inst{15-12} = opcode;
-  let Inst{11-8} = K{7-4};
-  let Inst{7-4} = d{3-0};
-  let Inst{3-0} = K{3-0};
+  let Inst{11-8} = k{7-4};
+  let Inst{7-4} = rd{3-0};
+  let Inst{3-0} = k{3-0};
 }
 
 //===----------------------------------------------------------------------===//

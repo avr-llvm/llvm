@@ -377,13 +377,13 @@ def SUBWRdRr : Pseudo<(outs DREGS:$dst),
                       [(set DREGS:$dst, (sub DREGS:$src, DREGS:$src2)),
                        (implicit SREG)]>;
 
-let Constraints = "$src = $dst",
+let Constraints = "$src = $rd",
 Defs = [SREG] in
 def SUBIRdK : FRdK<0b0101,
-                   (outs LD8:$dst),
-                   (ins LD8:$src, i8imm:$src2),
-                   "subi\t$dst, $src2",
-                   [(set LD8:$dst, (sub LD8:$src, imm:$src2)),
+                   (outs LD8:$rd),
+                   (ins LD8:$src, i8imm:$k),
+                   "subi\t$rd, $k",
+                   [(set LD8:$rd, (sub LD8:$src, imm:$k)),
                     (implicit SREG)]>;
 
 let Constraints = "$src = $dst",
@@ -414,14 +414,14 @@ def SBCWRdRr : Pseudo<(outs DREGS:$dst),
                       [(set DREGS:$dst, (sube DREGS:$src, DREGS:$src2)),
                        (implicit SREG)]>;
 
-let Constraints = "$src = $dst",
+let Constraints = "$src = $rd",
 Uses = [SREG],
 Defs = [SREG] in
 def SBCIRdK : FRdK<0b0100,
-                   (outs LD8:$dst),
-                   (ins LD8:$src, i8imm:$src2),
-                   "sbci\t$dst, $src2",
-                   [(set LD8:$dst, (sube LD8:$src, imm:$src2)),
+                   (outs LD8:$rd),
+                   (ins LD8:$src, i8imm:$k),
+                   "sbci\t$rd, $k",
+                   [(set LD8:$rd, (sube LD8:$src, imm:$k)),
                     (implicit SREG)]>;
 
 let Constraints = "$src = $dst",
@@ -527,13 +527,13 @@ def ANDWRdRr : Pseudo<(outs DREGS:$dst),
                       [(set DREGS:$dst, (and DREGS:$src, DREGS:$src2)),
                        (implicit SREG)]>;
 
-let Constraints = "$src = $dst",
+let Constraints = "$src = $rd",
 Defs = [SREG] in
 def ANDIRdK : FRdK<0b0111,
-                   (outs LD8:$dst),
-                   (ins LD8:$src, i8imm:$src2),
-                   "andi\t$dst, $src2",
-                   [(set LD8:$dst, (and LD8:$src, imm:$src2)),
+                   (outs LD8:$rd),
+                   (ins LD8:$src, i8imm:$k),
+                   "andi\t$rd, $k",
+                   [(set LD8:$rd, (and LD8:$src, imm:$k)),
                     (implicit SREG)]>;
 
 let Constraints = "$src = $dst",
@@ -564,13 +564,13 @@ def ORWRdRr : Pseudo<(outs DREGS:$dst),
                      [(set DREGS:$dst, (or DREGS:$src, DREGS:$src2)),
                       (implicit SREG)]>;
 
-let Constraints = "$src = $dst",
+let Constraints = "$src = $rd",
 Defs = [SREG] in
 def ORIRdK : FRdK<0b0110,
-                  (outs LD8:$dst),
-                  (ins LD8:$src, i8imm:$src2),
-                  "ori\t$dst, $src2",
-                  [(set LD8:$dst, (or LD8:$src, imm:$src2)),
+                  (outs LD8:$rd),
+                  (ins LD8:$src, i8imm:$k),
+                  "ori\t$rd, $k",
+                  [(set LD8:$rd, (or LD8:$src, imm:$k)),
                    (implicit SREG)]>;
 
 let Constraints = "$src = $dst",
@@ -761,9 +761,9 @@ def CPCWRdRr : Pseudo<(outs),
 let Defs = [SREG],
 Uses = [SREG] in
 def CPIRdK : FRdK<0b0011,
-                  (outs LD8:$src2),
-                  (ins GPR8:$src),
-                  "cpi\t$src, $src2",
+                  (outs LD8:$k),
+                  (ins GPR8:$rd),
+                  "cpi\t$rd, $k",
                   []>;
 
 let isBranch = 1,
@@ -989,10 +989,10 @@ def MOVWRdRr : FMOVWRdRr<(outs DREGS:$dst),
 let isReMaterializable = 1,
 isAsCheapAsAMove = 1 in
 def LDIRdK : FRdK<0b1110,
-                  (outs LD8:$dst),
-                  (ins i8imm:$src),
-                  "ldi\t$dst, $src",
-                  [(set LD8:$dst, imm:$src)]>;
+                  (outs LD8:$rd),
+                  (ins i8imm:$k),
+                  "ldi\t$rd, $k",
+                  [(set LD8:$rd, imm:$k)]>;
 
 let isReMaterializable = 1,
 isAsCheapAsAMove = 1 in
@@ -1392,13 +1392,13 @@ def CBIAb : FIOBIT<0b0,
 
 // SBR Rd, K
 // Alias for ORI Rd, K
-let Constraints = "$src = $dst",
+let Constraints = "$src = $rd",
 Defs = [SREG] in
 def SBRRdK : FRdK<0b0110,
-                  (outs LD8:$dst),
-                  (ins LD8:$src, i8imm:$src2),
-                  "sbr\t$dst, $src2",
-                  [(set LD8:$dst, (or LD8:$src, imm:$src2)),
+                  (outs LD8:$rd),
+                  (ins LD8:$src, i8imm:$k),
+                  "sbr\t$rd, $k",
+                  [(set LD8:$rd, (or LD8:$src, imm:$k)),
                    (implicit SREG)]>;
 
 // CLR Rd
