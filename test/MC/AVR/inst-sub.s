@@ -3,12 +3,13 @@
 
 foo:
 
-  sub r13, r2
-  sub r9,  r3
-  sub r18, r9
-  sub r29, r29
+  sub r0,  r15
+  sub r15, r0 
+  sub r16, r31
+  sub r31, r16
 
-; CHECK: sub r13, r2                  ; encoding: [0xd2,0x18]
-; CHECK: sub r9,  r3                  ; encoding: [0x93,0x18]
-; CHECK: sub r18, 9                   ; encoding: [0x29,0x19]
-; CHECK: sub r29, r29                 ; encoding: [0xdd,0x1b]
+; CHECK: sub r0,  r15               ; encoding: [0x0f,0x18]
+; CHECK: sub r15, r0                ; encoding: [0xf0,0x18]
+; CHECK: sub r16, r31               ; encoding: [0x0f,0x1b]
+; CHECK: sub r31, r16               ; encoding: [0xf0,0x1b]
+
