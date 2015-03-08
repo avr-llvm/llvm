@@ -97,10 +97,6 @@ class AVRAsmParser : public MCTargetAsmParser {
   //! \return The register number, or -1 if the register is invalid.
   int matchRegisterName(StringRef Symbol);
   
-  //! \brief Validates a register number.
-  //! \return The register number, or -1 if the register does not exist.
-  int matchRegisterByNumber(unsigned RegNum, StringRef Mnemonic);
-
 public:
   AVRAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,
                 const MCInstrInfo &MII, const MCTargetOptions &Options)
@@ -384,13 +380,6 @@ int AVRAsmParser::matchRegisterName(StringRef Name) {
   return -1;
 }
 
-int AVRAsmParser::matchRegisterByNumber(unsigned RegNum, StringRef Mnemonic) {
-  if(RegNum <= 31)
-      return RegNum;
-  else
-      return -1;
-}
-
 int AVRAsmParser::tryParseRegister(StringRef Mnemonic) {
   const AsmToken &Tok = Parser.getTok();
   int RegNum = -1;
@@ -399,12 +388,7 @@ int AVRAsmParser::tryParseRegister(StringRef Mnemonic) {
   
     std::string lowerCase = Tok.getString().lower();
     RegNum = matchRegisterName(lowerCase);
-    
-  } else if (Tok.is(AsmToken::Integer)) {
-    
-    RegNum = matchRegisterByNumber(static_cast<unsigned>(Tok.getIntVal()),
-                                   Mnemonic.lower());
-  } else { // error
+  } else { // not a register
       RegNum = -1;
   }
   
@@ -431,7 +415,7 @@ bool AVRAsmParser::
 }
 
 bool AVRAsmParser::ParseOperand(OperandVector &Operands,
-                                 StringRef Mnemonic) {
+                                StringRef Mnemonic) {
   DEBUG(dbgs() << "ParseOperand\n");
   
   // Check if the current operand has a custom associated parser, if so, try to
@@ -452,9 +436,6 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
     default:
       Error(Parser.getTok().getLoc(), "unexpected token in operand");
       return true;
-    // Try and parse a register
-    case AsmToken::Dollar:
-    case AsmToken::Percent:
     case AsmToken::Identifier:
     case AsmToken::LParen:
     case AsmToken::Minus:
