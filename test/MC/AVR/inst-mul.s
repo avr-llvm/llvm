@@ -3,12 +3,13 @@
 
 foo:
 
-  mul r2, r13
-  mul r9, r0
-  mul r5, r31
-  mul r3, r3
+  mul r0,  r15
+  mul r15, r0 
+  mul r16, r31
+  mul r31, r16
 
-; CHECK: mul r2, r13                  ; encoding: [0x2d,0x9c]
-; CHECK: mul r9, r0                   ; encoding: [0x90,0x9c]
-; CHECK: mul r5, r31                  ; encoding: [0x5f,0x9e]
-; CHECK: mul r3, r3                   ; encoding: [0x33,0x9c]
+; CHECK: mul r0,  r15               ; encoding: [0x0f,0x9c]
+; CHECK: mul r15, r0                ; encoding: [0xf0,0x9c]
+; CHECK: mul r16, r31               ; encoding: [0x0f,0x9f]
+; CHECK: mul r31, r16               ; encoding: [0xf0,0x9f]
+

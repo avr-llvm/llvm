@@ -3,12 +3,13 @@
 
 foo:
 
-  adc r12, 3
-  adc r10, r0
-  adc r5,  r4
-  adc r13, r13
+  adc r0,  r15
+  adc r15, r0 
+  adc r16, r31
+  adc r31, r16
 
-; CHECK: adc r12, r3                 ; encoding: [0xc3,0x1c]
-; CHECK: adc r10, r0                 ; encoding: [0xa0,0x1c]
-; CHECK: adc r5, r4                  ; encoding: [0x54,0x1e]
-; CHECK: adc r13, r13                ; encoding: [0xdd,0x1c]
+; CHECK: adc r0,  r15               ; encoding: [0x0f,0x1c]
+; CHECK: adc r15, r0                ; encoding: [0xf0,0x1c]
+; CHECK: adc r16, r31               ; encoding: [0x0f,0x1f]
+; CHECK: adc r31, r16               ; encoding: [0xf0,0x1f]
+

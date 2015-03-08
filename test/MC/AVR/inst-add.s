@@ -3,12 +3,13 @@
 
 foo:
 
-  add r2, r13
-  add r9, r0
-  add r5, r31
-  add r3, r3
+  add r0,  r15
+  add r15, r0 
+  add r16, r31
+  add r31, r16
 
-; CHECK: add r2, r13                  ; encoding: [0x2d,0x0c]
-; CHECK: add r9, r0                   ; encoding: [0x90,0x0c]
-; CHECK: add r5, r31                  ; encoding: [0x5f,0x0e]
-; CHECK: add r3, r3                   ; encoding: [0x33,0x0c]
+; CHECK: add r0,  r15               ; encoding: [0x0f,0x0c]
+; CHECK: add r15, r0                ; encoding: [0xf0,0x0c]
+; CHECK: add r16, r31               ; encoding: [0x0f,0x0f]
+; CHECK: add r31, r16               ; encoding: [0xf0,0x0f]
+
