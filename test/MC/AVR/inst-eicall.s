@@ -5,4 +5,4 @@ foo:
 
   eicall 
 
-; CHECK: eicall                  ; encoding: [0x19,0x95]
+; CHECK: eicall                  ; encoding: [0x19,0x94]

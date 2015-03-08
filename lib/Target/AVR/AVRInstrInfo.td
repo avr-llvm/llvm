@@ -659,6 +659,17 @@ def IJMP : FBR<0b1001010000001001,
                "ijmp",
                []>;
 
+let isBranch = 1,
+isTerminator = 1,
+isBarrier = 1,
+isIndirectBranch = 1,
+Uses = [R31R30] in
+def EIJMP : FBR<0b1001010000011001,
+                (outs),
+                (ins),
+                "eijmp",
+                []>;
+
 let isBarrier = 1,
 isBranch = 1,
 isTerminator = 1 in
@@ -678,6 +689,18 @@ let isCall = 1 in
                     (ins variable_ops),
                     "icall",
                     []>;
+  }
+
+let isCall = 1 in
+  // SP is marked as a use to prevent stack-pointer assignments that appear
+  // immediately before calls from potentially appearing dead.
+  let Uses = [SP, R31R30] in
+  {
+    def EICALL : FBR<0b1001010000011001,
+                     (outs),
+                     (ins variable_ops),
+                     "eicall",
+                     []>;
   }
 
 let isCall = 1 in

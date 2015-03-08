@@ -61,11 +61,11 @@ SBIS   not implemented
 ```
 RJMP    x
 IJMP    x (untested)
-EIJMP   not implemented
+EIJMP   x
 JMP     x
 RCALL   x (untested)
 ICALL   x
-EICALL  not implemented
+EICALL  x
 CALL    x
 RET     x
 RETI    x
