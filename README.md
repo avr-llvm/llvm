@@ -2,7 +2,7 @@
 
 [![Build Status](https://travis-ci.org/avr-llvm/llvm.svg)](https://travis-ci.org/avr-llvm/llvm)
 
-See the [Wiki](https://github.com/dylanmckay/avr-llvm/wiki/Getting%20Started) for more information.
+See the [Wiki](https://github.com/avr-llvm/llvm/wiki/Getting%20Started) for more information.
 
 An LLVM backend for the Atmel [AVR](http://en.wikipedia.org/wiki/Atmel_AVR) microprocessor architecture.
 
@@ -10,8 +10,6 @@ Currently AVR-LLVM can generate assembly files and ELF object files.
 
 As the project is still very much in development, it is likely that you will encounter bugs. If you think you've found one, submit an issue - we're aiming for AVR-LLVM to eventually be
 a production-quality compiler backend, so bugs will not be tolerated.
-
-See `AVR_SUPPORT.md` for a list of supported instructions.
 
 AVR-related code can be found in `lib/Target/AVR`.
 
@@ -22,13 +20,8 @@ The mailing list can be found [here](https://lists.sourceforge.net/lists/listinf
 ## Features
 
 * Machine code generation
-* Subtarget features (not completely finished)
-* Support for most instructions
+* Assembly and machine code support for the entire instruction set
 * ELF object outputting
-
-## Development
-
-Take a look at the issues page for goals and bugs that currently exist. Pull requests are very welcome!
 
 ## History
 
@@ -44,5 +37,12 @@ The AVR-LLVM project aims to keep to code updated (so that it's always compatibl
 
 We would like to be able to compile any program that AVR-GCC can, have comparable diagnostics, and on-par performance.
 
-Other goals include:
-* Support the LLVM `compiler-rt` library
+Ideally, the avr-llvm project would provide a drop-in 100% compatible replacement for AVR-GCC and binutils.
+
+## Contributing
+
+Any improvement, however minor, is welcomed :)
+
+Take a look at the issues page for goals and bugs that currently exist. Pull requests are very welcome!
+
+For more information, please read the [Contributing](https://github.com/avr-llvm/llvm/wiki/Contributing) page on the Wiki.
