@@ -80,6 +80,26 @@ class FRdRr<bits<4> opcode, bits<2> f, dag outs, dag ins, string asmstr,
 }
 
 //===----------------------------------------------------------------------===//
+// Instruction of the format `<mnemonic> Z, Rd`
+// <|1001|001r|rrrr|0ttt>
+//===----------------------------------------------------------------------===//
+class FZRd<bits<3> t, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  bits<5> rd;
+
+  let Inst{15-12} = 0b1001;
+
+  let Inst{11-9} = 0b001;
+  let Inst{8} = rd{4};
+
+  let Inst{7-4} = rd{3-0};
+
+  let Inst{3} = 0;
+  let Inst{2-0} = t;
+}
+
+//===----------------------------------------------------------------------===//
 // Register / immediate8 instruction: <|opcode|KKKK|dddd|KKKK|>
 // opcode = 4 bits.
 // K = constant data = 8 bits
@@ -257,13 +277,14 @@ class FTST<dag outs, dag ins, string asmstr, list<dag> pattern>
 }
 
 //===---------------------------------------------------------------------===//
-// Special format for the LPM instruction
-// LPM Rd, Z[+]
-// <|1001|000d|dddd|0ttt>
+// Special format for the LPM/ELPM instructions
+// [E]LPM Rd, Z[+]
+// <|1001|000d|dddd|01ep>
 // d = destination register
-// t = type (0b100 for regular version, 0b101 for post-increment)
+// e = is elpm
+// p = is postincrement
 //===---------------------------------------------------------------------===//
-class FLPMX<bits<3> t, dag outs, dag ins, string asmstr, list<dag> pattern>
+class FLPMX<bit e, bit p, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
    bits<5> reg;
@@ -275,8 +296,9 @@ class FLPMX<bits<3> t, dag outs, dag ins, string asmstr, list<dag> pattern>
    
    let Inst{7-4} = reg{3-0};
 
-   let Inst{3} = 0b0;
-   let Inst{2-0} = t;
+   let Inst{3-2} = 0b01;
+   let Inst{1} = e;
+   let Inst{0} = p;
 }
 
 //===----------------------------------------------------------------------===//
@@ -405,12 +427,12 @@ class FIOARr<dag outs, dag ins, string asmstr, list<dag> pattern>
 
 //===----------------------------------------------------------------------===//
 // I/O bit instruction.
-// <|1001|10t0|AAAA|Abbb>
+// <|1001|10tt|AAAA|Abbb>
 // t = type (1 for SBI, 0 for CBI)
 // A = I/O location address (5 bits)
 // b = bit number
 //===----------------------------------------------------------------------===//
-class FIOBIT<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
+class FIOBIT<bits<2> t, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
   bits<5> A;
@@ -419,13 +441,52 @@ class FIOBIT<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{15-12} = 0b1001;
   
   let Inst{11-10} = 0b10;
-  let Inst{9} = t;
-  let Inst{8} = 0;
+  let Inst{9-8} = t;
   
   let Inst{7-4} = A{4-1};
   
   let Inst{3} = A{0};
   let Inst{2-0} = b{2-0};
+}
+
+//===----------------------------------------------------------------------===//
+// BST/BLD instruction.
+// <|1111|1ttd|dddd|0bbb>
+// t = type (1 for BST, 0 for BLD)
+// d = destination register
+// b = bit
+//===----------------------------------------------------------------------===//
+class FRdB<bits<2> t, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  bits<5> rd;
+  bits<3> b;
+
+  let Inst{15-12} = 0b1111;
+
+  let Inst{11} = 0b1;
+  let Inst{10-9} = t;
+  let Inst{8} = rd{4};
+
+  let Inst{7-4} = rd{3-0};
+
+  let Inst{3} = 0;
+  let Inst{2-0} = b;
+}
+
+// <|1001|0100|KKKK|1011>
+class FDES<dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  bits<4> k;
+
+  let Inst{15-12} = 0b1001;
+
+  let Inst{11-8} = 0b0100;
+
+  let Inst{7-4} = k;
+
+  let Inst{3-0} = 0b1011;
 }
 
 //===----------------------------------------------------------------------===//
@@ -562,4 +623,26 @@ class FS<bit b, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{6-4} = s;
 
   let Inst{3-0} = 0b1000;
+}
+
+// Set/clr bit in status flag instructions/
+// <BRBS|BRBC> s, k
+// ---------------------
+// <|1111|0fkk|kkkk|ksss>
+class FSK<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  bits<7> k;
+  bits<3> s;
+
+  let Inst{15-12} = 0b1111;
+
+  let Inst{11} = 0;
+  let Inst{10} = f;
+  let Inst{9-8} = k{6-5};
+
+  let Inst{7-4} = k{4-1};
+
+  let Inst{3} = k{0};
+  let Inst{2-0} = s;
 }

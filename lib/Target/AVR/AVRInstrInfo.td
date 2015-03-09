@@ -164,6 +164,13 @@ def brtarget : Operand<OtherVT>
   let PrintMethod = "print_pcrel_imm";
 }
 
+def i8imm_com : Operand<i8>
+{
+  let EncoderMethod = "getI8ImmComEncoding";
+
+  let MIOperandInfo = (ops i8imm);
+}
+
 def rel_condbr_7_target : Operand<OtherVT>
 {
     let PrintMethod = "print_pcrel_imm";
@@ -541,6 +548,12 @@ def FMULSU : Mu3RdRr<0b11,
                      (ins GPR8:$rd, GPR8:$rr),
                      "fmulsu\t$rd, $rr",
                      []>;
+let Defs = [R15, R14, R13, R12, R11, R10, R9,
+            R8, R7, R6, R5, R4, R3, R2, R1, R0] in
+def DESK : FDES<(outs),
+                (ins i8imm:$k),
+                "des\t$k",
+                []>;
 
 //_______________________________________
 // Logic Instructions
@@ -789,6 +802,14 @@ def RETI : FBR<0b1001010100011000,
                [(AVRretiflag)]>;
 
 let Defs = [SREG] in
+def CPSE : FRdRr<0b0001,
+                 0b00,
+                 (outs),
+                 (ins GPR8:$rd, GPR8:$rr),
+                 "cpse\t$rd, $rr",
+                 []>;
+
+let Defs = [SREG] in
 def CPRdRr : FRdRr<0b0001,
                    0b01,
                    (outs),
@@ -828,6 +849,18 @@ def CPIRdK : FRdK<0b0011,
                   (ins GPR8:$rd),
                   "cpi\t$rd, $k",
                   []>;
+
+def SBRCRrB : FRdB<0b10,
+                   (outs),
+                   (ins GPR8:$rr, i8imm:$b),
+                   "sbrc\t$rr, $b",
+                   []>;
+
+def SBRSRrB : FRdB<0b11,
+                   (outs),
+                   (ins GPR8:$rr, i8imm:$b),
+                   "sbrs\t$rr, $b",
+                   []>;
 
 let isBranch = 1,
 isTerminator = 1,
@@ -910,125 +943,68 @@ def BRLTk : FBRsk<0,
                   "brlt\t$target",
                   [(AVRbrcond bb:$target, AVR_COND_LT)]>;
 
-// BRCS k
-// Branch if carry flag is set
+// BRBS s, k
+// Branch if `s` flag in status register is set.
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
-def BRCSk : FBRsk<0,
-                  0b000,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brcs\t$target",
-                  []>;
+def BRBSsk : FSK<0,
+                 (outs),
+                 (ins i8imm:$s, rel_condbr_7_target:$k),
+                 "brbs\t$s, $k",
+                 []>;
+
+// BRBC s, k
+// Branch if `s` flag in status register is clear.
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRBCsk : FSK<1,
+                 (outs),
+                 (ins i8imm:$s, rel_condbr_7_target:$k),
+                 "brbc\t$s, $k",
+                 []>;
+
+
+// BRCS k
+// Branch if carry flag is set
+def : InstAlias<"brcs\t$k", (BRBSsk 0, rel_condbr_7_target:$k)>;
 
 // BRCC k
 // Branch if carry flag is clear
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRCCk : FBRsk<1,
-                  0b000,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brcc\t$target",
-                  []>;
+def : InstAlias<"brcc\t$k", (BRBCsk 0, rel_condbr_7_target:$k)>;
 
 // BRHS k
 // Branch if half carry flag is set
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRHSk : FBRsk<0,
-                  0b101,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brhs\t$target",
-                  []>;
+def : InstAlias<"brhs\t$k", (BRBSsk 5, rel_condbr_7_target:$k)>;
 
 // BRHC k
 // Branch if half carry flag is clear
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRHCk : FBRsk<1,
-                  0b101,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brhc\t$target",
-                  []>;
+def : InstAlias<"brhc\t$k", (BRBCsk 5, rel_condbr_7_target:$k)>;
 
 // BRTS k
 // Branch if the T flag is set
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRTSk : FBRsk<0,
-                  0b110,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brts\t$target",
-                  []>;
+def : InstAlias<"brts\t$k", (BRBSsk 6, rel_condbr_7_target:$k)>;
 
 // BRTC k
 // Branch if the T flag is clear
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRTCk : FBRsk<1,
-                  0b110,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brtc\t$target",
-                  []>;
+def : InstAlias<"brtc\t$k", (BRBCsk 6, rel_condbr_7_target:$k)>;
 
 // BRVS k
 // Branch if the overflow flag is set
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRVSk : FBRsk<0,
-                  0b011,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brvs\t$target",
-                  []>;
+def : InstAlias<"brvs\t$k", (BRBSsk 3, rel_condbr_7_target:$k)>;
 
 // BRVC k
 // Branch if the overflow flag is clear
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRVCk : FBRsk<1,
-                  0b011,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brvc\t$target",
-                  []>;
+def : InstAlias<"brvc\t$k", (BRBCsk 3, rel_condbr_7_target:$k)>;
 
 // BRIE k
 // Branch if the global interrupt flag is enabled
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRIEk : FBRsk<0,
-                  0b111,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brie\t$target",
-                  []>;
+def : InstAlias<"brie\t$k", (BRBSsk 7, rel_condbr_7_target:$k)>;
 
 // BRID k
 // Branch if the global interrupt flag is disabled
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRIDk : FBRsk<1,
-                  0b111,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brid\t$target",
-                  []>;
+def : InstAlias<"brid\t$k", (BRBCsk 7, rel_condbr_7_target:$k)>;
 
 // __________________________
 // Data transfer instructions
@@ -1252,11 +1228,12 @@ def LPM : F16<0b1001010111001000,
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
 hasSideEffects = 0 in
-def LPMRdZ : FLPMX<0b100,
-                  (outs GPR8:$dst),
-                  (ins),
-                  "lpm\t$dst, Z",
-                  []>,
+def LPMRdZ : FLPMX<0,
+                   0,
+                   (outs GPR8:$dst),
+                   (ins),
+                   "lpm\t$dst, Z",
+                   []>,
              Requires<[HasLPMX]>;
 
 let canFoldAsLoad = 1,
@@ -1271,11 +1248,12 @@ def LPMWRdZ : Pseudo<(outs DREGS:$dst, DREGS:$base_wb),
 let mayLoad = 1,
 hasSideEffects = 0,
 Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
-def LPMRdZPi : FLPMX<0b101,
-                    (outs GPR8:$dst, DREGS:$base_wb),
-                    (ins DREGS:$src),
-                    "lpm\t$dst, Z+",
-                    []>;
+def LPMRdZPi : FLPMX<0,
+                     1,
+                     (outs GPR8:$dst, DREGS:$base_wb),
+                     (ins DREGS:$src),
+                     "lpm\t$dst, Z+",
+                     []>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
@@ -1284,6 +1262,47 @@ def LPMWRdZPi : Pseudo<(outs DREGS:$dst, DREGS:$base_wb),
                        (ins DREGS:$src),
                        "lpmw\t$dst, Z+",
                        []>;
+
+let mayLoad = 1,
+hasSideEffects = 0 in
+def ELPM : F16<0b1001010111011000,
+               (outs),
+               (ins),
+               "elpm",
+               []>;
+
+let mayLoad = 1,
+hasSideEffects = 0 in
+def ELPMRdZ : FLPMX<1,
+                    0,
+                    (outs GPR8:$dst),
+                    (ins),
+                    "elpm\t$dst, Z",
+                    []>;
+
+let mayLoad = 1,
+hasSideEffects = 0,
+Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
+def ELPMRdZPi : FLPMX<1,
+                      1,
+                      (outs GPR8:$dst, DREGS:$base_wb),
+                      (ins DREGS:$src),
+                      "elpm\t$dst, Z+",
+                      []>;
+
+// TODO: set instruction flags properly (hasSideEffects,etc)
+def SPM : F16<0b1001010111101000,
+              (outs),
+              (ins),
+              "spm",
+              []>;
+
+// TODO: set instruction flags properly (hasSideEffects,etc)
+def SPMZPi : F16<0b1001010111111000,
+                 (outs),
+                 (ins),
+                 "spm Z+",
+                 []>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
@@ -1348,6 +1367,30 @@ def POPWRd : Pseudo<(outs DREGS:$reg),
                     (ins),
                     "popw\t$reg",
                     []>;
+
+def XCHZRd : FZRd<0b100,
+                  (outs GPR8:$rd),
+                  (ins),
+                  "xch\tZ, $rd",
+                  []>;
+
+def LASZRd : FZRd<0b101,
+                  (outs GPR8:$rd),
+                  (ins),
+                  "las\tZ, $rd",
+                  []>;
+
+def LACZRd : FZRd<0b110,
+                  (outs GPR8:$rd),
+                  (ins),
+                  "lac\tZ, $rd",
+                  []>;
+
+def LATZRd : FZRd<0b111,
+                  (outs GPR8:$rd),
+                  (ins),
+                  "lat\tZ, $rd",
+                  []>;
 
 // _______________________________
 // Bit and bit-test instructions
@@ -1449,19 +1492,43 @@ def SWAPRd : FRd<0b1001,
 //:TODO: add 16 bit versions of cbi/sbi
 //:TODO: add patterns when popcount(imm)==2 to be expanded with 2 sbi/cbi
 // instead of in+ori+out which requires one more instr.
-def SBIAb : FIOBIT<0b1,
+def SBIAb : FIOBIT<0b10,
                    (outs),
                    (ins i16imm:$addr, i8imm:$bit),
                    "sbi\t$addr, $bit",
                    [(store (or (i8 (load lowioaddr8:$addr)), iobitpos8:$bit),
                      lowioaddr8:$addr)]>;
 
-def CBIAb : FIOBIT<0b0,
+def CBIAb : FIOBIT<0b00,
                    (outs),
                    (ins i16imm:$addr, i8imm:$bit),
                    "cbi\t$addr, $bit",
                    [(store (and (i8 (load lowioaddr8:$addr)), iobitposn8:$bit),
                      lowioaddr8:$addr)]>;
+
+def SBICAb : FIOBIT<0b01,
+                    (outs),
+                    (ins i16imm:$a, i8imm:$b),
+                    "sbic\t$a, $b",
+                    []>;
+
+def SBISAb : FIOBIT<0b11,
+                    (outs),
+                    (ins i16imm:$a, i8imm:$b),
+                    "sbis\t$a, $b",
+                    []>;
+
+def BST : FRdB<0b01,
+               (outs),
+               (ins GPR8:$rd, i8imm:$b),
+               "bst\t$rd, $b",
+               []>;
+
+def BLD : FRdB<0b00,
+               (outs),
+               (ins GPR8:$rd, i8imm:$b),
+               "bld\t$rd, $b",
+               []>;
 
 // SBR Rd, K
 // Alias for ORI Rd, K
@@ -1473,6 +1540,12 @@ def SBRRdK : FRdK<0b0110,
                   "sbr\t$rd, $k",
                   [(set LD8:$rd, (or LD8:$src, imm:$k)),
                    (implicit SREG)]>;
+
+def CBRRdK : FRdK<0b0111,
+                  (outs LD8:$rd),
+                  (ins LD8:$src, i8imm_com:$k),
+                  "cbr\t$rd, $k",
+                  []>;
 
 // CLR Rd
 // Alias for EOR Rd, Rd

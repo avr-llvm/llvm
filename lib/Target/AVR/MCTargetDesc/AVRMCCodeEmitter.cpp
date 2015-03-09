@@ -215,6 +215,21 @@ AVRMCCodeEmitter::getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
     return encoding;
 }
 
+
+unsigned
+AVRMCCodeEmitter::getI8ImmComEncoding(const MCInst &MI, unsigned OpNo,
+                                      SmallVectorImpl<MCFixup> &Fixups,
+                                      const MCSubtargetInfo &STI) const {
+  // the operand should be a pointer register.
+  assert(MI.getOperand(OpNo).isImm());
+
+  auto immediateValue = MI.getOperand(OpNo).getImm();
+
+  auto compliment = 0xff - immediateValue;
+
+  return compliment;
+}
+
 unsigned AVRMCCodeEmitter::
 getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
                const MCSubtargetInfo &STI) const {
