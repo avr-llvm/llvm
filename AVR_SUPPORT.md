@@ -77,8 +77,8 @@ SBRC    not implemented
 SBRS    not implemented
 SBIC    not implemented
 SBIS    not implemented
-BRBS    not implemented
-BRBC    not implemented
+BRBS    x
+BRBC    x
 BREQ    x
 BRNE    x
 BRCS    x

@@ -563,3 +563,25 @@ class FS<bit b, dag outs, dag ins, string asmstr, list<dag> pattern>
 
   let Inst{3-0} = 0b1000;
 }
+
+// Set/clr bit in status flag instructions/
+// <BRBS|BRBC> s, k
+// ---------------------
+// <|1111|0fkk|kkkk|ksss>
+class FSK<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  bits<7> k;
+  bits<3> s;
+
+  let Inst{15-12} = 0b1111;
+
+  let Inst{11} = 0;
+  let Inst{10} = f;
+  let Inst{9-8} = k{6-5};
+
+  let Inst{7-4} = k{4-1};
+
+  let Inst{3} = k{0};
+  let Inst{2-0} = s;
+}

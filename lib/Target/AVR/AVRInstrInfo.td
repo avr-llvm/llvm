@@ -910,125 +910,68 @@ def BRLTk : FBRsk<0,
                   "brlt\t$target",
                   [(AVRbrcond bb:$target, AVR_COND_LT)]>;
 
-// BRCS k
-// Branch if carry flag is set
+// BRBS s, k
+// Branch if `s` flag in status register is set.
 let isBranch = 1,
 isTerminator = 1,
 Uses = [SREG] in
-def BRCSk : FBRsk<0,
-                  0b000,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brcs\t$target",
-                  []>;
+def BRBSsk : FSK<0,
+                 (outs),
+                 (ins i8imm:$s, rel_condbr_7_target:$k),
+                 "brbs\t$s, $k",
+                 []>;
+
+// BRBC s, k
+// Branch if `s` flag in status register is clear.
+let isBranch = 1,
+isTerminator = 1,
+Uses = [SREG] in
+def BRBCsk : FSK<1,
+                 (outs),
+                 (ins i8imm:$s, rel_condbr_7_target:$k),
+                 "brbc\t$s, $k",
+                 []>;
+
+
+// BRCS k
+// Branch if carry flag is set
+def : InstAlias<"brcs\t$k", (BRBSsk 0, rel_condbr_7_target:$k)>;
 
 // BRCC k
 // Branch if carry flag is clear
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRCCk : FBRsk<1,
-                  0b000,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brcc\t$target",
-                  []>;
+def : InstAlias<"brcc\t$k", (BRBCsk 0, rel_condbr_7_target:$k)>;
 
 // BRHS k
 // Branch if half carry flag is set
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRHSk : FBRsk<0,
-                  0b101,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brhs\t$target",
-                  []>;
+def : InstAlias<"brhs\t$k", (BRBSsk 5, rel_condbr_7_target:$k)>;
 
 // BRHC k
 // Branch if half carry flag is clear
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRHCk : FBRsk<1,
-                  0b101,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brhc\t$target",
-                  []>;
+def : InstAlias<"brhc\t$k", (BRBCsk 5, rel_condbr_7_target:$k)>;
 
 // BRTS k
 // Branch if the T flag is set
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRTSk : FBRsk<0,
-                  0b110,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brts\t$target",
-                  []>;
+def : InstAlias<"brts\t$k", (BRBSsk 6, rel_condbr_7_target:$k)>;
 
 // BRTC k
 // Branch if the T flag is clear
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRTCk : FBRsk<1,
-                  0b110,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brtc\t$target",
-                  []>;
+def : InstAlias<"brtc\t$k", (BRBCsk 6, rel_condbr_7_target:$k)>;
 
 // BRVS k
 // Branch if the overflow flag is set
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRVSk : FBRsk<0,
-                  0b011,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brvs\t$target",
-                  []>;
+def : InstAlias<"brvs\t$k", (BRBSsk 3, rel_condbr_7_target:$k)>;
 
 // BRVC k
 // Branch if the overflow flag is clear
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRVCk : FBRsk<1,
-                  0b011,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brvc\t$target",
-                  []>;
+def : InstAlias<"brvc\t$k", (BRBCsk 3, rel_condbr_7_target:$k)>;
 
 // BRIE k
 // Branch if the global interrupt flag is enabled
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRIEk : FBRsk<0,
-                  0b111,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brie\t$target",
-                  []>;
+def : InstAlias<"brie\t$k", (BRBSsk 7, rel_condbr_7_target:$k)>;
 
 // BRID k
 // Branch if the global interrupt flag is disabled
-let isBranch = 1,
-isTerminator = 1,
-Uses = [SREG] in
-def BRIDk : FBRsk<1,
-                  0b111,
-                  (outs),
-                  (ins rel_condbr_7_target:$target),
-                  "brid\t$target",
-                  []>;
+def : InstAlias<"brid\t$k", (BRBCsk 7, rel_condbr_7_target:$k)>;
 
 // __________________________
 // Data transfer instructions
