@@ -33,13 +33,13 @@ define void @test1(i16 %x) {
   %vla = alloca i16, i16 %x
   %add = shl nsw i16 %x, 1
   %vla1 = alloca i8, i16 %add
-  %arrayidx = getelementptr inbounds [8 x i16]* %a, i16 0, i16 2
+  %arrayidx = getelementptr inbounds [8 x i16], [8 x i16]* %a, i16 0, i16 2
   store i16 3, i16* %arrayidx
-  %arrayidx2 = getelementptr inbounds i16* %vla, i16 6
+  %arrayidx2 = getelementptr inbounds i16, i16* %vla, i16 6
   store i16 4, i16* %arrayidx2
-  %arrayidx3 = getelementptr inbounds i8* %vla1, i16 7
+  %arrayidx3 = getelementptr inbounds i8, i8* %vla1, i16 7
   store i8 44, i8* %arrayidx3
-  %arraydecay = getelementptr inbounds [8 x i16]* %a, i16 0, i16 0
+  %arraydecay = getelementptr inbounds [8 x i16], [8 x i16]* %a, i16 0, i16 0
   call void @foo(i16* %arraydecay, i16* %vla, i8* %vla1)
   ret void
 }

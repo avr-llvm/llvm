@@ -3,7 +3,7 @@
 define i8 @load8(i8* %x) {
 ; CHECK-LABEL: load8:
 ; CHECK: ld r24, Z
-  %1 = load i8* %x
+  %1 = load i8, i8* %x
   ret i8 %1
 }
 
@@ -11,15 +11,15 @@ define i16 @load16(i16* %x) {
 ; CHECK-LABEL: load16:
 ; CHECK: ld r24, Z
 ; CHECK: ldd r25, Z+1
-  %1 = load i16* %x
+  %1 = load i16, i16* %x
   ret i16 %1
 }
 
 define i8 @load8disp(i8* %x) {
 ; CHECK-LABEL: load8disp:
 ; CHECK: ldd r24, Z+63
-  %1 = getelementptr inbounds i8* %x, i64 63
-  %2 = load i8* %1
+  %1 = getelementptr inbounds i8, i8* %x, i64 63
+  %2 = load i8, i8* %1
   ret i8 %2
 }
 
@@ -29,8 +29,8 @@ define i8 @load8nodisp(i8* %x) {
 ; CHECK: subi r30, 192
 ; CHECK: sbci r31, 255
 ; CHECK: ld r24, Z
-  %1 = getelementptr inbounds i8* %x, i64 64
-  %2 = load i8* %1
+  %1 = getelementptr inbounds i8, i8* %x, i64 64
+  %2 = load i8, i8* %1
   ret i8 %2
 }
 
@@ -38,8 +38,8 @@ define i16 @load16disp(i16* %x) {
 ; CHECK-LABEL: load16disp:
 ; CHECK: ldd r24, Z+62
 ; CHECK: ldd r25, Z+63
-  %1 = getelementptr inbounds i16* %x, i64 31
-  %2 = load i16* %1
+  %1 = getelementptr inbounds i16, i16* %x, i64 31
+  %2 = load i16, i16* %1
   ret i16 %2
 }
 
@@ -50,8 +50,8 @@ define i16 @load16nodisp(i16* %x) {
 ; CHECK: sbci r31, 255
 ; CHECK: ld r24, Z
 ; CHECK: ldd r25, Z+1
-  %1 = getelementptr inbounds i16* %x, i64 32
-  %2 = load i16* %1
+  %1 = getelementptr inbounds i16, i16* %x, i64 32
+  %2 = load i16, i16* %1
   ret i16 %2
 }
 
@@ -66,8 +66,8 @@ while.body:                                       ; preds = %entry, %while.body
   %y.addr.08 = phi i8 [ %dec, %while.body ], [ %y, %entry ]
   %x.addr.07 = phi i8* [ %incdec.ptr, %while.body ], [ %x, %entry ]
   %dec = add i8 %y.addr.08, -1
-  %incdec.ptr = getelementptr inbounds i8* %x.addr.07, i16 1
-  %0 = load i8* %x.addr.07
+  %incdec.ptr = getelementptr inbounds i8, i8* %x.addr.07, i16 1
+  %0 = load i8, i8* %x.addr.07
   %add = add i8 %0, %r.09
   %tobool = icmp eq i8 %dec, 0
   br i1 %tobool, label %while.end, label %while.body
@@ -88,8 +88,8 @@ while.body:                                       ; preds = %entry, %while.body
   %y.addr.04 = phi i16 [ %dec, %while.body ], [ %y, %entry ]
   %x.addr.03 = phi i16* [ %incdec.ptr, %while.body ], [ %x, %entry ]
   %dec = add nsw i16 %y.addr.04, -1
-  %incdec.ptr = getelementptr inbounds i16* %x.addr.03, i16 1
-  %0 = load i16* %x.addr.03
+  %incdec.ptr = getelementptr inbounds i16, i16* %x.addr.03, i16 1
+  %0 = load i16, i16* %x.addr.03
   %add = add nsw i16 %0, %r.05
   %tobool = icmp eq i16 %dec, 0
   br i1 %tobool, label %while.end, label %while.body
@@ -109,8 +109,8 @@ while.body:                                       ; preds = %entry, %while.body
   %y.addr.08 = phi i8 [ %dec, %while.body ], [ %y, %entry ]
   %x.addr.07 = phi i8* [ %incdec.ptr, %while.body ], [ %x, %entry ]
   %dec = add i8 %y.addr.08, -1
-  %incdec.ptr = getelementptr inbounds i8* %x.addr.07, i16 -1
-  %0 = load i8* %incdec.ptr
+  %incdec.ptr = getelementptr inbounds i8, i8* %x.addr.07, i16 -1
+  %0 = load i8, i8* %incdec.ptr
   %add = add i8 %0, %r.09
   %tobool = icmp eq i8 %dec, 0
   br i1 %tobool, label %while.end, label %while.body
@@ -131,8 +131,8 @@ while.body:                                       ; preds = %entry, %while.body
   %y.addr.04 = phi i16 [ %dec, %while.body ], [ %y, %entry ]
   %x.addr.03 = phi i16* [ %incdec.ptr, %while.body ], [ %x, %entry ]
   %dec = add nsw i16 %y.addr.04, -1
-  %incdec.ptr = getelementptr inbounds i16* %x.addr.03, i16 -1
-  %0 = load i16* %incdec.ptr
+  %incdec.ptr = getelementptr inbounds i16, i16* %x.addr.03, i16 -1
+  %0 = load i16, i16* %incdec.ptr
   %add = add nsw i16 %0, %r.05
   %tobool = icmp eq i16 %dec, 0
   br i1 %tobool, label %while.end, label %while.body

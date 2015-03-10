@@ -27,7 +27,7 @@ define void @global8_store() {
 define i8 @global8_load() {
 ; CHECK-LABEL: global8_load:
 ; CHECK: lds r24, char
-  %result = load i8* @char
+  %result = load i8, i8* @char
   ret i8 %result
 }
 
@@ -48,7 +48,7 @@ define void @array8_store() {
 define i8 @array8_load() {
 ; CHECK-LABEL: array8_load:
 ; CHECK: lds r24, char.array+2
-  %result = load i8* getelementptr inbounds ([3 x i8]* @char.array, i32 0, i64 2)
+  %result = load i8, i8* getelementptr inbounds ([3 x i8]* @char.array, i32 0, i64 2)
   ret i8 %result
 }
 
@@ -57,7 +57,7 @@ define i8 @static8_inc() {
 ; CHECK: lds r24, char.static
 ; CHECK: inc r24
 ; CHECK: sts char.static, r24
-  %1 = load i8* @char.static
+  %1 = load i8, i8* @char.static
   %inc = add nsw i8 %1, 1
   store i8 %inc, i8* @char.static
   ret i8 %inc
@@ -77,7 +77,7 @@ define i16 @global16_load() {
 ; CHECK-LABEL: global16_load:
 ; CHECK: lds r24, int
 ; CHECK: lds r25, int+1
-  %result = load i16* @int
+  %result = load i16, i16* @int
   ret i16 %result
 }
 
@@ -105,7 +105,7 @@ define i16 @array16_load() {
 ; CHECK-LABEL: array16_load:
 ; CHECK: lds r24, int.array+4
 ; CHECK: lds r25, int.array+5
-  %result = load i16* getelementptr inbounds ([3 x i16]* @int.array, i32 0, i64 2)
+  %result = load i16, i16* getelementptr inbounds ([3 x i16]* @int.array, i32 0, i64 2)
   ret i16 %result
 }
 
@@ -116,7 +116,7 @@ define i16 @static16_inc() {
 ; CHECK: adiw r24, 1
 ; CHECK: sts int.static+1, r25
 ; CHECK: sts int.static, r24
-  %1 = load i16* @int.static
+  %1 = load i16, i16* @int.static
   %inc = add nsw i16 %1, 1
   store i16 %inc, i16* @int.static
   ret i16 %inc
@@ -142,7 +142,7 @@ define i32 @global32_load() {
 ; CHECK: lds r23, long+1
 ; CHECK: lds r24, long+2
 ; CHECK: lds r25, long+3
-  %result = load i32* @long
+  %result = load i32, i32* @long
   ret i32 %result
 }
 
@@ -184,7 +184,7 @@ define i32 @array32_load() {
 ; CHECK: lds r23, long.array+9
 ; CHECK: lds r24, long.array+10
 ; CHECK: lds r25, long.array+11
-  %result = load i32* getelementptr inbounds ([3 x i32]* @long.array, i32 0, i64 2)
+  %result = load i32, i32* getelementptr inbounds ([3 x i32]* @long.array, i32 0, i64 2)
   ret i32 %result
 }
 
@@ -202,7 +202,7 @@ define i32 @static32_inc() {
 ; CHECK: sts long.static+2, r24
 ; CHECK: sts long.static+1, r23
 ; CHECK: sts long.static, r22
-  %1 = load i32* @long.static
+  %1 = load i32, i32* @long.static
   %inc = add nsw i32 %1, 1
   store i32 %inc, i32* @long.static
   ret i32 %inc
@@ -240,7 +240,7 @@ define i64 @global64_load() {
 ; CHECK: lds r23, longlong+5
 ; CHECK: lds r24, longlong+6
 ; CHECK: lds r25, longlong+7
-  %result = load i64* @longlong
+  %result = load i64, i64* @longlong
   ret i64 %result
 }
 
@@ -278,7 +278,7 @@ define i64 @array64_load() {
 ; CHECK: lds r23, longlong.array+21
 ; CHECK: lds r24, longlong.array+22
 ; CHECK: lds r25, longlong.array+23
-  %result = load i64* getelementptr inbounds ([3 x i64]* @longlong.array, i64 0, i64 2)
+  %result = load i64, i64* getelementptr inbounds ([3 x i64]* @longlong.array, i64 0, i64 2)
   ret i64 %result
 }
 
@@ -308,7 +308,7 @@ define i64 @static64_inc() {
 ; CHECK: sts longlong.static+2, r20
 ; CHECK: sts longlong.static+1, r19
 ; CHECK: sts longlong.static, r18
-  %1 = load i64* @longlong.static
+  %1 = load i64, i64* @longlong.static
   %inc = add nsw i64 %1, 1
   store i64 %inc, i64* @longlong.static
   ret i64 %inc
@@ -317,7 +317,7 @@ define i64 @static64_inc() {
 define i8 @constantaddr_read8() {
 ; CHECK-LABEL: constantaddr_read8:
 ; CHECK: lds r24, 1234
-  %1 = load i8* inttoptr (i16 1234 to i8*)
+  %1 = load i8, i8* inttoptr (i16 1234 to i8*)
   ret i8 %1
 }
 
@@ -325,7 +325,7 @@ define i16 @constantaddr_read16() {
 ; CHECK-LABEL: constantaddr_read16:
 ; CHECK: lds r24, 1234
 ; CHECK: lds r25, 1235
-  %1 = load i16* inttoptr (i16 1234 to i16*)
+  %1 = load i16, i16* inttoptr (i16 1234 to i16*)
   ret i16 %1
 }
 

@@ -163,7 +163,7 @@ define void @testcallprologue() {
 ; CHECK: pop r29
 ; CHECK: pop r28
   %p = alloca [8 x i16]
-  %arraydecay = getelementptr inbounds [8 x i16]* %p, i16 0, i16 0
+  %arraydecay = getelementptr inbounds [8 x i16], [8 x i16]* %p, i16 0, i16 0
   call void @foo64_3(i64 723685415333071112, i64 723685415333071112, i64 723685415333071112, i8 88, i16* %arraydecay)
   ret void
 }
