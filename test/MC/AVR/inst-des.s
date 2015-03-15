@@ -3,12 +3,12 @@
 
 foo:
 
-  des 0x00
-  des 0x06
-  des 0x01
-  des 0x08
+  des 0
+  des 6
+  des 1
+  des 8
 
-; CHECK: des 0x00                  ; encoding: [0x0b,0x94]
-; CHECK: des 0x06                  ; encoding: [0x6b,0x94]
-; CHECK: des 0x01                  ; encoding: [0x1b,0x94]
-; CHECK: des 0x08                  ; encoding: [0x8b,0x94]
+; CHECK: des 0                  ; encoding: [0x0b,0x94]
+; CHECK: des 6                  ; encoding: [0x6b,0x94]
+; CHECK: des 1                  ; encoding: [0x1b,0x94]
+; CHECK: des 8                  ; encoding: [0x8b,0x94]

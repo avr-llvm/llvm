@@ -8,7 +8,7 @@ foo:
   las Z, r31
   las Z, r3
 
-; CHECK: las r2, r13                  ; encoding: [0xd5,0x92]
-; CHECK: las r9, r0                   ; encoding: [0x05,0x92]
-; CHECK: las r5, r31                  ; encoding: [0xf5,0x93]
-; CHECK: las r3, r3                   ; encoding: [0x35,0x92]
+; CHECK: las Z, r13                  ; encoding: [0xd5,0x92]
+; CHECK: las Z, r0                   ; encoding: [0x05,0x92]
+; CHECK: las Z, r31                  ; encoding: [0xf5,0x93]
+; CHECK: las Z, r3                   ; encoding: [0x35,0x92]
