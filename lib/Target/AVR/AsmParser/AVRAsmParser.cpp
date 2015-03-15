@@ -8,7 +8,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "AVR.h"
-
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 #include "AVRRegisterInfo.h"
 #include "llvm/ADT/APInt.h"
@@ -17,8 +16,6 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstBuilder.h"
-#include "llvm/MC/MCParser/MCAsmLexer.h"
-#include "llvm/MC/MCParser/MCParsedAsmOperand.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbol.h"
@@ -80,6 +77,8 @@ class AVRAsmParser : public MCTargetAsmParser {
   bool ParseDirective(AsmToken DirectiveID);
 
   AVRAsmParser::OperandMatchResultTy parseMemOperand(OperandVector &);
+
+  bool ParseCustomOperand(OperandVector &Operands, StringRef Mnemonic);
 
   bool ParseOperand(OperandVector &Operands, StringRef Mnemonic);
 
@@ -414,6 +413,54 @@ bool AVRAsmParser::
   return false;
 }
 
+/// \brief Maps operand names to tokens.
+/// \note See ParseCustomOperand for details.
+struct CustomOperandMapping {
+  StringRef mnemonic;
+  StringRef token;
+};
+
+bool AVRAsmParser::ParseCustomOperand(OperandVector &Operands,
+                                      StringRef Mnemonic)
+{
+  // A list of (containing mnemonic, identifier) to
+  // process as tokens.
+  const CustomOperandMapping mappings[] = {
+    CustomOperandMapping { "lpm",  "Z" },
+    CustomOperandMapping { "lpmw", "Z" },
+    CustomOperandMapping { "elpm", "Z" },
+    CustomOperandMapping { "spm",  "Z" },
+
+    CustomOperandMapping { "xch", "Z" },
+    CustomOperandMapping { "las", "Z" },
+    CustomOperandMapping { "lac", "Z" },
+    CustomOperandMapping { "lat", "Z" }
+  };
+
+
+  // we only operate on identifiers
+  assert(getLexer().is(AsmToken::Identifier));
+
+  auto ident = getLexer().getTok().getIdentifier();
+
+  for(auto &mapping : mappings) {
+
+    // check if we found a match
+    if(mapping.mnemonic == Mnemonic && mapping.token == ident) {
+      // add the token as an operand of type Token.
+      SMLoc S = Parser.getTok().getLoc();
+      Operands.push_back(AVROperand::CreateToken(ident, S));
+
+      Parser.Lex();
+
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
 bool AVRAsmParser::ParseOperand(OperandVector &Operands,
                                 StringRef Mnemonic) {
   DEBUG(dbgs() << "ParseOperand\n");
@@ -442,20 +489,30 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
     case AsmToken::Plus:
     case AsmToken::Integer:
     case AsmToken::String: {
-    
+
+      // check if the operand is an identifier
+      if(getLexer().is(AsmToken::Identifier)) {
+
+        // check if we need to parse this operand as
+        // as token.
+        if(!ParseCustomOperand(Operands, Mnemonic)) {
+          return false;
+        }
+      }
+
       // try parse the operand as a register
       if(!tryParseRegisterOperand(Operands, Mnemonic)) {
         return false;
       
       } else { // the operand not a register
-        
+
         // quoted label names
         const MCExpr *IdVal;
         SMLoc S = Parser.getTok().getLoc();
-        
+
         if (getParser().parseExpression(IdVal))
           return true;
-      
+
         SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
         Operands.push_back(AVROperand::CreateImm(IdVal, S, E));
         return false;
