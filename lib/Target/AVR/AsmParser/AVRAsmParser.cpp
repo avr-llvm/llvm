@@ -72,9 +72,9 @@ class AVRAsmParser : public MCTargetAsmParser {
 
   bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
                         SMLoc NameLoc,
-                        OperandVector &Operands);
+                        OperandVector &Operands) override;
   
-  bool ParseDirective(AsmToken DirectiveID);
+  bool ParseDirective(AsmToken directiveID) override { return true; }
 
   AVRAsmParser::OperandMatchResultTy parseMemOperand(OperandVector &);
 
@@ -102,8 +102,6 @@ class AVRAsmParser : public MCTargetAsmParser {
 
   bool tryParseRegisterOperand(OperandVector &Operands,
                                StringRef Mnemonic);
-
-  bool reportParseError(StringRef ErrorMsg);
 
   bool parseMemOffset(const MCExpr *&Res);
   bool parseRelocOperand(const MCExpr *&Res);
@@ -462,10 +460,10 @@ bool AVRAsmParser::ParseCustomOperand(OperandVector &Operands,
   for(auto &mapping : mappings) {
 
     // check if we found a match
-    if(mapping.mnemonic == Mnemonic && mapping.token == ident) {
+    if( (mapping.mnemonic.compare_lower(Mnemonic) == 0) && (mapping.token.compare_lower(ident) == 0) ) {
       // add the token as an operand of type Token.
       SMLoc S = Parser.getTok().getLoc();
-      Operands.push_back(AVROperand::CreateToken(ident, S));
+      Operands.push_back(AVROperand::CreateToken(mapping.token, S));
 
       Parser.Lex();
 
@@ -731,18 +729,6 @@ ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
 
   Parser.Lex(); // Consume the EndOfStatement
   return false;
-}
-
-bool AVRAsmParser::reportParseError(StringRef ErrorMsg) {
-   SMLoc Loc = getLexer().getLoc();
-   Parser.eatToEndOfStatement();
-   return Error(Loc, ErrorMsg);
-}
-
-
-bool AVRAsmParser::ParseDirective(AsmToken DirectiveID) {
-
-  return true;
 }
 
 extern "C" void LLVMInitializeAVRAsmParser() {
