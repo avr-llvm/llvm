@@ -78,6 +78,22 @@ class AVRAsmParser : public MCTargetAsmParser {
 
   AVRAsmParser::OperandMatchResultTy parseMemOperand(OperandVector &);
 
+  //! \brief Parses identifiers as AsmToken::Token's when needed.
+  //!
+  //! Some instructions have hard coded values as operands.
+  //! For example, the `lpm Rd, Z` instruction, where the second
+  //! operand is always explicitly Z.
+  //!
+  //! The parser naively parses `Z` and all other identifiers as immediates.
+  //! The problem with this is that the instruction matcher expects `Z` to
+  //! be of kind AsmToken::Token.
+  //!
+  //! This function fixes this by maintaining a table of operand values
+  //! (such as `Z`) and mnemonics (such as `lpm`) and parsing all operands
+  //! that fit the criteria as AsmToken::Token values.
+  //!
+  //! \return `false` if we found a token that fit the criteria and
+  //!         parsed it, `false` otherwise.
   bool ParseCustomOperand(OperandVector &Operands, StringRef Mnemonic);
 
   bool ParseOperand(OperandVector &Operands, StringRef Mnemonic);

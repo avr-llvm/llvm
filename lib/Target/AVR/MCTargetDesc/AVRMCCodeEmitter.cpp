@@ -162,8 +162,9 @@ AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
     // All of the information is in the fixup.
     return 0;
   } 
-  else
-    return (MO.getImm() >> 1);
+  else {
+    return (MO.getImm() - 2) >> 1;
+  }
 }
 
 unsigned

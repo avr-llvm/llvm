@@ -37,13 +37,13 @@ static unsigned adjustFixupRelCondbr(unsigned size,
                                   MCContext *Ctx = nullptr)
 {
   // Take the size of the current instruction away.
-  //Value -= 2;
+  Value -= 2;
 
   // We now check if Value can be encoded as a 7-bit signed immediate.
   //if (!isIntN(size, Value) && Ctx)
   //  Ctx->FatalError(Fixup.getLoc(), "out of range brcond fixup");
     
-  //Value <<= 2;
+  Value >>= 2;
   
   return Value;
 }
