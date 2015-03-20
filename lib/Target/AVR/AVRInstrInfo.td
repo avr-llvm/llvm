@@ -1252,7 +1252,7 @@ def LPMRdZPi : FLPMX<0,
                      1,
                      (outs GPR8:$dst, DREGS:$base_wb),
                      (ins DREGS:$src),
-                     "lpm\t$dst, Z+",
+                     "lpm\t$dst, Z +",
                      []>;
 
 let mayLoad = 1,
@@ -1260,7 +1260,7 @@ hasSideEffects = 0,
 Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
 def LPMWRdZPi : Pseudo<(outs DREGS:$dst, DREGS:$base_wb),
                        (ins DREGS:$src),
-                       "lpmw\t$dst, Z+",
+                       "lpmw\t$dst, Z +",
                        []>;
 
 let mayLoad = 1,
@@ -1287,7 +1287,7 @@ def ELPMRdZPi : FLPMX<1,
                       1,
                       (outs GPR8:$dst, DREGS:$base_wb),
                       (ins DREGS:$src),
-                      "elpm\t$dst, Z+",
+                      "elpm\t$dst, Z +",
                       []>;
 
 // TODO: set instruction flags properly (hasSideEffects,etc)
@@ -1301,7 +1301,7 @@ def SPM : F16<0b1001010111101000,
 def SPMZPi : F16<0b1001010111111000,
                  (outs),
                  (ins),
-                 "spm Z+",
+                 "spm Z +",
                  []>;
 
 let canFoldAsLoad = 1,

@@ -499,8 +499,6 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
       return true;
     case AsmToken::Identifier:
     case AsmToken::LParen:
-    case AsmToken::Minus:
-    case AsmToken::Plus:
     case AsmToken::Integer:
     case AsmToken::String: {
 
@@ -531,6 +529,15 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
         Operands.push_back(AVROperand::CreateImm(IdVal, S, E));
         return false;
       }
+    }
+    case AsmToken::Plus:
+    case AsmToken::Minus: {
+      SMLoc S = Parser.getTok().getLoc();
+      Operands.push_back(AVROperand::CreateToken(getLexer().getTok().getString(), S));
+
+      Parser.Lex();
+
+      return false;
     }
   } // switch(getLexer().getKind())
   
@@ -709,8 +716,10 @@ ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
       return Error(Loc, "unexpected token in argument list");
     }
 
-    while (getLexer().is(AsmToken::Comma) ) {
-      Parser.Lex();  // Eat the comma.
+    while (getLexer().isNot(AsmToken::EndOfStatement)) {
+
+      if(getLexer().is(AsmToken::Comma))
+        Parser.Lex();  // Eat the comma.
 
       // Parse and remember the operand.
       if (ParseOperand(Operands, Name)) {
