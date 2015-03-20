@@ -680,6 +680,7 @@ def NEGRd : FRd<0b1001,
                 "neg\t$dst",
                 [(set GPR8:$dst, (ineg GPR8:$src)), (implicit SREG)]>;
 /// TST Rd
+// TODO: turn into an InstAlias
 let Constraints = "$src = $dst",
 Defs = [SREG] in
 def TSTRd : FRdRr<0b0010,
@@ -785,7 +786,8 @@ let isCall = 1 in
 
 let isTerminator = 1,
 isReturn = 1,
-isBarrier = 1 in
+isBarrier = 1,
+Uses = [SP]  in
 def RET : FBR<0b1001010100001000,
               (outs),
               (ins),
@@ -794,14 +796,19 @@ def RET : FBR<0b1001010100001000,
 
 let isTerminator = 1,
 isReturn = 1,
-isBarrier = 1 in
+isBarrier = 1,
+Uses = [SP] in
 def RETI : FBR<0b1001010100011000,
                (outs),
                (ins),
                "reti",
                [(AVRretiflag)]>;
 
-let Defs = [SREG] in
+
+let isBarrier = 1,
+isBranch = 1,
+isTerminator = 1,
+Defs = [SREG] in
 def CPSE : FRdRr<0b0001,
                  0b00,
                  (outs),
@@ -850,12 +857,18 @@ def CPIRdK : FRdK<0b0011,
                   "cpi\t$rd, $k",
                   []>;
 
+let isBarrier = 1,
+isBranch = 1,
+isTerminator = 1 in
 def SBRCRrB : FRdB<0b10,
                    (outs),
                    (ins GPR8:$rr, i8imm:$b),
                    "sbrc\t$rr, $b",
                    []>;
 
+let isBarrier = 1,
+isBranch = 1,
+isTerminator = 1 in
 def SBRSRrB : FRdB<0b11,
                    (outs),
                    (ins GPR8:$rr, i8imm:$b),
@@ -1217,7 +1230,9 @@ def STDWPtrQRr : Pseudo<(outs),
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
-hasSideEffects = 0 in
+hasSideEffects = 0,
+Uses = [R31R30],
+Defs = [R0]  in
 def LPM : F16<0b1001010111001000,
               (outs),
               (ins),
@@ -1227,7 +1242,8 @@ def LPM : F16<0b1001010111001000,
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
-hasSideEffects = 0 in
+hasSideEffects = 0,
+Uses = [R31R30] in
 def LPMRdZ : FLPMX<0,
                    0,
                    (outs GPR8:$dst),
@@ -1239,32 +1255,36 @@ def LPMRdZ : FLPMX<0,
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
 hasSideEffects = 0,
-Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
-def LPMWRdZ : Pseudo<(outs DREGS:$dst, DREGS:$base_wb),
-                     (ins DREGS:$src),
+Uses = [R31R30] in
+def LPMWRdZ : Pseudo<(outs DREGS:$dst),
+                     (ins),
                      "lpmw\t$dst, Z",
                      []>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
-Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
+Uses = [R31R30],
+Defs = [R31R30] in
 def LPMRdZPi : FLPMX<0,
                      1,
-                     (outs GPR8:$dst, DREGS:$base_wb),
-                     (ins DREGS:$src),
+                     (outs GPR8:$dst),
+                     (ins),
                      "lpm\t$dst, Z+",
                      []>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
-Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
-def LPMWRdZPi : Pseudo<(outs DREGS:$dst, DREGS:$base_wb),
-                       (ins DREGS:$src),
+Uses = [R31R30],
+Defs = [R31R30] in
+def LPMWRdZPi : Pseudo<(outs DREGS:$dst),
+                       (ins),
                        "lpmw\t$dst, Z+",
                        []>;
 
 let mayLoad = 1,
-hasSideEffects = 0 in
+hasSideEffects = 0,
+Uses = [R31R30],
+Defs = [R0] in
 def ELPM : F16<0b1001010111011000,
                (outs),
                (ins),
@@ -1272,7 +1292,8 @@ def ELPM : F16<0b1001010111011000,
                []>;
 
 let mayLoad = 1,
-hasSideEffects = 0 in
+hasSideEffects = 0,
+Uses = [R31R30] in 
 def ELPMRdZ : FLPMX<1,
                     0,
                     (outs GPR8:$dst),
@@ -1282,15 +1303,17 @@ def ELPMRdZ : FLPMX<1,
 
 let mayLoad = 1,
 hasSideEffects = 0,
-Constraints = "$src = $base_wb,@earlyclobber $dst,@earlyclobber $base_wb" in
+Uses = [R31R30],
+Defs = [R31R30] in
 def ELPMRdZPi : FLPMX<1,
                       1,
-                      (outs GPR8:$dst, DREGS:$base_wb),
-                      (ins DREGS:$src),
+                      (outs GPR8:$dst),
+                      (ins),
                       "elpm\t$dst, Z+",
                       []>;
 
 // TODO: set instruction flags properly (hasSideEffects,etc)
+let Uses = [R31R30, R0, R1] in
 def SPM : F16<0b1001010111101000,
               (outs),
               (ins),
@@ -1298,6 +1321,8 @@ def SPM : F16<0b1001010111101000,
               []>;
 
 // TODO: set instruction flags properly (hasSideEffects,etc)
+let Uses = [R31R30, R0, R1],
+Defs = [R31R30] in
 def SPMZPi : F16<0b1001010111111000,
                  (outs),
                  (ins),
@@ -1368,24 +1393,28 @@ def POPWRd : Pseudo<(outs DREGS:$reg),
                     "popw\t$reg",
                     []>;
 
+let Uses = [R31R30] in
 def XCHZRd : FZRd<0b100,
                   (outs GPR8:$rd),
                   (ins),
                   "xch\tZ, $rd",
                   []>;
 
+let Uses = [R31R30] in
 def LASZRd : FZRd<0b101,
                   (outs GPR8:$rd),
                   (ins),
                   "las\tZ, $rd",
                   []>;
 
+let Uses = [R31R30] in
 def LACZRd : FZRd<0b110,
                   (outs GPR8:$rd),
                   (ins),
                   "lac\tZ, $rd",
                   []>;
 
+let Uses = [R31R30] in
 def LATZRd : FZRd<0b111,
                   (outs GPR8:$rd),
                   (ins),
@@ -1506,24 +1535,32 @@ def CBIAb : FIOBIT<0b00,
                    [(store (and (i8 (load lowioaddr8:$addr)), iobitposn8:$bit),
                      lowioaddr8:$addr)]>;
 
+let isBarrier = 1,
+isBranch = 1,
+isTerminator = 1 in
 def SBICAb : FIOBIT<0b01,
                     (outs),
                     (ins i16imm:$a, i8imm:$b),
                     "sbic\t$a, $b",
                     []>;
 
+let isBarrier = 1,
+isBranch = 1,
+isTerminator = 1 in
 def SBISAb : FIOBIT<0b11,
                     (outs),
                     (ins i16imm:$a, i8imm:$b),
                     "sbis\t$a, $b",
                     []>;
 
+let Defs = [SREG] in
 def BST : FRdB<0b01,
                (outs),
                (ins GPR8:$rd, i8imm:$b),
                "bst\t$rd, $b",
                []>;
 
+let Uses = [SREG] in
 def BLD : FRdB<0b00,
                (outs),
                (ins GPR8:$rd, i8imm:$b),
@@ -1541,6 +1578,7 @@ def SBRRdK : FRdK<0b0110,
                   [(set LD8:$rd, (or LD8:$src, imm:$k)),
                    (implicit SREG)]>;
 
+let Defs = [SREG] in
 def CBRRdK : FRdK<0b0111,
                   (outs LD8:$rd),
                   (ins LD8:$src, i8imm_com:$k),
@@ -1563,8 +1601,7 @@ def CLRRd : FRdRr<0b0010,
 // SER Rd
 // ---------
 // Sets all bits in a register.
-let Constraints = "$src = $dst",
-Defs = [SREG] in
+let Constraints = "$src = $dst" in
 def SERRd : FRd<0b1110,
                 0b1111111,
                 (outs GPR8:$dst),
@@ -1593,18 +1630,21 @@ def SERRd : FRd<0b1110,
 // I - 111 (interrupt)
 //===----------------------------------------------------------------------===//
 
+let Defs = [SREG] in
 def BSET : FS<0,
               (outs),
               (ins i8imm:$s),
               "bset\t$s",
               []>;
 
+let Defs = [SREG] in
 def BCLR : FS<1,
               (outs),
               (ins i8imm:$s),
               "bclr\t$s",
               []>;
 
+let Defs = [SREG] in
 def SEC : FFL<0,
               0b000,
               (outs),
@@ -1612,6 +1652,7 @@ def SEC : FFL<0,
               "sec",
               []>;
 
+let Defs = [SREG] in
 def CLC : FFL<1,
               0b000,
               (outs),
@@ -1619,6 +1660,7 @@ def CLC : FFL<1,
               "clc",
               []>;
 
+let Defs = [SREG] in
 def SEZ : FFL<0,
               0b001,
               (outs),
@@ -1626,6 +1668,7 @@ def SEZ : FFL<0,
               "sez",
               []>;
 
+let Defs = [SREG] in
 def CLZ : FFL<1,
               0b001,
               (outs),
@@ -1633,6 +1676,7 @@ def CLZ : FFL<1,
               "clz",
               []>;
 
+let Defs = [SREG] in
 def SEN : FFL<0,
               0b010,
               (outs),
@@ -1640,6 +1684,7 @@ def SEN : FFL<0,
               "sen",
               []>;
 
+let Defs = [SREG] in
 def CLN : FFL<1,
               0b010,
               (outs),
@@ -1647,6 +1692,7 @@ def CLN : FFL<1,
               "cln",
               []>;
 
+let Defs = [SREG] in
 def SEV : FFL<0,
               0b011,
               (outs),
@@ -1654,6 +1700,7 @@ def SEV : FFL<0,
               "sev",
               []>;
 
+let Defs = [SREG] in
 def CLV : FFL<1,
               0b011,
               (outs),
@@ -1661,6 +1708,7 @@ def CLV : FFL<1,
               "clv",
               []>;
 
+let Defs = [SREG] in
 def SES : FFL<0,
               0b100,
               (outs),
@@ -1668,6 +1716,7 @@ def SES : FFL<0,
               "ses",
               []>;
 
+let Defs = [SREG] in
 def CLS : FFL<1,
               0b100,
               (outs),
@@ -1675,6 +1724,7 @@ def CLS : FFL<1,
               "cls",
               []>;
 
+let Defs = [SREG] in
 def SEH : FFL<0,
               0b101,
               (outs),
@@ -1682,6 +1732,7 @@ def SEH : FFL<0,
               "seh",
               []>;
 
+let Defs = [SREG] in
 def CLH : FFL<1,
               0b101,
               (outs),
@@ -1689,6 +1740,7 @@ def CLH : FFL<1,
               "clh",
               []>;
 
+let Defs = [SREG] in
 def SET : FFL<0,
               0b110,
               (outs),
@@ -1696,6 +1748,7 @@ def SET : FFL<0,
               "set",
               []>;
 
+let Defs = [SREG] in
 def CLT : FFL<1,
               0b110,
               (outs),
@@ -1703,6 +1756,7 @@ def CLT : FFL<1,
               "clt",
               []>;
 
+let Defs = [SREG] in
 def SEI : FFL<0,
               0b111,
               (outs),
@@ -1710,6 +1764,7 @@ def SEI : FFL<0,
               "sei",
               []>;
 
+let Defs = [SREG] in
 def CLI : FFL<1,
               0b111,
               (outs),
