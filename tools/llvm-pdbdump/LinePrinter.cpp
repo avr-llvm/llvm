@@ -9,12 +9,22 @@
 
 #include "LinePrinter.h"
 
+#include "llvm-pdbdump.h"
+
+#include "llvm/Support/Regex.h"
+
 #include <algorithm>
 
 using namespace llvm;
 
 LinePrinter::LinePrinter(int Indent, llvm::raw_ostream &Stream)
-    : OS(Stream), IndentSpaces(Indent), CurrentIndent(0) {}
+    : OS(Stream), IndentSpaces(Indent), CurrentIndent(0) {
+  SetFilters(TypeFilters, opts::ExcludeTypes.begin(), opts::ExcludeTypes.end());
+  SetFilters(SymbolFilters, opts::ExcludeSymbols.begin(),
+             opts::ExcludeSymbols.end());
+  SetFilters(CompilandFilters, opts::ExcludeCompilands.begin(),
+             opts::ExcludeCompilands.end());
+}
 
 void LinePrinter::Indent() { CurrentIndent += IndentSpaces; }
 
@@ -25,6 +35,39 @@ void LinePrinter::Unindent() {
 void LinePrinter::NewLine() {
   OS << "\n";
   OS.indent(CurrentIndent);
+}
+
+bool LinePrinter::IsTypeExcluded(llvm::StringRef TypeName) {
+  if (TypeName.empty())
+    return false;
+
+  for (auto &Expr : TypeFilters) {
+    if (Expr.match(TypeName))
+      return true;
+  }
+  return false;
+}
+
+bool LinePrinter::IsSymbolExcluded(llvm::StringRef SymbolName) {
+  if (SymbolName.empty())
+    return false;
+
+  for (auto &Expr : SymbolFilters) {
+    if (Expr.match(SymbolName))
+      return true;
+  }
+  return false;
+}
+
+bool LinePrinter::IsCompilandExcluded(llvm::StringRef CompilandName) {
+  if (CompilandName.empty())
+    return false;
+
+  for (auto &Expr : CompilandFilters) {
+    if (Expr.match(CompilandName))
+      return true;
+  }
+  return false;
 }
 
 WithColor::WithColor(LinePrinter &P, PDB_ColorItem C) : OS(P.OS) {
@@ -51,6 +94,7 @@ void WithColor::translateColor(PDB_ColorItem C, raw_ostream::Colors &Color,
     Color = raw_ostream::MAGENTA;
     Bold = true;
     return;
+  case PDB_ColorItem::Register:
   case PDB_ColorItem::Offset:
     Color = raw_ostream::YELLOW;
     Bold = false;

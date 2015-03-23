@@ -9,6 +9,7 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
@@ -220,7 +221,7 @@ TEST_F(MDNodeTest, Print) {
   std::string Expected;
   {
     raw_string_ostream OS(Expected);
-    OS << "!{";
+    OS << "<" << (void *)N << "> = !{";
     C->printAsOperand(OS);
     OS << ", ";
     S->printAsOperand(OS);
@@ -239,6 +240,105 @@ TEST_F(MDNodeTest, Print) {
 
   EXPECT_EQ(Expected, Actual);
 }
+
+#define EXPECT_PRINTER_EQ(EXPECTED, PRINT)                                     \
+  do {                                                                         \
+    std::string Actual_;                                                       \
+    raw_string_ostream OS(Actual_);                                            \
+    PRINT;                                                                     \
+    OS.flush();                                                                \
+    std::string Expected_(EXPECTED);                                           \
+    EXPECT_EQ(Expected_, Actual_);                                             \
+  } while (false)
+
+TEST_F(MDNodeTest, PrintTemporary) {
+  MDNode *Arg = getNode();
+  TempMDNode Temp = MDNode::getTemporary(Context, Arg);
+  MDNode *N = getNode(Temp.get());
+  Module M("test", Context);
+  NamedMDNode *NMD = M.getOrInsertNamedMetadata("named");
+  NMD->addOperand(N);
+
+  EXPECT_PRINTER_EQ("!0 = !{!1}", N->print(OS, &M));
+  EXPECT_PRINTER_EQ("!1 = <temporary!> !{!2}", Temp->print(OS, &M));
+  EXPECT_PRINTER_EQ("!2 = !{}", Arg->print(OS, &M));
+
+  // Cleanup.
+  Temp->replaceAllUsesWith(Arg);
+}
+
+TEST_F(MDNodeTest, PrintFromModule) {
+  Constant *C = ConstantInt::get(Type::getInt32Ty(Context), 7);
+  MDString *S = MDString::get(Context, "foo");
+  MDNode *N0 = getNode();
+  MDNode *N1 = getNode(N0);
+  MDNode *N2 = getNode(N0, N1);
+
+  Metadata *Args[] = {ConstantAsMetadata::get(C), S, nullptr, N0, N1, N2};
+  MDNode *N = MDNode::get(Context, Args);
+  Module M("test", Context);
+  NamedMDNode *NMD = M.getOrInsertNamedMetadata("named");
+  NMD->addOperand(N);
+
+  std::string Expected;
+  {
+    raw_string_ostream OS(Expected);
+    OS << "!0 = !{";
+    C->printAsOperand(OS);
+    OS << ", ";
+    S->printAsOperand(OS);
+    OS << ", null, !1, !2, !3}";
+  }
+
+  EXPECT_PRINTER_EQ(Expected, N->print(OS, &M));
+}
+
+TEST_F(MDNodeTest, PrintFromFunction) {
+  Module M("test", Context);
+  auto *FTy = FunctionType::get(Type::getVoidTy(Context), false);
+  auto *F0 = Function::Create(FTy, GlobalValue::ExternalLinkage, "F0", &M);
+  auto *F1 = Function::Create(FTy, GlobalValue::ExternalLinkage, "F1", &M);
+  auto *BB0 = BasicBlock::Create(Context, "entry", F0);
+  auto *BB1 = BasicBlock::Create(Context, "entry", F1);
+  auto *R0 = ReturnInst::Create(Context, BB0);
+  auto *R1 = ReturnInst::Create(Context, BB1);
+  auto *N0 = MDNode::getDistinct(Context, None);
+  auto *N1 = MDNode::getDistinct(Context, None);
+  R0->setMetadata("md", N0);
+  R1->setMetadata("md", N1);
+
+  EXPECT_PRINTER_EQ("!0 = distinct !{}", N0->print(OS, &M));
+  EXPECT_PRINTER_EQ("!1 = distinct !{}", N1->print(OS, &M));
+}
+
+TEST_F(MDNodeTest, PrintFromMetadataAsValue) {
+  Module M("test", Context);
+
+  auto *Intrinsic =
+      Function::Create(FunctionType::get(Type::getVoidTy(Context),
+                                         Type::getMetadataTy(Context), false),
+                       GlobalValue::ExternalLinkage, "llvm.intrinsic", &M);
+
+  auto *FTy = FunctionType::get(Type::getVoidTy(Context), false);
+  auto *F0 = Function::Create(FTy, GlobalValue::ExternalLinkage, "F0", &M);
+  auto *F1 = Function::Create(FTy, GlobalValue::ExternalLinkage, "F1", &M);
+  auto *BB0 = BasicBlock::Create(Context, "entry", F0);
+  auto *BB1 = BasicBlock::Create(Context, "entry", F1);
+  auto *N0 = MDNode::getDistinct(Context, None);
+  auto *N1 = MDNode::getDistinct(Context, None);
+  auto *MAV0 = MetadataAsValue::get(Context, N0);
+  auto *MAV1 = MetadataAsValue::get(Context, N1);
+  CallInst::Create(Intrinsic, MAV0, "", BB0);
+  CallInst::Create(Intrinsic, MAV1, "", BB1);
+
+  EXPECT_PRINTER_EQ("!0 = distinct !{}", MAV0->print(OS));
+  EXPECT_PRINTER_EQ("!1 = distinct !{}", MAV1->print(OS));
+  EXPECT_PRINTER_EQ("!0", MAV0->printAsOperand(OS, false));
+  EXPECT_PRINTER_EQ("!1", MAV1->printAsOperand(OS, false));
+  EXPECT_PRINTER_EQ("metadata !0", MAV0->printAsOperand(OS, true));
+  EXPECT_PRINTER_EQ("metadata !1", MAV1->printAsOperand(OS, true));
+}
+#undef EXPECT_PRINTER_EQ
 
 TEST_F(MDNodeTest, NullOperand) {
   // metadata !{}
@@ -730,6 +830,48 @@ TEST_F(MDBasicTypeTest, getWithLargeValues) {
   EXPECT_EQ(UINT64_MAX - 1, N->getAlignInBits());
 }
 
+TEST_F(MDBasicTypeTest, getUnspecified) {
+  auto *N =
+      MDBasicType::get(Context, dwarf::DW_TAG_unspecified_type, "unspecified");
+  EXPECT_EQ(dwarf::DW_TAG_unspecified_type, N->getTag());
+  EXPECT_EQ("unspecified", N->getName());
+  EXPECT_EQ(0u, N->getSizeInBits());
+  EXPECT_EQ(0u, N->getAlignInBits());
+  EXPECT_EQ(0u, N->getEncoding());
+  EXPECT_EQ(0u, N->getLine());
+}
+
+typedef MetadataTest MDTypeTest;
+
+TEST_F(MDTypeTest, clone) {
+  // Check that MDType has a specialized clone that returns TempMDType.
+  MDType *N = MDBasicType::get(Context, dwarf::DW_TAG_base_type, "int", 32, 32,
+                               dwarf::DW_ATE_signed);
+
+  TempMDType Temp = N->clone();
+  EXPECT_EQ(N, MDNode::replaceWithUniqued(std::move(Temp)));
+}
+
+TEST_F(MDTypeTest, setFlags) {
+  // void (void)
+  Metadata *TypesOps[] = {nullptr};
+  Metadata *Types = MDTuple::get(Context, TypesOps);
+
+  MDType *D = MDSubroutineType::getDistinct(Context, 0u, Types);
+  EXPECT_EQ(0u, D->getFlags());
+  D->setFlags(DIDescriptor::FlagRValueReference);
+  EXPECT_EQ(DIDescriptor::FlagRValueReference, D->getFlags());
+  D->setFlags(0u);
+  EXPECT_EQ(0u, D->getFlags());
+
+  TempMDType T = MDSubroutineType::getTemporary(Context, 0u, Types);
+  EXPECT_EQ(0u, T->getFlags());
+  T->setFlags(DIDescriptor::FlagRValueReference);
+  EXPECT_EQ(DIDescriptor::FlagRValueReference, T->getFlags());
+  T->setFlags(0u);
+  EXPECT_EQ(0u, T->getFlags());
+}
+
 typedef MetadataTest MDDerivedTypeTest;
 
 TEST_F(MDDerivedTypeTest, get) {
@@ -1039,6 +1181,12 @@ TEST_F(MDFileTest, get) {
 
   TempMDFile Temp = N->clone();
   EXPECT_EQ(N, MDNode::replaceWithUniqued(std::move(Temp)));
+}
+
+TEST_F(MDFileTest, ScopeGetFile) {
+  // Ensure that MDScope::getFile() returns itself.
+  MDScope *N = MDFile::get(Context, "file", "dir");
+  EXPECT_EQ(N, N->getFile());
 }
 
 typedef MetadataTest MDCompileUnitTest;
@@ -1568,7 +1716,9 @@ TEST_F(MDLocalVariableTest, get) {
   Metadata *Type = MDTuple::getDistinct(Context, None);
   unsigned Arg = 6;
   unsigned Flags = 7;
-  Metadata *InlinedAt = MDTuple::getDistinct(Context, None);
+  Metadata *InlinedAtScope = MDTuple::getDistinct(Context, None);
+  Metadata *InlinedAt =
+      MDLocation::getDistinct(Context, 10, 20, InlinedAtScope);
 
   auto *N = MDLocalVariable::get(Context, Tag, Scope, Name, File, Line, Type,
                                  Arg, Flags, InlinedAt);
@@ -1606,6 +1756,19 @@ TEST_F(MDLocalVariableTest, get) {
 
   TempMDLocalVariable Temp = N->clone();
   EXPECT_EQ(N, MDNode::replaceWithUniqued(std::move(Temp)));
+
+  auto *Inlined = N->withoutInline();
+  EXPECT_NE(N, Inlined);
+  EXPECT_EQ(N->getTag(), Inlined->getTag());
+  EXPECT_EQ(N->getScope(), Inlined->getScope());
+  EXPECT_EQ(N->getName(), Inlined->getName());
+  EXPECT_EQ(N->getFile(), Inlined->getFile());
+  EXPECT_EQ(N->getLine(), Inlined->getLine());
+  EXPECT_EQ(N->getType(), Inlined->getType());
+  EXPECT_EQ(N->getArg(), Inlined->getArg());
+  EXPECT_EQ(N->getFlags(), Inlined->getFlags());
+  EXPECT_EQ(nullptr, Inlined->getInlinedAt());
+  EXPECT_EQ(N, Inlined->withInline(cast<MDLocation>(InlinedAt)));
 }
 
 typedef MetadataTest MDExpressionTest;

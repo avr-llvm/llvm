@@ -56,21 +56,69 @@ cl::list<std::string> InputFilenames(cl::Positional,
                                      cl::desc("<input PDB files>"),
                                      cl::OneOrMore);
 
-cl::opt<bool> Compilands("compilands", cl::desc("Display compilands"));
-cl::opt<bool> Symbols("symbols",
-                      cl::desc("Display symbols for each compiland"));
-cl::opt<bool> Globals("globals", cl::desc("Dump global symbols"));
-cl::opt<bool> Types("types", cl::desc("Display types"));
-cl::opt<bool> ClassDefs("class-definitions",
-                        cl::desc("Display full class definitions"));
+cl::OptionCategory TypeCategory("Symbol Type Options");
+cl::OptionCategory FilterCategory("Filtering Options");
+
+cl::opt<bool> Compilands("compilands", cl::desc("Display compilands"),
+                         cl::cat(TypeCategory));
+cl::opt<bool> Symbols("symbols", cl::desc("Display symbols for each compiland"),
+                      cl::cat(TypeCategory));
+cl::opt<bool> Globals("globals", cl::desc("Dump global symbols"),
+                      cl::cat(TypeCategory));
+cl::opt<bool> Types("types", cl::desc("Display types"), cl::cat(TypeCategory));
+cl::opt<bool>
+    All("all", cl::desc("Implies all other options in 'Symbol Types' category"),
+        cl::cat(TypeCategory));
+
+cl::list<std::string>
+    ExcludeTypes("exclude-types",
+                 cl::desc("Exclude types by regular expression"),
+                 cl::ZeroOrMore, cl::cat(FilterCategory));
+cl::list<std::string>
+    ExcludeSymbols("exclude-symbols",
+                   cl::desc("Exclude symbols by regular expression"),
+                   cl::ZeroOrMore, cl::cat(FilterCategory));
+cl::list<std::string>
+    ExcludeCompilands("exclude-compilands",
+                      cl::desc("Exclude compilands by regular expression"),
+                      cl::ZeroOrMore, cl::cat(FilterCategory));
+cl::opt<bool> ExcludeCompilerGenerated(
+    "no-compiler-generated",
+    cl::desc("Don't show compiler generated types and symbols"),
+    cl::cat(FilterCategory));
+cl::opt<bool>
+    ExcludeSystemLibraries("no-system-libs",
+                           cl::desc("Don't show symbols from system libraries"),
+                           cl::cat(FilterCategory));
+cl::opt<bool> NoClassDefs("no-class-definitions",
+                          cl::desc("Don't display full class definitions"),
+                          cl::cat(FilterCategory));
+cl::opt<bool> NoEnumDefs("no-enum-definitions",
+                         cl::desc("Don't display full enum definitions"),
+                         cl::cat(FilterCategory));
 }
 
 static void dumpInput(StringRef Path) {
-  std::unique_ptr<IPDBSession> Session(
-      llvm::createPDBReader(PDB_ReaderType::DIA, Path));
-  if (!Session) {
-    outs() << "Unable to create PDB reader.  Check that a valid implementation";
-    outs() << " is available for your platform.";
+  std::unique_ptr<IPDBSession> Session;
+  PDB_ErrorCode Error =
+      llvm::createPDBReader(PDB_ReaderType::DIA, Path, Session);
+  switch (Error) {
+  case PDB_ErrorCode::Success:
+    break;
+  case PDB_ErrorCode::NoPdbImpl:
+    outs() << "Reading PDBs is not supported on this platform.\n";
+    return;
+  case PDB_ErrorCode::InvalidPath:
+    outs() << "Unable to load PDB at '" << Path
+           << "'.  Check that the file exists and is readable.\n";
+    return;
+  case PDB_ErrorCode::InvalidFileFormat:
+    outs() << "Unable to load PDB at '" << Path
+           << "'.  The file has an unrecognized format.\n";
+    return;
+  default:
+    outs() << "Unable to load PDB at '" << Path
+           << "'.  An unknown error occured.\n";
     return;
   }
 
@@ -117,7 +165,7 @@ static void dumpInput(StringRef Path) {
     auto Compilands = GlobalScope->findAllChildren<PDBSymbolCompiland>();
     CompilandDumper Dumper(Printer);
     while (auto Compiland = Compilands->getNext())
-      Dumper.start(*Compiland, outs(), 2, false);
+      Dumper.start(*Compiland, false);
     Printer.Unindent();
   }
 
@@ -125,8 +173,8 @@ static void dumpInput(StringRef Path) {
     Printer.NewLine();
     WithColor(Printer, PDB_ColorItem::SectionHeader).get() << "---TYPES---";
     Printer.Indent();
-    TypeDumper Dumper(Printer, false, opts::ClassDefs);
-    Dumper.start(*GlobalScope, outs(), 2);
+    TypeDumper Dumper(Printer);
+    Dumper.start(*GlobalScope);
     Printer.Unindent();
   }
 
@@ -137,7 +185,7 @@ static void dumpInput(StringRef Path) {
     auto Compilands = GlobalScope->findAllChildren<PDBSymbolCompiland>();
     CompilandDumper Dumper(Printer);
     while (auto Compiland = Compilands->getNext())
-      Dumper.start(*Compiland, outs(), 2, true);
+      Dumper.start(*Compiland, true);
     Printer.Unindent();
   }
 
@@ -150,20 +198,20 @@ static void dumpInput(StringRef Path) {
       auto Functions = GlobalScope->findAllChildren<PDBSymbolFunc>();
       while (auto Function = Functions->getNext()) {
         Printer.NewLine();
-        Dumper.start(*Function, FunctionDumper::PointerType::None, outs(), 2);
+        Dumper.start(*Function, FunctionDumper::PointerType::None);
       }
     }
     {
       auto Vars = GlobalScope->findAllChildren<PDBSymbolData>();
       VariableDumper Dumper(Printer);
       while (auto Var = Vars->getNext())
-        Dumper.start(*Var, outs(), 2);
+        Dumper.start(*Var);
     }
     {
       auto Thunks = GlobalScope->findAllChildren<PDBSymbolThunk>();
       CompilandDumper Dumper(Printer);
       while (auto Thunk = Thunks->getNext())
-        Dumper.dump(*Thunk, outs(), 2);
+        Dumper.dump(*Thunk);
     }
     Printer.Unindent();
   }
@@ -187,6 +235,20 @@ int main(int argc_, const char *argv_[]) {
   llvm_shutdown_obj Y; // Call llvm_shutdown() on exit.
 
   cl::ParseCommandLineOptions(argv.size(), argv.data(), "LLVM PDB Dumper\n");
+  if (opts::All) {
+    opts::Compilands = true;
+    opts::Symbols = true;
+    opts::Globals = true;
+    opts::Types = true;
+  }
+  if (opts::ExcludeCompilerGenerated) {
+    opts::ExcludeTypes.push_back("__vc_attributes");
+    opts::ExcludeCompilands.push_back("* Linker *");
+  }
+  if (opts::ExcludeSystemLibraries) {
+    opts::ExcludeCompilands.push_back(
+        "f:\\binaries\\Intermediate\\vctools\\crt_bld");
+  }
 
 #if defined(HAVE_DIA_SDK)
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);

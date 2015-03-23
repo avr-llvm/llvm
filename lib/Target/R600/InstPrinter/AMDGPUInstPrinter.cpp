@@ -99,6 +99,12 @@ void AMDGPUInstPrinter::printDSOffset1(const MCInst *MI, unsigned OpNo,
   printU8ImmDecOperand(MI, OpNo, O);
 }
 
+void AMDGPUInstPrinter::printGDS(const MCInst *MI, unsigned OpNo,
+                                 raw_ostream &O) {
+  if (MI->getOperand(OpNo).getImm())
+    O << " gds";
+}
+
 void AMDGPUInstPrinter::printGLC(const MCInst *MI, unsigned OpNo,
                                  raw_ostream &O) {
   if (MI->getOperand(OpNo).getImm())
@@ -206,6 +212,16 @@ void AMDGPUInstPrinter::printRegOperand(unsigned reg, raw_ostream &O) {
   }
 
   O << Type << '[' << RegIdx << ':' << (RegIdx + NumRegs - 1) << ']';
+}
+
+void AMDGPUInstPrinter::printVOPDst(const MCInst *MI, unsigned OpNo,
+                                    raw_ostream &O) {
+  if (MII.get(MI->getOpcode()).TSFlags & SIInstrFlags::VOP3)
+    O << "_e64 ";
+  else
+    O << "_e32 ";
+
+  printOperand(MI, OpNo, O);
 }
 
 void AMDGPUInstPrinter::printImmediate32(uint32_t Imm, raw_ostream &O) {

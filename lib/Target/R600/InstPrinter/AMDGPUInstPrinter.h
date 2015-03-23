@@ -44,10 +44,12 @@ private:
   void printDSOffset(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printDSOffset0(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printDSOffset1(const MCInst *MI, unsigned OpNo, raw_ostream &O);
+  void printGDS(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printGLC(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printSLC(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printTFE(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printRegOperand(unsigned RegNo, raw_ostream &O);
+  void printVOPDst(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printImmediate32(uint32_t I, raw_ostream &O);
   void printImmediate64(uint64_t I, raw_ostream &O);
   void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);

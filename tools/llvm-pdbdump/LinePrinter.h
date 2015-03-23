@@ -10,8 +10,12 @@
 #ifndef LLVM_TOOLS_LLVMPDBDUMP_LINEPRINTER_H
 #define LLVM_TOOLS_LLVMPDBDUMP_LINEPRINTER_H
 
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Regex.h"
+
+#include <list>
 
 namespace llvm {
 
@@ -23,15 +27,30 @@ public:
 
   void Indent();
   void Unindent();
-
   void NewLine();
 
   raw_ostream &getStream() { return OS; }
+  int getIndentLevel() const { return CurrentIndent; }
+
+  bool IsTypeExcluded(llvm::StringRef TypeName);
+  bool IsSymbolExcluded(llvm::StringRef SymbolName);
+  bool IsCompilandExcluded(llvm::StringRef CompilandName);
 
 private:
+  template <typename Iter>
+  void SetFilters(std::list<Regex> &List, Iter Begin, Iter End) {
+    List.clear();
+    for (; Begin != End; ++Begin)
+      List.push_back(StringRef(*Begin));
+  }
+
   raw_ostream &OS;
   int IndentSpaces;
   int CurrentIndent;
+
+  std::list<Regex> CompilandFilters;
+  std::list<Regex> TypeFilters;
+  std::list<Regex> SymbolFilters;
 };
 
 template <class T>
@@ -50,6 +69,7 @@ enum class PDB_ColorItem {
   Path,
   SectionHeader,
   LiteralValue,
+  Register,
 };
 
 class WithColor {

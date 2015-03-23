@@ -113,11 +113,10 @@ public:
 #define GET_OPERAND_DIAGNOSTIC_TYPES
 #include "AArch64GenAsmMatcher.inc"
   };
-  AArch64AsmParser(MCSubtargetInfo &_STI, MCAsmParser &_Parser,
-                 const MCInstrInfo &MII,
-                 const MCTargetOptions &Options)
-      : MCTargetAsmParser(), STI(_STI) {
-    MCAsmParserExtension::Initialize(_Parser);
+  AArch64AsmParser(MCSubtargetInfo &STI, MCAsmParser &Parser,
+                   const MCInstrInfo &MII, const MCTargetOptions &Options)
+      : MCTargetAsmParser(), STI(STI) {
+    MCAsmParserExtension::Initialize(Parser);
     MCStreamer &S = getParser().getStreamer();
     if (S.getTargetStreamer() == nullptr)
       new AArch64TargetStreamer(S);
@@ -254,8 +253,7 @@ private:
   MCContext &Ctx;
 
 public:
-  AArch64Operand(KindTy K, MCContext &_Ctx)
-      : MCParsedAsmOperand(), Kind(K), Ctx(_Ctx) {}
+  AArch64Operand(KindTy K, MCContext &Ctx) : Kind(K), Ctx(Ctx) {}
 
   AArch64Operand(const AArch64Operand &o) : MCParsedAsmOperand(), Ctx(o.Ctx) {
     Kind = o.Kind;
@@ -752,58 +750,47 @@ public:
   }
 
   bool isMovZSymbolG3() const {
-    static AArch64MCExpr::VariantKind Variants[] = { AArch64MCExpr::VK_ABS_G3 };
-    return isMovWSymbol(Variants);
+    return isMovWSymbol(AArch64MCExpr::VK_ABS_G3);
   }
 
   bool isMovZSymbolG2() const {
-    static AArch64MCExpr::VariantKind Variants[] = {
-        AArch64MCExpr::VK_ABS_G2, AArch64MCExpr::VK_ABS_G2_S,
-        AArch64MCExpr::VK_TPREL_G2, AArch64MCExpr::VK_DTPREL_G2};
-    return isMovWSymbol(Variants);
+    return isMovWSymbol({AArch64MCExpr::VK_ABS_G2, AArch64MCExpr::VK_ABS_G2_S,
+                         AArch64MCExpr::VK_TPREL_G2,
+                         AArch64MCExpr::VK_DTPREL_G2});
   }
 
   bool isMovZSymbolG1() const {
-    static AArch64MCExpr::VariantKind Variants[] = {
-        AArch64MCExpr::VK_ABS_G1,      AArch64MCExpr::VK_ABS_G1_S,
+    return isMovWSymbol({
+        AArch64MCExpr::VK_ABS_G1, AArch64MCExpr::VK_ABS_G1_S,
         AArch64MCExpr::VK_GOTTPREL_G1, AArch64MCExpr::VK_TPREL_G1,
         AArch64MCExpr::VK_DTPREL_G1,
-    };
-    return isMovWSymbol(Variants);
+    });
   }
 
   bool isMovZSymbolG0() const {
-    static AArch64MCExpr::VariantKind Variants[] = {
-        AArch64MCExpr::VK_ABS_G0, AArch64MCExpr::VK_ABS_G0_S,
-        AArch64MCExpr::VK_TPREL_G0, AArch64MCExpr::VK_DTPREL_G0};
-    return isMovWSymbol(Variants);
+    return isMovWSymbol({AArch64MCExpr::VK_ABS_G0, AArch64MCExpr::VK_ABS_G0_S,
+                         AArch64MCExpr::VK_TPREL_G0,
+                         AArch64MCExpr::VK_DTPREL_G0});
   }
 
   bool isMovKSymbolG3() const {
-    static AArch64MCExpr::VariantKind Variants[] = { AArch64MCExpr::VK_ABS_G3 };
-    return isMovWSymbol(Variants);
+    return isMovWSymbol(AArch64MCExpr::VK_ABS_G3);
   }
 
   bool isMovKSymbolG2() const {
-    static AArch64MCExpr::VariantKind Variants[] = {
-        AArch64MCExpr::VK_ABS_G2_NC};
-    return isMovWSymbol(Variants);
+    return isMovWSymbol(AArch64MCExpr::VK_ABS_G2_NC);
   }
 
   bool isMovKSymbolG1() const {
-    static AArch64MCExpr::VariantKind Variants[] = {
-      AArch64MCExpr::VK_ABS_G1_NC, AArch64MCExpr::VK_TPREL_G1_NC,
-      AArch64MCExpr::VK_DTPREL_G1_NC
-    };
-    return isMovWSymbol(Variants);
+    return isMovWSymbol({AArch64MCExpr::VK_ABS_G1_NC,
+                         AArch64MCExpr::VK_TPREL_G1_NC,
+                         AArch64MCExpr::VK_DTPREL_G1_NC});
   }
 
   bool isMovKSymbolG0() const {
-    static AArch64MCExpr::VariantKind Variants[] = {
-      AArch64MCExpr::VK_ABS_G0_NC,   AArch64MCExpr::VK_GOTTPREL_G0_NC,
-      AArch64MCExpr::VK_TPREL_G0_NC, AArch64MCExpr::VK_DTPREL_G0_NC
-    };
-    return isMovWSymbol(Variants);
+    return isMovWSymbol(
+        {AArch64MCExpr::VK_ABS_G0_NC, AArch64MCExpr::VK_GOTTPREL_G0_NC,
+         AArch64MCExpr::VK_TPREL_G0_NC, AArch64MCExpr::VK_DTPREL_G0_NC});
   }
 
   template<int RegWidth, int Shift>

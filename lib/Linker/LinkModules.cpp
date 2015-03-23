@@ -226,6 +226,7 @@ void TypeMapTy::linkDefinedTypeBodies() {
       Elements[I] = get(SrcSTy->getElementType(I));
 
     DstSTy->setBody(Elements, SrcSTy->isPacked());
+    DstStructTypesSet.switchToNonOpaque(DstSTy);
   }
   SrcDefinitionsToResolve.clear();
   DstResolvedOpaqueTypes.clear();
@@ -672,17 +673,12 @@ bool ModuleLinker::computeResultingSelectionKind(StringRef ComdatName,
         getComdatLeader(SrcM, ComdatName, SrcGV))
       return true;
 
-    const DataLayout *DstDL = DstM->getDataLayout();
-    const DataLayout *SrcDL = SrcM->getDataLayout();
-    if (!DstDL || !SrcDL) {
-      return emitError(
-          "Linking COMDATs named '" + ComdatName +
-          "': can't do size dependent selection without DataLayout!");
-    }
+    const DataLayout &DstDL = DstM->getDataLayout();
+    const DataLayout &SrcDL = SrcM->getDataLayout();
     uint64_t DstSize =
-        DstDL->getTypeAllocSize(DstGV->getType()->getPointerElementType());
+        DstDL.getTypeAllocSize(DstGV->getType()->getPointerElementType());
     uint64_t SrcSize =
-        SrcDL->getTypeAllocSize(SrcGV->getType()->getPointerElementType());
+        SrcDL.getTypeAllocSize(SrcGV->getType()->getPointerElementType());
     if (Result == Comdat::SelectionKind::ExactMatch) {
       if (SrcGV->getInitializer() != DstGV->getInitializer())
         return emitError("Linking COMDATs named '" + ComdatName +
@@ -768,9 +764,7 @@ bool ModuleLinker::shouldLinkFromSource(bool &LinkFromSrc,
       return false;
     }
 
-    // FIXME: Make datalayout mandatory and just use getDataLayout().
-    DataLayout DL(Dest.getParent());
-
+    const DataLayout &DL = Dest.getParent()->getDataLayout();
     uint64_t DestSize = DL.getTypeAllocSize(Dest.getType()->getElementType());
     uint64_t SrcSize = DL.getTypeAllocSize(Src.getType()->getElementType());
     LinkFromSrc = SrcSize > DestSize;
@@ -1482,11 +1476,10 @@ bool ModuleLinker::run() {
 
   // Inherit the target data from the source module if the destination module
   // doesn't have one already.
-  if (!DstM->getDataLayout() && SrcM->getDataLayout())
+  if (DstM->getDataLayout().isDefault())
     DstM->setDataLayout(SrcM->getDataLayout());
 
-  if (SrcM->getDataLayout() && DstM->getDataLayout() &&
-      *SrcM->getDataLayout() != *DstM->getDataLayout()) {
+  if (SrcM->getDataLayout() != DstM->getDataLayout()) {
     emitWarning("Linking two modules of different data layouts: '" +
                 SrcM->getModuleIdentifier() + "' is '" +
                 SrcM->getDataLayoutStr() + "' whereas '" +
@@ -1684,6 +1677,14 @@ void Linker::IdentifiedStructTypeSet::addNonOpaque(StructType *Ty) {
   NonOpaqueStructTypes.insert(Ty);
 }
 
+void Linker::IdentifiedStructTypeSet::switchToNonOpaque(StructType *Ty) {
+  assert(!Ty->isOpaque());
+  NonOpaqueStructTypes.insert(Ty);
+  bool Removed = OpaqueStructTypes.erase(Ty);
+  (void)Removed;
+  assert(Removed);
+}
+
 void Linker::IdentifiedStructTypeSet::addOpaque(StructType *Ty) {
   assert(Ty->isOpaque());
   OpaqueStructTypes.insert(Ty);
@@ -1777,7 +1778,7 @@ bool Linker::LinkModules(Module *Dest, Module *Src) {
 //===----------------------------------------------------------------------===//
 
 LLVMBool LLVMLinkModules(LLVMModuleRef Dest, LLVMModuleRef Src,
-                         unsigned Unused, char **OutMessages) {
+                         LLVMLinkerMode Unused, char **OutMessages) {
   Module *D = unwrap(Dest);
   std::string Message;
   raw_string_ostream Stream(Message);

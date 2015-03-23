@@ -91,6 +91,7 @@ namespace options {
   };
   static bool generate_api_file = false;
   static OutputType TheOutputType = OT_NORMAL;
+  static unsigned OptLevel = 2;
   static std::string obj_path;
   static std::string extra_library_path;
   static std::string triple;
@@ -124,6 +125,10 @@ namespace options {
       TheOutputType = OT_SAVE_TEMPS;
     } else if (opt == "disable-output") {
       TheOutputType = OT_DISABLE;
+    } else if (opt.size() == 2 && opt[0] == 'O') {
+      if (opt[1] < '0' || opt[1] > '3')
+        report_fatal_error("Optimization level must be between 0 and 3");
+      OptLevel = opt[1] - '0';
     } else {
       // Save this option to pass to the code generator.
       // ParseCommandLineOptions() expects argv[0] to be program name. Lazily
@@ -295,8 +300,8 @@ static void diagnosticHandler(const DiagnosticInfo &DI, void *Context) {
   case DS_Warning:
     Level = LDPL_WARNING;
     break;
-  case DS_Remark:
   case DS_Note:
+  case DS_Remark:
     Level = LDPL_INFO;
     break;
   }
@@ -598,6 +603,7 @@ getModuleForFile(LLVMContext &Context, claimed_file &F,
 
   Module &M = Obj.getModule();
 
+  M.materializeMetadata();
   UpgradeDebugInfo(M);
 
   SmallPtrSet<GlobalValue *, 8> Used;
@@ -711,10 +717,9 @@ getModuleForFile(LLVMContext &Context, claimed_file &F,
 
 static void runLTOPasses(Module &M, TargetMachine &TM) {
   if (const DataLayout *DL = TM.getDataLayout())
-    M.setDataLayout(DL);
+    M.setDataLayout(*DL);
 
   legacy::PassManager passes;
-  passes.add(new DataLayoutPass());
   passes.add(createTargetTransformInfoWrapperPass(TM.getTargetIRAnalysis()));
 
   PassManagerBuilder PMB;
@@ -724,6 +729,7 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   PMB.VerifyOutput = true;
   PMB.LoopVectorize = true;
   PMB.SLPVectorize = true;
+  PMB.OptLevel = options::OptLevel;
   PMB.populateLTOPassManager(passes);
   passes.run(M);
 }
@@ -754,9 +760,24 @@ static void codegen(Module &M) {
     Features.AddFeature(A);
 
   TargetOptions Options = InitTargetOptionsFromCodeGenFlags();
+  CodeGenOpt::Level CGOptLevel;
+  switch (options::OptLevel) {
+  case 0:
+    CGOptLevel = CodeGenOpt::None;
+    break;
+  case 1:
+    CGOptLevel = CodeGenOpt::Less;
+    break;
+  case 2:
+    CGOptLevel = CodeGenOpt::Default;
+    break;
+  case 3:
+    CGOptLevel = CodeGenOpt::Aggressive;
+    break;
+  }
   std::unique_ptr<TargetMachine> TM(TheTarget->createTargetMachine(
       TripleStr, options::mcpu, Features.getString(), Options, RelocationModel,
-      CodeModel::Default, CodeGenOpt::Aggressive));
+      CodeModel::Default, CGOptLevel));
 
   runLTOPasses(M, *TM);
 
@@ -764,7 +785,6 @@ static void codegen(Module &M) {
     saveBCFile(output_name + ".opt.bc", M);
 
   legacy::PassManager CodeGenPasses;
-  CodeGenPasses.add(new DataLayoutPass());
 
   SmallString<128> Filename;
   int FD;
@@ -809,7 +829,7 @@ static ld_plugin_status allSymbolsReadHook(raw_fd_ostream *ApiFile) {
     return LDPS_OK;
 
   LLVMContext Context;
-  Context.setDiagnosticHandler(diagnosticHandler);
+  Context.setDiagnosticHandler(diagnosticHandler, nullptr, true);
 
   std::unique_ptr<Module> Combined(new Module("ld-temp.o", Context));
   Linker L(Combined.get());

@@ -146,7 +146,6 @@ public:
     case MDTemplateValueParameterKind:
     case MDGlobalVariableKind:
     case MDLocalVariableKind:
-    case MDExpressionKind:
     case MDObjCPropertyKind:
     case MDImportedEntityKind:
       return true;
@@ -330,7 +329,16 @@ protected:
   ~MDScope() {}
 
 public:
-  Metadata *getFile() const { return getOperand(0); }
+  /// \brief Return the underlying file.
+  ///
+  /// An \a MDFile is an \a MDScope, but it doesn't point at a separate file
+  /// (it\em is the file).  If \c this is an \a MDFile, we need to return \c
+  /// this.  Otherwise, return the first operand, which is where all other
+  /// subclasses store their file pointer.
+  Metadata *getFile() const {
+    return isa<MDFile>(this) ? const_cast<MDScope *>(this)
+                             : static_cast<Metadata *>(getOperand(0));
+  }
 
   static bool classof(const Metadata *MD) {
     switch (MD->getMetadataID()) {
@@ -373,6 +381,10 @@ protected:
   ~MDType() {}
 
 public:
+  TempMDType clone() const {
+    return TempMDType(cast<MDType>(MDNode::clone().release()));
+  }
+
   unsigned getLine() const { return Line; }
   uint64_t getSizeInBits() const { return SizeInBits; }
   uint64_t getAlignInBits() const { return AlignInBits; }
@@ -383,6 +395,11 @@ public:
   StringRef getName() const { return getStringOperand(2); }
 
   MDString *getRawName() const { return getOperandAs<MDString>(2); }
+
+  void setFlags(unsigned NewFlags) {
+    assert(!isUniqued() && "Cannot set flags on uniqued nodes");
+    Flags = NewFlags;
+  }
 
   static bool classof(const Metadata *MD) {
     switch (MD->getMetadataID()) {
@@ -433,6 +450,8 @@ class MDBasicType : public MDType {
   }
 
 public:
+  DEFINE_MDNODE_GET(MDBasicType, (unsigned Tag, StringRef Name),
+                    (Tag, Name, 0, 0, 0))
   DEFINE_MDNODE_GET(MDBasicType,
                     (unsigned Tag, StringRef Name, uint64_t SizeInBits,
                      uint64_t AlignInBits, unsigned Encoding),
@@ -1407,6 +1426,18 @@ public:
   unsigned getFlags() const { return Flags; }
   Metadata *getInlinedAt() const { return getOperand(4); }
 
+  /// \brief Get an inlined version of this variable.
+  ///
+  /// Returns a version of this with \a getAlinedAt() set to \c InlinedAt.
+  MDLocalVariable *withInline(MDLocation *InlinedAt) const {
+    if (InlinedAt == getInlinedAt())
+      return const_cast<MDLocalVariable *>(this);
+    auto Temp = clone();
+    Temp->replaceOperandWith(4, InlinedAt);
+    return replaceWithUniqued(std::move(Temp));
+  }
+  MDLocalVariable *withoutInline() const { return withInline(nullptr); }
+
   static bool classof(const Metadata *MD) {
     return MD->getMetadataID() == MDLocalVariableKind;
   }
@@ -1415,17 +1446,16 @@ public:
 /// \brief DWARF expression.
 ///
 /// TODO: Co-allocate the expression elements.
-/// TODO: Drop fake DW_TAG_expression and separate from DebugNode.
 /// TODO: Separate from MDNode, or otherwise drop Distinct and Temporary
 /// storage types.
-class MDExpression : public DebugNode {
+class MDExpression : public MDNode {
   friend class LLVMContextImpl;
   friend class MDNode;
 
   std::vector<uint64_t> Elements;
 
   MDExpression(LLVMContext &C, StorageType Storage, ArrayRef<uint64_t> Elements)
-      : DebugNode(C, MDExpressionKind, Storage, dwarf::DW_TAG_expression, None),
+      : MDNode(C, MDExpressionKind, Storage, None),
         Elements(Elements.begin(), Elements.end()) {}
   ~MDExpression() {}
 

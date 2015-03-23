@@ -341,7 +341,7 @@ function(llvm_add_library name)
 
     set_target_properties(${name}
       PROPERTIES
-      SOVERSION ${LLVM_VERSION_MAJOR}
+      SOVERSION ${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}
       VERSION ${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH}${LLVM_VERSION_SUFFIX})
   endif()
 
@@ -489,6 +489,12 @@ macro(add_llvm_executable name)
     add_dependencies( ${name} ${LLVM_COMMON_DEPENDS} )
   endif( LLVM_COMMON_DEPENDS )
 endmacro(add_llvm_executable name)
+
+function(export_executable_symbols target)
+  if (NOT MSVC) # MSVC's linker doesn't support exporting all symbols.
+    set_target_properties(${target} PROPERTIES ENABLE_EXPORTS 1)
+  endif()
+endfunction()
 
 
 set (LLVM_TOOLCHAIN_TOOLS

@@ -48,8 +48,6 @@ Win64Exception::~Win64Exception() {}
 void Win64Exception::endModule() {
 }
 
-/// beginFunction - Gather pre-function exception information. Assumes it's
-/// being emitted immediately after the function entry point.
 void Win64Exception::beginFunction(const MachineFunction *MF) {
   shouldEmitMoves = shouldEmitPersonality = shouldEmitLSDA = false;
 

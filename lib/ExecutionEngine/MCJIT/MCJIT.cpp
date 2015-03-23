@@ -137,8 +137,7 @@ std::unique_ptr<MemoryBuffer> MCJIT::emitObject(Module *M) {
 
   legacy::PassManager PM;
 
-  M->setDataLayout(TM->getDataLayout());
-  PM.add(new DataLayoutPass());
+  M->setDataLayout(*TM->getDataLayout());
 
   // The RuntimeDyld will take ownership of this shortly
   SmallVector<char, 4096> ObjBufferSV;
@@ -258,7 +257,7 @@ uint64_t MCJIT::getExistingSymbolAddress(const std::string &Name) {
   Mangler Mang(TM->getDataLayout());
   SmallString<128> FullName;
   Mang.getNameWithPrefix(FullName, Name);
-  return Dyld.getSymbolLoadAddress(FullName);
+  return Dyld.getSymbol(FullName).getAddress();
 }
 
 Module *MCJIT::findModuleForSymbol(const std::string &Name,
@@ -384,7 +383,7 @@ void *MCJIT::getPointerToFunction(Function *F) {
   //
   // This is the accessor for the target address, so make sure to check the
   // load address of the symbol, not the local address.
-  return (void*)Dyld.getSymbolLoadAddress(Name);
+  return (void*)Dyld.getSymbol(Name).getAddress();
 }
 
 void MCJIT::runStaticConstructorsDestructorsInModulePtrSet(

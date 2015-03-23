@@ -739,7 +739,7 @@ void MachineVerifier::verifyInlineAsm(const MachineInstr *MI) {
   if (!isUInt<5>(MI->getOperand(1).getImm()))
     report("Unknown asm flags", &MI->getOperand(1), 1);
 
-  assert(InlineAsm::MIOp_FirstOperand == 2 && "Asm format changed");
+  static_assert(InlineAsm::MIOp_FirstOperand == 2, "Asm format changed");
 
   unsigned OpNo = InlineAsm::MIOp_FirstOperand;
   unsigned NumOps;
@@ -927,7 +927,7 @@ MachineVerifier::visitMachineOperand(const MachineOperand *MO, unsigned MONum) {
               TII->getRegClass(MCID, MONum, TRI, *MF)) {
           if (SubIdx) {
             const TargetRegisterClass *SuperRC =
-              TRI->getLargestLegalSuperClass(RC);
+                TRI->getLargestLegalSuperClass(RC, *MF);
             if (!SuperRC) {
               report("No largest legal super class exists.", MO, MONum);
               return;
@@ -1573,7 +1573,8 @@ void MachineVerifier::verifyLiveRangeSegment(const LiveRange &LR,
       if (!hasRead) {
         // When tracking subregister liveness, the main range must start new
         // values on partial register writes, even if there is no read.
-        if (!MRI->tracksSubRegLiveness() || LaneMask != 0 || !hasSubRegDef) {
+        if (!MRI->shouldTrackSubRegLiveness(Reg) || LaneMask != 0 ||
+            !hasSubRegDef) {
           report("Instruction ending live segment doesn't read the register",
                  MI);
           errs() << S << " in " << LR << '\n';

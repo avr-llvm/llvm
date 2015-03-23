@@ -243,7 +243,8 @@ std::pair<MCSymbol *, MCSymbol *> MCDwarfLineTableHeader::Emit(MCStreamer *MCOS)
       0, // length of DW_LNS_set_epilogue_begin
       1  // DW_LNS_set_isa
   };
-  assert(array_lengthof(StandardOpcodeLengths) == (DWARF2_LINE_OPCODE_BASE - 1));
+  assert(array_lengthof(StandardOpcodeLengths) ==
+         (DWARF2_LINE_OPCODE_BASE - 1));
   return Emit(MCOS, StandardOpcodeLengths);
 }
 
@@ -446,7 +447,7 @@ void MCDwarfLineAddr::Encode(MCContext &Context, int64_t LineDelta,
   if (LineDelta == INT64_MAX) {
     if (AddrDelta == MAX_SPECIAL_ADDR_DELTA)
       OS << char(dwarf::DW_LNS_const_add_pc);
-    else {
+    else if (AddrDelta) {
       OS << char(dwarf::DW_LNS_advance_pc);
       encodeULEB128(AddrDelta, OS);
     }
@@ -1292,7 +1293,7 @@ const MCSymbol &FrameEmitterImpl::EmitCIE(MCObjectStreamer &streamer,
     Augmentation += "R";
     if (IsSignalFrame)
       Augmentation += "S";
-    streamer.EmitBytes(Augmentation.str());
+    streamer.EmitBytes(Augmentation);
   }
   streamer.EmitIntValue(0, 1);
 

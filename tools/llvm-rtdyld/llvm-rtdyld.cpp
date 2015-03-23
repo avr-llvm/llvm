@@ -298,7 +298,7 @@ static int executeInput() {
   // FIXME: Error out if there are unresolved relocations.
 
   // Get the address of the entry point (_main by default).
-  void *MainAddress = Dyld.getSymbolAddress(EntryPoint);
+  void *MainAddress = Dyld.getSymbolLocalAddress(EntryPoint);
   if (!MainAddress)
     return Error("no definition for '" + EntryPoint + "'");
 
@@ -339,7 +339,7 @@ static int checkAllExpressions(RuntimeDyldChecker &Checker) {
   return 0;
 }
 
-std::map<void*, uint64_t>
+static std::map<void *, uint64_t>
 applySpecificSectionMappings(RuntimeDyldChecker &Checker) {
 
   std::map<void*, uint64_t> SpecificMappings;
@@ -397,9 +397,9 @@ applySpecificSectionMappings(RuntimeDyldChecker &Checker) {
 //                            Defaults to zero. Set to something big
 //                            (e.g. 1 << 32) to stress-test stubs, GOTs, etc.
 //
-void remapSections(const llvm::Triple &TargetTriple,
-                   const TrivialMemoryManager &MemMgr,
-                   RuntimeDyldChecker &Checker) {
+static void remapSections(const llvm::Triple &TargetTriple,
+                          const TrivialMemoryManager &MemMgr,
+                          RuntimeDyldChecker &Checker) {
 
   // Set up a work list (section addr/size pairs).
   typedef std::list<std::pair<void*, uint64_t>> WorklistT;

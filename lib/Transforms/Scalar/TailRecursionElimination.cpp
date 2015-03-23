@@ -87,7 +87,6 @@ STATISTIC(NumAccumAdded, "Number of accumulators introduced");
 namespace {
   struct TailCallElim : public FunctionPass {
     const TargetTransformInfo *TTI;
-    const DataLayout *DL;
 
     static char ID; // Pass identification, replacement for typeid
     TailCallElim() : FunctionPass(ID) {
@@ -158,8 +157,6 @@ static bool CanTRE(Function &F) {
 bool TailCallElim::runOnFunction(Function &F) {
   if (skipOptnoneFunction(F))
     return false;
-
-  DL = F.getParent()->getDataLayout();
 
   bool AllCallsAreTailCalls = false;
   bool Modified = markTails(F, AllCallsAreTailCalls);
@@ -403,27 +400,18 @@ bool TailCallElim::runTRE(Function &F) {
   // alloca' is changed from being a static alloca to being a dynamic alloca.
   // Until this is resolved, disable this transformation if that would ever
   // happen.  This bug is PR962.
-  SmallVector<BasicBlock*, 8> BBToErase;
-  for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB) {
+  for (Function::iterator BBI = F.begin(), E = F.end(); BBI != E; /*in loop*/) {
+    BasicBlock *BB = BBI++; // FoldReturnAndProcessPred may delete BB.
     if (ReturnInst *Ret = dyn_cast<ReturnInst>(BB->getTerminator())) {
       bool Change = ProcessReturningBlock(Ret, OldEntry, TailCallsAreMarkedTail,
                                           ArgumentPHIs, !CanTRETailMarkedCall);
-      if (!Change && BB->getFirstNonPHIOrDbg() == Ret) {
+      if (!Change && BB->getFirstNonPHIOrDbg() == Ret)
         Change = FoldReturnAndProcessPred(BB, Ret, OldEntry,
                                           TailCallsAreMarkedTail, ArgumentPHIs,
                                           !CanTRETailMarkedCall);
-        // FoldReturnAndProcessPred may have emptied some BB. Remember to
-        // erase them.
-        if (Change && BB->empty())
-          BBToErase.push_back(BB);
-
-      }
       MadeChange |= Change;
     }
   }
-
-  for (auto BB: BBToErase)
-    BB->eraseFromParent();
 
   // If we eliminated any tail recursions, it's possible that we inserted some
   // silly PHI nodes which just merge an initial value (the incoming operand)
@@ -434,7 +422,7 @@ bool TailCallElim::runTRE(Function &F) {
     PHINode *PN = ArgumentPHIs[i];
 
     // If the PHI Node is a dynamic constant, replace it with the value it is.
-    if (Value *PNV = SimplifyInstruction(PN)) {
+    if (Value *PNV = SimplifyInstruction(PN, F.getParent()->getDataLayout())) {
       PN->replaceAllUsesWith(PNV);
       PN->eraseFromParent();
     }
@@ -463,7 +451,7 @@ bool TailCallElim::CanMoveAboveCall(Instruction *I, CallInst *CI) {
       // being loaded from.
       if (CI->mayWriteToMemory() ||
           !isSafeToLoadUnconditionally(L->getPointerOperand(), L,
-                                       L->getAlignment(), DL))
+                                       L->getAlignment()))
         return false;
     }
   }
@@ -831,14 +819,11 @@ bool TailCallElim::FoldReturnAndProcessPred(BasicBlock *BB,
       ReturnInst *RI = FoldReturnIntoUncondBranch(Ret, BB, Pred);
 
       // Cleanup: if all predecessors of BB have been eliminated by
-      // FoldReturnIntoUncondBranch, we would like to delete it, but we
-      // can not just nuke it as it is being used as an iterator by our caller.
-      // Just empty it, and the caller will erase it when it is safe to do so.
-      // It is important to empty it, because the ret instruction in there is
-      // still using a value which EliminateRecursiveTailCall will attempt
-      // to remove.
+      // FoldReturnIntoUncondBranch, delete it.  It is important to empty it,
+      // because the ret instruction in there is still using a value which
+      // EliminateRecursiveTailCall will attempt to remove.
       if (!BB->hasAddressTaken() && pred_begin(BB) == pred_end(BB))
-        BB->getInstList().clear();
+        BB->eraseFromParent();
 
       EliminateRecursiveTailCall(CI, RI, OldEntry, TailCallsAreMarkedTail,
                                  ArgumentPHIs,

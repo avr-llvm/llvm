@@ -28,7 +28,7 @@
 using namespace llvm;
 
 SIInstrInfo::SIInstrInfo(const AMDGPUSubtarget &st)
-    : AMDGPUInstrInfo(st), RI(st) {}
+    : AMDGPUInstrInfo(st), RI() {}
 
 //===----------------------------------------------------------------------===//
 // TargetInstrInfo callbacks
@@ -583,10 +583,7 @@ unsigned SIInstrInfo::calculateLDSSpillAddress(MachineBasicBlock &MBB,
       unsigned TIDIGZReg = TRI->getPreloadedValue(*MF, SIRegisterInfo::TIDIG_Z);
       unsigned InputPtrReg =
           TRI->getPreloadedValue(*MF, SIRegisterInfo::INPUT_PTR);
-      static const unsigned TIDIGRegs[3] = {
-        TIDIGXReg, TIDIGYReg, TIDIGZReg
-      };
-      for (unsigned Reg : TIDIGRegs) {
+      for (unsigned Reg : {TIDIGXReg, TIDIGYReg, TIDIGZReg}) {
         if (!Entry.isLiveIn(Reg))
           Entry.addLiveIn(Reg);
       }
@@ -1172,32 +1169,6 @@ bool SIInstrInfo::isImmOperandLegal(const MachineInstr *MI, unsigned OpNo,
   return RI.opCanUseInlineConstant(OpInfo.OperandType);
 }
 
-bool SIInstrInfo::canFoldOffset(unsigned OffsetSize, unsigned AS) const {
-  switch (AS) {
-  case AMDGPUAS::GLOBAL_ADDRESS: {
-    // MUBUF instructions a 12-bit offset in bytes.
-    return isUInt<12>(OffsetSize);
-  }
-  case AMDGPUAS::CONSTANT_ADDRESS: {
-    // SMRD instructions have an 8-bit offset in dwords on SI and
-    // a 20-bit offset in bytes on VI.
-    if (RI.ST.getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS)
-      return isUInt<20>(OffsetSize);
-    else
-      return (OffsetSize % 4 == 0) && isUInt<8>(OffsetSize / 4);
-  }
-  case AMDGPUAS::LOCAL_ADDRESS:
-  case AMDGPUAS::REGION_ADDRESS: {
-    // The single offset versions have a 16-bit offset in bytes.
-    return isUInt<16>(OffsetSize);
-  }
-  case AMDGPUAS::PRIVATE_ADDRESS:
-    // Indirect register addressing does not use any offsets.
-  default:
-    return 0;
-  }
-}
-
 bool SIInstrInfo::hasVALU32BitEncoding(unsigned Opcode) const {
   int Op32 = AMDGPU::getVOPe32(Opcode);
   if (Op32 == -1)
@@ -1423,6 +1394,7 @@ unsigned SIInstrInfo::getVALUOp(const MachineInstr &MI) {
   case AMDGPU::S_BCNT1_I32_B32: return AMDGPU::V_BCNT_U32_B32_e64;
   case AMDGPU::S_FF1_I32_B32: return AMDGPU::V_FFBL_B32_e32;
   case AMDGPU::S_FLBIT_I32_B32: return AMDGPU::V_FFBH_U32_e32;
+  case AMDGPU::S_FLBIT_I32: return AMDGPU::V_FFBH_I32_e64;
   }
 }
 
@@ -1865,10 +1837,10 @@ void SIInstrInfo::legalizeOperands(MachineInstr *MI) const {
       MachineInstr *Addr64 =
           BuildMI(MBB, MI, MI->getDebugLoc(), get(Addr64Opcode))
                   .addOperand(*VData)
-                  .addOperand(*SRsrc)
                   .addReg(AMDGPU::NoRegister) // Dummy value for vaddr.
                                               // This will be replaced later
                                               // with the new value of vaddr.
+                  .addOperand(*SRsrc)
                   .addOperand(*SOffset)
                   .addOperand(*Offset)
                   .addImm(0) // glc
@@ -1917,14 +1889,20 @@ void SIInstrInfo::splitSMRD(MachineInstr *MI,
 
   // The SMRD has an 8-bit offset in dwords on SI and a 20-bit offset in bytes
   // on VI.
+
+  bool IsKill = SBase->isKill();
   if (OffOp) {
-    bool isVI = RI.ST.getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS;
+    bool isVI =
+        MBB->getParent()->getSubtarget<AMDGPUSubtarget>().getGeneration() >=
+        AMDGPUSubtarget::VOLCANIC_ISLANDS;
     unsigned OffScale = isVI ? 1 : 4;
     // Handle the _IMM variant
     unsigned LoOffset = OffOp->getImm() * OffScale;
     unsigned HiOffset = LoOffset + HalfSize;
     Lo = BuildMI(*MBB, MI, DL, get(HalfImmOp), RegLo)
-                  .addOperand(*SBase)
+                  // Use addReg instead of addOperand
+                  // to make sure kill flag is cleared.
+                  .addReg(SBase->getReg(), 0, SBase->getSubReg())
                   .addImm(LoOffset / OffScale);
 
     if (!isUInt<20>(HiOffset) || (!isVI && !isUInt<8>(HiOffset / OffScale))) {
@@ -1933,25 +1911,28 @@ void SIInstrInfo::splitSMRD(MachineInstr *MI,
       BuildMI(*MBB, MI, DL, get(AMDGPU::S_MOV_B32), OffsetSGPR)
               .addImm(HiOffset); // The offset in register is in bytes.
       Hi = BuildMI(*MBB, MI, DL, get(HalfSGPROp), RegHi)
-                    .addOperand(*SBase)
+                    .addReg(SBase->getReg(), getKillRegState(IsKill),
+                            SBase->getSubReg())
                     .addReg(OffsetSGPR);
     } else {
       Hi = BuildMI(*MBB, MI, DL, get(HalfImmOp), RegHi)
-                     .addOperand(*SBase)
+                     .addReg(SBase->getReg(), getKillRegState(IsKill),
+                             SBase->getSubReg())
                      .addImm(HiOffset / OffScale);
     }
   } else {
     // Handle the _SGPR variant
     MachineOperand *SOff = getNamedOperand(*MI, AMDGPU::OpName::soff);
     Lo = BuildMI(*MBB, MI, DL, get(HalfSGPROp), RegLo)
-                  .addOperand(*SBase)
+                  .addReg(SBase->getReg(), 0, SBase->getSubReg())
                   .addOperand(*SOff);
     unsigned OffsetSGPR = MRI.createVirtualRegister(&AMDGPU::SReg_32RegClass);
     BuildMI(*MBB, MI, DL, get(AMDGPU::S_ADD_I32), OffsetSGPR)
             .addOperand(*SOff)
             .addImm(HalfSize);
     Hi = BuildMI(*MBB, MI, DL, get(HalfSGPROp))
-                  .addOperand(*SBase)
+                  .addReg(SBase->getReg(), getKillRegState(IsKill),
+                          SBase->getSubReg())
                   .addReg(OffsetSGPR);
   }
 
@@ -2006,7 +1987,8 @@ void SIInstrInfo::moveSMRDToVALU(MachineInstr *MI, MachineRegisterInfo &MRI) con
         // SMRD instructions take a dword offsets on SI and byte offset on VI
         // and MUBUF instructions always take a byte offset.
         ImmOffset = MI->getOperand(2).getImm();
-        if (RI.ST.getGeneration() <= AMDGPUSubtarget::SEA_ISLANDS)
+        if (MBB->getParent()->getSubtarget<AMDGPUSubtarget>().getGeneration() <=
+            AMDGPUSubtarget::SEA_ISLANDS)
           ImmOffset <<= 2;
         RegOffset = MRI.createVirtualRegister(&AMDGPU::SGPR_32RegClass);
 
@@ -2046,11 +2028,10 @@ void SIInstrInfo::moveSMRDToVALU(MachineInstr *MI, MachineRegisterInfo &MRI) con
               .addImm(AMDGPU::sub3);
       MI->setDesc(get(NewOpcode));
       if (MI->getOperand(2).isReg()) {
-        MI->getOperand(2).setReg(MI->getOperand(1).getReg());
+        MI->getOperand(2).setReg(SRsrc);
       } else {
-        MI->getOperand(2).ChangeToRegister(MI->getOperand(1).getReg(), false);
+        MI->getOperand(2).ChangeToRegister(SRsrc, false);
       }
-      MI->getOperand(1).setReg(SRsrc);
       MI->addOperand(*MBB->getParent(), MachineOperand::CreateImm(0));
       MI->addOperand(*MBB->getParent(), MachineOperand::CreateImm(ImmOffset));
       MI->addOperand(*MBB->getParent(), MachineOperand::CreateImm(0)); // glc

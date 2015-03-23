@@ -18,8 +18,7 @@ using namespace llvm;
 BuiltinDumper::BuiltinDumper(LinePrinter &P)
     : PDBSymDumper(false), Printer(P) {}
 
-void BuiltinDumper::start(const PDBSymbolTypeBuiltin &Symbol,
-                          llvm::raw_ostream &OS) {
+void BuiltinDumper::start(const PDBSymbolTypeBuiltin &Symbol) {
   PDB_BuiltinType Type = Symbol.getBuiltinType();
   switch (Type) {
   case PDB_BuiltinType::Float:
@@ -82,7 +81,7 @@ void BuiltinDumper::start(const PDBSymbolTypeBuiltin &Symbol,
     WithColor(Printer, PDB_ColorItem::Type).get() << "HRESULT";
     break;
   default:
-    WithColor(Printer, PDB_ColorItem::Type).get() << "(unknown)";
+    WithColor(Printer, PDB_ColorItem::Type).get() << "void";
     break;
   }
 }
