@@ -1133,7 +1133,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // Add a register mask operand representing the call-preserved registers.
   const AVRTargetMachine& TM = (const AVRTargetMachine&)getTargetMachine();
   const TargetRegisterInfo *TRI = TM.getSubtargetImpl()->getRegisterInfo();
-  const uint32_t *Mask = TRI->getCallPreservedMask(CallConv);
+  const uint32_t *Mask = TRI->getCallPreservedMask(DAG.getMachineFunction(), CallConv);
   assert(Mask && "Missing call preserved mask for calling convention");
   Ops.push_back(DAG.getRegisterMask(Mask));
 
@@ -1644,7 +1644,10 @@ std::pair<unsigned, const TargetRegisterClass *>
 AVRTargetLowering::getRegForInlineAsmConstraint(const std::string &Constraint,
                                                 MVT VT) const
 {
+  auto STI = static_cast<const AVRTargetMachine&>(this->getTargetMachine()).getSubtargetImpl();
+
   // We only support i8 and i16.
+  //
   //:FIXME: remove this assert for now since it gets sometimes executed
   //assert((VT == MVT::i16 || VT == MVT::i8) && "Wrong operand type.");
 
@@ -1688,7 +1691,7 @@ AVRTargetLowering::getRegForInlineAsmConstraint(const std::string &Constraint,
     }
   }
 
-  return TargetLowering::getRegForInlineAsmConstraint(getTargetMachine().getSubtargetImpl()->getRegisterInfo(), Constraint, VT);
+  return TargetLowering::getRegForInlineAsmConstraint(STI->getRegisterInfo(), Constraint, VT);
 }
 
 void AVRTargetLowering::LowerAsmOperandForConstraint(SDValue Op,

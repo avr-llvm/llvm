@@ -33,12 +33,14 @@ class AVRDAGToDAGISel : public SelectionDAGISel
 {
 public:
   explicit AVRDAGToDAGISel(AVRTargetMachine &tm, CodeGenOpt::Level OptLevel) :
-    SelectionDAGISel(tm, OptLevel), Subtarget(&tm.getSubtarget<AVRSubtarget>()) {}
+    SelectionDAGISel(tm, OptLevel), Subtarget(nullptr) {}
 
   const char *getPassName() const
   {
     return "AVR DAG->DAG Instruction Selection";
   }
+
+  bool runOnMachineFunction(MachineFunction &MF) override;
 
   // Address Selection.
   bool SelectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp);
@@ -60,6 +62,15 @@ private:
 };
 
 } // end of anonymous namespace
+
+bool
+AVRDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
+
+  Subtarget = &static_cast<const AVRSubtarget &>(MF.getSubtarget());
+  bool Ret = SelectionDAGISel::runOnMachineFunction(MF);
+
+  return Ret;
+}
 
 bool
 AVRDAGToDAGISel::SelectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp)

@@ -27,6 +27,8 @@ namespace llvm
     class MCContext;
     class StringRef;
     class Target;
+    class MCStreamer;
+    class MCTargetStreamer;
     class raw_ostream;
 
     extern Target TheAVRTarget;
@@ -34,7 +36,6 @@ namespace llvm
 
     MCCodeEmitter *createAVRMCCodeEmitter(const MCInstrInfo &MCII,
                                           const MCRegisterInfo &MRI,
-                                          const MCSubtargetInfo &STI,
                                           MCContext &Ctx);
     /*!
      * \brief Creates a little endian AVR assembly backend.

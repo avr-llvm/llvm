@@ -34,7 +34,6 @@
 
 MCCodeEmitter *llvm::createAVRMCCodeEmitter(const MCInstrInfo &MCII,
                                          const MCRegisterInfo &MRI,
-                                         const MCSubtargetInfo &STI,
                                          MCContext &Ctx) {
   return new AVRMCCodeEmitter(MCII, Ctx, false);
 }
