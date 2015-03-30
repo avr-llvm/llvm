@@ -1,7 +1,5 @@
 # AVR-LLVM
 
-[![Build Status](https://travis-ci.org/avr-llvm/llvm.svg)](https://travis-ci.org/avr-llvm/llvm)
-
 See the [Wiki](https://github.com/avr-llvm/llvm/wiki/Getting%20Started) for more information.
 
 An LLVM backend for the Atmel [AVR](http://en.wikipedia.org/wiki/Atmel_AVR) microprocessor architecture.
