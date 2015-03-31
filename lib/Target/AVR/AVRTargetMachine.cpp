@@ -57,7 +57,6 @@ public:
   void addPreSched2() override;
   void addPreRegAlloc() override;
   void addPreEmitPass() override;
-  FunctionPass *createTargetRegisterAllocator(bool Optimized);
 };
 } // namespace
 
@@ -111,8 +110,3 @@ void AVRPassConfig::addPreEmitPass()
   addPass(createAVRBranchSelectionPass());
 }
 
-FunctionPass *AVRPassConfig::createTargetRegisterAllocator(bool Optimized)
-{
-  // Unconditionally use our custom greedy register allocator.
-  return createGreedyRegisterAllocator();
-}
