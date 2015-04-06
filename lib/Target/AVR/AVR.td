@@ -19,165 +19,156 @@ include "llvm/Target/Target.td"
 // AVR Subtarget Features.
 //===----------------------------------------------------------------------===//
 
+// :TODO: Implement the skip errata, see `gcc/config/avr/avr-arch.h` for details.
+
+
 // A pseudo subtarget feature aggregates features, grouping them. We don't want
 // to create a new member in AVRSubtarget (to store a value) for each group because
 // we do not care if the group is supported, only the subfeatures inside the group.
 // We fix this by simply setting a dummy member for each pseudo feature, which is
 // then ignored.
 class PseudoSubtargetFeature<string name, string desc, list<SubtargetFeature> i>
-  : SubtargetFeature<name, "DummyFeature", "true", desc, i> { }
+  : SubtargetFeature<name, "m_DummyFeature", "true", desc, i> { }
 
-// The device has the `LPM` instruction (with implied operand being r0).
-def FeatureILPM         : SubtargetFeature<"lpm", "HasLPM", "true",
-                                "Enable 'lmp' instruction">;
+// The device has SRAM, and supports the bare minimum of SRAM-relevant instructions.
+// These are:
+// LD - all 9 variants
+// ST - all 9 variants
+// LDD - two variants for Y and Z
+// STD - two variants for Y and Z
+// `LDS Rd, K`
+// `STS k, Rr`
+// `PUSH`/`POP`
+def FeatureSRAM           : SubtargetFeature<"sram", "m_hasSRAM", "true",
+                                  "The device has random access memory">;
 
-def FeatureILPMX        : SubtargetFeature<"lpmx", "HasLPMX", "true",
-                                "Enable 'lpm Rd, Z[+]` instruction">;
+// The device supports the `JMP k` and `CALL k` instructions.
+def FeatureJMPCALL        : SubtargetFeature<"jmpcall", "m_hasJMPCALL", "true",
+                                  "The device supports the `JMP` and `CALL` instructions">;
 
-def FeatureIELPM        : SubtargetFeature<"elpm", "HasELPM", "true",
-                                "Enable 'elpm' instruction">;
+// The device supports the indirect branches `IJMP` and `ICALL`.
+def FeatureIJMPCALL       : SubtargetFeature<"ijmpcall", "m_hasIJMPCALL", "true",
+                                  "The device supports `IJMP`/`ICALL` instructions">;
 
-def FeatureIELPMX       : SubtargetFeature<"elpmx", "HasELPMX", "true",
-                                "Enable 'elpm Rd, Z[+]' instruction">;
+// The device supports the extended indirect branches `EIJMP` and `EICALL`.
+def FeatureEIJMPCALL      : SubtargetFeature<"eijmpcall", "m_hasEIJMPCALL", "true",
+                                  "The device supports the `EIJMP`/`EICALL` instructions">;
 
-def FeatureIMUL         : SubtargetFeature<"mul", "HasMUL", "true",
-                                "Enable 'mul Rd, Rr' instruction">;
+// The device supports `ADDI Rd, K`, `SUBI Rd, K`.
+def FeatureADDSUBIW       : SubtargetFeature<"addsubiw", "m_hasADDSUBIW", "true",
+                                  "Enable 16-bit register-immediate addition and subtraction instructions">;
 
-def FeatureIFMUL        : SubtargetFeature<"fmul", "HasFMUL", "true",
-                                "Enable 'fmul Rd, Rr' instruction">;
+// The device has an 8-bit stack pointer (SP) register.
+def FeatureSmallStack     : SubtargetFeature<"smallstack", "m_hasSmallStack", "true",
+                                  "The device has an 8-bit stack pointer">;
 
-def FeatureIMOVW        : SubtargetFeature<"movw", "HasMOVW", "true",
-                                "Enable 'movw Rd:Rd+1, Rr:Rr+1' instruction">;
+// The device supports the 16-bit GPR pair MOVW instruction.
+def FeatureMOVW           : SubtargetFeature<"movw", "m_hasMOVW", "true",
+                                  "The device supports the 16-bit MOVW instruction">;
 
-def FeatureIDES         : SubtargetFeature<"des", "HasDES", "true",
-                                "Enable the 'des' instruction">;
+// The device supports the `LPM` instruction, with implied destination being r0.
+def FeatureLPM            : SubtargetFeature<"lpm", "m_hasLPM", "true",
+                                  "The device supports the `LPM` instruction">;
 
+// The device supports the `LPM Rd, Z[+] instruction.
+def FeatureLPMX           : SubtargetFeature<"lpmx", "m_hasLPMX", "true",
+                                  "The device supports the `LPM Rd, Z[+]` instruction">;
 
-def FeatureIBREAK       : SubtargetFeature<"break", "HasBREAK", "true",
-                                "Enable 'break' instruction">;
+// The device supports the `ELPM` instruction.
+def FeatureELPM           : SubtargetFeature<"elpm", "m_hasELPM", "true",
+                                  "The device supports the ELPM instruction">;
 
-// The device is self-programmable.
-def FeatureISPM         : SubtargetFeature<"spm", "HasSPM", "true",
-                                "Enable 'spm' instruction">;
+// The device supports the `ELPM Rd, Z[+]` instructions.
+def FeatureELPMX          : SubtargetFeature<"elpmx", "m_hasELPMX", "true",
+                                  "The device supports the `ELPM Rd, Z[+]` instructions">;
 
-def FeatureISPMX        : SubtargetFeature<"spmx", "HasSPMX", "true",
-                                "Enable 'spm Z[+]' instruction">;
+// The device supports the `SPM` instruction.
+def FeatureSPM            : SubtargetFeature<"spm", "m_hasSPM", "true",
+                                  "The device supports the `SPM` instruction">;
 
-def FeatureRMW          : SubtargetFeature<"rmw", "SupportsRMW", "true",
-                                "Enable xch,lac,las,lat instructions">;
+// The device supports the `SPM Z+` instruction.
+def FeatureSPMX           : SubtargetFeature<"spmx", "m_hasSPMX", "true",
+                                  "The device supports the `SPM Z+` instruction">;
 
-def FeatureSRAM         : SubtargetFeature<"sram", "HasSRAM", "true",
-                                "The device has SRAM">;
+// The device supports the `DES k` instruction.
+def FeatureDES            : SubtargetFeature<"des", "m_hasDES", "true",
+                                  "The device supports the `DES k` instruction">;
 
-// Device has >128K program memory.
-def FeatureEIND         : SubtargetFeature<"eind", "HasEIND", "true",
-                                "The device has more than 128K program memory">;
+// The device supports the Read-Write-Modify instructions XCH, LAS, LAC, and LAT.
+def FeatureRMW            : SubtargetFeature<"rmw", "m_supportsRMW", "true",
+                                  "The device supports the read-write-modify instructions XCH, LAS, LAC, LAT">;
 
-def FeatureTiny         : SubtargetFeature<"tiny", "IsTiny", "true",
-                                "The device supports instructions specific to the Tiny family">;
+// The device supports the `[F]MUL[S][U]` family of instructions.
+def FeatureMultiplication : SubtargetFeature<"mul", "m_supportsMultiplication", "true",
+                                  "The device supports the multiplication instructions">;
 
-def FeatureMega         : SubtargetFeature<"mega", "IsMega", "true",
-                                "The device belongs to the Mega family">;
+// The device supports the `BREAK` instruction.
+def FeatureBREAK          : SubtargetFeature<"break", "m_hasBREAK", "true",
+                                  "The device supports the `BREAK` instruction">;
 
-def FeatureTiny1        : PseudoSubtargetFeature<"tiny1", "gredsf",
-                            [FeatureILPM]>;
+// The device has instruction encodings specific to the Tiny core.
+def FeatureTinyEncoding   : SubtargetFeature<"tinyencoding", "m_hasTinyEncoding", "true",
+                                  "The device has Tiny core specific instruction encodings">;
 
-def Feature2xxx         : PseudoSubtargetFeature<"2xxx", "sadasds",
-                            [FeatureTiny1, FeatureSRAM]>;
+// The device has at least the bare minimum that **every** single AVR device should have.
+def FeatureAVR0           : PseudoSubtargetFeature<"avr0", "The device is an AVR",
+                                  []>;
 
-def Feature2xxe         : PseudoSubtargetFeature<"2xxe", "asdsd",
-                            [Feature2xxx, FeatureILPMX]>;
+// The device is a part of the avr1 family.
+def FeatureAVR1           : PseudoSubtargetFeature<"avr1", "The device is a part of the avr1 family",
+                                  [FeatureAVR0, FeatureLPM]>;
 
-def FeatureRF401        : PseudoSubtargetFeature<"rf401", "adssd",
-                            [Feature2xxx, FeatureIMOVW, FeatureILPMX]>;
+// The device is a part of the avr2 family.
+def FeatureAVR2           : PseudoSubtargetFeature<"avr2", "The device is a part of the avr2 family",
+                                  [FeatureAVR1, FeatureIJMPCALL, FeatureADDSUBIW, FeatureSRAM]>;
 
-def FeatureTiny2        : PseudoSubtargetFeature<"tiny2", "greyge",
-                            [Feature2xxx, FeatureIMOVW, FeatureILPMX, FeatureISPM, FeatureIBREAK]>;
+// The device is a part of the avr25 family.
+def FeatureAVR25          : PseudoSubtargetFeature<"avr25", "The device is a part of the avr25 family",
+                                  [FeatureAVR2, FeatureMOVW, FeatureLPMX, FeatureSPM, FeatureBREAK]>;
 
-def FeatureM603         : PseudoSubtargetFeature<"m603", "sadsf",
-                            [Feature2xxx, FeatureMega]>;
+// The device is a part of the avr3 family.
+def FeatureAVR3           : PseudoSubtargetFeature<"avr3", "The device is a part of the avr3 family",
+                                  [FeatureAVR2, FeatureJMPCALL]>;
 
-def FeatureM103         : PseudoSubtargetFeature<"m103", "sadsf",
-                            [FeatureM603, FeatureIELPM]>;
+// The device is a part of the avr31 family.
+def FeatureAVR31          : PseudoSubtargetFeature<"avr31", "The device is a part of the avr31 family",
+                                  [FeatureAVR3, FeatureELPM]>;
 
-def FeatureM8           : PseudoSubtargetFeature<"m8", "sadsf",
-                            [Feature2xxx,  FeatureIMUL, FeatureIMOVW,
-                             FeatureILPMX, FeatureISPM]>;
+// The device is a part of the avr35 family.
+def FeatureAVR35          : PseudoSubtargetFeature<"avr35", "The device is a part of the avr35 family",
+                                  [FeatureAVR3, FeatureMOVW, FeatureLPMX, FeatureSPM, FeatureBREAK]>;
 
-def FeaturePWMx         : PseudoSubtargetFeature<"pwmx", "sadsf",
-                            [FeatureM8, FeatureIBREAK]>;
+// The device is a part of the avr4 family.
+def FeatureAVR4           : PseudoSubtargetFeature<"avr4", "The device is a part of the avr4 family",
+                                  [FeatureAVR2, FeatureMultiplication, FeatureMOVW,
+                                   FeatureLPMX, FeatureSPM,  FeatureBREAK]>;
 
-def FeatureM161         : PseudoSubtargetFeature<"m161", "sadsf",
-                            [FeatureM603, FeatureIMUL, FeatureIMOVW,
-                             FeatureILPMX ,FeatureISPM]>;
+// The device is a part of the avr5 family.
+def FeatureAVR5           : PseudoSubtargetFeature<"avr5", "The device is a part of the avr5 family",
+                                  [FeatureAVR3, FeatureMultiplication, FeatureMOVW,
+                                   FeatureLPMX, FeatureSPM, FeatureBREAK]>;
 
-def Feature94K         : PseudoSubtargetFeature<"94k", "sadsf",
-                            [FeatureM603,FeatureIMUL,
-                             FeatureIMOVW,FeatureILPMX]>;
+// The device is part of the avr51 family.
+def FeatureAVR51          : PseudoSubtargetFeature<"avr51", "The device is part of the avr52 family",
+                                  [FeatureAVR5, FeatureELPM, FeatureELPMX]>;
 
-def FeatureM323         : PseudoSubtargetFeature<"m323", "sadsf",
-                            [FeatureM161, FeatureIBREAK]>;
+// The device is part of the avr6 family.
+def FeatureAVR6           : PseudoSubtargetFeature<"avr6", "The device is part of the avr6 family",
+                                  [FeatureAVR0, FeatureLPM, FeatureLPMX, FeatureSRAM,
+                                   FeatureJMPCALL, FeatureMultiplication, FeatureELPM,
+                                   FeatureELPMX, FeatureSPM, FeatureBREAK, FeatureEIJMPCALL, FeatureMOVW]>;
 
-def FeatureM128         : PseudoSubtargetFeature<"m128", "sadsf",
-                            [FeatureM323, FeatureIELPM, FeatureIELPMX]>;
+// The device is a part of the tiny family.
+def FeatureAVRTiny        : PseudoSubtargetFeature<"avrtiny", "The device is a part of the tiny family",
+                                  [FeatureAVR0, FeatureBREAK, FeatureSRAM, FeatureTinyEncoding]>;
 
-def FeatureM256         : PseudoSubtargetFeature<"m256", "sadsf",
-                            [FeatureM128, FeatureEIND]>;
+// The device is a part of the XMega family.
+def FeatureXMEGA          : PseudoSubtargetFeature<"xmega", "The device is a part of the XMEGA family",
+                                  [FeatureAVR51, FeatureEIJMPCALL, FeatureSPMX, FeatureDES]>;
 
-def FeatureXMEGA        : PseudoSubtargetFeature<"xmega", "The device belongs to the XMEGA family",
-                            [FeatureM256, FeatureISPMX, FeatureIDES]>;
-
-def FeatureXMEGAU       : PseudoSubtargetFeature<"xmegau", "dsaf",
-                            [FeatureXMEGA, FeatureRMW]>;
-
-// Simple CPU core, only assembler support
-def FeatureAVR1         : PseudoSubtargetFeature<"avr1", "The device supports AVR architecture 1",
-                            [FeatureTiny1]>;
-
-// "Classic" CPU core, up to 8 KB of ROM
-def FeatureAVR2         : PseudoSubtargetFeature<"avr2", "The device supports AVR architecture 2",
-                            [Feature2xxx]>;
-
-// "Classic" CPU core with 'MOVW' and 'LPM Rx, Z[+]' instruction, up to 8 KB of ROM
-def FeatureAVR25        : PseudoSubtargetFeature<"avr25", "The device supports AVR architecture 25",
-                            [FeatureTiny2]>;
-
-// "Classic" CPU core, 16 KB to 64 KB of ROM
-def FeatureAVR3         : PseudoSubtargetFeature<"avr3", "The device supports AVR architecture 3",
-                            [FeatureM603]>;
-
-// "Classic" CPU core, 128 KB of ROM
-def FeatureAVR31        : PseudoSubtargetFeature<"avr31", "The device supports AVR architecture 31",
-                            [FeatureM103]>;
-
-// "Classic" CPU core with 'MOVW' and 'LPM Rx, Z[+]' instruction, 16 KB to 64 KB of ROM
-def FeatureAVR35        : PseudoSubtargetFeature<"avr35", "The device supports AVR architecture 35",
-                            [FeatureAVR3, FeatureIMOVW, FeatureILPMX,
-                             FeatureISPM, FeatureIBREAK]>;
-
-def FeatureAVR3_ALL     : PseudoSubtargetFeature<"avr3_all", "The device supports AVR architecture 3,31 and 35",
-                            [FeatureAVR3, FeatureAVR31, FeatureAVR35]>;
-
-// "Enhanced" CPU core, up to 8 KB of ROM
-def FeatureAVR4         : PseudoSubtargetFeature<"avr4", "The device supports AVR architecture 4",
-                            [FeaturePWMx]>;
-
-// "Enhanced" CPU core, 16 KB to 64 KB of ROM
-def FeatureAVR5         : PseudoSubtargetFeature<"avr5", "The device supports AVR architecture 5",
-                            [FeatureM323]>;
-
-// "Enhanced" CPU core, 128 KB of ROM
-def FeatureAVR51        : PseudoSubtargetFeature<"avr51", "The device supports AVR architecture 51",
-                            [FeatureM128]>;
-
-// "Enhanced" CPU core, 256 KB of ROM
-def FeatureAVR6         : PseudoSubtargetFeature<"avr6", "The device supports AVR architecture 6",
-                            [FeatureILPM,   FeatureILPMX, FeatureSRAM,   FeatureMega,
-                             FeatureIMUL,   FeatureIELPM, FeatureIELPMX, FeatureISPM,
-                             FeatureIBREAK, FeatureEIND,  FeatureIMOVW]>;
-
-def FeatureAVRTiny      : PseudoSubtargetFeature<"avrtiny", "The device belongs to the Tiny family",
-                            [FeatureIBREAK, FeatureSRAM, FeatureTiny]>;
+// The device is part of the XMegaU family.
+def FeatureXMEGAU         : PseudoSubtargetFeature<"xmegau", "The device is part of the XMEGAU family",
+                                  [FeatureXMEGA, FeatureRMW]>;
 
 //===----------------------------------------------------------------------===//
 // AVR microcontrollers supported.
@@ -190,7 +181,7 @@ class Device<string Name, list<SubtargetFeature> Features>
 def : Device<"avr1",  [FeatureAVR1]>;
 def : Device<"avr2",  [FeatureAVR2]>;
 def : Device<"avr25", [FeatureAVR25]>;
-def : Device<"avr3",  [FeatureAVR3_ALL]>;
+def : Device<"avr3",  [FeatureAVR3]>;
 def : Device<"avr31", [FeatureAVR31]>;
 def : Device<"avr35", [FeatureAVR35]>;
 def : Device<"avr4",  [FeatureAVR4]>;
@@ -207,7 +198,7 @@ def : Device<"avrxmega5",          [FeatureXMEGA]>;
 def : Device<"avrxmega6",          [FeatureXMEGA]>;
 def : Device<"avrxmega7",          [FeatureXMEGA]>;
 def : Device<"avrtiny",            [FeatureAVRTiny]>;
-def : Device<"at90s1200",          []>;
+def : Device<"at90s1200",          [FeatureAVR0]>;
 def : Device<"attiny11",           [FeatureAVR1]>;
 def : Device<"attiny12",           [FeatureAVR1]>;
 def : Device<"attiny15",           [FeatureAVR1]>;
@@ -217,7 +208,8 @@ def : Device<"at90s2323",          [FeatureAVR2]>;
 def : Device<"at90s2333",          [FeatureAVR2]>;
 def : Device<"at90s2343",          [FeatureAVR2]>;
 def : Device<"attiny22",           [FeatureAVR2]>;
-def : Device<"attiny26",           [Feature2xxe]>;
+def : Device<"attiny26",           [FeatureAVR2, FeatureLPMX]>;
+def : Device<"at86rf401",          [FeatureAVR2, FeatureMOVW, FeatureLPMX]>;
 def : Device<"at90s4414",          [FeatureAVR2]>;
 def : Device<"at90s4433",          [FeatureAVR2]>;
 def : Device<"at90s4434",          [FeatureAVR2]>;
@@ -250,7 +242,6 @@ def : Device<"attiny43u",          [FeatureAVR25]>;
 def : Device<"attiny48",           [FeatureAVR25]>;
 def : Device<"attiny88",           [FeatureAVR25]>;
 def : Device<"attiny828",          [FeatureAVR25]>;
-def : Device<"at86rf401",          [FeatureRF401]>;
 def : Device<"at43usb355",         [FeatureAVR3]>;
 def : Device<"at76c711",           [FeatureAVR3]>;
 def : Device<"atmega103",          [FeatureAVR31]>;
@@ -276,8 +267,8 @@ def : Device<"atmega88",           [FeatureAVR4]>;
 def : Device<"atmega88a",          [FeatureAVR4]>;
 def : Device<"atmega88p",          [FeatureAVR4]>;
 def : Device<"atmega88pa",         [FeatureAVR4]>;
-def : Device<"atmega8515",         [FeatureM8]>;
-def : Device<"atmega8535",         [FeatureM8]>;
+def : Device<"atmega8515",         [FeatureAVR2, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
+def : Device<"atmega8535",         [FeatureAVR2, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
 def : Device<"atmega8hva",         [FeatureAVR4]>;
 def : Device<"at90pwm1",           [FeatureAVR4]>;
 def : Device<"at90pwm2",           [FeatureAVR4]>;
@@ -289,9 +280,9 @@ def : Device<"ata5790",            [FeatureAVR5]>;
 def : Device<"ata5795",            [FeatureAVR5]>;
 def : Device<"atmega16",           [FeatureAVR5]>;
 def : Device<"atmega16a",          [FeatureAVR5]>;
-def : Device<"atmega161",          [FeatureM161]>;
+def : Device<"atmega161",          [FeatureAVR3, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
 def : Device<"atmega162",          [FeatureAVR5]>;
-def : Device<"atmega163",          [FeatureM161]>;
+def : Device<"atmega163",          [FeatureAVR3, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
 def : Device<"atmega164a",         [FeatureAVR5]>;
 def : Device<"atmega164p",         [FeatureAVR5]>;
 def : Device<"atmega164pa",        [FeatureAVR5]>;
@@ -376,7 +367,7 @@ def : Device<"atmega32u6",         [FeatureAVR5]>;
 def : Device<"at90usb646",         [FeatureAVR5]>;
 def : Device<"at90usb647",         [FeatureAVR5]>;
 def : Device<"at90scr100",         [FeatureAVR5]>;
-def : Device<"at94k",              [Feature94K]>;
+def : Device<"at94k",              [FeatureAVR3, FeatureMultiplication, FeatureMOVW, FeatureLPMX]>;
 def : Device<"m3000",              [FeatureAVR5]>;
 def : Device<"atmega128",          [FeatureAVR51]>;
 def : Device<"atmega128a",         [FeatureAVR51]>;

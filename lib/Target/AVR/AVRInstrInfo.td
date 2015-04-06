@@ -214,41 +214,60 @@ def LDSTPtrReg : Operand<i16>
 // AVR predicates for subtarget features
 //===----------------------------------------------------------------------===//
 
-def HasLPM       :     Predicate<"Subtarget->hasLPM()">,
-                         AssemblerPredicate<"FeatureILPM">;
-
-def HasLPMX      :     Predicate<"Subtarget->hasLPMX()">,
-                         AssemblerPredicate<"FeatureILPMX">;
-
-def HasELPM      :     Predicate<"Subtarget->hasELPM()">,
-                         AssemblerPredicate<"FeatureIELPM">;
-
-def HasELPMX     :     Predicate<"Subtarget->hasELPMX()">,
-                         AssemblerPredicate<"FeatureIELPMX">;
-
-def HasMUL       :     Predicate<"Subtarget->hasMUL()">,
-                         AssemblerPredicate<"FeatureIMUL">;
-
-def HasFMUL      :     Predicate<"Subtarget->hasFMUL()">,
-                         AssemblerPredicate<"FeatureIFMUL">;
-
-def HasMOVW      :    Predicate<"Subtarget->hasMOVW()">,
-                         AssemblerPredicate<"FeatureIMOVW">;
-
-def HasDES       :    Predicate<"Subtarget->hasDES()">,
-                         AssemblerPredicate<"FeatureIDES">;
-
-def HasBREAK     :    Predicate<"Subtarget->hasBREAK()">,
-                         AssemblerPredicate<"FeatureIBREAK">;
-
-def SupportsRMW  :    Predicate<"Subtarget->supportsRMW()">,
-                         AssemblerPredicate<"FeatureRMW">;
-
-def HasSRAM      :    Predicate<"Subtarget->hasSRAM()">,
+def HasSRAM       :    Predicate<"Subtarget->hasSRAM()">,
                          AssemblerPredicate<"FeatureSRAM">;
 
-def HasEIND      :    Predicate<"Subtarget->hasEIND()">,
-                         AssemblerPredicate<"FeatureEIND">;
+def HasJMPCALL    :    Predicate<"Subtarget->hasJMPCALL()">,
+                         AssemblerPredicate<"FeatureJMPCALL">;
+
+def HasIJMPCALL   :    Predicate<"Subtarget->hasIJMPCALL()">,
+                         AssemblerPredicate<"FeatureIJMPCALL">;
+
+def HasEIJMPCALL  :    Predicate<"Subtarget->hasEIJMPCALL()">,
+                         AssemblerPredicate<"FeatureEIJMPCALL">;
+
+def HasADDSUBIW   :    Predicate<"Subtarget->hasADDSUBIW()">,
+                         AssemblerPredicate<"FeatureADDSUBIW">;
+
+def HasSmallStack :    Predicate<"Subtarget->HasSmallStack()">,
+                         AssemblerPredicate<"FeatureSmallStack">;
+
+def HasMOVW       :    Predicate<"Subtarget->hasMOVW()">,
+                         AssemblerPredicate<"FeatureMOVW">;
+
+def HasLPM        :    Predicate<"Subtarget->hasLPM()">,
+                         AssemblerPredicate<"FeatureLPM">;
+
+def HasLPMX       :    Predicate<"Subtarget->hasLPMX()">,
+                         AssemblerPredicate<"FeatureLPMX">;
+
+def HasELPM       :    Predicate<"Subtarget->hasELPM()">,
+                         AssemblerPredicate<"FeatureELPM">;
+
+def HasELPMX      :    Predicate<"Subtarget->hasELPMX()">,
+                         AssemblerPredicate<"FeatureELPMX">;
+
+def HasSPM        :    Predicate<"Subtarget->hasSPM()">,
+                         AssemblerPredicate<"FeatureSPM">;
+
+def HasSPMX       :    Predicate<"Subtarget->hasSPMX()">,
+                         AssemblerPredicate<"FeatureSPMX">;
+
+def HasDES        :    Predicate<"Subtarget->hasDES()">,
+                         AssemblerPredicate<"FeatureDES">;
+
+def SupportsRMW   :    Predicate<"Subtarget->supportsRMW()">,
+                         AssemblerPredicate<"FeatureRMW">;
+
+def SupportsMultiplication : Predicate<"Subtarget->supportsMultiplication()">,
+                               AssemblerPredicate<"FeatureMultiplication">;
+
+def HasBREAK      :    Predicate<"Subtarget->hasBREAK()">,
+                         AssemblerPredicate<"FeatureBREAK">;
+
+def HasTinyEncoding : Predicate<"Subtarget->hasTinyEncoding()">,
+                        AssemblerPredicate<"FeatureTinyEncoding">;
+
 
 // AVR specific condition code. These correspond to AVR_*_COND in
 // AVRInstrInfo.td. They must be kept in synch.
@@ -360,7 +379,8 @@ def ADIWRdK : FWRdK<0b0,
                     (ins IWREGS:$src, i16imm:$k),
                     "adiw\t$dst, $k",
                     [(set IWREGS:$dst, (add IWREGS:$src, uimm6:$k)),
-                     (implicit SREG)]>;
+                     (implicit SREG)]>,
+              Requires<[HasADDSUBIW]>;
 
 // SUB Rd, Rr
 // Subtracts the 8-bit value of Rr from Rd and places the value in Rd.
@@ -447,7 +467,8 @@ def SBIWRdK : FWRdK<0b1,
                     (ins IWREGS:$src, i16imm:$k),
                     "sbiw\t$dst, $k",
                     [(set IWREGS:$dst, (sub IWREGS:$src, uimm6:$k)),
-                     (implicit SREG)]>;
+                     (implicit SREG)]>,
+              Requires<[HasADDSUBIW]>;
 
 let Constraints = "$src = $dst",
 Defs = [SREG] in
@@ -474,7 +495,8 @@ def MULRdRrP : Pseudo<(outs GPR8:$dst),
                       (ins GPR8:$src, GPR8:$src2),
                       "mulp\t$dst, $src, $src2",
                       [(set GPR8:$dst, (mul GPR8:$src, GPR8:$src2)),
-                       (implicit SREG)]>;
+                       (implicit SREG)]>,
+               Requires<[SupportsMultiplication]>;
 
 // MUL Rd, Rr
 // Multiplies Rd by Rr and places the result into Rd.
@@ -485,7 +507,7 @@ def MULRdRr : Mu1RdRr<(outs GPR8:$dst),
                       (ins GPR8:$src, GPR8:$src2),
                       "mul\t$src, $src2",
                       []>,
-              Requires<[HasMUL]>;
+              Requires<[SupportsMultiplication]>;
 
 // The earlyclobber flag is required because the pseudo expansion needs $dst
 // and $src to have different registers.
@@ -497,7 +519,7 @@ def MULWRdRr : Pseudo<(outs DREGS:$dst),
                       "mulw\t$dst, $src, $src2",
                       [(set DREGS:$dst, (mul DREGS:$src, DREGS:$src2)),
                        (implicit SREG)]>,
-               Requires<[HasMUL]>;
+               Requires<[SupportsMultiplication]>;
 
 // This instruction produces a 16bit result from two 8bit operands.
 let isCommutable = 1,
@@ -507,7 +529,7 @@ def MUL16RdRr : Mu1RdRr<(outs DREGS:$dst),
                         (ins GPR8:$src, GPR8:$src2),
                         "mul\t$src, $src2",
                         []>,
-                Requires<[HasMUL]>;
+                Requires<[SupportsMultiplication]>;
 
 let isCommutable = 1,
 Defs = [R1, R0, SREG] in
@@ -515,7 +537,8 @@ def MULSRdRr : Mu2RdRr<0,
                        (outs GPR8:$dst),
                        (ins GPR8:$rd, GPR8:$rr),
                        "muls\t$rd, $rr",
-                       []>;
+                       []>,
+               Requires<[SupportsMultiplication]>;
 
 let isCommutable = 1,
 Defs = [R1, R0, SREG] in
@@ -523,7 +546,8 @@ def MULSURdRr : Mu2RdRr<1,
                         (outs GPR8:$dst),
                         (ins GPR8:$rd, GPR8:$rr),
                         "mulsu\t$rd, $rr",
-                        []>;
+                        []>,
+                Requires<[SupportsMultiplication]>;
 
 let isCommutable = 1,
 Defs = [R1, R0, SREG] in
@@ -531,7 +555,8 @@ def FMUL : Mu3RdRr<0b01,
                    (outs GPR8:$dst),
                    (ins GPR8:$rd, GPR8:$rr),
                    "fmul\t$rd, $rr",
-                   []>;
+                   []>,
+           Requires<[SupportsMultiplication]>;
 
 let isCommutable = 1,
 Defs = [R1, R0, SREG] in
@@ -539,7 +564,8 @@ def FMULS : Mu3RdRr<0b10,
                     (outs GPR8:$dst),
                     (ins GPR8:$rd, GPR8:$rr),
                     "fmuls\t$rd, $rr",
-                    []>;
+                    []>,
+            Requires<[SupportsMultiplication]>;
 
 let isCommutable = 1,
 Defs = [R1, R0, SREG] in
@@ -547,13 +573,16 @@ def FMULSU : Mu3RdRr<0b11,
                      (outs GPR8:$dst),
                      (ins GPR8:$rd, GPR8:$rr),
                      "fmulsu\t$rd, $rr",
-                     []>;
+                     []>,
+             Requires<[SupportsMultiplication]>;
+
 let Defs = [R15, R14, R13, R12, R11, R10, R9,
             R8, R7, R6, R5, R4, R3, R2, R1, R0] in
 def DESK : FDES<(outs),
                 (ins i8imm:$k),
                 "des\t$k",
-                []>;
+                []>,
+           Requires<[HasDES]>;
 
 //_______________________________________
 // Logic Instructions
@@ -711,7 +740,8 @@ def IJMP : FBR<0b1001010000001001,
                (outs),
                (ins),
                "ijmp",
-               []>;
+               []>,
+           Requires<[HasIJMPCALL]>;
 
 let isBranch = 1,
 isTerminator = 1,
@@ -722,7 +752,8 @@ def EIJMP : FBR<0b1001010000011001,
                 (outs),
                 (ins),
                 "eijmp",
-                []>;
+                []>,
+            Requires<[HasEIJMPCALL]>;
 
 let isBarrier = 1,
 isBranch = 1,
@@ -731,7 +762,8 @@ def JMPk : F32BRk<0b110,
                   (outs),
                   (ins brtarget:$target),
                   "jmp\t$target",
-                  []>;
+                  []>,
+           Requires<[HasJMPCALL]>;
                   
 let isCall = 1 in
   // SP is marked as a use to prevent stack-pointer assignments that appear
@@ -742,7 +774,8 @@ let isCall = 1 in
                     (outs),
                     (ins variable_ops),
                     "icall",
-                    []>;
+                    []>,
+                Requires<[HasIJMPCALL]>;
   }
 
 let isCall = 1 in
@@ -754,7 +787,8 @@ let isCall = 1 in
                      (outs),
                      (ins variable_ops),
                      "eicall",
-                     []>;
+                     []>,
+                 Requires<[HasEIJMPCALL]>;
   }
 
 let isCall = 1 in
@@ -781,7 +815,8 @@ let isCall = 1 in
       // than 64k of ROM, fix it once we support the largests devices.
                        (ins i16imm:$dst),
                        "call\t$dst",
-                       [(AVRcall imm:$dst)]>;
+                       [(AVRcall imm:$dst)]>,
+                Requires<[HasJMPCALL]>;
   }
 
 let isTerminator = 1,
@@ -1057,14 +1092,16 @@ def LDSRdK : F32DM<0b0,
                    (outs GPR8:$dst),
                    (ins i16imm:$src),
                    "lds\t$dst, $src",
-                   [(set GPR8:$dst, (load imm:$src))]>;
+                   [(set GPR8:$dst, (load imm:$src))]>,
+             Requires<[HasSRAM]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
 def LDSWRdK : Pseudo<(outs DREGS:$dst),
                      (ins i16imm:$src),
                      "ldsw\t$dst, $src",
-                     [(set DREGS:$dst, (load imm:$src))]>;
+                     [(set DREGS:$dst, (load imm:$src))]>,
+              Requires<[HasSRAM]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
@@ -1072,7 +1109,8 @@ def LDRdPtr : FSTLDPtrReg<0b0,
                           (outs GPR8:$reg),
                           (ins LDSTPtrReg:$ptrreg),
                           "ld\t$reg, $ptrreg",
-                          [(set GPR8:$reg, (load i16:$ptrreg))]>;
+                          [(set GPR8:$reg, (load i16:$ptrreg))]>,
+              Requires<[HasSRAM]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
@@ -1080,7 +1118,8 @@ Constraints = "@earlyclobber $ptrreg" in
 def LDWRdPtr : Pseudo<(outs DREGS:$reg),
                       (ins PTRDISPREGS:$ptrreg),
                       "ldw\t$reg, $ptrreg",
-                      [(set DREGS:$reg, (load PTRDISPREGS:$ptrreg))]>;
+                      [(set DREGS:$reg, (load PTRDISPREGS:$ptrreg))]>,
+               Requires<[HasSRAM]>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
@@ -1089,7 +1128,8 @@ def LDRdPtrPi : FSTLDPtrPiReg<0b0,
                               (outs GPR8:$reg, PTRREGS:$base_wb),
                               (ins LDSTPtrReg:$ptrreg),
                               "ld\t$reg, $ptrreg +",
-                              []>;
+                              []>,
+                Requires<[HasSRAM]>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
@@ -1097,7 +1137,8 @@ Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
 def LDWRdPtrPi : Pseudo<(outs DREGS:$reg, PTRREGS:$base_wb),
                         (ins PTRREGS:$ptrreg),
                         "ldw\t$reg, $ptrreg +",
-                        []>;
+                        []>,
+                 Requires<[HasSRAM]>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
@@ -1106,7 +1147,8 @@ def LDRdPtrPd : FSTLDPtrPdReg<0b0,
                               (outs GPR8:$reg, PTRREGS:$base_wb),
                               (ins LDSTPtrReg:$ptrreg),
                               "ld\t$reg, -$ptrreg",
-                              []>;
+                              []>,
+                Requires<[HasSRAM]>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
@@ -1114,7 +1156,8 @@ Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
 def LDWRdPtrPd : Pseudo<(outs DREGS:$reg, PTRREGS:$base_wb),
                         (ins PTRREGS:$ptrreg),
                         "ldw\t$reg, -$ptrreg",
-                        []>;
+                        []>,
+                 Requires<[HasSRAM]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
@@ -1122,7 +1165,8 @@ def LDDRdPtrQ : FPqRr<0b0,
                       (outs GPR8:$reg),
                       (ins memri:$ptrreg),
                       "ldd\t$reg, $ptrreg",
-                      [(set GPR8:$reg, (load addr:$ptrreg))]>;
+                      [(set GPR8:$reg, (load addr:$ptrreg))]>,
+                Requires<[HasSRAM]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
@@ -1130,7 +1174,8 @@ Constraints = "@earlyclobber $dst" in
 def LDDWRdPtrQ : Pseudo<(outs DREGS:$dst),
                         (ins memri:$src),
                         "lddw\t$dst, $src",
-                        [(set DREGS:$dst, (load addr:$src))]>;
+                        [(set DREGS:$dst, (load addr:$src))]>,
+                 Requires<[HasSRAM]>;
 
 //:FIXME: remove this once PR13375 gets fixed
 let canFoldAsLoad = 1,
@@ -1140,18 +1185,21 @@ hasSideEffects = 0 in
 def LDDWRdYQ : Pseudo<(outs DREGS:$dst),
                       (ins memri:$src),
                       "lddw\t$dst, $src",
-                      []>;
+                      []>,
+               Requires<[HasSRAM]>;
 
 def STSKRr : F32DM<0b0,
                    (outs),
                    (ins i16imm:$dst, GPR8:$src),
                    "sts\t$dst, $src",
-                   [(store GPR8:$src, imm:$dst)]>;
+                   [(store GPR8:$src, imm:$dst)]>,
+             Requires<[HasSRAM]>;
 
 def STSWKRr : Pseudo<(outs),
                      (ins i16imm:$dst, DREGS:$src),
                      "stsw\t$dst, $src",
-                     [(store DREGS:$src, imm:$dst)]>;
+                     [(store DREGS:$src, imm:$dst)]>,
+              Requires<[HasSRAM]>;
 
 // ST P, Rr
 // Stores the value of Rr into the location addressed by pointer P.
@@ -1159,14 +1207,16 @@ def STPtrRr : FSTLDPtrReg<0b1,
                          (outs),
                          (ins LDSTPtrReg:$ptrreg, GPR8:$reg),
                          "st\t$ptrreg, $reg",
-                         [(store GPR8:$reg, i16:$ptrreg)]>;
+                         [(store GPR8:$reg, i16:$ptrreg)]>,
+              Requires<[HasSRAM]>;
 
 // STW P, Rr
 // Stores the value of Rr into the location addressed by pointer P.
 def STWPtrRr : Pseudo<(outs),
                       (ins PTRDISPREGS:$ptrreg, DREGS:$reg),
                       "stw\t$ptrreg, $reg",
-                      [(store DREGS:$reg, PTRDISPREGS:$ptrreg)]>;
+                      [(store DREGS:$reg, PTRDISPREGS:$ptrreg)]>,
+               Requires<[HasSRAM]>;
 
 // ST P+, Rr
 // Stores the value of Rr into the location addressed by pointer P.
@@ -1177,7 +1227,8 @@ def STPtrPiRr : FSTLDPtrPiReg<0b1,
                               (ins LDSTPtrReg:$ptrreg, GPR8:$reg, i8imm:$offs),
                               "st\t$ptrreg +, $reg",
                               [(set i16:$base_wb,
-                              (post_store GPR8:$reg, i16:$ptrreg, imm:$offs))]>;
+                              (post_store GPR8:$reg, i16:$ptrreg, imm:$offs))]>,
+                Requires<[HasSRAM]>;
 
 // STW P+, Rr
 // Stores the value of Rr into the location addressed by pointer P.
@@ -1187,7 +1238,8 @@ def STWPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
                         (ins PTRREGS:$ptrreg, DREGS:$trh, i8imm:$offs),
                         "stw\t$ptrreg +, $trh",
                         [(set PTRREGS:$base_wb,
-                         (post_store DREGS:$trh, PTRREGS:$ptrreg, imm:$offs))]>;
+                         (post_store DREGS:$trh, PTRREGS:$ptrreg, imm:$offs))]>,
+                 Requires<[HasSRAM]>;
 
 // ST -P, Rr
 // Stores the value of Rr into the location addressed by pointer P.
@@ -1198,7 +1250,8 @@ def STPtrPdRr : FSTLDPtrPdReg<0b1,
                               (ins LDSTPtrReg:$ptrreg, GPR8:$reg, i8imm:$offs),
                               "st\t-$ptrreg, $reg",
                               [(set i16:$base_wb,
-                              (pre_store GPR8:$reg, i16:$ptrreg, imm:$offs))]>;
+                              (pre_store GPR8:$reg, i16:$ptrreg, imm:$offs))]>,
+                Requires<[HasSRAM]>;
 
 // STW -P, Rr
 // Stores the value of Rr into the location addressed by pointer P.
@@ -1208,7 +1261,8 @@ def STWPtrPdRr : Pseudo<(outs PTRREGS:$base_wb),
                         (ins PTRREGS:$ptrreg, DREGS:$reg, i8imm:$offs),
                         "stw\t-$ptrreg, $reg",
                         [(set PTRREGS:$base_wb,
-                         (pre_store DREGS:$reg, PTRREGS:$ptrreg, imm:$offs))]>;
+                         (pre_store DREGS:$reg, PTRREGS:$ptrreg, imm:$offs))]>,
+                 Requires<[HasSRAM]>;
 
 /// STD P+q, Rr
 // Stores the value of Rr into the location addressed by pointer P with a displacement of q.
@@ -1217,14 +1271,17 @@ def STDPtrQRr : FPqRr<0b1,
                       (outs),
                       (ins memri:$dst, GPR8:$src),
                       "std\t$dst, $src",
-                      [(store GPR8:$src, addr:$dst)]>;
+                      [(store GPR8:$src, addr:$dst)]>,
+                Requires<[HasSRAM]>;
+
 /// STDW P+q, Rr
 // Stores the value of Rr into the location addressed by pointer P with a displacement of q.
 // Does not modify P.
 def STDWPtrQRr : Pseudo<(outs),
                         (ins memri:$dst, DREGS:$src),
                         "stdw\t$dst, $src",
-                        [(store DREGS:$src, addr:$dst)]>;
+                        [(store DREGS:$src, addr:$dst)]>,
+                 Requires<[HasSRAM]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
@@ -1257,7 +1314,8 @@ Uses = [R31R30] in
 def LPMWRdZ : Pseudo<(outs DREGS:$dst),
                      (ins),
                      "lpmw\t$dst, Z",
-                     []>;
+                     []>,
+              Requires<[HasLPMX]>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
@@ -1268,7 +1326,8 @@ def LPMRdZPi : FLPMX<0,
                      (outs GPR8:$dst),
                      (ins),
                      "lpm\t$dst, Z+",
-                     []>;
+                     []>,
+               Requires<[HasLPMX]>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
@@ -1277,7 +1336,8 @@ Defs = [R31R30] in
 def LPMWRdZPi : Pseudo<(outs DREGS:$dst),
                        (ins),
                        "lpmw\t$dst, Z+",
-                       []>;
+                       []>,
+                Requires<[HasLPMX]>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
@@ -1287,7 +1347,8 @@ def ELPM : F16<0b1001010111011000,
                (outs),
                (ins),
                "elpm",
-               []>;
+               []>,
+           Requires<[HasELPM]>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
@@ -1297,7 +1358,8 @@ def ELPMRdZ : FLPMX<1,
                     (outs GPR8:$dst),
                     (ins),
                     "elpm\t$dst, Z",
-                    []>;
+                    []>,
+              Requires<[HasELPMX]>;
 
 let mayLoad = 1,
 hasSideEffects = 0,
@@ -1308,7 +1370,8 @@ def ELPMRdZPi : FLPMX<1,
                       (outs GPR8:$dst),
                       (ins),
                       "elpm\t$dst, Z+",
-                      []>;
+                      []>,
+                Requires<[HasELPMX]>;
 
 // TODO: set instruction flags properly (hasSideEffects,etc)
 let Uses = [R31R30, R0, R1] in
@@ -1316,7 +1379,8 @@ def SPM : F16<0b1001010111101000,
               (outs),
               (ins),
               "spm",
-              []>;
+              []>,
+          Requires<[HasSPM]>;
 
 // TODO: set instruction flags properly (hasSideEffects,etc)
 let Uses = [R31R30, R0, R1],
@@ -1325,7 +1389,8 @@ def SPMZPi : F16<0b1001010111111000,
                  (outs),
                  (ins),
                  "spm Z+",
-                 []>;
+                 []>,
+             Requires<[HasSPMX]>;
 
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
@@ -1360,7 +1425,8 @@ def PUSHRr : FRd<0b1001,
                  (outs),
                  (ins GPR8:$reg),
                  "push\t$reg",
-                 []>;
+                 []>,
+             Requires<[HasSRAM]>;
 
 let Defs = [SP],
 Uses = [SP],
@@ -1369,7 +1435,8 @@ mayStore = 1 in
 def PUSHWRr : Pseudo<(outs),
                      (ins DREGS:$reg),
                      "pushw\t$reg",
-                     []>;
+                     []>,
+              Requires<[HasSRAM]>;
 
 let Defs = [SP],
 Uses = [SP],
@@ -1380,7 +1447,8 @@ def POPRd : FRd<0b1001,
                 (outs GPR8:$reg),
                 (ins),
                 "pop\t$reg",
-                []>;
+                []>,
+            Requires<[HasSRAM]>;
 
 let Defs = [SP],
 Uses = [SP],
@@ -1389,35 +1457,40 @@ mayLoad = 1 in
 def POPWRd : Pseudo<(outs DREGS:$reg),
                     (ins),
                     "popw\t$reg",
-                    []>;
+                    []>,
+             Requires<[HasSRAM]>;
 
 let Uses = [R31R30] in
 def XCHZRd : FZRd<0b100,
                   (outs GPR8:$rd),
                   (ins),
                   "xch\tZ, $rd",
-                  []>;
+                  []>,
+             Requires<[SupportsRMW]>;
 
 let Uses = [R31R30] in
 def LASZRd : FZRd<0b101,
                   (outs GPR8:$rd),
                   (ins),
                   "las\tZ, $rd",
-                  []>;
+                  []>,
+             Requires<[SupportsRMW]>;
 
 let Uses = [R31R30] in
 def LACZRd : FZRd<0b110,
                   (outs GPR8:$rd),
                   (ins),
                   "lac\tZ, $rd",
-                  []>;
+                  []>,
+             Requires<[SupportsRMW]>;
 
 let Uses = [R31R30] in
 def LATZRd : FZRd<0b111,
                   (outs GPR8:$rd),
                   (ins),
                   "lat\tZ, $rd",
-                  []>;
+                  []>,
+             Requires<[SupportsRMW]>;
 
 // _______________________________
 // Bit and bit-test instructions

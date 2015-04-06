@@ -33,20 +33,12 @@ AVRSubtarget::AVRSubtarget(const std::string &TT, const std::string &CPU,
   TLInfo(TM),
   TSInfo(TM),
   
-  // Supported instructions
-  HasLPM(false), HasLPMX(false), HasELPM(false), HasELPMX(false),
-  HasSPM(false), HasSPMX(false),
-  HasMUL(false), HasFMUL(false),
-  HasMOVW(false),
-  HasDES(false),
-  HasBREAK(false),
-  SupportsRMW(false),
-  
-  // Other features
-  HasSRAM(false),
-  HasEIND(false),
-  IsTiny(false),
-  IsMega(false)
+  // Subtarget features
+  m_hasSRAM(false), m_hasJMPCALL(false), m_hasIJMPCALL(false), m_hasEIJMPCALL(false),
+  m_hasADDSUBIW(false), m_hasSmallStack(false), m_hasMOVW(false), m_hasLPM(false),
+  m_hasLPMX(false), m_hasELPM(false), m_hasELPMX(false), m_hasSPM(false), m_hasSPMX(false),
+  m_hasDES(false), m_supportsRMW(false), m_supportsMultiplication(false),
+  m_hasBREAK(false), m_hasTinyEncoding(false), m_DummyFeature(false)
 {
   // Parse features string.
   ParseSubtargetFeatures(CPU, FS);

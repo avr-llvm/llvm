@@ -1,4 +1,4 @@
-; RUN: llvm-mc -triple avr-none -show-encoding < %s | FileCheck %s
+; RUN: llvm-mc -triple avr-none -mattr=mul -show-encoding < %s | FileCheck %s
 
 
 foo:
