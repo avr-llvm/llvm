@@ -1,94 +1,105 @@
 ; RUN: llvm-mc -triple avr-none -show-encoding < %s | FileCheck %s
 
-; BSET
-bset 4
-bset 2
-bset 0
-bset 1
-
-
-; BCLR
-bclr 4
-bclr 2
-bclr 0
-bclr 1
-
-; Carry (C flag)
-sec
-clc
-
-; Negative (N flag)
-sen
-cln
-
-; Zero (Z flag)
-sez
-clz
-
-; Interrupt (I flag)
-sei
-cli
-
-; Signed test (S flag)
-ses
-cls
-
-; Two's compliment overflow (V flag)
-sev
-clv
-
-; T (T flag)
-set
-clt
-
-; Half carry (H flag)
-seh
-clh
-
 foo:
 
-; BSET
-; CHECK: bset 4               ; encoding: [0x48,0x94]  
-; CHECK: bset 2               ; encoding: [0x28,0x94]  
-; CHECK: bset 0               ; encoding: [0x08,0x94]  
-; CHECK: bset 1               ; encoding: [0x18,0x94]  
+; Flag set operations
 
+; SEC
+bset 0
+sec
 
-; BCLR
-; CHECK: bclr 4               ; encoding: [0xc8,0x94]  
-; CHECK: bclr 2               ; encoding: [0xa8,0x94]  
-; CHECK: bclr 0               ; encoding: [0x88,0x94]  
-; CHECK: bclr 1               ; encoding: [0x98,0x94]  
+; SEZ
+bset 1
+sez
 
+; SEN
+bset 2
+sen
 
-; Carry (C flag)
-; CHECK: sec                  ; encoding: [0x08,0x94]
-; CHECK: clc                  ; encoding: [0x88,0x94]
+; SEV
+bset 3
+sev
 
-; Negative (N flag)
-; CHECK: sen                  ; encoding: [0x28,0x94]
-; CHECK: cln                  ; encoding: [0xa8,0x94]
+; SES
+bset 4
+ses
 
-; Zero (Z flag)
-; CHECK: sez                  ; encoding: [0x18,0x94]
-; CHECK: clz                  ; encoding: [0x98,0x94]
+; SEH
+bset 5
+seh
 
-; Interrupt (I flag)
-; CHECK: sei                  ; encoding: [0x78,0x94]
-; CHECK: cli                  ; encoding: [0xf8,0x94]
+; SET
+bset 6
+set
 
-; Signed test (S flag)
-; CHECK: ses                  ; encoding: [0x48,0x94]
-; CHECK: cls                  ; encoding: [0xc8,0x94]
+; SEI
+bset 7
+sei
 
-; Two's compliment overflow (V flag)
-; CHECK: sev                  ; encoding: [0x38,0x94]
-; CHECK: clv                  ; encoding: [0xb8,0x94]
+; Flag clear operations
 
-; T (T flag)
-; CHECK: set                  ; encoding: [0x68,0x94]
-; CHECK: clt                  ; encoding: [0xe8,0x94]
+; CLC
+bclr 0
+clc
 
-; Half carry (H flag)
-; CHECK: seh                  ; encoding: [0x58,0x94]
-; CHECK: clh                  ; encoding: [0xd8,0x94]
+; CLZ
+bclr 1
+clz
+
+; CLN
+bclr 2
+cln
+
+; CLV
+bclr 3
+clv
+
+; CLS
+bclr 4
+cls
+
+; CLH
+bclr 5
+clh
+
+; CLT
+bclr 6
+clt
+
+; CLI
+bclr 7
+cli
+
+; CHECK: bset 0               ; encoding: [0x08,0x94]
+; CHECK: bset 0               ; encoding: [0x08,0x94]
+; CHECK: bset 1               ; encoding: [0x18,0x94]
+; CHECK: bset 1               ; encoding: [0x18,0x94]
+; CHECK: bset 2               ; encoding: [0x28,0x94]
+; CHECK: bset 2               ; encoding: [0x28,0x94]
+; CHECK: bset 3               ; encoding: [0x38,0x94]
+; CHECK: bset 3               ; encoding: [0x38,0x94]
+; CHECK: bset 4               ; encoding: [0x48,0x94]
+; CHECK: bset 4               ; encoding: [0x48,0x94]
+; CHECK: bset 5               ; encoding: [0x58,0x94]
+; CHECK: bset 5               ; encoding: [0x58,0x94]
+; CHECK: bset 6               ; encoding: [0x68,0x94]
+; CHECK: bset 6               ; encoding: [0x68,0x94]
+; CHECK: bset 7               ; encoding: [0x78,0x94]
+; CHECK: bset 7               ; encoding: [0x78,0x94]
+
+; CHECK: bclr 0               ; encoding: [0x88,0x94]
+; CHECK: bclr 0               ; encoding: [0x88,0x94]
+; CHECK: bclr 1               ; encoding: [0x98,0x94]
+; CHECK: bclr 1               ; encoding: [0x98,0x94]
+; CHECK: bclr 2               ; encoding: [0xa8,0x94]
+; CHECK: bclr 2               ; encoding: [0xa8,0x94]
+; CHECK: bclr 3               ; encoding: [0xb8,0x94]
+; CHECK: bclr 3               ; encoding: [0xb8,0x94]
+; CHECK: bclr 4               ; encoding: [0xc8,0x94]
+; CHECK: bclr 4               ; encoding: [0xc8,0x94]
+; CHECK: bclr 5               ; encoding: [0xd8,0x94]
+; CHECK: bclr 5               ; encoding: [0xd8,0x94]
+; CHECK: bclr 6               ; encoding: [0xe8,0x94]
+; CHECK: bclr 6               ; encoding: [0xe8,0x94]
+; CHECK: bclr 7               ; encoding: [0xf8,0x94]
+; CHECK: bclr 7               ; encoding: [0xf8,0x94]

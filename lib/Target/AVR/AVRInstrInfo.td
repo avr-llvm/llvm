@@ -800,7 +800,7 @@ let Defs = [SREG] in
     // Compares a register with an 8 bit immediate.
     let Uses = [SREG] in
     def CPIRdK : FRdK<0b0011,
-                      (outs LD8:$k),
+                      (outs i8imm:$k),
                       (ins GPR8:$rd),
                       "cpi\t$rd, $k",
                       []>;
