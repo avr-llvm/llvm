@@ -11,6 +11,18 @@
 //
 //===----------------------------------------------------------------------===//
 
+// NOTE: Instruction with postincrement
+//       All instructions with a '+' as part of the instruction must have
+//       a space between the '+' symbol on either side in the instruction
+//       definition.
+//       If there is no space, `tablegen` will take the '+' token and the
+//       adjacent token(s) to be a single, combined token.
+//       For example, the instruction definition "lpm\tZ+" will result
+//       in the parser expecting a combined token "Z+", instead of a
+//       seperate "Z" and a seperate "+", which will cause instruction
+//       parsing to fail.
+
+
 //===----------------------------------------------------------------------===//
 // Instruction format superclass
 //===----------------------------------------------------------------------===//
@@ -1251,13 +1263,13 @@ Uses = [R31R30] in
                              1,
                              (outs GPR8:$dst),
                              (ins),
-                             "lpm\t$dst, Z+",
+                             "lpm\t$dst, Z +",
                              []>,
                        Requires<[HasLPMX]>;
 
         def LPMWRdZPi : Pseudo<(outs DREGS:$dst),
                                (ins),
-                               "lpmw\t$dst, Z+",
+                               "lpmw\t$dst, Z +",
                                []>,
                         Requires<[HasLPMX]>;
     }
@@ -1289,7 +1301,7 @@ Uses = [R31R30] in
                           1,
                           (outs GPR8:$dst),
                           (ins),
-                          "elpm\t$dst, Z+",
+                          "elpm\t$dst, Z +",
                           []>,
                     Requires<[HasELPMX]>;
 }
@@ -1309,7 +1321,7 @@ let Uses = [R31R30, R1, R0] in
     def SPMZPi : F16<0b1001010111111000,
                      (outs),
                      (ins),
-                     "spm Z+",
+                     "spm Z +",
                      []>,
                  Requires<[HasSPMX]>;
 }
