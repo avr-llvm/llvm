@@ -5,25 +5,25 @@ foo:
 
   ; Normal
 
-  ;ld r10, X
-  ;ld r17, X
+  ld r10, X
+  ld r17, X
   
-  ;ld r30, Y
-  ;ld r19, Y
+  ld r30, Y
+  ld r19, Y
   
-  ;ld r10, Z
-  ;ld r2,  Z
+  ld r10, Z
+  ld r2,  Z
 
   ; Postincremenet
 
-  ;ld r10, X+
-  ;ld r17, X+
+  ld r10, X+
+  ld r17, X+
   
-  ;ld r30, Y+
-  ;ld r19, Y+
+  ld r30, Y+
+  ld r19, Y+
   
-  ;ld r10, Z+
-  ;ld r2,  Z+
+  ld r10, Z+
+  ld r2,  Z+
 
   ; Predecrement
 

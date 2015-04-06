@@ -174,7 +174,8 @@ AVRMCCodeEmitter::getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
     // the operand should be a pointer register.
     assert(MI.getOperand(OpNo).isReg());
   
-    const MCOperand MO = MI.getOperand(OpNo);
+    auto MO = MI.getOperand(OpNo);
+    auto Opcode = MI.getOpcode();
     
     unsigned encoding;
     
@@ -201,11 +202,11 @@ AVRMCCodeEmitter::getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
         }
     }
     
-    bool is_predec = OpNo == AVR::LDRdPtrPd ||
-                     OpNo == AVR::STPtrPdRr;
+    bool is_predec = Opcode == AVR::LDRdPtrPd ||
+                     Opcode == AVR::STPtrPdRr;
     
-    bool is_postinc = OpNo == AVR::LDRdPtrPi ||
-                      OpNo == AVR::STPtrPiRr;
+    bool is_postinc = Opcode == AVR::LDRdPtrPi ||
+                      Opcode == AVR::STPtrPiRr;
     
     bool is_reg_x = MO.getReg() == AVR::R27R26;
     
