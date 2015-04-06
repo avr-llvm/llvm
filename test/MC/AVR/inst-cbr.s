@@ -3,12 +3,12 @@
 
 foo:
 
-  cbr r17, 0b11010000
-  cbr r24, 0xbe
-  cbr r20, 0xad
-  cbr r31, 0x00
+  cbr r17, 208
+  cbr r24, 190
+  cbr r20, 173
+  cbr r31, 0
   
-; CHECK: cbr r17, 0b11010000           ; encoding: [0x1f,0x72]
-; CHECK: cbr r24, 0xbe                 ; encoding: [0x81,0x74]
-; CHECK: cbr r20, 0xad                 ; encoding: [0x42,0x75]
-; CHECK: cbr r31, 0x00                 ; encoding: [0xff,0x7f]
+; CHECK: cbr r17, 208                 ; encoding: [0x1f,0x72]
+; CHECK: cbr r24, 190                 ; encoding: [0x81,0x74]
+; CHECK: cbr r20, 173                 ; encoding: [0x42,0x75]
+; CHECK: cbr r31, 0                   ; encoding: [0xff,0x7f]

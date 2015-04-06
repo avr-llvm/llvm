@@ -1008,10 +1008,10 @@ let canFoldAsLoad = 1,
 isReMaterializable = 1 in
 {
     def LDSRdK : F32DM<0b0,
-                       (outs GPR8:$dst),
-                       (ins i16imm:$src),
-                       "lds\t$dst, $src",
-                       [(set GPR8:$dst, (load imm:$src))]>,
+                       (outs GPR8:$rd),
+                       (ins i16imm:$k),
+                       "lds\t$rd, $k",
+                       [(set GPR8:$rd, (load imm:$k))]>,
                  Requires<[HasSRAM]>;
 
     def LDSWRdK : Pseudo<(outs DREGS:$dst),
@@ -1106,11 +1106,11 @@ isReMaterializable = 1 in
 // to indent instructions by catagory.
 let Constraints = "" in
 {
-    def STSKRr : F32DM<0b0,
+    def STSKRr : F32DM<0b1,
                        (outs),
-                       (ins i16imm:$dst, GPR8:$src),
-                       "sts\t$dst, $src",
-                       [(store GPR8:$src, imm:$dst)]>,
+                       (ins i16imm:$k, GPR8:$rd),
+                       "sts\t$k, $rd",
+                       [(store GPR8:$rd, imm:$k)]>,
                  Requires<[HasSRAM]>;
 
     def STSWKRr : Pseudo<(outs),

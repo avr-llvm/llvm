@@ -527,7 +527,7 @@ class F32BRk<bits<3> f, dag outs, dag ins, string asmstr, list<dag> pattern>
 }
 
 //===----------------------------------------------------------------------===//
-// 32 bits direct mem instructions: <|1001|00fd|dddd|0000|kkkk|kkkk|kkkk|kkkk|>
+// 32 bits direct mem instructions: <|kkkk|kkkk|kkkk|kkkk|1001|00fd|dddd|0000|>
 // f = secondary opcode = 1 bit
 // d = destination = 5 bits
 // k = constant address = 16 bits
@@ -536,14 +536,15 @@ class F32BRk<bits<3> f, dag outs, dag ins, string asmstr, list<dag> pattern>
 class F32DM<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst32<outs, ins, asmstr, pattern>
 {
+  bits<5> rd;
   bits<16> k;
-  bits<5> d;
 
-  let Inst{31-26} = 0b100100;
-  let Inst{25} = f;
-  let Inst{24-20} = d;
-  let Inst{19-16} = 0b0000;
-  let Inst{15-0} = k{15-0};
+  let Inst{31-16} = k;
+
+  let Inst{15-10} = 0b100100;
+  let Inst{9} = f;
+  let Inst{8-4} = rd;
+  let Inst{3-0} = 0b0000;
 }
 
 // <|1001|0100|bfff|1000>
