@@ -109,7 +109,8 @@ class FZRd<bits<3> t, dag outs, dag ins, string asmstr, list<dag> pattern>
 class FRdK<bits<4> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<5> rd;              // accept 5 bits but only encode the lower 4
+  // TODO: what happens when we make this 4 bits?
+  bits<5> rd;  // accept 5 bits but only encode the lower 4
   bits<8> k;
 
   let Inst{15-12} = opcode;
@@ -184,8 +185,6 @@ class FPqRr<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
 // p = pointer register (and inconsistent bit).
 // r = src/dst register
 //===---------------------------------------------------------------------===//
-// TODO: List encodings of LDD/STD instructions
-// 
 // The encoding of this format of instruction is inconsistent w.r.t
 // the pointer register and the addressing mode.
 //
@@ -255,27 +254,6 @@ class FSTLDPtrPiReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
 class FSTLDPtrPdReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
   : FSTLD<t, 0b10, outs, ins, asmstr, pattern> { }
 
-//===--------------------------------------------------------------------------------------------===//
-// Special format for the TST instruction.
-// TST Rd
-// `TST Rd` is semantically equivalent to `AND Rd, Rd` and shares the same binary representation.
-// <|0010|00rd|dddd|rrrr> (where Rd = Rr)
-//===--------------------------------------------------------------------------------------------===//
-class FTST<dag outs, dag ins, string asmstr, list<dag> pattern>
-  : AVRInst16<outs, ins, asmstr, pattern>
-{
-  bits<5> reg;
-  
-  let Inst{15-12} = 0b0010;
-  
-  let Inst{11-10} = 0b00;
-  let Inst{9} = reg{4};
-  let Inst{8} = reg{4};
-  
-  let Inst{7-4} = reg{3-0};
-  let Inst{3-0} = reg{3-0};
-}
-
 //===---------------------------------------------------------------------===//
 // Special format for the LPM/ELPM instructions
 // [E]LPM Rd, Z[+]
@@ -324,7 +302,7 @@ class FMOVWRdRr<dag outs, dag ins, string asmstr, list<dag> pattern>
 // r = multiplier = 4 bits
 // (Only accepts r16-r31)
 //===----------------------------------------------------------------------===//
-class Mu2RdRr<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
+class FMUL2RdRr<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
   bits<5> rd;              // accept 5 bits but only encode the lower 4
@@ -336,12 +314,21 @@ class Mu2RdRr<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{3-0} = rr{3-0};
 }
 
-// 0000 0011 fddd frrr
-class Mu3RdRr<bits<2> f, dag outs, dag ins, string asmstr, list<dag> pattern>
+// Special encoding for the FMUL family of instructions.
+//
+// <0000|0011|fddd|frrr|>
+//
+// ff = 0b01 for FMUL
+//      0b10 for FMULS
+//      0b11 for FMULSU
+//
+// ddd = destination register
+// rrr = source register
+class FFMULRdRr<bits<2> f, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<3> rd;              // accept 5 bits but only encode the lower 4
-  bits<3> rr;              // accept 5 bits but only encode the lower 4
+  bits<3> rd;
+  bits<3> rr;
 
   let Inst{15-8} = 0b00000011;
   let Inst{7} = f{1};
@@ -456,7 +443,11 @@ class FRdB<bits<2> t, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{2-0} = b;
 }
 
+// Special encoding for the `DES K` instruction.
+//
 // <|1001|0100|KKKK|1011>
+//
+// KKKK = 4 bit immediate
 class FDES<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
@@ -486,24 +477,6 @@ class FBRsk<bit f, bits<3> s, dag outs, dag ins, string asmstr, list<dag> patter
   let Inst{10} = f;
   let Inst{9-3} = k;
   let Inst{2-0} = s;
-}
-
-//===----------------------------------------------------------------------===//
-// Branching instructions: <|opcode|>
-//===----------------------------------------------------------------------===//
-class FBR<bits<16> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
-  : AVRInst16<outs, ins, asmstr, pattern>
-{
-  let Inst = opcode;
-}
-
-//===----------------------------------------------------------------------===//
-// Interrupt instructions: <|opcode|>
-//===----------------------------------------------------------------------===//
-class FI<bits<16> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
-  : AVRInst16<outs, ins, asmstr, pattern>
-{
-  let Inst = opcode;
 }
 
 //===----------------------------------------------------------------------===//
@@ -571,24 +544,6 @@ class F32DM<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{24-20} = d;
   let Inst{19-16} = 0b0000;
   let Inst{15-0} = k{15-0};
-}
-
-//===----------------------------------------------------------------------===//
-// 16 bits flag set/clear instruction: <|1001|0100|bfff|1000>
-// b = mode (0 for set, 1 for clear)
-// f = flag
-//===----------------------------------------------------------------------===//
-class FFL<bit b, bits<3> f, dag outs, dag ins, string asmstr, list<dag> pattern>
-  : AVRInst16<outs, ins, asmstr, pattern>
-{
-  let Inst{15-12} = 0b1001;
-  
-  let Inst{11-8} = 0b0100;
-  
-  let Inst{7} = b;
-  let Inst{6-4} = f;
-  
-  let Inst{3-0} = 0b1000;
 }
 
 // <|1001|0100|bfff|1000>

@@ -63,7 +63,8 @@ void AVRFrameLowering::emitPrologue(MachineFunction &MF) const
   // Interrupt handlers re-enable interrupts in function entry.
   if (CallConv == CallingConv::AVR_INTR)
   {
-    BuildMI(MBB, MBBI, dl, TII.get(AVR::SEI))
+    BuildMI(MBB, MBBI, dl, TII.get(AVR::BSETs))
+      .addImm(0x07)
       .setMIFlag(MachineInstr::FrameSetup);
   }
 

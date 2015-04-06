@@ -1250,7 +1250,8 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
         .addReg(AVR::R0, RegState::Define)
         .addImm(0x3f)
         .setMIFlags(Flags);
-      BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AVR::CLI))
+      BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AVR::BCLRs))
+        .addImm(0x07)
         .setMIFlags(Flags);
       BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AVR::OUTARr))
         .addImm(0x3e)
