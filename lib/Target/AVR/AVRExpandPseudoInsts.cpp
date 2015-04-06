@@ -1314,7 +1314,7 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
       splitRegs(TRI, DstReg, DstLoReg, DstHiReg);
 
       MIB =
-        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AVR::MUL16RdRr))
+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AVR::MULRdRr))
           .addReg(AVR::R1R0, RegState::Define)
           .addReg(Src1LoReg)
           .addReg(Src2LoReg);

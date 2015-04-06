@@ -524,18 +524,6 @@ def MULWRdRr : Pseudo<(outs DREGS:$dst),
                        (implicit SREG)]>,
                Requires<[SupportsMultiplication]>;
 
-// This instruction produces a 16bit result from two 8bit operands.
-let isCommutable = 1,
-Defs = [R1R0, SREG],
-hasSideEffects = 0 in
-def MUL16RdRr : FRdRr<0b1001,
-                      0b11,
-                      (outs DREGS:$dst),
-                      (ins GPR8:$src, GPR8:$src2),
-                      "mul\t$src, $src2",
-                      []>,
-                Requires<[SupportsMultiplication]>;
-
 let isCommutable = 1,
 Defs = [R1, R0, SREG] in
 def MULSRdRr : Mu2RdRr<0,
