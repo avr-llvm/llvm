@@ -319,24 +319,6 @@ class FMOVWRdRr<dag outs, dag ins, string asmstr, list<dag> pattern>
 }
 
 //===----------------------------------------------------------------------===//
-// MULrr special encoding: <|1001|11rd|dddd|rrrr|>
-// d = multiplicand = 5 bits
-// r = multiplier = 5 bits
-// (Accepts all registers)
-//===----------------------------------------------------------------------===//
-class Mu1RdRr<dag outs, dag ins, string asmstr, list<dag> pattern>
-  : AVRInst16<outs, ins, asmstr, pattern>
-{
-  bits<5> d;
-  bits<5> r;
-
-  let Inst{15-10} = 0b100111;
-  let Inst{9} = r{4};
-  let Inst{8-4} = d;
-  let Inst{3-0} = r{3-0};
-}
-
-//===----------------------------------------------------------------------===//
 // MULSrr special encoding: <|0000|0010|dddd|rrrr|>
 // d = multiplicand = 4 bits
 // r = multiplier = 4 bits

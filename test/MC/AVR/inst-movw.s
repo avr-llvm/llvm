@@ -3,13 +3,12 @@
 
 foo:
 
-  movw X, Y
-  movw Y, X
-  movw Y, Z
-  movw Z, X
+  movw r10, r8
+  movw r12, r16
+  movw r20, r22
+  movw r8,  r12
 
-
-; CHECK: movw X, Y                   ; encoding: [0xde,0x01]
-; CHECK: movw Y, X                   ; encoding: [0xed,0x01]
-; CHECK: movw Y, Z                   ; encoding: [0xef,0x01]
-; CHECK: movw Z, X                   ; encoding: [0xfd,0x01]
+; CHECK: movw r10, r8                    ; encoding: [0x54,0x01]
+; CHECK: movw r12, r16                   ; encoding: [0x68,0x01]
+; CHECK: movw r20, r22                   ; encoding: [0xab,0x01]
+; CHECK: movw r8,  r12                   ; encoding: [0x46,0x01]

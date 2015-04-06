@@ -501,12 +501,15 @@ def MULRdRrP : Pseudo<(outs GPR8:$dst),
 // MUL Rd, Rr
 // Multiplies Rd by Rr and places the result into Rd.
 let isCommutable = 1,
+Constraints = "$src = $rd",
 Defs = [R1, R0, SREG],
 hasSideEffects = 0 in
-def MULRdRr : Mu1RdRr<(outs GPR8:$dst),
-                      (ins GPR8:$src, GPR8:$src2),
-                      "mul\t$src, $src2",
-                      []>,
+def MULRdRr : FRdRr<0b1001,
+                    0b11,
+                    (outs GPR8:$rd),
+                    (ins GPR8:$src, GPR8:$rr),
+                    "mul\t$rd, $rr",
+                    [(set GPR8:$rd, (mul GPR8:$src, GPR8:$rr))]>,
               Requires<[SupportsMultiplication]>;
 
 // The earlyclobber flag is required because the pseudo expansion needs $dst
@@ -525,10 +528,12 @@ def MULWRdRr : Pseudo<(outs DREGS:$dst),
 let isCommutable = 1,
 Defs = [R1R0, SREG],
 hasSideEffects = 0 in
-def MUL16RdRr : Mu1RdRr<(outs DREGS:$dst),
-                        (ins GPR8:$src, GPR8:$src2),
-                        "mul\t$src, $src2",
-                        []>,
+def MUL16RdRr : FRdRr<0b1001,
+                      0b11,
+                      (outs DREGS:$dst),
+                      (ins GPR8:$src, GPR8:$src2),
+                      "mul\t$src, $src2",
+                      []>,
                 Requires<[SupportsMultiplication]>;
 
 let isCommutable = 1,
