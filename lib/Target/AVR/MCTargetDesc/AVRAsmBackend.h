@@ -1,4 +1,4 @@
-//===-- AVRAsmBackend.h - Mips Asm Backend  ------------------------------===//
+//===-- AVRAsmBackend.h - AVR Asm Backend  -------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

@@ -1,4 +1,4 @@
-//===-- MipsFixupKinds.h - AVR Specific Fixup Entries ----------*- C++ -*-===//
+//===-- AVRFixupKinds.h - AVR Specific Fixup Entries ----------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -20,7 +20,7 @@ namespace AVR {
   //
   // This table *must* be in the same order of
   // MCFixupKindInfo Infos[AVR::NumTargetFixupKinds]
-  // in MipsAsmBackend.cpp.
+  // in AVRAsmBackend.cpp.
   //
   // TODO: Document each fixup
   enum Fixups {
