@@ -31,11 +31,33 @@ using namespace llvm;
 
 #define DEBUG_TYPE "avr-asm-parser"
 
+namespace {
+class AVRAssemblerOptions {
+public:
+  AVRAssemblerOptions():
+    aTReg(1), reorder(true), macro(true) {
+  }
+
+  bool isReorder() {return reorder;}
+  void setReorder() {reorder = true;}
+  void setNoreorder() {reorder = false;}
+
+  bool isMacro() {return macro;}
+  void setMacro() {macro = true;}
+  void setNomacro() {macro = false;}
+
+private:
+  unsigned aTReg;
+  bool reorder;
+  bool macro;
+};
+}
 
 namespace {
 class AVRAsmParser : public MCTargetAsmParser {
   MCSubtargetInfo &STI;
   MCAsmParser &Parser;
+  AVRAssemblerOptions Options;
 
 
 #define GET_ASSEMBLER_HEADER
@@ -82,6 +104,7 @@ class AVRAsmParser : public MCTargetAsmParser {
                                StringRef Mnemonic);
 
   bool parseMemOffset(const MCExpr *&Res);
+  bool parseRelocOperand(const MCExpr *&Res);
 
   //! \brief Matches a register name to a register number.
   //! \return The register number, or -1 if the register is invalid.
@@ -108,11 +131,8 @@ namespace {
 class AVROperand : public MCParsedAsmOperand {
 
   enum KindTy {
-    k_CondCode,
-    k_CoprocNum,
     k_Immediate,
     k_Memory,
-    k_PostIndexRegister,
     k_Register,
     k_Token
   } Kind;
@@ -521,6 +541,68 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
   return true;
 }
 
+bool AVRAsmParser::parseRelocOperand(const MCExpr *&Res) {
+
+  Parser.Lex(); // eat % token
+  const AsmToken &Tok = Parser.getTok(); // get next token, operation
+  if (Tok.isNot(AsmToken::Identifier))
+    return true;
+
+  std::string Str = Tok.getIdentifier().str();
+
+  Parser.Lex(); // eat identifier
+  // now make expression from the rest of the operand
+  const MCExpr *IdVal;
+  SMLoc EndLoc;
+
+  if (getLexer().getKind() == AsmToken::LParen) {
+    while (1) {
+      Parser.Lex(); // eat '(' token
+      if (getLexer().getKind() == AsmToken::Percent) {
+        Parser.Lex(); // eat % token
+        const AsmToken &nextTok = Parser.getTok();
+        if (nextTok.isNot(AsmToken::Identifier))
+          return true;
+        Str += "(%";
+        Str += nextTok.getIdentifier();
+        Parser.Lex(); // eat identifier
+        if (getLexer().getKind() != AsmToken::LParen)
+          return true;
+      } else
+        break;
+    }
+    if (getParser().parseParenExpression(IdVal,EndLoc))
+      return true;
+
+    while (getLexer().getKind() == AsmToken::RParen)
+      Parser.Lex(); // eat ')' token
+
+  } else
+    return true; // parenthesis must follow reloc operand
+
+  // Check the type of the expression
+  if (const MCConstantExpr *MCE = dyn_cast<MCConstantExpr>(IdVal)) {
+    // it's a constant, evaluate lo or hi value
+    int Val = MCE->getValue();
+    if (Str == "lo") {
+      Val = Val & 0xffff;
+    } else if (Str == "hi") {
+      Val = (Val & 0xffff0000) >> 16;
+    }
+    Res = MCConstantExpr::Create(Val, getContext());
+    return false;
+  }
+
+  if (const MCSymbolRefExpr *MSRE = dyn_cast<MCSymbolRefExpr>(IdVal)) {
+    // it's a symbol, create symbolic expression from symbol
+    StringRef Symbol = MSRE->getSymbol().getName();
+    MCSymbolRefExpr::VariantKind VK = MCSymbolRefExpr::VK_None;
+    Res = MCSymbolRefExpr::Create(Symbol,VK,getContext());
+    return false;
+  }
+  return true;
+}
+
 bool AVRAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
                                   SMLoc &EndLoc) {
 
@@ -541,6 +623,8 @@ bool AVRAsmParser::parseMemOffset(const MCExpr *&Res) {
   case AsmToken::Minus:
   case AsmToken::Plus:
     return (getParser().parseExpression(Res));
+  case AsmToken::Percent:
+    return parseRelocOperand(Res);
   case AsmToken::LParen:
     return false;  // it's probably assuming 0
   }
