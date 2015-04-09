@@ -71,11 +71,17 @@ class AVRAsmParser : public MCTargetAsmParser {
   //! that fit the criteria as AsmToken::Token values.
   //!
   //! \return `false` if we found a token that fit the criteria and
-  //!         parsed it, `false` otherwise.
+  //!         parsed it, `true` otherwise.
   bool ParseCustomOperand(OperandVector &Operands, StringRef Mnemonic);
 
+  //! \brief Parses an assembly operand.
+  //! \param Operands A list to add the successfully parsed operand to.
+  //! \param Mnemonic The mnemonic of the instruction.
+  //! \return `false` if parsing succeeds, `true` otherwise.
   bool ParseOperand(OperandVector &Operands, StringRef Mnemonic);
 
+  //! \brief Attempts to parse a register.
+  //! \return The register number, or `-1` if the token is not a register.
   int tryParseRegister(StringRef Mnemonic);
 
   bool tryParseRegisterOperand(OperandVector &Operands,
@@ -455,6 +461,10 @@ bool AVRAsmParser::ParseCustomOperand(OperandVector &Operands,
 bool AVRAsmParser::ParseOperand(OperandVector &Operands,
                                 StringRef Mnemonic) {
   DEBUG(dbgs() << "ParseOperand\n");
+
+  SMLoc S = Parser.getTok().getLoc();
+  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+  const MCExpr *EVal;
   
   // Check if the current operand has a custom associated parser, if so, try to
   // custom parse the operand, or fallback to the general approach.
@@ -472,7 +482,7 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
 
   switch (getLexer().getKind()) {
     default:
-      Error(Parser.getTok().getLoc(), "unexpected token in operand");
+      Error(S, "unexpected token in operand");
       return true;
     case AsmToken::Identifier:
     case AsmToken::LParen:
@@ -495,29 +505,46 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
       
       } else { // the operand not a register
 
-        // quoted label names
-        const MCExpr *IdVal;
-        SMLoc S = Parser.getTok().getLoc();
-
-        if (getParser().parseExpression(IdVal))
+        if (getParser().parseExpression(EVal))
           return true;
 
         SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-        Operands.push_back(AVROperand::CreateImm(IdVal, S, E));
+        Operands.push_back(AVROperand::CreateImm(EVal, S, E));
         return false;
       }
     }
+    // Parse the syntax .[+][-]offset
+    // for PC-relative call.
+    case AsmToken::Dot: {
+      Parser.Lex(); // eat `.`
+    }
     case AsmToken::Plus:
     case AsmToken::Minus: {
-      SMLoc S = Parser.getTok().getLoc();
-      Operands.push_back(AVROperand::CreateToken(getLexer().getTok().getString(), S));
+      auto nextTok = Parser.getLexer().peekTok(true);
 
-      Parser.Lex();
+      // we are parsing an integer immediate
+      if(nextTok.getKind() == AsmToken::Integer) {
 
-      return false;
+        // try and parse the expression
+        if(!Parser.parseExpression(EVal, E)) {
+          Operands.push_back(AVROperand::CreateImm(EVal, S, E));
+          return false;
+
+        } else { // could not parse expression
+          return true;
+        }
+
+      } else { // we should parse the '+' or '-' as a token
+
+        Operands.push_back(AVROperand::CreateToken(getLexer().getTok().getString(), S));
+        Parser.Lex();
+        return false;
+      }
     }
+
   } // switch(getLexer().getKind())
   
+  // could not parse operand
   return true;
 }
 
