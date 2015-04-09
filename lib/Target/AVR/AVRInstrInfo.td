@@ -1078,16 +1078,16 @@ isReMaterializable = 1 in
 {
     def LDDRdPtrQ : FPqRr<0b0,
                           (outs GPR8:$reg),
-                          (ins memri:$ptrreg),
-                          "ldd\t$reg, $ptrreg",
-                          [(set GPR8:$reg, (load addr:$ptrreg))]>,
+                          (ins PTRDISPREGS:$p, i16imm:$q),
+                          "ldd\t$reg, $p+$q",
+                          [(set GPR8:$reg, (load (add addr:$p, imm:$q)))]>,
                     Requires<[HasSRAM]>;
 
     let Constraints = "@earlyclobber $dst" in
     def LDDWRdPtrQ : Pseudo<(outs DREGS:$dst),
-                            (ins memri:$src),
-                            "lddw\t$dst, $src",
-                            [(set DREGS:$dst, (load addr:$src))]>,
+                            (ins PTRDISPREGS:$p, i16imm:$q),
+                            "lddw\t$dst, $p+$q",
+                            [(set DREGS:$dst, (load (add addr:$p, imm:$q)))]>,
                      Requires<[HasSRAM]>;
 
     //:FIXME: remove this once PR13375 gets fixed
@@ -1095,8 +1095,8 @@ isReMaterializable = 1 in
     let mayLoad = 1,
     hasSideEffects = 0 in
     def LDDWRdYQ : Pseudo<(outs DREGS:$dst),
-                          (ins memri:$src),
-                          "lddw\t$dst, $src",
+                          (ins PTRDISPREGS:$p, i16imm:$q),
+                          "lddw\t$dst, $p+$q",
                           []>,
                    Requires<[HasSRAM]>;
 }
@@ -1200,18 +1200,18 @@ let Constraints = "" in
     // Does not modify P.
     def STDPtrQRr : FPqRr<0b1,
                           (outs),
-                          (ins memri:$dst, GPR8:$src),
-                          "std\t$dst, $src",
-                          [(store GPR8:$src, addr:$dst)]>,
+                          (ins PTRDISPREGS:$p, i16imm:$q, GPR8:$src),
+                          "std\t$p+$q, $src",
+                          [(store GPR8:$src, (add addr:$p, imm:$q))]>,
                     Requires<[HasSRAM]>;
 
     // STDW P+q, Rr
     // Stores the value of Rr into the location addressed by pointer P with a displacement of q.
     // Does not modify P.
     def STDWPtrQRr : Pseudo<(outs),
-                            (ins memri:$dst, DREGS:$src),
-                            "stdw\t$dst, $src",
-                            [(store DREGS:$src, addr:$dst)]>,
+                            (ins PTRDISPREGS:$p, i16imm:$q, DREGS:$src),
+                            "stdw\t$p+$q, $src",
+                            [(store DREGS:$src, (add addr:$p, imm:$q))]>,
                      Requires<[HasSRAM]>;
 }
 

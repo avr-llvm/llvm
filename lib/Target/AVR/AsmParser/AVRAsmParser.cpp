@@ -54,8 +54,6 @@ class AVRAsmParser : public MCTargetAsmParser {
   
   bool ParseDirective(AsmToken directiveID) override { return true; }
 
-  AVRAsmParser::OperandMatchResultTy parseMemOperand(OperandVector &);
-
   //! \brief Parses identifiers as AsmToken::Token's when needed.
   //!
   //! Some instructions have hard coded values as operands.
@@ -67,6 +65,7 @@ class AVRAsmParser : public MCTargetAsmParser {
   //! be of kind AsmToken::Token.
   //!
   //! This function fixes this by maintaining a table of operand values
+
   //! (such as `Z`) and mnemonics (such as `lpm`) and parsing all operands
   //! that fit the criteria as AsmToken::Token values.
   //!
@@ -86,8 +85,6 @@ class AVRAsmParser : public MCTargetAsmParser {
 
   bool tryParseRegisterOperand(OperandVector &Operands,
                                StringRef Mnemonic);
-
-  bool parseMemOffset(const MCExpr *&Res);
 
   //! \brief Matches a register name to a register number.
   //! \return The register number, or -1 if the register is invalid.
@@ -114,11 +111,7 @@ namespace {
 class AVROperand : public MCParsedAsmOperand {
 
   enum KindTy {
-    k_CondCode,
-    k_CoprocNum,
     k_Immediate,
-    k_Memory,
-    k_PostIndexRegister,
     k_Register,
     k_Token
   } Kind;
@@ -139,11 +132,6 @@ public:
     struct {
       const MCExpr *Val;
     } Imm;
-
-    struct {
-      unsigned Base;
-      const MCExpr *Off;
-    } Mem;
   };
 
   SMLoc StartLoc, EndLoc;
@@ -170,19 +158,10 @@ public:
     addExpr(Inst,Expr);
   }
 
-  void addMemOperands(MCInst &Inst, unsigned N) const {
-    assert(N == 2 && "Invalid number of operands!");
-
-    Inst.addOperand(MCOperand::CreateReg(getMemBase()));
-
-    const MCExpr *Expr = getMemOff();
-    addExpr(Inst,Expr);
-  }
-
   bool isReg() const { return Kind == k_Register; }
   bool isImm() const { return Kind == k_Immediate; }
   bool isToken() const { return Kind == k_Token; }
-  bool isMem() const { return Kind == k_Memory; }
+  bool isMem() const { return false; }
 
   StringRef getToken() const {
     assert(Kind == k_Token && "Invalid access!");
@@ -197,16 +176,6 @@ public:
   const MCExpr *getImm() const {
     assert((Kind == k_Immediate) && "Invalid access!");
     return Imm.Val;
-  }
-
-  unsigned getMemBase() const {
-    assert((Kind == k_Memory) && "Invalid access!");
-    return Mem.Base;
-  }
-
-  const MCExpr *getMemOff() const {
-    assert((Kind == k_Memory) && "Invalid access!");
-    return Mem.Off;
   }
 
   static std::unique_ptr<AVROperand> CreateToken(StringRef Str, SMLoc S) {
@@ -236,16 +205,6 @@ public:
     return Op;
   }
 
-  static std::unique_ptr<AVROperand> CreateMem(unsigned Base, const MCExpr *Off,
-                                 SMLoc S, SMLoc E) {
-    auto Op = make_unique<AVROperand>(k_Memory);
-    Op->Mem.Base = Base;
-    Op->Mem.Off = Off;
-    Op->StartLoc = S;
-    Op->EndLoc = E;
-    return Op;
-  }
-
   /// getStartLoc - Get the location of the first token of this operand.
   SMLoc getStartLoc() const { return StartLoc; }
   /// getEndLoc - Get the location of the last token of this operand.
@@ -268,13 +227,6 @@ public:
         
         OS << ")";
         
-        break;
-      case k_Memory:
-        OS << "Memory(Base = " << Mem.Base << ", Offset = ";
-
-        Mem.Off->print(OS);
-        
-        OS << ")";
         break;
       default:
         llvm_unreachable("unimplemented");
@@ -465,20 +417,6 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
   SMLoc S = Parser.getTok().getLoc();
   SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
   const MCExpr *EVal;
-  
-  // Check if the current operand has a custom associated parser, if so, try to
-  // custom parse the operand, or fallback to the general approach.
-  OperandMatchResultTy ResTy = MatchOperandParserImpl(Operands, Mnemonic);
-  if (ResTy == MatchOperand_Success)
-    return false;
-  
-  // If there wasn't a custom match, try the generic matcher below. Otherwise,
-  // there was a match, but an error occurred, in which case, just return that
-  // the operand parsing failed.
-  if (ResTy == MatchOperand_ParseFail)
-    return true;
-
-  DEBUG(dbgs() << ".. Generic Parser\n");
 
   switch (getLexer().getKind()) {
     default:
@@ -555,86 +493,6 @@ bool AVRAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
   RegNo = tryParseRegister("");
   EndLoc = Parser.getTok().getLoc();
   return (RegNo == (unsigned)-1);
-}
-
-bool AVRAsmParser::parseMemOffset(const MCExpr *&Res) {
-
-  SMLoc S;
-
-  switch(getLexer().getKind()) {
-  default:
-    return true;
-  case AsmToken::Integer:
-  case AsmToken::Minus:
-  case AsmToken::Plus:
-    return (getParser().parseExpression(Res));
-  case AsmToken::LParen:
-    return false;  // it's probably assuming 0
-  }
-  return true;
-}
-
-// eg, 12($sp) or 12(la)
-AVRAsmParser::OperandMatchResultTy AVRAsmParser::parseMemOperand(
-               OperandVector &Operands) {
-
-  const MCExpr *IdVal = 0;
-  SMLoc S;
-  // first operand is the offset
-  S = Parser.getTok().getLoc();
-
-  if (parseMemOffset(IdVal))
-    return MatchOperand_ParseFail;
-
-  const AsmToken &Tok = Parser.getTok(); // get next token
-  if (Tok.isNot(AsmToken::LParen)) {
-    AVROperand &Mnemonic = static_cast<AVROperand &>(*Operands[0]);
-    if (Mnemonic.getToken() == "la") {
-      SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer()-1);
-      Operands.push_back(AVROperand::CreateImm(IdVal, S, E));
-      return MatchOperand_Success;
-    }
-    Error(Parser.getTok().getLoc(), "'(' expected");
-    return MatchOperand_ParseFail;
-  }
-
-  Parser.Lex(); // Eat '(' token.
-
-  const AsmToken &Tok1 = Parser.getTok(); // get next token
-  if (Tok1.is(AsmToken::Dollar)) {
-    Parser.Lex(); // Eat '$' token.
-    if (tryParseRegisterOperand(Operands,"")) {
-      Error(Parser.getTok().getLoc(), "unexpected token in operand");
-      return MatchOperand_ParseFail;
-    }
-
-  } else {
-    Error(Parser.getTok().getLoc(), "unexpected token in operand");
-    return MatchOperand_ParseFail;
-  }
-
-  const AsmToken &Tok2 = Parser.getTok(); // get next token
-  if (Tok2.isNot(AsmToken::RParen)) {
-    Error(Parser.getTok().getLoc(), "')' expected");
-    return MatchOperand_ParseFail;
-  }
-
-  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-
-  Parser.Lex(); // Eat ')' token.
-
-  if (!IdVal)
-    IdVal = MCConstantExpr::Create(0, getContext());
-
-  // Replace the register operand with the memory operand.
-  std::unique_ptr<AVROperand> op(
-      static_cast<AVROperand *>(Operands.back().release()));
-  int RegNo = op->getReg();
-  // remove register from operands
-  Operands.pop_back();
-  // and add memory operand
-  Operands.push_back(AVROperand::CreateMem(RegNo, IdVal, S, E));
-  return MatchOperand_Success;
 }
 
 bool AVRAsmParser::
