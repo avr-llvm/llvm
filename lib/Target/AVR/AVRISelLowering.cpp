@@ -129,6 +129,9 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setOperationAction(ISD::MULHS, MVT::i8, Expand);
   setOperationAction(ISD::MULHS, MVT::i16, Expand);
 
+  // Custom names for libgcc/compiler_rt functions
+  setLibcallName(RTLIB::UDIV_I8,  "__divmodhi4");
+
   setMinFunctionAlignment(1);
 }
 
