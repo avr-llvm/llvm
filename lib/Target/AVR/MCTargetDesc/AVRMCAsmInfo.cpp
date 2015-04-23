@@ -16,7 +16,6 @@
 
 using namespace llvm;
 
-void AVRMCAsmInfo::anchor() { }
 
 AVRMCAsmInfo::AVRMCAsmInfo(StringRef TT)
 {

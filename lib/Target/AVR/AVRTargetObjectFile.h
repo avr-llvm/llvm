@@ -18,7 +18,7 @@ namespace llvm
 class AVRTargetObjectFile : public TargetLoweringObjectFileELF
 {
 public:
-  void Initialize(MCContext &ctx, const TargetMachine &TM);
+  void Initialize(MCContext &ctx, const TargetMachine &TM) override;
 
   const MCSection *SelectSectionForGlobal(const GlobalValue *GV,
                                           SectionKind Kind,

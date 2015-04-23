@@ -19,29 +19,29 @@
 namespace llvm
 {
 
-/// AVRMachineFunctionInfo - This class is derived from MachineFunction and
-/// contains private AVR target-specific information for each MachineFunction.
+/*!
+ * \brief This class is derived from MachineFunction and
+ *         contains private AVR target-specific information for each MachineFunction.
+ */
 class AVRMachineFunctionInfo : public MachineFunctionInfo
 {
-  virtual void anchor();
-
-  /// HasSpills - Indicates if a register has been spilled by the register
+  /// Indicates if a register has been spilled by the register
   /// allocator.
   bool HasSpills;
 
-  /// HasAllocas - Indicates if there are any fixed size allocas present.
+  /// Indicates if there are any fixed size allocas present.
   /// Note that if there are only variable sized allocas this is set to false.
   bool HasAllocas;
 
-  /// HasStackArgs - Indicates if arguments passed using the stack are being
+  /// Indicates if arguments passed using the stack are being
   /// used inside the function.
   bool HasStackArgs;
 
-  /// CalleeSavedFrameSize - Size of the callee-saved register portion of the
+  /// Size of the callee-saved register portion of the
   /// stack frame in bytes.
   unsigned CalleeSavedFrameSize;
 
-  /// VarArgsFrameIndex - FrameIndex for start of varargs area.
+  /// FrameIndex for start of varargs area.
   int VarArgsFrameIndex;
 public:
   AVRMachineFunctionInfo() :

@@ -23,7 +23,6 @@ class StringRef;
 
 class AVRMCAsmInfo : public MCAsmInfo
 {
-  virtual void anchor();
 public:
   explicit AVRMCAsmInfo(StringRef TT);
 };

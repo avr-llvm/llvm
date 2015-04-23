@@ -15,7 +15,6 @@
 
 namespace llvm {
 class AVRTargetStreamer : public MCTargetStreamer {
-  virtual void anchor();
 
 public:
   explicit AVRTargetStreamer(MCStreamer &S);

@@ -23,7 +23,6 @@
 
 using namespace llvm;
 
-void AVRSubtarget::anchor() { }
 
 AVRSubtarget::AVRSubtarget(const std::string &TT, const std::string &CPU,
                            const std::string &FS, AVRTargetMachine &TM) :

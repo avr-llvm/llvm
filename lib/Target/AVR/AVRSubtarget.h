@@ -33,7 +33,6 @@ namespace llvm
 //! \brief Holds information about an AVR subtarget.
 class AVRSubtarget : public AVRGenSubtargetInfo
 {
-  virtual void anchor();
 
 public:
   //! \brief Creates an AVR subtarget.
