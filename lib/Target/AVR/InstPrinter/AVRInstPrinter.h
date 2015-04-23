@@ -26,7 +26,7 @@ public:
                  const MCRegisterInfo &MRI) :
     MCInstPrinter(MAI, MII, MRI) {}
 public: // MCInstPrinter
-  void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot);
+  void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot) override;
 public:
   void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O,
                     const char *Modifier = 0);

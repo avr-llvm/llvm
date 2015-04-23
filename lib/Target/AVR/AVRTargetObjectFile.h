@@ -23,7 +23,7 @@ public:
   const MCSection *SelectSectionForGlobal(const GlobalValue *GV,
                                           SectionKind Kind,
                                           Mangler &Mang,
-                                          const TargetMachine &TM) const;
+                                          const TargetMachine &TM) const override;
 private:
   const MCSection *ProgmemDataSection;
 };

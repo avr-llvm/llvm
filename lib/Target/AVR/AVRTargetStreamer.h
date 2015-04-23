@@ -18,7 +18,7 @@ class AVRTargetStreamer : public MCTargetStreamer {
   virtual void anchor();
 
 public:
-  AVRTargetStreamer(MCStreamer &S);
+  explicit AVRTargetStreamer(MCStreamer &S);
 };
 
 // This part is for ascii assembly output
@@ -32,7 +32,7 @@ public:
 // This part is for ELF object output
 class AVRTargetELFStreamer : public AVRTargetStreamer {
 public:
-  AVRTargetELFStreamer(MCStreamer &S);
+  explicit AVRTargetELFStreamer(MCStreamer &S);
   MCELFStreamer &getStreamer();
 };
 } // end namespace llvm

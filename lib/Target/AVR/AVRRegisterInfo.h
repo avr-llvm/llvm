@@ -21,31 +21,34 @@
 
 namespace llvm
 {
-
+/*!
+ * \brief Holds information about AVR registers.
+ */
 class AVRRegisterInfo : public AVRGenRegisterInfo
 {
 public:
   AVRRegisterInfo();
-public: // TargetRegisterInfo
-  /// Code Generation virtual methods...
-  const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const;
-  const uint32_t *getCallPreservedMask(CallingConv::ID CC) const;
-  BitVector getReservedRegs(const MachineFunction &MF) const;
+public:
+  const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const override;
+  const uint32_t *getCallPreservedMask(const MachineFunction &MF,
+                                       CallingConv::ID CC) const override;
+  BitVector getReservedRegs(const MachineFunction &MF) const override;
 
   const TargetRegisterClass *
-  getLargestLegalSuperClass(const TargetRegisterClass *RC) const;
+  getLargestLegalSuperClass(const TargetRegisterClass *RC,
+                            const MachineFunction &MF) const override;
 
   /// Stack Frame Processing Methods
   void eliminateFrameIndex(MachineBasicBlock::iterator MI, int SPAdj,
                            unsigned FIOperandNum,
-                           RegScavenger *RS = NULL) const;
+                           RegScavenger *RS = NULL) const override;
 
   /// Debug information queries.
-  unsigned getFrameRegister(const MachineFunction &MF) const;
+  unsigned getFrameRegister(const MachineFunction &MF) const override;
 
   /// Returns a TargetRegisterClass used for pointer values.
   const TargetRegisterClass *
-  getPointerRegClass(const MachineFunction &MF, unsigned Kind = 0) const;
+  getPointerRegClass(const MachineFunction &MF, unsigned Kind = 0) const override;
 };
 
 } // end namespace llvm

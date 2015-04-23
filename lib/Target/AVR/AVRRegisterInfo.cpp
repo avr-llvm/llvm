@@ -39,7 +39,8 @@ AVRRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const
           CSR_Interrupts_SaveList : CSR_Normal_SaveList);
 }
 
-const uint32_t *AVRRegisterInfo::getCallPreservedMask(CallingConv::ID CC) const
+const uint32_t *AVRRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
+                                                      CallingConv::ID CC) const
 {
   return ((CC == CallingConv::AVR_INTR || CC == CallingConv::AVR_SIGNAL) ?
           CSR_Interrupts_RegMask : CSR_Normal_RegMask);
@@ -70,7 +71,8 @@ BitVector AVRRegisterInfo::getReservedRegs(const MachineFunction &MF) const
 }
 
 const TargetRegisterClass *
-AVRRegisterInfo::getLargestLegalSuperClass(const TargetRegisterClass *RC) const
+AVRRegisterInfo::getLargestLegalSuperClass(const TargetRegisterClass *RC,
+                                           const MachineFunction &MF) const
 {
   if (RC->hasType(MVT::i16))
   {

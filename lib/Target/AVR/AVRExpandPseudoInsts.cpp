@@ -35,9 +35,9 @@ public:
   const TargetInstrInfo *TII;
   AVRExpandPseudo() : MachineFunctionPass(ID) {}
 
-  bool runOnMachineFunction(MachineFunction &MF);
+  bool runOnMachineFunction(MachineFunction &MF) override;
 
-  const char *getPassName() const
+  const char *getPassName() const override
   {
     return "AVR pseudo instruction expansion pass";
   }

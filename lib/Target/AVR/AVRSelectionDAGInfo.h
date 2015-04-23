@@ -25,7 +25,6 @@ class AVRSelectionDAGInfo : public TargetSelectionDAGInfo
 {
 public:
   explicit AVRSelectionDAGInfo(const AVRTargetMachine &TM);
-  ~AVRSelectionDAGInfo();
 };
 
 } // end namespace llvm

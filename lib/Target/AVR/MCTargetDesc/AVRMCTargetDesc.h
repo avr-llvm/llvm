@@ -22,13 +22,10 @@ namespace llvm
     class MCAsmBackend;
     class MCRegisterInfo;
     class MCObjectWriter;
-    class MCSubtargetInfo;
     class MCInstrInfo;
     class MCContext;
     class StringRef;
     class Target;
-    class MCStreamer;
-    class MCTargetStreamer;
     class raw_ostream;
 
     extern Target TheAVRTarget;

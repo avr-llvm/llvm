@@ -32,17 +32,15 @@ public:
   AVRTargetMachine(const Target &T, StringRef TT, StringRef CPU, StringRef FS,
                    const TargetOptions &Options, Reloc::Model RM,
                    CodeModel::Model CM, CodeGenOpt::Level OL);
-public: // TargetMachine
 
   const AVRSubtarget *getSubtargetImpl() const;
   const AVRSubtarget *getSubtargetImpl(const Function &) const override;
   
   TargetLoweringObjectFile *getObjFileLowering() const override { return this->TLOF.get(); }
 
-public:
 
   // Pass Pipeline Configuration.
-  TargetPassConfig *createPassConfig(PassManagerBase &PM);
+  TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 
 private:
   std::unique_ptr<TargetLoweringObjectFile> TLOF;

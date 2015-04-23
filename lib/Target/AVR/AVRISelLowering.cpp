@@ -1641,7 +1641,8 @@ AVRTargetLowering::getSingleConstraintMatchWeight(AsmOperandInfo &info,
 }
 
 std::pair<unsigned, const TargetRegisterClass *>
-AVRTargetLowering::getRegForInlineAsmConstraint(const std::string &Constraint,
+AVRTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                                const std::string &Constraint,
                                                 MVT VT) const
 {
   auto STI = static_cast<const AVRTargetMachine&>(this->getTargetMachine()).getSubtargetImpl();

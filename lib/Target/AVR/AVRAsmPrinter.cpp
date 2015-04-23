@@ -41,7 +41,7 @@ public:
   explicit AVRAsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer) :
     AsmPrinter(TM, std::move(Streamer)) {}
 
-  const char *getPassName() const
+  const char *getPassName() const override
   {
     return "AVR Assembly Printer";
   }

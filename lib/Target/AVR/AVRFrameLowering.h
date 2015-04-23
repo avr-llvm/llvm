@@ -24,24 +24,24 @@ class AVRFrameLowering : public TargetFrameLowering
 public:
   explicit AVRFrameLowering();
 public: // TargetFrameLowering
-  void emitPrologue(MachineFunction &MF) const;
-  void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;
-  bool hasFP(const MachineFunction &MF) const;
+  void emitPrologue(MachineFunction &MF) const override;
+  void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
+  bool hasFP(const MachineFunction &MF) const override;
   bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator MI,
                                  const std::vector<CalleeSavedInfo> &CSI,
-                                 const TargetRegisterInfo *TRI) const;
+                                 const TargetRegisterInfo *TRI) const override;
   bool restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
                                    MachineBasicBlock::iterator MI,
                                    const std::vector<CalleeSavedInfo> &CSI,
-                                   const TargetRegisterInfo *TRI) const;
-  bool hasReservedCallFrame(const MachineFunction &MF) const;
-  bool canSimplifyCallFramePseudos(const MachineFunction &MF) const;
+                                   const TargetRegisterInfo *TRI) const override;
+  bool hasReservedCallFrame(const MachineFunction &MF) const override;
+  bool canSimplifyCallFramePseudos(const MachineFunction &MF) const override;
   void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
-                                            RegScavenger *RS = NULL) const;
+                                            RegScavenger *RS = NULL) const override;
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,
-                                     MachineBasicBlock::iterator MI) const;
+                                     MachineBasicBlock::iterator MI) const override;
 };
 
 } // end namespace llvm

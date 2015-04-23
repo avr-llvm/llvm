@@ -37,12 +37,13 @@ public:
   static char ID;
   AVRBSel() : MachineFunctionPass(ID) {}
 
-  bool runOnMachineFunction(MachineFunction &Fn);
+  bool runOnMachineFunction(MachineFunction &Fn) override;
 
-  const char *getPassName() const
+  const char *getPassName() const override
   {
     return "AVR Branch Selector";
   }
+
 private:
   /// BlockSizes - The sizes of the basic blocks in the function.
   std::vector<unsigned> BlockSizes;
