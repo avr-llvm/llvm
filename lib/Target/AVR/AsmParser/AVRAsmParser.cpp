@@ -455,6 +455,10 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
     // for PC-relative call.
     case AsmToken::Dot: {
       Parser.Lex(); // eat `.`
+      if(!Parser.parseExpression(EVal, E)) {
+        Operands.push_back(AVROperand::CreateImm(EVal, S, E));
+        return false;
+      }
     }
     case AsmToken::Plus:
     case AsmToken::Minus: {
