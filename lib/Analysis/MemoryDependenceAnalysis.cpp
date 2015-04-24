@@ -65,7 +65,7 @@ INITIALIZE_PASS_END(MemoryDependenceAnalysis, "memdep",
                       "Memory Dependence Analysis", false, true)
 
 MemoryDependenceAnalysis::MemoryDependenceAnalysis()
-    : FunctionPass(ID), PredCache() {
+    : FunctionPass(ID) {
   initializeMemoryDependenceAnalysisPass(*PassRegistry::getPassRegistry());
 }
 MemoryDependenceAnalysis::~MemoryDependenceAnalysis() {
@@ -79,7 +79,7 @@ void MemoryDependenceAnalysis::releaseMemory() {
   ReverseLocalDeps.clear();
   ReverseNonLocalDeps.clear();
   ReverseNonLocalPtrDeps.clear();
-  PredCache->clear();
+  PredCache.clear();
 }
 
 /// getAnalysisUsage - Does not modify anything.  It uses Alias Analysis.
@@ -96,8 +96,6 @@ bool MemoryDependenceAnalysis::runOnFunction(Function &F) {
   DominatorTreeWrapperPass *DTWP =
       getAnalysisIfAvailable<DominatorTreeWrapperPass>();
   DT = DTWP ? &DTWP->getDomTree() : nullptr;
-  if (!PredCache)
-    PredCache.reset(new PredIteratorCache());
   return false;
 }
 
@@ -223,7 +221,7 @@ getCallSiteDependencyFrom(CallSite CS, bool isReadOnlyCall,
       continue;
     }
 
-    if (CallSite InstCS = cast<Value>(Inst)) {
+    if (auto InstCS = CallSite(Inst)) {
       // Debug intrinsics don't cause dependences.
       if (isa<DbgInfoIntrinsic>(Inst)) continue;
       // If these two calls do not interfere, look past it.
@@ -408,6 +406,10 @@ getPointerDependencyFrom(const AliasAnalysis::Location &MemLoc, bool isLoad,
   // it is racy (undefined) or there is a release followed by an acquire
   // between the pair of accesses under consideration.
 
+  // If the load is invariant, we "know" that it doesn't alias *any* write. We
+  // do want to respect mustalias results since defs are useful for value
+  // forwarding, but any mayalias write can be assumed to be noalias.
+  // Arguably, this logic should be pushed inside AliasAnalysis itself.
   if (isLoad && QueryInst) {
     LoadInst *LI = dyn_cast<LoadInst>(QueryInst);
     if (LI && LI->getMetadata(LLVMContext::MD_invariant_load) != nullptr)
@@ -601,6 +603,8 @@ getPointerDependencyFrom(const AliasAnalysis::Location &MemLoc, bool isLoad,
 
       if (AccessPtr == Inst || AA->isMustAlias(Inst, AccessPtr))
         return MemDepResult::getDef(Inst);
+      if (isInvariantLoad)
+        continue;
       // Be conservative if the accessed pointer may alias the allocation.
       if (AA->alias(Inst, AccessPtr) != AliasAnalysis::NoAlias)
         return MemDepResult::getClobber(Inst);
@@ -610,6 +614,9 @@ getPointerDependencyFrom(const AliasAnalysis::Location &MemLoc, bool isLoad,
           isMallocLikeFn(Inst, TLI) || isCallocLikeFn(Inst, TLI))
         continue;
     }
+
+    if (isInvariantLoad)
+       continue;
 
     // See if this instruction (e.g. a call or vaarg) mod/ref's the pointer.
     AliasAnalysis::ModRefResult MR = AA->getModRefInfo(Inst, MemLoc);
@@ -761,8 +768,8 @@ MemoryDependenceAnalysis::getNonLocalCallDependency(CallSite QueryCS) {
   } else {
     // Seed DirtyBlocks with each of the preds of QueryInst's block.
     BasicBlock *QueryBB = QueryCS.getInstruction()->getParent();
-    for (BasicBlock **PI = PredCache->GetPreds(QueryBB); *PI; ++PI)
-      DirtyBlocks.push_back(*PI);
+    for (BasicBlock *Pred : PredCache.get(QueryBB))
+      DirtyBlocks.push_back(Pred);
     ++NumUncacheNonLocal;
   }
 
@@ -847,8 +854,8 @@ MemoryDependenceAnalysis::getNonLocalCallDependency(CallSite QueryCS) {
 
       // If the block *is* completely transparent to the load, we need to check
       // the predecessors of this block.  Add them to our worklist.
-      for (BasicBlock **PI = PredCache->GetPreds(DirtyBB); *PI; ++PI)
-        DirtyBlocks.push_back(*PI);
+      for (BasicBlock *Pred : PredCache.get(DirtyBB))
+        DirtyBlocks.push_back(Pred);
     }
   }
 
@@ -865,23 +872,7 @@ MemoryDependenceAnalysis::getNonLocalCallDependency(CallSite QueryCS) {
 void MemoryDependenceAnalysis::
 getNonLocalPointerDependency(Instruction *QueryInst,
                              SmallVectorImpl<NonLocalDepResult> &Result) {
-
-  auto getLocation = [](AliasAnalysis *AA, Instruction *Inst) {
-    if (auto *I = dyn_cast<LoadInst>(Inst))
-      return AA->getLocation(I);
-    else if (auto *I = dyn_cast<StoreInst>(Inst))
-      return AA->getLocation(I);
-    else if (auto *I = dyn_cast<VAArgInst>(Inst))
-      return AA->getLocation(I);
-    else if (auto *I = dyn_cast<AtomicCmpXchgInst>(Inst))
-      return AA->getLocation(I);
-    else if (auto *I = dyn_cast<AtomicRMWInst>(Inst))
-      return AA->getLocation(I);
-    else
-      llvm_unreachable("unsupported memory instruction");
-  };
-   
-  const AliasAnalysis::Location Loc = getLocation(AA, QueryInst);
+  const AliasAnalysis::Location Loc = AA->getLocation(QueryInst);
   bool isLoad = isa<LoadInst>(QueryInst);
   BasicBlock *FromBB = QueryInst->getParent();
   assert(FromBB);
@@ -1239,13 +1230,13 @@ getNonLocalPointerDepFromBB(Instruction *QueryInst,
     if (!Pointer.NeedsPHITranslationFromBlock(BB)) {
       SkipFirstBlock = false;
       SmallVector<BasicBlock*, 16> NewBlocks;
-      for (BasicBlock **PI = PredCache->GetPreds(BB); *PI; ++PI) {
+      for (BasicBlock *Pred : PredCache.get(BB)) {
         // Verify that we haven't looked at this block yet.
         std::pair<DenseMap<BasicBlock*,Value*>::iterator, bool>
-          InsertRes = Visited.insert(std::make_pair(*PI, Pointer.getAddr()));
+          InsertRes = Visited.insert(std::make_pair(Pred, Pointer.getAddr()));
         if (InsertRes.second) {
           // First time we've looked at *PI.
-          NewBlocks.push_back(*PI);
+          NewBlocks.push_back(Pred);
           continue;
         }
 
@@ -1281,8 +1272,7 @@ getNonLocalPointerDepFromBB(Instruction *QueryInst,
     Cache = nullptr;
 
     PredList.clear();
-    for (BasicBlock **PI = PredCache->GetPreds(BB); *PI; ++PI) {
-      BasicBlock *Pred = *PI;
+    for (BasicBlock *Pred : PredCache.get(BB)) {
       PredList.push_back(std::make_pair(Pred, Pointer));
 
       // Get the PHI translated pointer in this predecessor.  This can fail if
@@ -1472,7 +1462,7 @@ void MemoryDependenceAnalysis::invalidateCachedPointerInfo(Value *Ptr) {
 /// This needs to be done when the CFG changes, e.g., due to splitting
 /// critical edges.
 void MemoryDependenceAnalysis::invalidateCachedPredecessors() {
-  PredCache->clear();
+  PredCache.clear();
 }
 
 /// removeInstruction - Remove an instruction from the dependence analysis,

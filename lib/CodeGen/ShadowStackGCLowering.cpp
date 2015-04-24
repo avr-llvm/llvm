@@ -239,7 +239,7 @@ Constant *ShadowStackGCLowering::GetFrameMap(Function &F) {
   Constant *GEPIndices[2] = {
       ConstantInt::get(Type::getInt32Ty(F.getContext()), 0),
       ConstantInt::get(Type::getInt32Ty(F.getContext()), 0)};
-  return ConstantExpr::getGetElementPtr(GV, GEPIndices);
+  return ConstantExpr::getGetElementPtr(FrameMap->getType(), GV, GEPIndices);
 }
 
 Type *ShadowStackGCLowering::GetConcreteStackEntryType(Function &F) {
@@ -249,7 +249,7 @@ Type *ShadowStackGCLowering::GetConcreteStackEntryType(Function &F) {
   for (size_t I = 0; I != Roots.size(); I++)
     EltTys.push_back(Roots[I].second->getAllocatedType());
 
-  return StructType::create(EltTys, "gc_stackentry." + F.getName().str());
+  return StructType::create(EltTys, ("gc_stackentry." + F.getName()).str());
 }
 
 /// doInitialization - If this module uses the GC intrinsics, find them now. If

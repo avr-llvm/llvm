@@ -17,6 +17,7 @@
 #include "llvm/Analysis/RegionIterator.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Timer.h"
+#include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "regionpassmgr"
@@ -198,7 +199,7 @@ public:
 
   bool runOnRegion(Region *R, RGPassManager &RGM) override {
     Out << Banner;
-    for (const auto &BB : R->blocks()) {
+    for (const auto *BB : R->blocks()) {
       if (BB)
         BB->print(Out);
       else

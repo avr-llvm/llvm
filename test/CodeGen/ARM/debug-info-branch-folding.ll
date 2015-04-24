@@ -28,10 +28,10 @@ for.body9:                                        ; preds = %for.body9, %entry
 for.end54:                                        ; preds = %for.body9
   %tmp115 = extractelement <4 x float> %add19, i32 1
   %conv6.i75 = fpext float %tmp115 to double, !dbg !45
-  %call.i82 = tail call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([13 x i8], [13 x i8]* @.str, i32 0, i32 0), double undef, double %conv6.i75, double undef, double undef) nounwind, !dbg !45
+  %call.i82 = tail call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([13 x i8], [13 x i8]* @.str, i32 0, i32 0), double undef, double %conv6.i75, double undef, double undef) nounwind, !dbg !45
   %tmp116 = extractelement <4 x float> %add20, i32 1
   %conv6.i76 = fpext float %tmp116 to double, !dbg !45
-  %call.i83 = tail call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([13 x i8], [13 x i8]* @.str, i32 0, i32 0), double undef, double %conv6.i76, double undef, double undef) nounwind, !dbg !45
+  %call.i83 = tail call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([13 x i8], [13 x i8]* @.str, i32 0, i32 0), double undef, double %conv6.i76, double undef, double undef) nounwind, !dbg !45
   ret i32 0, !dbg !49
 }
 
@@ -44,7 +44,7 @@ declare void @llvm.dbg.value(metadata, i64, metadata, metadata) nounwind readnon
 
 !0 = !MDSubprogram(name: "test0001", line: 3, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: true, file: !54, scope: null, type: !3, function: <4 x float> (float)* @test0001, variables: !51)
 !1 = !MDFile(filename: "build2.c", directory: "/private/tmp")
-!2 = !MDCompileUnit(language: DW_LANG_C99, producer: "clang version 3.0 (trunk 129915)", isOptimized: true, emissionKind: 1, file: !54, enums: !17, retainedTypes: !17, subprograms: !50, imports:  null)
+!2 = !MDCompileUnit(language: DW_LANG_C99, producer: "clang version 3.0 (trunk 129915)", isOptimized: true, emissionKind: 1, file: !54, enums: !{}, retainedTypes: !{}, subprograms: !50, imports:  null)
 !3 = !MDSubroutineType(types: !4)
 !4 = !{!5}
 !5 = !MDDerivedType(tag: DW_TAG_typedef, name: "v4f32", line: 14, file: !54, scope: !2, baseType: !6)

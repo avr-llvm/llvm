@@ -84,7 +84,7 @@ private:
   bool X86FastEmitCompare(const Value *LHS, const Value *RHS, EVT VT, DebugLoc DL);
 
   bool X86FastEmitLoad(EVT VT, const X86AddressMode &AM, MachineMemOperand *MMO,
-                       unsigned &ResultReg);
+                       unsigned &ResultReg, unsigned Alignment = 1);
 
   bool X86FastEmitStore(EVT VT, const Value *Val, const X86AddressMode &AM,
                         MachineMemOperand *MMO = nullptr, bool Aligned = false);
@@ -327,7 +327,8 @@ bool X86FastISel::isTypeLegal(Type *Ty, MVT &VT, bool AllowI1) {
 /// The address is either pre-computed, i.e. Ptr, or a GlobalAddress, i.e. GV.
 /// Return true and the result register by reference if it is possible.
 bool X86FastISel::X86FastEmitLoad(EVT VT, const X86AddressMode &AM,
-                                  MachineMemOperand *MMO, unsigned &ResultReg) {
+                                  MachineMemOperand *MMO, unsigned &ResultReg,
+                                  unsigned Alignment) {
   // Get opcode and regclass of the output for the given load instruction.
   unsigned Opc = 0;
   const TargetRegisterClass *RC = nullptr;
@@ -372,6 +373,30 @@ bool X86FastISel::X86FastEmitLoad(EVT VT, const X86AddressMode &AM,
   case MVT::f80:
     // No f80 support yet.
     return false;
+  case MVT::v4f32:
+    if (Alignment >= 16)
+      Opc = Subtarget->hasAVX() ? X86::VMOVAPSrm : X86::MOVAPSrm;
+    else
+      Opc = Subtarget->hasAVX() ? X86::VMOVUPSrm : X86::MOVUPSrm;
+    RC  = &X86::VR128RegClass;
+    break;
+  case MVT::v2f64:
+    if (Alignment >= 16)
+      Opc = Subtarget->hasAVX() ? X86::VMOVAPDrm : X86::MOVAPDrm;
+    else
+      Opc = Subtarget->hasAVX() ? X86::VMOVUPDrm : X86::MOVUPDrm;
+    RC  = &X86::VR128RegClass;
+    break;
+  case MVT::v4i32:
+  case MVT::v2i64:
+  case MVT::v8i16:
+  case MVT::v16i8:
+    if (Alignment >= 16)
+      Opc = Subtarget->hasAVX() ? X86::VMOVDQArm : X86::MOVDQArm;
+    else
+      Opc = Subtarget->hasAVX() ? X86::VMOVDQUrm : X86::MOVDQUrm;
+    RC  = &X86::VR128RegClass;
+    break;
   }
 
   ResultReg = createResultReg(RC);
@@ -1068,8 +1093,14 @@ bool X86FastISel::X86SelectLoad(const Instruction *I) {
   if (!X86SelectAddress(Ptr, AM))
     return false;
 
+  unsigned Alignment = LI->getAlignment();
+  unsigned ABIAlignment = DL.getABITypeAlignment(LI->getType());
+  if (Alignment == 0) // Ensure that codegen never sees alignment 0
+    Alignment = ABIAlignment;
+
   unsigned ResultReg = 0;
-  if (!X86FastEmitLoad(VT, AM, createMachineMemOperandFor(LI), ResultReg))
+  if (!X86FastEmitLoad(VT, AM, createMachineMemOperandFor(LI), ResultReg,
+                       Alignment))
     return false;
 
   updateValueMap(I, ResultReg);
@@ -2034,6 +2065,12 @@ bool X86FastISel::X86SelectSelect(const Instruction *I) {
 }
 
 bool X86FastISel::X86SelectSIToFP(const Instruction *I) {
+  // The target-independent selection algorithm in FastISel already knows how
+  // to select a SINT_TO_FP if the target is SSE but not AVX.
+  // Early exit if the subtarget doesn't have AVX.
+  if (!Subtarget->hasAVX())
+    return false;
+
   if (!I->getOperand(0)->getType()->isIntegerTy(32))
     return false;
 
@@ -2055,11 +2092,6 @@ bool X86FastISel::X86SelectSIToFP(const Instruction *I) {
     RC = &X86::FR32RegClass;
   } else
     return false;
-
-  // The target-independent selection algorithm in FastISel already knows how
-  // to select a SINT_TO_FP if the target is SSE but not AVX. This code is only
-  // reachable if the subtarget has AVX.
-  assert(Subtarget->hasAVX() && "Expected a subtarget with AVX!");
 
   unsigned ImplicitDefReg = createResultReg(RC);
   BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
@@ -2386,6 +2418,8 @@ bool X86FastISel::fastLowerIntrinsicCall(const IntrinsicInst *II) {
     const MCInstrDesc &II = TII.get(TargetOpcode::DBG_VALUE);
     // FIXME may need to add RegState::Debug to any registers produced,
     // although ESP/EBP should be the only ones at the moment.
+    assert(DI->getVariable()->isValidLocationForIntrinsic(DbgLoc) &&
+           "Expected inlined-at fields to agree");
     addFullAddress(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II), AM)
         .addImm(0)
         .addMetadata(DI->getVariable())

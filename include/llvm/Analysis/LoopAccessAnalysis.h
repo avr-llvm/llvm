@@ -339,6 +339,10 @@ public:
     bool needsChecking(unsigned I, unsigned J,
                        const SmallVectorImpl<int> *PtrPartition) const;
 
+    /// \brief Return true if any pointer requires run-time checking according
+    /// to needsChecking.
+    bool needsAnyChecking(const SmallVectorImpl<int> *PtrPartition) const;
+
     /// \brief Print the list run-time memory checks necessary.
     ///
     /// If \p PtrPartition is set, it contains the partition number for
@@ -366,7 +370,8 @@ public:
 
   LoopAccessInfo(Loop *L, ScalarEvolution *SE, const DataLayout &DL,
                  const TargetLibraryInfo *TLI, AliasAnalysis *AA,
-                 DominatorTree *DT, const ValueToValueMap &Strides);
+                 DominatorTree *DT, LoopInfo *LI,
+                 const ValueToValueMap &Strides);
 
   /// Return true we can analyze the memory accesses in the loop and there are
   /// no memory dependence cycles.
@@ -428,6 +433,13 @@ public:
   /// Only used in DEBUG build but we don't want NDEBUG-dependent ABI.
   unsigned NumSymbolicStrides;
 
+  /// \brief Checks existence of store to invariant address inside loop.
+  /// If the loop has any store to invariant address, then it returns true,
+  /// else returns false.
+  bool hasStoreToLoopInvariantAddress() const {
+    return StoreToLoopInvariantAddress;
+  }
+
 private:
   /// \brief Analyze the loop.  Substitute symbolic strides using Strides.
   void analyzeLoop(const ValueToValueMap &Strides);
@@ -456,6 +468,7 @@ private:
   const TargetLibraryInfo *TLI;
   AliasAnalysis *AA;
   DominatorTree *DT;
+  LoopInfo *LI;
 
   unsigned NumLoads;
   unsigned NumStores;
@@ -464,6 +477,10 @@ private:
 
   /// \brief Cache the result of analyzeLoop.
   bool CanVecMem;
+
+  /// \brief Indicator for storing to uniform addresses.
+  /// If a loop has write to a loop invariant address then it should be true.
+  bool StoreToLoopInvariantAddress;
 
   /// \brief The diagnostics report generated for the analysis.  E.g. why we
   /// couldn't analyze the loop.
@@ -526,6 +543,7 @@ private:
   const TargetLibraryInfo *TLI;
   AliasAnalysis *AA;
   DominatorTree *DT;
+  LoopInfo *LI;
 };
 } // End llvm namespace
 

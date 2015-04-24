@@ -70,7 +70,7 @@ for.body:                                         ; preds = %if.end, %for.body
 
 if.end6:                                          ; preds = %for.body, %if.end
   %result.0 = phi double [ 0.000000e+00, %if.end ], [ %sub, %for.body ]
-  %call7 = tail call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([15 x i8], [15 x i8]* @.str, i64 0, i64 0), double %result.0), !dbg !39
+  %call7 = tail call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([15 x i8], [15 x i8]* @.str, i64 0, i64 0), double %result.0), !dbg !39
   br label %return, !dbg !40
 ; CHECK: edge if.end6 -> return probability is 16 / 16 = 100% [HOT edge]
 
@@ -100,7 +100,7 @@ attributes #4 = { nounwind readonly }
 
 !0 = !MDCompileUnit(language: DW_LANG_C_plus_plus, producer: "clang version 3.4 (trunk 192896) (llvm/trunk 192895)", isOptimized: true, emissionKind: 0, file: !1, enums: !2, retainedTypes: !2, subprograms: !3, globals: !2, imports: !2)
 !1 = !MDFile(filename: "branch.cc", directory: ".")
-!2 = !{i32 0}
+!2 = !{}
 !3 = !{!4}
 !4 = !MDSubprogram(name: "main", line: 4, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: true, scopeLine: 4, file: !1, scope: !5, type: !6, function: i32 (i32, i8**)* @main, variables: !12)
 !5 = !MDFile(filename: "branch.cc", directory: ".")

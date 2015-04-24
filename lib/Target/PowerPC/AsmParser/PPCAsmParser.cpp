@@ -427,6 +427,7 @@ public:
   bool isImm() const override { return Kind == Immediate || Kind == Expression; }
   bool isU1Imm() const { return Kind == Immediate && isUInt<1>(getImm()); }
   bool isU2Imm() const { return Kind == Immediate && isUInt<2>(getImm()); }
+  bool isU3Imm() const { return Kind == Immediate && isUInt<3>(getImm()); }
   bool isU4Imm() const { return Kind == Immediate && isUInt<4>(getImm()); }
   bool isU5Imm() const { return Kind == Immediate && isUInt<5>(getImm()); }
   bool isS5Imm() const { return Kind == Immediate && isInt<5>(getImm()); }
@@ -1067,6 +1068,58 @@ void PPCAsmParser::ProcessInstruction(MCInst &Inst,
     TmpInst.addOperand(Inst.getOperand(1));
     TmpInst.addOperand(MCOperand::CreateImm(N));
     TmpInst.addOperand(MCOperand::CreateImm(B - N));
+    Inst = TmpInst;
+    break;
+  }
+  case PPC::RLWINMbm:
+  case PPC::RLWINMobm: {
+    unsigned MB, ME;
+    int64_t BM = Inst.getOperand(3).getImm();
+    if (!isRunOfOnes(BM, MB, ME))
+      break;
+
+    MCInst TmpInst;
+    TmpInst.setOpcode(Opcode == PPC::RLWINMbm ? PPC::RLWINM : PPC::RLWINMo);
+    TmpInst.addOperand(Inst.getOperand(0));
+    TmpInst.addOperand(Inst.getOperand(1));
+    TmpInst.addOperand(Inst.getOperand(2));
+    TmpInst.addOperand(MCOperand::CreateImm(MB));
+    TmpInst.addOperand(MCOperand::CreateImm(ME));
+    Inst = TmpInst;
+    break;
+  }
+  case PPC::RLWIMIbm:
+  case PPC::RLWIMIobm: {
+    unsigned MB, ME;
+    int64_t BM = Inst.getOperand(3).getImm();
+    if (!isRunOfOnes(BM, MB, ME))
+      break;
+
+    MCInst TmpInst;
+    TmpInst.setOpcode(Opcode == PPC::RLWIMIbm ? PPC::RLWIMI : PPC::RLWIMIo);
+    TmpInst.addOperand(Inst.getOperand(0));
+    TmpInst.addOperand(Inst.getOperand(0)); // The tied operand.
+    TmpInst.addOperand(Inst.getOperand(1));
+    TmpInst.addOperand(Inst.getOperand(2));
+    TmpInst.addOperand(MCOperand::CreateImm(MB));
+    TmpInst.addOperand(MCOperand::CreateImm(ME));
+    Inst = TmpInst;
+    break;
+  }
+  case PPC::RLWNMbm:
+  case PPC::RLWNMobm: {
+    unsigned MB, ME;
+    int64_t BM = Inst.getOperand(3).getImm();
+    if (!isRunOfOnes(BM, MB, ME))
+      break;
+
+    MCInst TmpInst;
+    TmpInst.setOpcode(Opcode == PPC::RLWNMbm ? PPC::RLWNM : PPC::RLWNMo);
+    TmpInst.addOperand(Inst.getOperand(0));
+    TmpInst.addOperand(Inst.getOperand(1));
+    TmpInst.addOperand(Inst.getOperand(2));
+    TmpInst.addOperand(MCOperand::CreateImm(MB));
+    TmpInst.addOperand(MCOperand::CreateImm(ME));
     Inst = TmpInst;
     break;
   }

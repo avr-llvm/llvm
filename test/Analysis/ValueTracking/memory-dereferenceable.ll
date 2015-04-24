@@ -9,7 +9,7 @@ declare zeroext i1 @return_i1()
 
 @globalstr = global [6 x i8] c"hello\00"
 
-define void @test(i32 addrspace(1)* dereferenceable(8) %dparam) {
+define void @test(i32 addrspace(1)* dereferenceable(8) %dparam) gc "statepoint-example" {
 ; CHECK: The following are dereferenceable:
 ; CHECK: %globalptr
 ; CHECK: %alloca
@@ -22,7 +22,7 @@ entry:
     %alloca = alloca i1
     %load2 = load i1, i1* %alloca
     %load3 = load i32, i32 addrspace(1)* %dparam
-    %tok = tail call i32 (i1 ()*, i32, i32, ...)* @llvm.experimental.gc.statepoint.p0f_i1f(i1 ()* @return_i1, i32 0, i32 0, i32 0, i32 addrspace(1)* %dparam)
+    %tok = tail call i32 (i1 ()*, i32, i32, ...) @llvm.experimental.gc.statepoint.p0f_i1f(i1 ()* @return_i1, i32 0, i32 0, i32 0, i32 addrspace(1)* %dparam)
     %relocate = call i32 addrspace(1)* @llvm.experimental.gc.relocate.p1i32(i32 %tok, i32 4, i32 4)
     %load4 = load i32, i32 addrspace(1)* %relocate
     %nparam = getelementptr i32, i32 addrspace(1)* %dparam, i32 5

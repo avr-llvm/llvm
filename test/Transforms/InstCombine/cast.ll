@@ -93,9 +93,9 @@ declare void @varargs(i32, ...)
 
 define void @test11(i32* %P) {
         %c = bitcast i32* %P to i16*            ; <i16*> [#uses=1]
-        call void (i32, ...)* @varargs( i32 5, i16* %c )
+        call void (i32, ...) @varargs( i32 5, i16* %c )
         ret void
-; CHECK: call void (i32, ...)* @varargs(i32 5, i32* %P)
+; CHECK: call void (i32, ...) @varargs(i32 5, i32* %P)
 ; CHECK: ret void
 }
 
@@ -1103,4 +1103,37 @@ define i32 @PR21388(i32* %v) {
 ; CHECK-NEXT: %[[icmp:.*]] = icmp slt i32* %v, null
 ; CHECK-NEXT: %[[sext:.*]] = sext i1 %[[icmp]] to i32
 ; CHECK-NEXT: ret i32 %[[sext]]
+}
+
+define float @sitofp_zext(i16 %a) {
+; CHECK-LABEL: @sitofp_zext(
+; CHECK-NEXT: %[[sitofp:.*]] = uitofp i16 %a to float
+; CHECK-NEXT: ret float %[[sitofp]]
+  %zext = zext i16 %a to i32
+  %sitofp = sitofp i32 %zext to float
+  ret float %sitofp
+}
+
+define i1 @PR23309(i32 %A, i32 %B) {
+; CHECK-LABEL: @PR23309(
+; CHECK-NEXT: %[[sub:.*]] = sub i32 %A, %B
+; CHECK-NEXT: %[[and:.*]] = and i32 %[[sub]], 1
+; CHECK-NEXT: %[[cmp:.*]] = icmp ne i32 %[[and]], 0
+; CHECK-NEXT: ret i1 %[[cmp]]
+  %add = add i32 %A, -4
+  %sub = sub nsw i32 %add, %B
+  %trunc = trunc i32 %sub to i1
+  ret i1 %trunc
+}
+
+define i1 @PR23309v2(i32 %A, i32 %B) {
+; CHECK-LABEL: @PR23309v2(
+; CHECK-NEXT: %[[sub:.*]] = add i32 %A, %B
+; CHECK-NEXT: %[[and:.*]] = and i32 %[[sub]], 1
+; CHECK-NEXT: %[[cmp:.*]] = icmp ne i32 %[[and]], 0
+; CHECK-NEXT: ret i1 %[[cmp]]
+  %add = add i32 %A, -4
+  %sub = add nuw i32 %add, %B
+  %trunc = trunc i32 %sub to i1
+  ret i1 %trunc
 }

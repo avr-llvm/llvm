@@ -20,7 +20,7 @@
 using namespace llvm;
 
 void AMDGPUInstPrinter::printInst(const MCInst *MI, raw_ostream &OS,
-                             StringRef Annot) {
+                                  StringRef Annot, const MCSubtargetInfo &STI) {
   OS.flush();
   printInstruction(MI, OS);
 
@@ -89,14 +89,18 @@ void AMDGPUInstPrinter::printDSOffset(const MCInst *MI, unsigned OpNo,
 
 void AMDGPUInstPrinter::printDSOffset0(const MCInst *MI, unsigned OpNo,
                                         raw_ostream &O) {
-  O << " offset0:";
-  printU8ImmDecOperand(MI, OpNo, O);
+  if (MI->getOperand(OpNo).getImm()) {
+    O << " offset0:";
+    printU8ImmDecOperand(MI, OpNo, O);
+  }
 }
 
 void AMDGPUInstPrinter::printDSOffset1(const MCInst *MI, unsigned OpNo,
                                         raw_ostream &O) {
-  O << " offset1:";
-  printU8ImmDecOperand(MI, OpNo, O);
+  if (MI->getOperand(OpNo).getImm()) {
+    O << " offset1:";
+    printU8ImmDecOperand(MI, OpNo, O);
+  }
 }
 
 void AMDGPUInstPrinter::printGDS(const MCInst *MI, unsigned OpNo,
@@ -123,7 +127,8 @@ void AMDGPUInstPrinter::printTFE(const MCInst *MI, unsigned OpNo,
     O << " tfe";
 }
 
-void AMDGPUInstPrinter::printRegOperand(unsigned reg, raw_ostream &O) {
+void AMDGPUInstPrinter::printRegOperand(unsigned reg, raw_ostream &O,
+                                        const MCRegisterInfo &MRI) {
   switch (reg) {
   case AMDGPU::VCC:
     O << "vcc";
@@ -293,7 +298,7 @@ void AMDGPUInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
       break;
 
     default:
-      printRegOperand(Op.getReg(), O);
+      printRegOperand(Op.getReg(), O, MRI);
       break;
     }
   } else if (Op.isImm()) {

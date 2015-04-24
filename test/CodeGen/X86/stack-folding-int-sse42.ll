@@ -62,6 +62,33 @@ define <2 x i64> @stack_fold_aeskeygenassist(<2 x i64> %a0) {
 }
 declare <2 x i64> @llvm.x86.aesni.aeskeygenassist(<2 x i64>, i8) nounwind readnone
 
+;TODO stack_fold_crc32_32_8
+declare i32 @llvm.x86.sse42.crc32.32.8(i32, i8) nounwind
+
+;TODO stack_fold_crc32_32_16
+declare i32 @llvm.x86.sse42.crc32.32.16(i32, i16) nounwind
+
+define i32 @stack_fold_crc32_32_32(i32 %a0, i32 %a1) {
+  ;CHECK-LABEL: stack_fold_crc32_32_32
+  ;CHECK:       crc32l {{-?[0-9]*}}(%rsp), %eax {{.*#+}} 4-byte Folded Reload
+  %1 = tail call <2 x i64> asm sideeffect "nop", "=x,~{rbx},~{rcx},~{rdx},~{rsi},~{rdi},~{rbp},~{r8},~{r9},~{r10},~{r11},~{r12},~{r13},~{r14},~{r15}"()
+  %2 = call i32 @llvm.x86.sse42.crc32.32.32(i32 %a0, i32 %a1)
+  ret i32 %2
+}
+declare i32 @llvm.x86.sse42.crc32.32.32(i32, i32) nounwind
+
+;TODO stack_fold_crc32_64_8
+declare i64 @llvm.x86.sse42.crc32.64.8(i64, i8) nounwind
+
+define i64 @stack_fold_crc32_64_64(i64 %a0, i64 %a1) {
+  ;CHECK-LABEL: stack_fold_crc32_64_64
+  ;CHECK:       crc32q {{-?[0-9]*}}(%rsp), %rax {{.*#+}} 8-byte Folded Reload
+  %1 = tail call <2 x i64> asm sideeffect "nop", "=x,~{rbx},~{rcx},~{rdx},~{rsi},~{rdi},~{rbp},~{r8},~{r9},~{r10},~{r11},~{r12},~{r13},~{r14},~{r15}"()
+  %2 = call i64 @llvm.x86.sse42.crc32.64.64(i64 %a0, i64 %a1)
+  ret i64 %2
+}
+declare i64 @llvm.x86.sse42.crc32.64.64(i64, i64) nounwind
+
 define <4 x i32> @stack_fold_movd_load(i32 %a0) {
   ;CHECK-LABEL: stack_fold_movd_load
   ;CHECK:       movd {{-?[0-9]*}}(%rsp), {{%xmm[0-9][0-9]*}} {{.*#+}} 4-byte Folded Reload
@@ -87,15 +114,19 @@ define <2 x i64> @stack_fold_movq_load(<2 x i64> %a0) {
   ;CHECK:       movq {{-?[0-9]*}}(%rsp), {{%xmm[0-9][0-9]*}} {{.*#+}} 16-byte Folded Reload
   %1 = tail call <2 x i64> asm sideeffect "nop", "=x,~{xmm1},~{xmm2},~{xmm3},~{xmm4},~{xmm5},~{xmm6},~{xmm7},~{xmm8},~{xmm9},~{xmm10},~{xmm11},~{xmm12},~{xmm13},~{xmm14},~{xmm15},~{flags}"()
   %2 = shufflevector <2 x i64> %a0, <2 x i64> zeroinitializer, <2 x i32> <i32 0, i32 2>
-  ret <2 x i64> %2
+  ; add forces execution domain
+  %3 = add <2 x i64> %2, <i64 1, i64 1>
+  ret <2 x i64> %3
 }
 
 define i64 @stack_fold_movq_store(<2 x i64> %a0) {
   ;CHECK-LABEL: stack_fold_movq_store
   ;CHECK:       movq {{%xmm[0-9][0-9]*}}, {{-?[0-9]*}}(%rsp) {{.*#+}} 8-byte Folded Spill
-  %1 = extractelement <2 x i64> %a0, i32 0
-  %2 = tail call <2 x i64> asm sideeffect "nop", "=x,~{rax},~{rbx},~{rcx},~{rdx},~{rsi},~{rdi},~{rbp},~{r8},~{r9},~{r10},~{r11},~{r12},~{r13},~{r14},~{r15}"()
-  ret i64 %1
+  ; add forces execution domain
+  %1 = add <2 x i64> %a0, <i64 1, i64 1>
+  %2 = extractelement <2 x i64> %1, i32 0
+  %3 = tail call <2 x i64> asm sideeffect "nop", "=x,~{rax},~{rbx},~{rcx},~{rdx},~{rsi},~{rdi},~{rbp},~{r8},~{r9},~{r10},~{r11},~{r12},~{r13},~{r14},~{r15}"()
+  ret i64 %2
 }
 
 define <8 x i16> @stack_fold_mpsadbw(<16 x i8> %a0, <16 x i8> %a1) {

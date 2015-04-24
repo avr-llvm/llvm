@@ -59,6 +59,7 @@ void llvm::initializeScalarOpts(PassRegistry &Registry) {
   initializeLowerExpectIntrinsicPass(Registry);
   initializeMemCpyOptPass(Registry);
   initializeMergedLoadStoreMotionPass(Registry);
+  initializeNaryReassociatePass(Registry);
   initializePartiallyInlineLibCallsPass(Registry);
   initializeReassociatePass(Registry);
   initializeRegToMemPass(Registry);
@@ -77,6 +78,7 @@ void llvm::initializeScalarOpts(PassRegistry &Registry) {
   initializeLoadCombinePass(Registry);
   initializePlaceBackedgeSafepointsImplPass(Registry);
   initializePlaceSafepointsPass(Registry);
+  initializeFloat2IntPass(Registry);
 }
 
 void LLVMInitializeScalarOpts(LLVMPassRegistryRef R) {

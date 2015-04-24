@@ -12,7 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/StringMap.h"
-#include "llvm/DebugInfo/DWARF/DIContext.h"
+#include "llvm/DebugInfo/DIContext.h"
+#include "llvm/DebugInfo/DWARF/DWARFContext.h"
+#include "llvm/ExecutionEngine/RTDyldMemoryManager.h"
 #include "llvm/ExecutionEngine/RuntimeDyld.h"
 #include "llvm/ExecutionEngine/RuntimeDyldChecker.h"
 #include "llvm/MC/MCAsmInfo.h"
@@ -196,7 +198,7 @@ static int printLineInfoForInput() {
   for(unsigned i = 0, e = InputFileList.size(); i != e; ++i) {
     // Instantiate a dynamic linker.
     TrivialMemoryManager MemMgr;
-    RuntimeDyld Dyld(&MemMgr);
+    RuntimeDyld Dyld(MemMgr, MemMgr);
 
     // Load the input memory buffer.
 
@@ -226,7 +228,7 @@ static int printLineInfoForInput() {
     OwningBinary<ObjectFile> DebugObj = LoadedObjInfo->getObjectForDebug(Obj);
 
     std::unique_ptr<DIContext> Context(
-      DIContext::getDWARFContext(*DebugObj.getBinary()));
+      new DWARFContextInMemory(*DebugObj.getBinary()));
 
     // Use symbol info to iterate functions in the object.
     for (object::symbol_iterator I = DebugObj.getBinary()->symbol_begin(),
@@ -264,7 +266,12 @@ static int executeInput() {
 
   // Instantiate a dynamic linker.
   TrivialMemoryManager MemMgr;
-  RuntimeDyld Dyld(&MemMgr);
+  RuntimeDyld Dyld(MemMgr, MemMgr);
+
+  // FIXME: Preserve buffers until resolveRelocations time to work around a bug
+  //        in RuntimeDyldELF.
+  // This fixme should be fixed ASAP. This is a very brittle workaround.
+  std::vector<std::unique_ptr<MemoryBuffer>> InputBuffers;
 
   // If we don't have any input files, read from stdin.
   if (!InputFileList.size())
@@ -282,6 +289,7 @@ static int executeInput() {
       return Error("unable to create object file: '" + EC.message() + "'");
 
     ObjectFile &Obj = **MaybeObj;
+    InputBuffers.push_back(std::move(*InputBuffer));
 
     // Load the object file
     Dyld.loadObject(Obj);
@@ -506,17 +514,22 @@ static int linkAndVerify() {
   std::unique_ptr<MCInstrInfo> MII(TheTarget->createMCInstrInfo());
 
   std::unique_ptr<MCInstPrinter> InstPrinter(
-    TheTarget->createMCInstPrinter(0, *MAI, *MII, *MRI, *STI));
+      TheTarget->createMCInstPrinter(Triple(TripleName), 0, *MAI, *MII, *MRI));
 
   // Load any dylibs requested on the command line.
   loadDylibs();
 
   // Instantiate a dynamic linker.
   TrivialMemoryManager MemMgr;
-  RuntimeDyld Dyld(&MemMgr);
+  RuntimeDyld Dyld(MemMgr, MemMgr);
   Dyld.setProcessAllSections(true);
   RuntimeDyldChecker Checker(Dyld, Disassembler.get(), InstPrinter.get(),
                              llvm::dbgs());
+
+  // FIXME: Preserve buffers until resolveRelocations time to work around a bug
+  //        in RuntimeDyldELF.
+  // This fixme should be fixed ASAP. This is a very brittle workaround.
+  std::vector<std::unique_ptr<MemoryBuffer>> InputBuffers;
 
   // If we don't have any input files, read from stdin.
   if (!InputFileList.size())
@@ -536,6 +549,7 @@ static int linkAndVerify() {
       return Error("unable to create object file: '" + EC.message() + "'");
 
     ObjectFile &Obj = **MaybeObj;
+    InputBuffers.push_back(std::move(*InputBuffer));
 
     // Load the object file
     Dyld.loadObject(Obj);

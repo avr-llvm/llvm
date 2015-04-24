@@ -76,8 +76,6 @@ SITargetLowering::SITargetLowering(TargetMachine &TM,
   setOperationAction(ISD::FSIN, MVT::f32, Custom);
   setOperationAction(ISD::FCOS, MVT::f32, Custom);
 
-  setOperationAction(ISD::FMINNUM, MVT::f32, Legal);
-  setOperationAction(ISD::FMAXNUM, MVT::f32, Legal);
   setOperationAction(ISD::FMINNUM, MVT::f64, Legal);
   setOperationAction(ISD::FMAXNUM, MVT::f64, Legal);
 
@@ -202,10 +200,10 @@ SITargetLowering::SITargetLowering(TargetMachine &TM,
   if (Subtarget->getGeneration() >= AMDGPUSubtarget::SEA_ISLANDS) {
     setOperationAction(ISD::FTRUNC, MVT::f64, Legal);
     setOperationAction(ISD::FCEIL, MVT::f64, Legal);
-    setOperationAction(ISD::FFLOOR, MVT::f64, Legal);
     setOperationAction(ISD::FRINT, MVT::f64, Legal);
   }
 
+  setOperationAction(ISD::FFLOOR, MVT::f64, Legal);
   setOperationAction(ISD::FDIV, MVT::f32, Custom);
   setOperationAction(ISD::FDIV, MVT::f64, Custom);
 
@@ -928,6 +926,12 @@ SDValue SITargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
                        Op.getOperand(1),
                        Op.getOperand(2),
                        Op.getOperand(3));
+
+  case AMDGPUIntrinsic::AMDGPU_fract:
+  case AMDGPUIntrinsic::AMDIL_fraction: // Legacy name.
+    return DAG.getNode(ISD::FSUB, DL, VT, Op.getOperand(1),
+                       DAG.getNode(ISD::FFLOOR, DL, VT, Op.getOperand(1)));
+
   default:
     return AMDGPUTargetLowering::LowerOperation(Op, DAG);
   }
@@ -2082,4 +2086,39 @@ SDValue SITargetLowering::CreateLiveInRegister(SelectionDAG &DAG,
 
   return DAG.getCopyFromReg(DAG.getEntryNode(), SDLoc(DAG.getEntryNode()),
                             cast<RegisterSDNode>(VReg)->getReg(), VT);
+}
+
+//===----------------------------------------------------------------------===//
+//                         SI Inline Assembly Support
+//===----------------------------------------------------------------------===//
+
+std::pair<unsigned, const TargetRegisterClass *>
+SITargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                               const std::string &Constraint,
+                                               MVT VT) const {
+  if (Constraint == "r") {
+    switch(VT.SimpleTy) {
+      default: llvm_unreachable("Unhandled type for 'r' inline asm constraint");
+      case MVT::i64:
+        return std::make_pair(0U, &AMDGPU::SGPR_64RegClass);
+      case MVT::i32:
+        return std::make_pair(0U, &AMDGPU::SGPR_32RegClass);
+    }
+  }
+
+  if (Constraint.size() > 1) {
+    const TargetRegisterClass *RC = nullptr;
+    if (Constraint[1] == 'v') {
+      RC = &AMDGPU::VGPR_32RegClass;
+    } else if (Constraint[1] == 's') {
+      RC = &AMDGPU::SGPR_32RegClass;
+    }
+
+    if (RC) {
+      unsigned Idx = std::atoi(Constraint.substr(2).c_str());
+      if (Idx < RC->getNumRegs())
+        return std::make_pair(RC->getRegister(Idx), RC);
+    }
+  }
+  return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
 }

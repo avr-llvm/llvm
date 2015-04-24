@@ -43,14 +43,14 @@ if.then3344:
   br label %if.then4073
 
 if.then4073:                                      ; preds = %if.then3344
-  call void @llvm.dbg.declare(metadata [20 x i8]* %num14075, metadata !4, metadata !MDExpression())
+  call void @llvm.dbg.declare(metadata [20 x i8]* %num14075, metadata !4, metadata !MDExpression()), !dbg !MDLocation(scope: !5)
   %arraydecay4078 = getelementptr inbounds [20 x i8], [20 x i8]* %num14075, i64 0, i64 0
   %0 = load i32, i32* undef, align 4
   %add4093 = add nsw i32 %0, 0
   %conv4094 = sitofp i32 %add4093 to float
   %div4095 = fdiv float %conv4094, 5.670000e+02
   %conv4096 = fpext float %div4095 to double
-  %call4097 = call i32 (i8*, i32, i64, i8*, ...)* @__sprintf_chk(i8* %arraydecay4078, i32 0, i64 20, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @.str15, i64 0, i64 0), double %conv4096) nounwind
+  %call4097 = call i32 (i8*, i32, i64, i8*, ...) @__sprintf_chk(i8* %arraydecay4078, i32 0, i64 20, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @.str15, i64 0, i64 0), double %conv4096) nounwind
   br i1 %cmp1733, label %if.then4107, label %if.else4114
 
 if.then4107:                                      ; preds = %if.then4073
@@ -77,7 +77,7 @@ declare i32 @__sprintf_chk(i8*, i32, i64, i8*, ...)
 !10 = distinct !MDLexicalBlock(line: 434, column: 0, file: !14, scope: !11)
 !11 = distinct !MDLexicalBlock(line: 250, column: 0, file: !14, scope: !12)
 !12 = distinct !MDLexicalBlock(line: 249, column: 0, file: !14, scope: !13)
-!13 = distinct !MDLexicalBlock(line: 221, column: 0, file: !14, scope: !2)
+!13 = distinct !MDLexicalBlock(line: 221, column: 0, file: !14, scope: !21)
 !14 = !MDFile(filename: "MultiSource/Benchmarks/MiBench/consumer-typeset/z19.c", directory: "MultiSource/Benchmarks/MiBench/consumer-typeset")
 !15 = !MDCompositeType(tag: DW_TAG_array_type, size: 160, align: 8, baseType: !16, elements: !17)
 !16 = !MDBasicType(tag: DW_TAG_base_type, name: "char", size: 8, align: 8, encoding: DW_ATE_signed_char)
@@ -93,7 +93,7 @@ declare i32 @__sprintf_chk(i8*, i32, i64, i8*, ...)
 ; Test DebugValue uses visited by RegisterPressureTracker findUseBetween().
 ;
 ; CHECK: @main
-; CHECK: DEBUG_VALUE: X
+; CHECK: DEBUG_VALUE: main:X
 ; CHECK: call
 
 %"class.__gnu_cxx::hash_map" = type { %"class.__gnu_cxx::hashtable" }
@@ -108,7 +108,7 @@ cond.true:                                        ; preds = %entry
   unreachable
 
 cond.end:                                         ; preds = %entry
-  call void @llvm.dbg.declare(metadata %"class.__gnu_cxx::hash_map"* %X, metadata !31, metadata !MDExpression())
+  call void @llvm.dbg.declare(metadata %"class.__gnu_cxx::hash_map"* %X, metadata !31, metadata !MDExpression()), !dbg !MDLocation(scope: !37)
   %_M_num_elements.i.i.i.i = getelementptr inbounds %"class.__gnu_cxx::hash_map", %"class.__gnu_cxx::hash_map"* %X, i64 0, i32 0, i32 5
   invoke void @_Znwm()
           to label %exit.i unwind label %lpad2.i.i.i.i
@@ -135,7 +135,7 @@ declare void @_Znwm()
 !llvm.dbg.cu = !{!30}
 
 !30 = !MDCompileUnit(language: DW_LANG_C_plus_plus, producer: "clang version 3.3 (trunk 169129) (llvm/trunk 169135)", isOptimized: true, emissionKind: 0, file: !34, enums: !2, retainedTypes: !2, subprograms: !36)
-!31 = !MDLocalVariable(tag: DW_TAG_auto_variable, name: "X", line: 29, scope: null, type: !32)
+!31 = !MDLocalVariable(tag: DW_TAG_auto_variable, name: "X", line: 29, scope: !37, type: !32)
 !32 = !MDDerivedType(tag: DW_TAG_typedef, name: "HM", line: 28, file: !34, baseType: null)
 !33 = !MDFile(filename: "SingleSource/Benchmarks/Shootout-C++/hash.cpp", directory: "SingleSource/Benchmarks/Shootout-C++")
 !34 = !MDFile(filename: "SingleSource/Benchmarks/Shootout-C++/hash.cpp", directory: "SingleSource/Benchmarks/Shootout-C++")

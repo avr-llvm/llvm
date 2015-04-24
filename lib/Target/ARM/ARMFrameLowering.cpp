@@ -311,6 +311,7 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF) const {
     return;
 
   StackAdjustingInsts DefCFAOffsetCandidates;
+  bool HasFP = hasFP(MF);
 
   // Allocate the vararg register save area.
   if (ArgRegsSaveSize) {
@@ -327,6 +328,7 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF) const {
       DefCFAOffsetCandidates.addInst(std::prev(MBBI),
                                      NumBytes - ArgRegsSaveSize, true);
     }
+    DefCFAOffsetCandidates.emitDefCFAOffsets(MMI, MBB, dl, TII, HasFP);
     return;
   }
 
@@ -375,7 +377,6 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF) const {
   }
 
   // Determine starting offsets of spill areas.
-  bool HasFP = hasFP(MF);
   unsigned GPRCS1Offset = NumBytes - ArgRegsSaveSize - GPRCS1Size;
   unsigned GPRCS2Offset = GPRCS1Offset - GPRCS2Size;
   unsigned DPRAlign = DPRCSSize ? std::min(8U, Align) : 4U;
@@ -1687,8 +1688,8 @@ ARMFrameLowering::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
       if (CS1Spilled && !UnspilledCS1GPRs.empty()) {
         for (unsigned i = 0, e = UnspilledCS1GPRs.size(); i != e; ++i) {
           unsigned Reg = UnspilledCS1GPRs[i];
-          // Don't spill high register if the function is thumb1
-          if (!AFI->isThumb1OnlyFunction() ||
+          // Don't spill high register if the function is thumb
+          if (!AFI->isThumbFunction() ||
               isARMLowRegister(Reg) || Reg == ARM::LR) {
             MRI.setPhysRegUsed(Reg);
             if (!MRI.isReserved(Reg))

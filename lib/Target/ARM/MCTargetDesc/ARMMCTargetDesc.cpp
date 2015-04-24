@@ -153,6 +153,17 @@ std::string ARM_MC::ParseARMTriple(StringRef TT, StringRef CPU) {
       // Use CPU to figure out the exact features
       ARMArchFeature = "+v8";
     break;
+  case Triple::ARMSubArch_v8_1a:
+    if (NoCPU)
+      // v8.1a: FeatureDB, FeatureFPARMv8, FeatureNEON, FeatureDSPThumb2,
+      //      FeatureMP, FeatureHWDiv, FeatureHWDivARM, FeatureTrustZone,
+      //      FeatureT2XtPk, FeatureCrypto, FeatureCRC, FeatureV8_1a
+      ARMArchFeature = "+v8.1a,+db,+fp-armv8,+neon,+t2dsp,+mp,+hwdiv,+hwdiv-arm,"
+                       "+trustzone,+t2xtpk,+crypto,+crc";
+    else
+      // Use CPU to figure out the exact features
+      ARMArchFeature = "+v8.1a";
+    break;
   case Triple::ARMSubArch_v7m:
     isThumb = true;
     if (NoCPU)
@@ -244,7 +255,7 @@ MCSubtargetInfo *ARM_MC::createARMMCSubtargetInfo(StringRef TT, StringRef CPU,
   std::string ArchFS = ARM_MC::ParseARMTriple(TT, CPU);
   if (!FS.empty()) {
     if (!ArchFS.empty())
-      ArchFS = ArchFS + "," + FS.str();
+      ArchFS = (Twine(ArchFS) + "," + FS).str();
     else
       ArchFS = FS;
   }
@@ -299,27 +310,26 @@ static MCCodeGenInfo *createARMMCCodeGenInfo(StringRef TT, Reloc::Model RM,
 }
 
 static MCStreamer *createELFStreamer(const Triple &T, MCContext &Ctx,
-                                     MCAsmBackend &MAB, raw_ostream &OS,
+                                     MCAsmBackend &MAB, raw_pwrite_stream &OS,
                                      MCCodeEmitter *Emitter, bool RelaxAll) {
   return createARMELFStreamer(Ctx, MAB, OS, Emitter, false,
                               T.getArch() == Triple::thumb);
 }
 
 static MCStreamer *createARMMachOStreamer(MCContext &Ctx, MCAsmBackend &MAB,
-                                          raw_ostream &OS,
+                                          raw_pwrite_stream &OS,
                                           MCCodeEmitter *Emitter, bool RelaxAll,
                                           bool DWARFMustBeAtTheEnd) {
   return createMachOStreamer(Ctx, MAB, OS, Emitter, false, DWARFMustBeAtTheEnd);
 }
 
-static MCInstPrinter *createARMMCInstPrinter(const Target &T,
+static MCInstPrinter *createARMMCInstPrinter(const Triple &T,
                                              unsigned SyntaxVariant,
                                              const MCAsmInfo &MAI,
                                              const MCInstrInfo &MII,
-                                             const MCRegisterInfo &MRI,
-                                             const MCSubtargetInfo &STI) {
+                                             const MCRegisterInfo &MRI) {
   if (SyntaxVariant == 0)
-    return new ARMInstPrinter(MAI, MII, MRI, STI);
+    return new ARMInstPrinter(MAI, MII, MRI);
   return nullptr;
 }
 

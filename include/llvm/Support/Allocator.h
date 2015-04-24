@@ -203,7 +203,8 @@ public:
   }
 
   /// \brief Allocate space at the specified alignment.
-  LLVM_ATTRIBUTE_RETURNS_NONNULL void *Allocate(size_t Size, size_t Alignment) {
+  LLVM_ATTRIBUTE_RETURNS_NONNULL LLVM_ATTRIBUTE_RETURNS_NOALIAS void *
+  Allocate(size_t Size, size_t Alignment) {
     assert(Alignment > 0 && "0-byte alignnment is not allowed. Use 1 instead.");
 
     // Keep track of how many bytes we've allocated.
@@ -319,14 +320,6 @@ private:
     for (; I != E; ++I) {
       size_t AllocatedSlabSize =
           computeSlabSize(std::distance(Slabs.begin(), I));
-#ifndef NDEBUG
-      // Poison the memory so stale pointers crash sooner.  Note we must
-      // preserve the Size and NextPtr fields at the beginning.
-      if (AllocatedSlabSize != 0) {
-        sys::Memory::setRangeWritable(*I, AllocatedSlabSize);
-        memset(*I, 0xCD, AllocatedSlabSize);
-      }
-#endif
       Allocator.Deallocate(*I, AllocatedSlabSize);
     }
   }
@@ -336,12 +329,6 @@ private:
     for (auto &PtrAndSize : CustomSizedSlabs) {
       void *Ptr = PtrAndSize.first;
       size_t Size = PtrAndSize.second;
-#ifndef NDEBUG
-      // Poison the memory so stale pointers crash sooner.  Note we must
-      // preserve the Size and NextPtr fields at the beginning.
-      sys::Memory::setRangeWritable(Ptr, Size);
-      memset(Ptr, 0xCD, Size);
-#endif
       Allocator.Deallocate(Ptr, Size);
     }
   }

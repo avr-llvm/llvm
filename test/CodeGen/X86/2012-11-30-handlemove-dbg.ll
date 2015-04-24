@@ -5,7 +5,7 @@
 ; rdar://12777252.
 ;
 ; CHECK: %entry
-; CHECK: DEBUG_VALUE: hg
+; CHECK: DEBUG_VALUE: subdivp:hg
 ; CHECK: j
 
 %struct.node.0.27 = type { i16, double, [3 x double], i32, i32 }
@@ -16,7 +16,7 @@ declare void @llvm.dbg.declare(metadata, metadata, metadata) nounwind readnone
 
 define signext i16 @subdivp(%struct.node.0.27* nocapture %p, double %dsq, double %tolsq, %struct.hgstruct.2.29* nocapture byval align 8 %hg) nounwind uwtable readonly ssp {
 entry:
-  call void @llvm.dbg.declare(metadata %struct.hgstruct.2.29* %hg, metadata !4, metadata !MDExpression())
+  call void @llvm.dbg.declare(metadata %struct.hgstruct.2.29* %hg, metadata !4, metadata !MDExpression()), !dbg !MDLocation(scope: !14)
   %type = getelementptr inbounds %struct.node.0.27, %struct.node.0.27* %p, i64 0, i32 0
   %0 = load i16, i16* %type, align 2
   %cmp = icmp eq i16 %0, 1
@@ -40,7 +40,7 @@ declare void @llvm.dbg.value(metadata, i64, metadata, metadata) nounwind readnon
 
 !0 = !MDCompileUnit(language: DW_LANG_C99, producer: "clang version 3.3 (trunk 168918) (llvm/trunk 168920)", isOptimized: true, emissionKind: 0, file: !11, enums: !2, retainedTypes: !2, subprograms: !13, globals: !2)
 !2 = !{}
-!4 = !MDLocalVariable(tag: DW_TAG_arg_variable, name: "hg", line: 725, arg: 4, scope: null, file: !5, type: !6)
+!4 = !MDLocalVariable(tag: DW_TAG_arg_variable, name: "hg", line: 725, arg: 4, scope: !14, file: !5, type: !6)
 !5 = !MDFile(filename: "MultiSource/Benchmarks/Olden/bh/newbh.c", directory: "MultiSource/Benchmarks/Olden/bh")
 !6 = !MDDerivedType(tag: DW_TAG_typedef, name: "hgstruct", line: 492, file: !11, baseType: !7)
 !7 = !MDCompositeType(tag: DW_TAG_structure_type, line: 487, size: 512, align: 64, file: !11)

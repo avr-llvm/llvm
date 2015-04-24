@@ -212,13 +212,19 @@ static bool isOpcWithIntImmediate(const SDNode *N, unsigned Opc,
 
 bool AArch64DAGToDAGISel::SelectInlineAsmMemoryOperand(
     const SDValue &Op, unsigned ConstraintID, std::vector<SDValue> &OutOps) {
-  assert(ConstraintID == InlineAsm::Constraint_m &&
-         "unexpected asm memory constraint");
-  // Require the address to be in a register.  That is safe for all AArch64
-  // variants and it is hard to do anything much smarter without knowing
-  // how the operand is used.
-  OutOps.push_back(Op);
-  return false;
+  switch(ConstraintID) {
+  default:
+    llvm_unreachable("Unexpected asm memory constraint");
+  case InlineAsm::Constraint_i:
+  case InlineAsm::Constraint_m:
+  case InlineAsm::Constraint_Q:
+    // Require the address to be in a register.  That is safe for all AArch64
+    // variants and it is hard to do anything much smarter without knowing
+    // how the operand is used.
+    OutOps.push_back(Op);
+    return false;
+  }
+  return true;
 }
 
 /// SelectArithImmed - Select an immediate value that can be represented as
@@ -842,7 +848,7 @@ bool AArch64DAGToDAGISel::SelectAddrModeXRO(SDValue N, unsigned Size,
   //     MOV  X0, WideImmediate
   //     LDR  X2, [BaseReg, X0]
   if (isa<ConstantSDNode>(RHS)) {
-    int64_t ImmOff = (int64_t)dyn_cast<ConstantSDNode>(RHS)->getZExtValue();
+    int64_t ImmOff = (int64_t)cast<ConstantSDNode>(RHS)->getZExtValue();
     unsigned Scale = Log2_32(Size);
     // Skip the immediate can be seleced by load/store addressing mode.
     // Also skip the immediate can be encoded by a single ADD (SUB is also
@@ -1137,6 +1143,7 @@ SDNode *AArch64DAGToDAGISel::SelectPostStore(SDNode *N, unsigned NumVecs,
   return St;
 }
 
+namespace {
 /// WidenVector - Given a value in the V64 register class, produce the
 /// equivalent value in the V128 register class.
 class WidenVector {
@@ -1157,6 +1164,7 @@ public:
     return DAG.getTargetInsertSubreg(AArch64::dsub, DL, WideTy, Undef, V64Reg);
   }
 };
+} // namespace
 
 /// NarrowVector - Given a value in the V128 register class, produce the
 /// equivalent value in the V64 register class.
@@ -1226,7 +1234,7 @@ SDNode *AArch64DAGToDAGISel::SelectPostLoadLane(SDNode *N, unsigned NumVecs,
   SDValue RegSeq = createQTuple(Regs);
 
   const EVT ResTys[] = {MVT::i64, // Type of the write back register
-                        MVT::Untyped, MVT::Other};
+                        RegSeq->getValueType(0), MVT::Other};
 
   unsigned LaneNo =
       cast<ConstantSDNode>(N->getOperand(NumVecs + 1))->getZExtValue();

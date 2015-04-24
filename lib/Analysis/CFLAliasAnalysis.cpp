@@ -45,10 +45,11 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cassert>
-#include <memory>
 #include <forward_list>
+#include <memory>
 #include <tuple>
 
 using namespace llvm;
@@ -160,7 +161,7 @@ struct FunctionHandle : public CallbackVH {
     assert(CFLAA != nullptr);
   }
 
-  virtual ~FunctionHandle() {}
+  ~FunctionHandle() override {}
 
   void deleted() override { removeSelfFromCache(); }
   void allUsesReplacedWith(Value *) override { removeSelfFromCache(); }
@@ -188,7 +189,7 @@ public:
     initializeCFLAliasAnalysisPass(*PassRegistry::getPassRegistry());
   }
 
-  virtual ~CFLAliasAnalysis() {}
+  ~CFLAliasAnalysis() override {}
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AliasAnalysis::getAnalysisUsage(AU);

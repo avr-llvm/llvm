@@ -52,14 +52,16 @@ public:
   /// @brief Set an ObjectCache to query before compiling.
   void setObjectCache(ObjectCache *NewCache) { ObjCache = NewCache; }
 
-  /// @brief Compile each module in the given module set, then then add the
-  ///        resulting set of objects to the base layer, along with the memory
-  //         manager MM.
+  /// @brief Compile each module in the given module set, then add the resulting
+  ///        set of objects to the base layer along with the memory manager and
+  ///        symbol resolver.
   ///
   /// @return A handle for the added modules.
-  template <typename ModuleSetT>
+  template <typename ModuleSetT, typename MemoryManagerPtrT,
+            typename SymbolResolverPtrT>
   ModuleSetHandleT addModuleSet(ModuleSetT Ms,
-                                std::unique_ptr<RTDyldMemoryManager> MM) {
+                                MemoryManagerPtrT MemMgr,
+                                SymbolResolverPtrT Resolver) {
     OwningObjectVec Objects;
     OwningBufferVec Buffers;
 
@@ -81,7 +83,7 @@ public:
     }
 
     ModuleSetHandleT H =
-      BaseLayer.addObjectSet(Objects, std::move(MM));
+      BaseLayer.addObjectSet(Objects, std::move(MemMgr), std::move(Resolver));
 
     BaseLayer.takeOwnershipOfBuffers(H, std::move(Buffers));
 

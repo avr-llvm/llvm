@@ -57,6 +57,7 @@
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include <algorithm>
@@ -868,11 +869,9 @@ Instruction *InstCombiner::FoldOpIntoPhi(Instruction &I) {
 /// whether or not there is a sequence of GEP indices into the pointed type that
 /// will land us at the specified offset.  If so, fill them into NewIndices and
 /// return the resultant element type, otherwise return null.
-Type *InstCombiner::FindElementAtOffset(Type *PtrTy, int64_t Offset,
+Type *InstCombiner::FindElementAtOffset(PointerType *PtrTy, int64_t Offset,
                                         SmallVectorImpl<Value *> &NewIndices) {
-  assert(PtrTy->isPtrOrPtrVectorTy());
-
-  Type *Ty = PtrTy->getPointerElementType();
+  Type *Ty = PtrTy->getElementType();
   if (!Ty->isSized())
     return nullptr;
 
@@ -1468,6 +1467,11 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
         // normalized.
         if (SO1->getType() != GO1->getType())
           return nullptr;
+        // Only do the combine when GO1 and SO1 are both constants. Only in
+        // this case, we are sure the cost after the merge is never more than
+        // that before the merge.
+        if (!isa<Constant>(GO1) || !isa<Constant>(SO1))
+          return nullptr;
         Sum = Builder->CreateAdd(SO1, GO1, PtrOp->getName()+".sum");
       }
 
@@ -1610,9 +1614,11 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
             // %0 = GEP [10 x i8] addrspace(1)* X, ...
             // addrspacecast i8 addrspace(1)* %0 to i8*
             SmallVector<Value*, 8> Idx(GEP.idx_begin(), GEP.idx_end());
-            Value *NewGEP = GEP.isInBounds() ?
-              Builder->CreateInBoundsGEP(StrippedPtr, Idx, GEP.getName()) :
-              Builder->CreateGEP(StrippedPtr, Idx, GEP.getName());
+            Value *NewGEP = GEP.isInBounds()
+                                ? Builder->CreateInBoundsGEP(
+                                      nullptr, StrippedPtr, Idx, GEP.getName())
+                                : Builder->CreateGEP(nullptr, StrippedPtr, Idx,
+                                                     GEP.getName());
             return new AddrSpaceCastInst(NewGEP, GEP.getType());
           }
         }
@@ -1628,9 +1634,11 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
               DL.getTypeAllocSize(ResElTy)) {
         Type *IdxType = DL.getIntPtrType(GEP.getType());
         Value *Idx[2] = { Constant::getNullValue(IdxType), GEP.getOperand(1) };
-        Value *NewGEP = GEP.isInBounds() ?
-          Builder->CreateInBoundsGEP(StrippedPtr, Idx, GEP.getName()) :
-          Builder->CreateGEP(StrippedPtr, Idx, GEP.getName());
+        Value *NewGEP =
+            GEP.isInBounds()
+                ? Builder->CreateInBoundsGEP(nullptr, StrippedPtr, Idx,
+                                             GEP.getName())
+                : Builder->CreateGEP(nullptr, StrippedPtr, Idx, GEP.getName());
 
         // V and GEP are both pointer types --> BitCast
         return CastInst::CreatePointerBitCastOrAddrSpaceCast(NewGEP,
@@ -1661,9 +1669,12 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
             // Successfully decomposed Idx as NewIdx * Scale, form a new GEP.
             // If the multiplication NewIdx * Scale may overflow then the new
             // GEP may not be "inbounds".
-            Value *NewGEP = GEP.isInBounds() && NSW ?
-              Builder->CreateInBoundsGEP(StrippedPtr, NewIdx, GEP.getName()) :
-              Builder->CreateGEP(StrippedPtr, NewIdx, GEP.getName());
+            Value *NewGEP =
+                GEP.isInBounds() && NSW
+                    ? Builder->CreateInBoundsGEP(nullptr, StrippedPtr, NewIdx,
+                                                 GEP.getName())
+                    : Builder->CreateGEP(nullptr, StrippedPtr, NewIdx,
+                                         GEP.getName());
 
             // The NewGEP must be pointer typed, so must the old one -> BitCast
             return CastInst::CreatePointerBitCastOrAddrSpaceCast(NewGEP,
@@ -1701,9 +1712,11 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
                 Constant::getNullValue(DL.getIntPtrType(GEP.getType())),
                 NewIdx};
 
-            Value *NewGEP = GEP.isInBounds() && NSW ?
-              Builder->CreateInBoundsGEP(StrippedPtr, Off, GEP.getName()) :
-              Builder->CreateGEP(StrippedPtr, Off, GEP.getName());
+            Value *NewGEP = GEP.isInBounds() && NSW
+                                ? Builder->CreateInBoundsGEP(
+                                      SrcElTy, StrippedPtr, Off, GEP.getName())
+                                : Builder->CreateGEP(SrcElTy, StrippedPtr, Off,
+                                                     GEP.getName());
             // The NewGEP must be pointer typed, so must the old one -> BitCast
             return CastInst::CreatePointerBitCastOrAddrSpaceCast(NewGEP,
                                                                  GEP.getType());
@@ -1765,9 +1778,10 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
       // GEP.
       SmallVector<Value*, 8> NewIndices;
       if (FindElementAtOffset(OpType, Offset.getSExtValue(), NewIndices)) {
-        Value *NGEP = GEP.isInBounds() ?
-          Builder->CreateInBoundsGEP(Operand, NewIndices) :
-          Builder->CreateGEP(Operand, NewIndices);
+        Value *NGEP =
+            GEP.isInBounds()
+                ? Builder->CreateInBoundsGEP(nullptr, Operand, NewIndices)
+                : Builder->CreateGEP(nullptr, Operand, NewIndices);
 
         if (NGEP->getType() == GEP.getType())
           return ReplaceInstUsesWith(GEP, NGEP);
@@ -2259,7 +2273,8 @@ Instruction *InstCombiner::visitExtractValueInst(ExtractValueInst &EV) {
       // We need to insert these at the location of the old load, not at that of
       // the extractvalue.
       Builder->SetInsertPoint(L->getParent(), L);
-      Value *GEP = Builder->CreateInBoundsGEP(L->getPointerOperand(), Indices);
+      Value *GEP = Builder->CreateInBoundsGEP(L->getType(),
+                                              L->getPointerOperand(), Indices);
       // Returning the load directly will cause the main loop to insert it in
       // the wrong spot, so use ReplaceInstUsesWith().
       return ReplaceInstUsesWith(EV, Builder->CreateLoad(GEP));
@@ -2716,7 +2731,7 @@ bool InstCombiner::run() {
         DEBUG(dbgs() << "IC: Old = " << *I << '\n'
                      << "    New = " << *Result << '\n');
 
-        if (!I->getDebugLoc().isUnknown())
+        if (I->getDebugLoc())
           Result->setDebugLoc(I->getDebugLoc());
         // Everything uses the new instruction now.
         I->replaceAllUsesWith(Result);

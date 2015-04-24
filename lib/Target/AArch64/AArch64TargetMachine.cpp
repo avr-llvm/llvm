@@ -85,7 +85,12 @@ EnableA53Fix835769("aarch64-fix-cortex-a53-835769", cl::Hidden,
 static cl::opt<bool>
 EnableGEPOpt("aarch64-gep-opt", cl::Hidden,
              cl::desc("Enable optimizations on complex GEPs"),
-             cl::init(true));
+             cl::init(false));
+
+// FIXME: Unify control over GlobalMerge.
+static cl::opt<cl::boolOrDefault>
+EnableGlobalMerge("aarch64-global-merge", cl::Hidden,
+                  cl::desc("Enable the global merge pass"));
 
 extern "C" void LLVMInitializeAArch64Target() {
   // Register the target.
@@ -245,7 +250,9 @@ bool AArch64PassConfig::addPreISel() {
   // FIXME: On AArch64, this depends on the type.
   // Basically, the addressable offsets are up to 4095 * Ty.getSizeInBytes().
   // and the offset has to be a multiple of the related size in bytes.
-  if (TM->getOptLevel() != CodeGenOpt::None)
+  if ((TM->getOptLevel() == CodeGenOpt::Aggressive &&
+       EnableGlobalMerge == cl::BOU_UNSET) ||
+      EnableGlobalMerge == cl::BOU_TRUE)
     addPass(createGlobalMergePass(TM, 4095));
   if (TM->getOptLevel() != CodeGenOpt::None)
     addPass(createAArch64AddressTypePromotionPass());

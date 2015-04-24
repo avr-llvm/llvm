@@ -28,6 +28,7 @@
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/LEB128.h"
 #include "llvm/Support/MD5.h"
+#include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
@@ -560,7 +561,7 @@ unsigned DIELocList::SizeOf(const AsmPrinter *AP, dwarf::Form Form) const {
 ///
 void DIELocList::EmitValue(const AsmPrinter *AP, dwarf::Form Form) const {
   DwarfDebug *DD = AP->getDwarfDebug();
-  MCSymbol *Label = DD->getDebugLocEntries()[Index].Label;
+  MCSymbol *Label = DD->getDebugLocs().getList(Index).Label;
 
   if (AP->MAI->doesDwarfUseRelocationsAcrossSections() && !DD->useSplitDwarf())
     AP->emitSectionOffset(Label);

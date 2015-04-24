@@ -197,14 +197,53 @@ Instruction *InstCombiner::SimplifyMemSet(MemSetInst *MI) {
   return nullptr;
 }
 
+static Value *SimplifyX86insertps(const IntrinsicInst &II,
+                                  InstCombiner::BuilderTy &Builder) {
+  if (auto *CInt = dyn_cast<ConstantInt>(II.getArgOperand(2))) {
+    VectorType *VecTy = cast<VectorType>(II.getType());
+    ConstantAggregateZero *ZeroVector = ConstantAggregateZero::get(VecTy);
+    
+    // The immediate permute control byte looks like this:
+    //    [3:0] - zero mask for each 32-bit lane
+    //    [5:4] - select one 32-bit destination lane
+    //    [7:6] - select one 32-bit source lane
+
+    uint8_t Imm = CInt->getZExtValue();
+    uint8_t ZMask = Imm & 0xf;
+    uint8_t DestLane = (Imm >> 4) & 0x3;
+    uint8_t SourceLane = (Imm >> 6) & 0x3;
+
+    // If all zero mask bits are set, this was just a weird way to
+    // generate a zero vector.
+    if (ZMask == 0xf)
+      return ZeroVector;
+    
+    // TODO: Model this case as two shuffles or a 'logical and' plus shuffle?
+    if (ZMask)
+      return nullptr;
+
+    assert(VecTy->getNumElements() == 4 && "insertps with wrong vector type");
+
+    // If we're not zeroing anything, this is a single shuffle.
+    // Replace the selected destination lane with the selected source lane.
+    // For all other lanes, pass the first source bits through.
+    int ShuffleMask[4] = { 0, 1, 2, 3 };
+    ShuffleMask[DestLane] = SourceLane + 4;
+    
+    return Builder.CreateShuffleVector(II.getArgOperand(0), II.getArgOperand(1),
+                                       ShuffleMask);
+  }
+  return nullptr;
+}
+
 /// The shuffle mask for a perm2*128 selects any two halves of two 256-bit
 /// source vectors, unless a zero bit is set. If a zero bit is set,
 /// then ignore that half of the mask and clear that half of the vector.
 static Value *SimplifyX86vperm2(const IntrinsicInst &II,
                                 InstCombiner::BuilderTy &Builder) {
-  if (auto CInt = dyn_cast<ConstantInt>(II.getArgOperand(2))) {
+  if (auto *CInt = dyn_cast<ConstantInt>(II.getArgOperand(2))) {
     VectorType *VecTy = cast<VectorType>(II.getType());
-    uint8_t Imm = CInt->getZExtValue();
+    ConstantAggregateZero *ZeroVector = ConstantAggregateZero::get(VecTy);
 
     // The immediate permute control byte looks like this:
     //    [1:0] - select 128 bits from sources for low half of destination
@@ -213,37 +252,51 @@ static Value *SimplifyX86vperm2(const IntrinsicInst &II,
     //    [5:4] - select 128 bits from sources for high half of destination
     //    [6]   - ignore
     //    [7]   - zero high half of destination
+
+    uint8_t Imm = CInt->getZExtValue();
+
+    bool LowHalfZero = Imm & 0x08;
+    bool HighHalfZero = Imm & 0x80;
+
+    // If both zero mask bits are set, this was just a weird way to
+    // generate a zero vector.
+    if (LowHalfZero && HighHalfZero)
+      return ZeroVector;
+
+    // If 0 or 1 zero mask bits are set, this is a simple shuffle.
+    unsigned NumElts = VecTy->getNumElements();
+    unsigned HalfSize = NumElts / 2;
+    SmallVector<int, 8> ShuffleMask(NumElts);
+
+    // The high bit of the selection field chooses the 1st or 2nd operand.
+    bool LowInputSelect = Imm & 0x02;
+    bool HighInputSelect = Imm & 0x20;
     
-    if ((Imm & 0x88) == 0x88) {
-      // If both zero mask bits are set, this was just a weird way to
-      // generate a zero vector.
-      return ConstantAggregateZero::get(VecTy);
-    }
+    // The low bit of the selection field chooses the low or high half
+    // of the selected operand.
+    bool LowHalfSelect = Imm & 0x01;
+    bool HighHalfSelect = Imm & 0x10;
 
-    // TODO: If a single zero bit is set, replace one of the source operands
-    // with a zero vector and use the same mask generation logic as below.
-
-    if ((Imm & 0x88) == 0x00) {
-      // If neither zero mask bit is set, this is a simple shuffle.
-      unsigned NumElts = VecTy->getNumElements();
-      unsigned HalfSize = NumElts / 2;
-      unsigned HalfBegin;
-      SmallVector<int, 8> ShuffleMask(NumElts);
-
-      // Permute low half of result.
-      HalfBegin = (Imm & 0x3) * HalfSize;
-      for (unsigned i = 0; i != HalfSize; ++i)
-        ShuffleMask[i] = HalfBegin + i;
+    // Determine which operand(s) are actually in use for this instruction.
+    Value *V0 = LowInputSelect ? II.getArgOperand(1) : II.getArgOperand(0);
+    Value *V1 = HighInputSelect ? II.getArgOperand(1) : II.getArgOperand(0);
     
-      // Permute high half of result.
-      HalfBegin = ((Imm >> 4) & 0x3) * HalfSize;
-      for (unsigned i = HalfSize; i != NumElts; ++i)
-        ShuffleMask[i] = HalfBegin + i - HalfSize;
+    // If needed, replace operands based on zero mask.
+    V0 = LowHalfZero ? ZeroVector : V0;
+    V1 = HighHalfZero ? ZeroVector : V1;
+    
+    // Permute low half of result.
+    unsigned StartIndex = LowHalfSelect ? HalfSize : 0;
+    for (unsigned i = 0; i < HalfSize; ++i)
+      ShuffleMask[i] = StartIndex + i;
 
-      Value *Op0 = II.getArgOperand(0);
-      Value *Op1 = II.getArgOperand(1);
-      return Builder.CreateShuffleVector(Op0, Op1, ShuffleMask);
-    }
+    // Permute high half of result.
+    StartIndex = HighHalfSelect ? HalfSize : 0;
+    StartIndex += NumElts;
+    for (unsigned i = 0; i < HalfSize; ++i)
+      ShuffleMask[i + HalfSize] = StartIndex + i;
+
+    return Builder.CreateShuffleVector(V0, V1, ShuffleMask);
   }
   return nullptr;
 }
@@ -401,112 +454,36 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
 
     }
     break;
-  case Intrinsic::uadd_with_overflow: {
-    Value *LHS = II->getArgOperand(0), *RHS = II->getArgOperand(1);
-    OverflowResult OR = computeOverflowForUnsignedAdd(LHS, RHS, II);
-    if (OR == OverflowResult::NeverOverflows)
-      return CreateOverflowTuple(II, Builder->CreateNUWAdd(LHS, RHS), false);
-    if (OR == OverflowResult::AlwaysOverflows)
-      return CreateOverflowTuple(II, Builder->CreateAdd(LHS, RHS), true);
-  }
-  // FALL THROUGH uadd into sadd
+
+  case Intrinsic::uadd_with_overflow:
   case Intrinsic::sadd_with_overflow:
-    // Canonicalize constants into the RHS.
+  case Intrinsic::umul_with_overflow:
+  case Intrinsic::smul_with_overflow:
     if (isa<Constant>(II->getArgOperand(0)) &&
         !isa<Constant>(II->getArgOperand(1))) {
+      // Canonicalize constants into the RHS.
       Value *LHS = II->getArgOperand(0);
       II->setArgOperand(0, II->getArgOperand(1));
       II->setArgOperand(1, LHS);
       return II;
     }
+    // fall through
 
-    // X + undef -> undef
-    if (isa<UndefValue>(II->getArgOperand(1)))
-      return ReplaceInstUsesWith(CI, UndefValue::get(II->getType()));
-
-    if (ConstantInt *RHS = dyn_cast<ConstantInt>(II->getArgOperand(1))) {
-      // X + 0 -> {X, false}
-      if (RHS->isZero()) {
-        return CreateOverflowTuple(II, II->getArgOperand(0), false,
-                                    /*ReUseName*/false);
-      }
-    }
-
-    // We can strength reduce reduce this signed add into a regular add if we
-    // can prove that it will never overflow.
-    if (II->getIntrinsicID() == Intrinsic::sadd_with_overflow) {
-      Value *LHS = II->getArgOperand(0), *RHS = II->getArgOperand(1);
-      if (WillNotOverflowSignedAdd(LHS, RHS, *II)) {
-        return CreateOverflowTuple(II, Builder->CreateNSWAdd(LHS, RHS), false);
-      }
-    }
-
-    break;
   case Intrinsic::usub_with_overflow:
   case Intrinsic::ssub_with_overflow: {
-    Value *LHS = II->getArgOperand(0), *RHS = II->getArgOperand(1);
-    // undef - X -> undef
-    // X - undef -> undef
-    if (isa<UndefValue>(LHS) || isa<UndefValue>(RHS))
-      return ReplaceInstUsesWith(CI, UndefValue::get(II->getType()));
+    OverflowCheckFlavor OCF =
+        IntrinsicIDToOverflowCheckFlavor(II->getIntrinsicID());
+    assert(OCF != OCF_INVALID && "unexpected!");
 
-    if (ConstantInt *ConstRHS = dyn_cast<ConstantInt>(RHS)) {
-      // X - 0 -> {X, false}
-      if (ConstRHS->isZero()) {
-        return CreateOverflowTuple(II, LHS, false, /*ReUseName*/false);
-      }
-    }
-    if (II->getIntrinsicID() == Intrinsic::ssub_with_overflow) {
-      if (WillNotOverflowSignedSub(LHS, RHS, *II)) {
-        return CreateOverflowTuple(II, Builder->CreateNSWSub(LHS, RHS), false);
-      }
-    } else {
-      if (WillNotOverflowUnsignedSub(LHS, RHS, *II)) {
-        return CreateOverflowTuple(II, Builder->CreateNUWSub(LHS, RHS), false);
-      }
-    }
+    Value *OperationResult = nullptr;
+    Constant *OverflowResult = nullptr;
+    if (OptimizeOverflowCheck(OCF, II->getArgOperand(0), II->getArgOperand(1),
+                              *II, OperationResult, OverflowResult))
+      return CreateOverflowTuple(II, OperationResult, OverflowResult);
+
     break;
   }
-  case Intrinsic::umul_with_overflow: {
-    Value *LHS = II->getArgOperand(0), *RHS = II->getArgOperand(1);
-    OverflowResult OR = computeOverflowForUnsignedMul(LHS, RHS, II);
-    if (OR == OverflowResult::NeverOverflows)
-      return CreateOverflowTuple(II, Builder->CreateNUWMul(LHS, RHS), false);
-    if (OR == OverflowResult::AlwaysOverflows)
-      return CreateOverflowTuple(II, Builder->CreateMul(LHS, RHS), true);
-  } // FALL THROUGH
-  case Intrinsic::smul_with_overflow:
-    // Canonicalize constants into the RHS.
-    if (isa<Constant>(II->getArgOperand(0)) &&
-        !isa<Constant>(II->getArgOperand(1))) {
-      Value *LHS = II->getArgOperand(0);
-      II->setArgOperand(0, II->getArgOperand(1));
-      II->setArgOperand(1, LHS);
-      return II;
-    }
 
-    // X * undef -> undef
-    if (isa<UndefValue>(II->getArgOperand(1)))
-      return ReplaceInstUsesWith(CI, UndefValue::get(II->getType()));
-
-    if (ConstantInt *RHSI = dyn_cast<ConstantInt>(II->getArgOperand(1))) {
-      // X*0 -> {0, false}
-      if (RHSI->isZero())
-        return ReplaceInstUsesWith(CI, Constant::getNullValue(II->getType()));
-
-      // X * 1 -> {X, false}
-      if (RHSI->equalsInt(1)) {
-        return CreateOverflowTuple(II, II->getArgOperand(0), false,
-                                    /*ReUseName*/false);
-      }
-    }
-    if (II->getIntrinsicID() == Intrinsic::smul_with_overflow) {
-      Value *LHS = II->getArgOperand(0), *RHS = II->getArgOperand(1);
-      if (WillNotOverflowSignedMul(LHS, RHS, *II)) {
-        return CreateOverflowTuple(II, Builder->CreateNSWMul(LHS, RHS), false);
-      }
-    }
-    break;
   case Intrinsic::minnum:
   case Intrinsic::maxnum: {
     Value *Arg0 = II->getArgOperand(0);
@@ -792,7 +769,11 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     }
     break;
   }
-
+  case Intrinsic::x86_sse41_insertps:
+    if (Value *V = SimplifyX86insertps(*II, *Builder))
+      return ReplaceInstUsesWith(*II, V);
+    break;
+    
   case Intrinsic::x86_sse4a_insertqi: {
     // insertqi x, y, 64, 0 can just copy y's lower bits and leave the top
     // ones undef
@@ -958,7 +939,7 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   case Intrinsic::x86_avx_vperm2f128_pd_256:
   case Intrinsic::x86_avx_vperm2f128_ps_256:
   case Intrinsic::x86_avx_vperm2f128_si_256:
-    // TODO: Add the AVX2 version of this instruction.
+  case Intrinsic::x86_avx2_vperm2i128:
     if (Value *V = SimplifyX86vperm2(*II, *Builder))
       return ReplaceInstUsesWith(*II, V);
     break;
@@ -1223,7 +1204,7 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
       II->addAttribute(AttributeSet::ReturnIndex, Attribute::NonNull);
 
     // isDereferenceablePointer -> deref attribute
-    if (DerivedPtr->isDereferenceablePointer(DL)) {
+    if (isDereferenceablePointer(DerivedPtr, DL)) {
       if (Argument *A = dyn_cast<Argument>(DerivedPtr)) {
         uint64_t Bytes = A->getDereferenceableBytes();
         II->addDereferenceableAttr(AttributeSet::ReturnIndex, Bytes);

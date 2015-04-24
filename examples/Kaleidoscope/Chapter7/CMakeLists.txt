@@ -4,13 +4,12 @@ set(LLVM_LINK_COMPONENTS
   ExecutionEngine
   InstCombine
   MCJIT
+  RuntimeDyld
   ScalarOpts
   Support
   TransformUtils
   native
   )
-
-set(LLVM_REQUIRES_RTTI 1)
 
 add_kaleidoscope_chapter(Kaleidoscope-Ch7
   toy.cpp

@@ -25,6 +25,7 @@
 #include "StreamWriter.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/ELFObjectFile.h"
+#include "llvm/Object/MachOUniversal.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
@@ -320,6 +321,18 @@ static void dumpArchive(const Archive *Arc) {
   }
 }
 
+/// @brief Dumps each object file in \a MachO Universal Binary;
+static void dumpMachOUniversalBinary(const MachOUniversalBinary *UBinary) {
+  for (const MachOUniversalBinary::ObjectForArch &Obj : UBinary->objects()) {
+    ErrorOr<std::unique_ptr<MachOObjectFile>> ObjOrErr = Obj.getAsObjectFile();
+    if (ObjOrErr)
+      dumpObject(&*ObjOrErr.get());
+    else if (ErrorOr<std::unique_ptr<Archive>> AOrErr = Obj.getAsArchive())
+      dumpArchive(&*AOrErr.get());
+    else
+      reportError(UBinary->getFileName(), ObjOrErr.getError().message());
+  }
+}
 
 /// @brief Opens \a File and dumps it.
 static void dumpInput(StringRef File) {
@@ -339,6 +352,9 @@ static void dumpInput(StringRef File) {
 
   if (Archive *Arc = dyn_cast<Archive>(&Binary))
     dumpArchive(Arc);
+  else if (MachOUniversalBinary *UBinary =
+               dyn_cast<MachOUniversalBinary>(&Binary))
+    dumpMachOUniversalBinary(UBinary);
   else if (ObjectFile *Obj = dyn_cast<ObjectFile>(&Binary))
     dumpObject(Obj);
   else

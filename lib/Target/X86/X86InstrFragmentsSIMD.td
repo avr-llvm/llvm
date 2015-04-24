@@ -178,11 +178,13 @@ def X86ptest   : SDNode<"X86ISD::PTEST", SDTX86CmpPTest>;
 def X86testp   : SDNode<"X86ISD::TESTP", SDTX86CmpPTest>;
 def X86kortest : SDNode<"X86ISD::KORTEST", SDTX86CmpPTest>;
 def X86testm   : SDNode<"X86ISD::TESTM", SDTypeProfile<1, 2, [SDTCisVec<0>,
-                                          SDTCisVec<1>,
-                                          SDTCisSameAs<2, 1>]>>;
+                                          SDTCisVec<1>, SDTCisSameAs<2, 1>,
+                                          SDTCVecEltisVT<0, i1>,
+                                          SDTCisSameNumEltsAs<0, 1>]>>;
 def X86testnm  : SDNode<"X86ISD::TESTNM", SDTypeProfile<1, 2, [SDTCisVec<0>,
-                                          SDTCisVec<1>,
-                                          SDTCisSameAs<2, 1>]>>;
+                                          SDTCisVec<1>, SDTCisSameAs<2, 1>,
+                                          SDTCVecEltisVT<0, i1>,
+                                          SDTCisSameNumEltsAs<0, 1>]>>;
 def X86select  : SDNode<"X86ISD::SELECT"     , SDTSelect>;
 
 def X86pmuludq : SDNode<"X86ISD::PMULUDQ",
@@ -631,53 +633,53 @@ def vinsert256_insert : PatFrag<(ops node:$bigvec, node:$smallvec,
 
 def masked_load_aligned128 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_load node:$src1, node:$src2, node:$src3), [{
-  if (dyn_cast<MaskedLoadSDNode>(N))
-    return cast<MaskedLoadSDNode>(N)->getAlignment() >= 16;
+  if (auto *Load = dyn_cast<MaskedLoadSDNode>(N))
+    return Load->getAlignment() >= 16;
   return false;
 }]>;
 
 def masked_load_aligned256 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_load node:$src1, node:$src2, node:$src3), [{
-  if (dyn_cast<MaskedLoadSDNode>(N))
-    return cast<MaskedLoadSDNode>(N)->getAlignment() >= 32;
+  if (auto *Load = dyn_cast<MaskedLoadSDNode>(N))
+    return Load->getAlignment() >= 32;
   return false;
 }]>;
 
 def masked_load_aligned512 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_load node:$src1, node:$src2, node:$src3), [{
-  if (dyn_cast<MaskedLoadSDNode>(N))
-    return cast<MaskedLoadSDNode>(N)->getAlignment() >= 64;
+  if (auto *Load = dyn_cast<MaskedLoadSDNode>(N))
+    return Load->getAlignment() >= 64;
   return false;
 }]>;
 
 def masked_load_unaligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_load node:$src1, node:$src2, node:$src3), [{
-  return (dyn_cast<MaskedLoadSDNode>(N) != 0);
+  return isa<MaskedLoadSDNode>(N);
 }]>;
 
 def masked_store_aligned128 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_store node:$src1, node:$src2, node:$src3), [{
-  if (dyn_cast<MaskedStoreSDNode>(N))
-    return cast<MaskedStoreSDNode>(N)->getAlignment() >= 16;
+  if (auto *Store = dyn_cast<MaskedStoreSDNode>(N))
+    return Store->getAlignment() >= 16;
   return false;
 }]>;
 
 def masked_store_aligned256 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_store node:$src1, node:$src2, node:$src3), [{
-  if (dyn_cast<MaskedStoreSDNode>(N))
-    return cast<MaskedStoreSDNode>(N)->getAlignment() >= 32;
+  if (auto *Store = dyn_cast<MaskedStoreSDNode>(N))
+    return Store->getAlignment() >= 32;
   return false;
 }]>;
 
 def masked_store_aligned512 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_store node:$src1, node:$src2, node:$src3), [{
-  if (dyn_cast<MaskedStoreSDNode>(N))
-    return cast<MaskedStoreSDNode>(N)->getAlignment() >= 64;
+  if (auto *Store = dyn_cast<MaskedStoreSDNode>(N))
+    return Store->getAlignment() >= 64;
   return false;
 }]>;
 
 def masked_store_unaligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
                          (masked_store node:$src1, node:$src2, node:$src3), [{
-  return (dyn_cast<MaskedStoreSDNode>(N) != 0);
+  return isa<MaskedStoreSDNode>(N);
 }]>;
 

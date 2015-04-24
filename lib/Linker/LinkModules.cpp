@@ -424,12 +424,17 @@ class ModuleLinker {
 
   DiagnosticHandlerFunction DiagnosticHandler;
 
+  /// For symbol clashes, prefer those from Src.
+  bool OverrideFromSrc;
+
 public:
   ModuleLinker(Module *dstM, Linker::IdentifiedStructTypeSet &Set, Module *srcM,
-               DiagnosticHandlerFunction DiagnosticHandler)
+               DiagnosticHandlerFunction DiagnosticHandler,
+               bool OverrideFromSrc)
       : DstM(dstM), SrcM(srcM), TypeMap(Set),
         ValMaterializer(TypeMap, DstM, LazilyLinkGlobalValues),
-        DiagnosticHandler(DiagnosticHandler) {}
+        DiagnosticHandler(DiagnosticHandler), OverrideFromSrc(OverrideFromSrc) {
+  }
 
   bool run();
 
@@ -725,6 +730,12 @@ bool ModuleLinker::getComdatResult(const Comdat *SrcC,
 bool ModuleLinker::shouldLinkFromSource(bool &LinkFromSrc,
                                         const GlobalValue &Dest,
                                         const GlobalValue &Src) {
+  // Should we unconditionally use the Src?
+  if (OverrideFromSrc) {
+    LinkFromSrc = true;
+    return false;
+  }
+
   // We always have to add Src if it has appending linkage.
   if (Src.hasAppendingLinkage()) {
     LinkFromSrc = true;
@@ -1071,8 +1082,9 @@ bool ModuleLinker::linkGlobalValueProto(GlobalValue *SGV) {
   } else {
     // If the GV is to be lazily linked, don't create it just yet.
     // The ValueMaterializerTy will deal with creating it if it's used.
-    if (!DGV && (SGV->hasLocalLinkage() || SGV->hasLinkOnceLinkage() ||
-                 SGV->hasAvailableExternallyLinkage())) {
+    if (!DGV && !OverrideFromSrc &&
+        (SGV->hasLocalLinkage() || SGV->hasLinkOnceLinkage() ||
+         SGV->hasAvailableExternallyLinkage())) {
       DoNotLinkFromSource.insert(SGV);
       return false;
     }
@@ -1250,9 +1262,10 @@ void ModuleLinker::linkNamedMDNodes() {
 
 /// Drop DISubprograms that have been superseded.
 ///
-/// FIXME: this creates an asymmetric result: we strip losing subprograms from
-/// DstM, but leave losing subprograms in SrcM.  Instead we should also strip
-/// losers from SrcM, but this requires extra plumbing in MapMetadata.
+/// FIXME: this creates an asymmetric result: we strip functions from losing
+/// subprograms in DstM, but leave losing subprograms in SrcM.
+/// TODO: Remove this logic once the backend can correctly determine canonical
+/// subprograms.
 void ModuleLinker::stripReplacedSubprograms() {
   // Avoid quadratic runtime by returning early when there's nothing to do.
   if (OverridingFunctions.empty())
@@ -1262,31 +1275,23 @@ void ModuleLinker::stripReplacedSubprograms() {
   auto Functions = std::move(OverridingFunctions);
   OverridingFunctions.clear();
 
-  // Drop subprograms whose functions have been overridden by the new compile
-  // unit.
+  // Drop functions from subprograms if they've been overridden by the new
+  // compile unit.
   NamedMDNode *CompileUnits = DstM->getNamedMetadata("llvm.dbg.cu");
   if (!CompileUnits)
     return;
   for (unsigned I = 0, E = CompileUnits->getNumOperands(); I != E; ++I) {
-    DICompileUnit CU(CompileUnits->getOperand(I));
+    auto *CU = cast<MDCompileUnit>(CompileUnits->getOperand(I));
     assert(CU && "Expected valid compile unit");
 
-    DITypedArray<DISubprogram> SPs(CU.getSubprograms());
-    assert(SPs && "Expected valid subprogram array");
-
-    SmallVector<Metadata *, 16> NewSPs;
-    NewSPs.reserve(SPs.getNumElements());
-    for (unsigned S = 0, SE = SPs.getNumElements(); S != SE; ++S) {
-      DISubprogram SP = SPs.getElement(S);
-      if (SP && SP.getFunction() && Functions.count(SP.getFunction()))
+    for (MDSubprogram *SP : CU->getSubprograms()) {
+      if (!SP || !SP->getFunction() || !Functions.count(SP->getFunction()))
         continue;
 
-      NewSPs.push_back(SP);
+      // Prevent DebugInfoFinder from tagging this as the canonical subprogram,
+      // since the canonical one is in the incoming module.
+      SP->replaceFunction(nullptr);
     }
-
-    // Redirect operand to the overriding subprogram.
-    if (NewSPs.size() != SPs.getNumElements())
-      CU.replaceSubprograms(DIArray(MDNode::get(DstM->getContext(), NewSPs)));
   }
 }
 
@@ -1563,6 +1568,13 @@ bool ModuleLinker::run() {
     MapValue(GV, ValueMap, RF_None, &TypeMap, &ValMaterializer);
   }
 
+  // Strip replaced subprograms before mapping any metadata -- so that we're
+  // not changing metadata from the source module (note that
+  // linkGlobalValueBody() eventually calls RemapInstruction() and therefore
+  // MapMetadata()) -- but after linking global value protocols -- so that
+  // OverridingFunctions has been built.
+  stripReplacedSubprograms();
+
   // Link in the function bodies that are defined in the source module into
   // DstM.
   for (Function &SF : *SrcM) {
@@ -1584,9 +1596,6 @@ bool ModuleLinker::run() {
       continue;
     linkGlobalValueBody(Src);
   }
-
-  // Strip replaced subprograms before linking together compile units.
-  stripReplacedSubprograms();
 
   // Remap all of the named MDNodes in Src into the DstM module. We do this
   // after linking GlobalValues so that MDNodes that reference GlobalValues
@@ -1741,9 +1750,9 @@ void Linker::deleteModule() {
   Composite = nullptr;
 }
 
-bool Linker::linkInModule(Module *Src) {
+bool Linker::linkInModule(Module *Src, bool OverrideSymbols) {
   ModuleLinker TheLinker(Composite, IdentifiedStructTypes, Src,
-                         DiagnosticHandler);
+                         DiagnosticHandler, OverrideSymbols);
   bool RetCode = TheLinker.run();
   Composite->dropTriviallyDeadConstantArrays();
   return RetCode;

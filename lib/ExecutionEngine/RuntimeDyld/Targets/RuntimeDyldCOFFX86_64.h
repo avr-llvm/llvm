@@ -32,7 +32,9 @@ private:
   SmallVector<SID, 2> RegisteredEHFrameSections;
 
 public:
-  RuntimeDyldCOFFX86_64(RTDyldMemoryManager *MM) : RuntimeDyldCOFF(MM) {}
+  RuntimeDyldCOFFX86_64(RuntimeDyld::MemoryManager &MM,
+                        RuntimeDyld::SymbolResolver &Resolver)
+    : RuntimeDyldCOFF(MM, Resolver) {}
 
   unsigned getMaxStubSize() override {
     return 6; // 2-byte jmp instruction + 32-bit relative address
@@ -112,23 +114,15 @@ public:
                                            const ObjectFile &Obj,
                                            ObjSectionToIDMap &ObjSectionToID,
                                            StubMap &Stubs) override {
-    // Find the symbol referred to in the relocation, and
-    // get its section and offset.
-    //
-    // Insist for now that all symbols be resolvable within
-    // the scope of this object file.
+    // If possible, find the symbol referred to in the relocation,
+    // and the section that contains it.
     symbol_iterator Symbol = RelI->getSymbol();
     if (Symbol == Obj.symbol_end())
       report_fatal_error("Unknown symbol in relocation");
-    unsigned TargetSectionID = 0;
-    uint64_t TargetOffset = UnknownAddressOrSize;
     section_iterator SecI(Obj.section_end());
     Symbol->getSection(SecI);
-    if (SecI == Obj.section_end())
-      report_fatal_error("Unknown section in relocation");
-    bool IsCode = SecI->isText();
-    TargetSectionID = findOrEmitSection(Obj, *SecI, IsCode, ObjSectionToID);
-    TargetOffset = getSymbolOffset(*Symbol);
+    // If there is no section, this must be an external reference.
+    const bool IsExtern = SecI == Obj.section_end();
 
     // Determine the Addend used to adjust the relocation value.
     uint64_t RelType;
@@ -165,25 +159,33 @@ public:
 
     StringRef TargetName;
     Symbol->getName(TargetName);
+
     DEBUG(dbgs() << "\t\tIn Section " << SectionID << " Offset " << Offset
                  << " RelType: " << RelType << " TargetName: " << TargetName
                  << " Addend " << Addend << "\n");
 
-    RelocationEntry RE(SectionID, Offset, RelType, TargetOffset + Addend);
-    addRelocationForSection(RE, TargetSectionID);
+    if (IsExtern) {
+      RelocationEntry RE(SectionID, Offset, RelType, Addend);
+      addRelocationForSymbol(RE, TargetName);
+    } else {
+      bool IsCode = SecI->isText();
+      unsigned TargetSectionID =
+          findOrEmitSection(Obj, *SecI, IsCode, ObjSectionToID);
+      uint64_t TargetOffset = getSymbolOffset(*Symbol);
+      RelocationEntry RE(SectionID, Offset, RelType, TargetOffset + Addend);
+      addRelocationForSection(RE, TargetSectionID);
+    }
 
     return ++RelI;
   }
 
   unsigned getStubAlignment() override { return 1; }
   void registerEHFrames() override {
-    if (!MemMgr)
-      return;
     for (auto const &EHFrameSID : UnregisteredEHFrameSections) {
       uint8_t *EHFrameAddr = Sections[EHFrameSID].Address;
       uint64_t EHFrameLoadAddr = Sections[EHFrameSID].LoadAddress;
       size_t EHFrameSize = Sections[EHFrameSID].Size;
-      MemMgr->registerEHFrames(EHFrameAddr, EHFrameLoadAddr, EHFrameSize);
+      MemMgr.registerEHFrames(EHFrameAddr, EHFrameLoadAddr, EHFrameSize);
       RegisteredEHFrameSections.push_back(EHFrameSID);
     }
     UnregisteredEHFrameSections.clear();

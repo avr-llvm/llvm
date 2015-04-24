@@ -25,10 +25,10 @@ entry:
   %a12 = load i64, i64* %a11, align 4, !dbg !7         ; <i64> [#uses=1]
   call void @llvm.dbg.declare(metadata i64* %data_addr.i17, metadata !8, metadata !MDExpression()) nounwind, !dbg !14
   store i64 %a12, i64* %data_addr.i17, align 8
-  call void @llvm.dbg.value(metadata !6, i64 0, metadata !15, metadata !MDExpression()) nounwind
-  call void @llvm.dbg.value(metadata i32 0, i64 0, metadata !19, metadata !MDExpression()) nounwind
-  call void @llvm.dbg.declare(metadata !6, metadata !23, metadata !MDExpression()) nounwind
-  call void @llvm.dbg.value(metadata i64* %data_addr.i17, i64 0, metadata !34, metadata !MDExpression()) nounwind
+  call void @llvm.dbg.value(metadata !6, i64 0, metadata !15, metadata !MDExpression()) nounwind, !dbg !MDLocation(scope: !16)
+  call void @llvm.dbg.value(metadata i32 0, i64 0, metadata !19, metadata !MDExpression()) nounwind, !dbg !MDLocation(scope: !16)
+  call void @llvm.dbg.declare(metadata !6, metadata !23, metadata !MDExpression()) nounwind, !dbg !MDLocation(scope: !24)
+  call void @llvm.dbg.value(metadata i64* %data_addr.i17, i64 0, metadata !34, metadata !MDExpression()) nounwind, !dbg !MDLocation(scope: !24)
   %a13 = load volatile i64, i64* %data_addr.i17, align 8 ; <i64> [#uses=1]
   %a14 = call i64 @llvm.bswap.i64(i64 %a13) nounwind ; <i64> [#uses=2]
   %a15 = add i64 %a10, %a14, !dbg !7              ; <i64> [#uses=1]
@@ -68,7 +68,7 @@ declare void @uuid_LtoB(i8*, i8*)
 !15 = !MDLocalVariable(tag: DW_TAG_arg_variable, name: "base", line: 92, arg: 0, scope: !16, file: !10, type: !17)
 !16 = !MDSubprogram(name: "OSReadSwapInt64", linkageName: "OSReadSwapInt64", line: 95, isLocal: true, isDefinition: true, virtualIndex: 6, isOptimized: false, file: !38, scope: null, type: !5)
 !17 = !MDDerivedType(tag: DW_TAG_pointer_type, size: 32, align: 32, file: !39, scope: !3, baseType: null)
-!18 = !{i32 0}
+!18 = !{}
 !19 = !MDLocalVariable(tag: DW_TAG_arg_variable, name: "byteOffset", line: 94, arg: 0, scope: !16, file: !10, type: !20)
 !20 = !MDDerivedType(tag: DW_TAG_typedef, name: "uintptr_t", line: 114, file: !37, scope: !3, baseType: !22)
 !21 = !MDFile(filename: "types.h", directory: "/usr/include/ppc")

@@ -33,10 +33,8 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cerrno>
 #include <cstdlib>
 #include <map>
-#include <system_error>
 using namespace llvm;
 using namespace cl;
 
@@ -315,7 +313,7 @@ static Option *LookupNearestOption(StringRef Arg,
         if (RHS.empty() || !PermitValue)
           NearestString = OptionNames[i];
         else
-          NearestString = std::string(OptionNames[i]) + "=" + RHS.str();
+          NearestString = (Twine(OptionNames[i]) + "=" + RHS).str();
       }
     }
   }
@@ -786,7 +784,7 @@ class StrDupSaver : public StringSaver {
   std::vector<char *> Dups;
 
 public:
-  ~StrDupSaver() {
+  ~StrDupSaver() override {
     for (std::vector<char *>::iterator I = Dups.begin(), E = Dups.end(); I != E;
          ++I) {
       char *Dup = *I;

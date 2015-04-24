@@ -53,6 +53,7 @@ namespace llvm {
   class TargetLibraryInfo;
   class TargetMachine;
   class raw_ostream;
+  class raw_pwrite_stream;
 
 //===----------------------------------------------------------------------===//
 /// C++ class which implements the opaque lto_code_gen_t type.
@@ -77,6 +78,8 @@ struct LTOCodeGenerator {
   void setCpu(const char *mCpu) { MCpu = mCpu; }
   void setAttr(const char *mAttr) { MAttr = mAttr; }
   void setOptLevel(unsigned optLevel) { OptLevel = optLevel; }
+
+  void setShouldInternalize(bool Value) { ShouldInternalize = Value; }
 
   void addMustPreserveSymbol(const char *sym) { MustPreserveSymbols[sym] = 1; }
 
@@ -137,7 +140,7 @@ struct LTOCodeGenerator {
 private:
   void initializeLTOPasses();
 
-  bool compileOptimized(raw_ostream &out, std::string &errMsg);
+  bool compileOptimized(raw_pwrite_stream &out, std::string &errMsg);
   bool compileOptimizedToFile(const char **name, std::string &errMsg);
   void applyScopeRestrictions();
   void applyRestriction(GlobalValue &GV, ArrayRef<StringRef> Libcalls,
@@ -173,6 +176,7 @@ private:
   lto_diagnostic_handler_t DiagHandler;
   void *DiagContext;
   LTOModule *OwnedModule;
+  bool ShouldInternalize;
 };
 }
 #endif

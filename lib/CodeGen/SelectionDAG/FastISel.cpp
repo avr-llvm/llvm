@@ -62,6 +62,7 @@
 #include "llvm/IR/Operator.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
@@ -424,7 +425,7 @@ bool FastISel::selectBinaryOp(const User *I, unsigned ISDOpcode) {
 
   // Check if the second operand is a constant and handle it appropriately.
   if (const auto *CI = dyn_cast<ConstantInt>(I->getOperand(1))) {
-    uint64_t Imm = CI->getZExtValue();
+    uint64_t Imm = CI->getSExtValue();
 
     // Transform "sdiv exact X, 8" -> "sra X, 3".
     if (ISDOpcode == ISD::SDIV && isa<BinaryOperator>(I) &&
@@ -710,7 +711,7 @@ bool FastISel::selectPatchpoint(const CallInst *I) {
   CallingConv::ID CC = I->getCallingConv();
   bool IsAnyRegCC = CC == CallingConv::AnyReg;
   bool HasDef = !I->getType()->isVoidTy();
-  Value *Callee = I->getOperand(PatchPointOpers::TargetPos);
+  Value *Callee = I->getOperand(PatchPointOpers::TargetPos)->stripPointerCasts();
 
   // Get the real number of arguments participating in the call <numArgs>
   assert(isa<ConstantInt>(I->getOperand(PatchPointOpers::NArgPos)) &&
@@ -756,22 +757,24 @@ bool FastISel::selectPatchpoint(const CallInst *I) {
       cast<ConstantInt>(I->getOperand(PatchPointOpers::NBytesPos));
   Ops.push_back(MachineOperand::CreateImm(NumBytes->getZExtValue()));
 
-  // Assume that the callee is a constant address or null pointer.
-  // FIXME: handle function symbols in the future.
-  uint64_t CalleeAddr;
-  if (const auto *C = dyn_cast<IntToPtrInst>(Callee))
-    CalleeAddr = cast<ConstantInt>(C->getOperand(0))->getZExtValue();
-  else if (const auto *C = dyn_cast<ConstantExpr>(Callee)) {
-    if (C->getOpcode() == Instruction::IntToPtr)
-      CalleeAddr = cast<ConstantInt>(C->getOperand(0))->getZExtValue();
-    else
+  // Add the call target.
+  if (const auto *C = dyn_cast<IntToPtrInst>(Callee)) {
+    uint64_t CalleeConstAddr =
+      cast<ConstantInt>(C->getOperand(0))->getZExtValue();
+    Ops.push_back(MachineOperand::CreateImm(CalleeConstAddr));
+  } else if (const auto *C = dyn_cast<ConstantExpr>(Callee)) {
+    if (C->getOpcode() == Instruction::IntToPtr) {
+      uint64_t CalleeConstAddr =
+        cast<ConstantInt>(C->getOperand(0))->getZExtValue();
+      Ops.push_back(MachineOperand::CreateImm(CalleeConstAddr));
+    } else
       llvm_unreachable("Unsupported ConstantExpr.");
+  } else if (const auto *GV = dyn_cast<GlobalValue>(Callee)) {
+    Ops.push_back(MachineOperand::CreateGA(GV, 0));
   } else if (isa<ConstantPointerNull>(Callee))
-    CalleeAddr = 0;
+    Ops.push_back(MachineOperand::CreateImm(0));
   else
     llvm_unreachable("Unsupported callee address.");
-
-  Ops.push_back(MachineOperand::CreateImm(CalleeAddr));
 
   // Adjust <numArgs> to account for any arguments that have been passed on
   // the stack instead.
@@ -1078,12 +1081,17 @@ bool FastISel::selectIntrinsicCall(const IntrinsicInst *II) {
   // The donothing intrinsic does, well, nothing.
   case Intrinsic::donothing:
     return true;
+  case Intrinsic::eh_actions: {
+    unsigned ResultReg = getRegForValue(UndefValue::get(II->getType()));
+    if (!ResultReg)
+      return false;
+    updateValueMap(II, ResultReg);
+    return true;
+  }
   case Intrinsic::dbg_declare: {
     const DbgDeclareInst *DI = cast<DbgDeclareInst>(II);
-    DIVariable DIVar(DI->getVariable());
-    assert((!DIVar || DIVar.isVariable()) &&
-           "Variable in DbgDeclareInst should be either null or a DIVariable.");
-    if (!DIVar || !FuncInfo.MF->getMMI().hasDebugInfo()) {
+    assert(DI->getVariable() && "Missing variable");
+    if (!FuncInfo.MF->getMMI().hasDebugInfo()) {
       DEBUG(dbgs() << "Dropping debug info for " << *DI << "\n");
       return true;
     }
@@ -1123,6 +1131,8 @@ bool FastISel::selectIntrinsicCall(const IntrinsicInst *II) {
                                      false);
 
     if (Op) {
+      assert(DI->getVariable()->isValidLocationForIntrinsic(DbgLoc) &&
+             "Expected inlined-at fields to agree");
       if (Op->isReg()) {
         Op->setIsDebug(true);
         BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
@@ -1147,6 +1157,8 @@ bool FastISel::selectIntrinsicCall(const IntrinsicInst *II) {
     const DbgValueInst *DI = cast<DbgValueInst>(II);
     const MCInstrDesc &II = TII.get(TargetOpcode::DBG_VALUE);
     const Value *V = DI->getValue();
+    assert(DI->getVariable()->isValidLocationForIntrinsic(DbgLoc) &&
+           "Expected inlined-at fields to agree");
     if (!V) {
       // Currently the optimizer can produce this; insert an undef to
       // help debugging.  Probably the optimizer should not do this.

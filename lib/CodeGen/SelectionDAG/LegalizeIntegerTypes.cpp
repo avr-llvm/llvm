@@ -251,6 +251,16 @@ SDValue DAGTypeLegalizer::PromoteIntRes_BITCAST(SDNode *N) {
   case TargetLowering::TypeSoftenFloat:
     // Promote the integer operand by hand.
     return DAG.getNode(ISD::ANY_EXTEND, dl, NOutVT, GetSoftenedFloat(InOp));
+  case TargetLowering::TypePromoteFloat: {
+    // Convert the promoted float by hand.
+    if (NOutVT.bitsEq(NInVT)) {
+      SDValue PromotedOp = GetPromotedFloat(InOp);
+      SDValue Trunc = DAG.getNode(ISD::FP_TO_FP16, dl, NOutVT, PromotedOp);
+      return DAG.getNode(ISD::AssertZext, dl, NOutVT, Trunc,
+                         DAG.getValueType(OutVT));
+    }
+    break;
+  }
   case TargetLowering::TypeExpandInteger:
   case TargetLowering::TypeExpandFloat:
     break;
@@ -1537,6 +1547,9 @@ ExpandShiftWithUnknownAmountBit(SDNode *N, SDValue &Lo, SDValue &Hi) {
   SDValue AmtLack = DAG.getNode(ISD::SUB, dl, ShTy, NVBitsNode, Amt);
   SDValue isShort = DAG.getSetCC(dl, getSetCCResultType(ShTy),
                                  Amt, NVBitsNode, ISD::SETULT);
+  SDValue isZero = DAG.getSetCC(dl, getSetCCResultType(ShTy),
+                                Amt, DAG.getConstant(0, ShTy),
+                                ISD::SETEQ);
 
   SDValue LoS, HiS, LoL, HiL;
   switch (N->getOpcode()) {
@@ -1546,8 +1559,6 @@ ExpandShiftWithUnknownAmountBit(SDNode *N, SDValue &Lo, SDValue &Hi) {
     LoS = DAG.getNode(ISD::SHL, dl, NVT, InL, Amt);
     HiS = DAG.getNode(ISD::OR, dl, NVT,
                       DAG.getNode(ISD::SHL, dl, NVT, InH, Amt),
-    // FIXME: If Amt is zero, the following shift generates an undefined result
-    // on some architectures.
                       DAG.getNode(ISD::SRL, dl, NVT, InL, AmtLack));
 
     // Long: ShAmt >= NVTBits
@@ -1555,7 +1566,8 @@ ExpandShiftWithUnknownAmountBit(SDNode *N, SDValue &Lo, SDValue &Hi) {
     HiL = DAG.getNode(ISD::SHL, dl, NVT, InL, AmtExcess); // Hi from Lo part.
 
     Lo = DAG.getSelect(dl, NVT, isShort, LoS, LoL);
-    Hi = DAG.getSelect(dl, NVT, isShort, HiS, HiL);
+    Hi = DAG.getSelect(dl, NVT, isZero, InH,
+                       DAG.getSelect(dl, NVT, isShort, HiS, HiL));
     return true;
   case ISD::SRL:
     // Short: ShAmt < NVTBits
@@ -1570,7 +1582,8 @@ ExpandShiftWithUnknownAmountBit(SDNode *N, SDValue &Lo, SDValue &Hi) {
     HiL = DAG.getConstant(0, NVT);                        // Hi part is zero.
     LoL = DAG.getNode(ISD::SRL, dl, NVT, InH, AmtExcess); // Lo from Hi part.
 
-    Lo = DAG.getSelect(dl, NVT, isShort, LoS, LoL);
+    Lo = DAG.getSelect(dl, NVT, isZero, InL,
+                       DAG.getSelect(dl, NVT, isShort, LoS, LoL));
     Hi = DAG.getSelect(dl, NVT, isShort, HiS, HiL);
     return true;
   case ISD::SRA:
@@ -1578,8 +1591,6 @@ ExpandShiftWithUnknownAmountBit(SDNode *N, SDValue &Lo, SDValue &Hi) {
     HiS = DAG.getNode(ISD::SRA, dl, NVT, InH, Amt);
     LoS = DAG.getNode(ISD::OR, dl, NVT,
                       DAG.getNode(ISD::SRL, dl, NVT, InL, Amt),
-    // FIXME: If Amt is zero, the following shift generates an undefined result
-    // on some architectures.
                       DAG.getNode(ISD::SHL, dl, NVT, InH, AmtLack));
 
     // Long: ShAmt >= NVTBits
@@ -1587,7 +1598,8 @@ ExpandShiftWithUnknownAmountBit(SDNode *N, SDValue &Lo, SDValue &Hi) {
                       DAG.getConstant(NVTBits-1, ShTy));
     LoL = DAG.getNode(ISD::SRA, dl, NVT, InH, AmtExcess); // Lo from Hi part.
 
-    Lo = DAG.getSelect(dl, NVT, isShort, LoS, LoL);
+    Lo = DAG.getSelect(dl, NVT, isZero, InL,
+                       DAG.getSelect(dl, NVT, isShort, LoS, LoL));
     Hi = DAG.getSelect(dl, NVT, isShort, HiS, HiL);
     return true;
   }
@@ -1845,7 +1857,11 @@ void DAGTypeLegalizer::ExpandIntRes_FP_TO_SINT(SDNode *N, SDValue &Lo,
                                                SDValue &Hi) {
   SDLoc dl(N);
   EVT VT = N->getValueType(0);
+
   SDValue Op = N->getOperand(0);
+  if (getTypeAction(Op.getValueType()) == TargetLowering::TypePromoteFloat)
+    Op = GetPromotedFloat(Op);
+
   RTLIB::Libcall LC = RTLIB::getFPTOSINT(Op.getValueType(), VT);
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unexpected fp-to-sint conversion!");
   SplitInteger(TLI.makeLibCall(DAG, LC, VT, &Op, 1, true/*irrelevant*/,
@@ -1857,7 +1873,11 @@ void DAGTypeLegalizer::ExpandIntRes_FP_TO_UINT(SDNode *N, SDValue &Lo,
                                                SDValue &Hi) {
   SDLoc dl(N);
   EVT VT = N->getValueType(0);
+
   SDValue Op = N->getOperand(0);
+  if (getTypeAction(Op.getValueType()) == TargetLowering::TypePromoteFloat)
+    Op = GetPromotedFloat(Op);
+
   RTLIB::Libcall LC = RTLIB::getFPTOUINT(Op.getValueType(), VT);
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unexpected fp-to-uint conversion!");
   SplitInteger(TLI.makeLibCall(DAG, LC, VT, &Op, 1, false/*irrelevant*/,

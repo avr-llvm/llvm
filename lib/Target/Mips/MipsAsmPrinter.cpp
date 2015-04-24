@@ -260,31 +260,22 @@ void MipsAsmPrinter::printSavedRegsBitmask() {
   unsigned AFGR64RegSize = Mips::AFGR64RegClass.getSize();
   bool HasAFGR64Reg = false;
   unsigned CSFPRegsSize = 0;
-  unsigned i, e = CSI.size();
 
-  // Set FPU Bitmask.
-  for (i = 0; i != e; ++i) {
-    unsigned Reg = CSI[i].getReg();
-    if (Mips::GPR32RegClass.contains(Reg))
-      break;
-
+  for (const auto &I : CSI) {
+    unsigned Reg = I.getReg();
     unsigned RegNum = TRI->getEncodingValue(Reg);
-    if (Mips::AFGR64RegClass.contains(Reg)) {
+
+    // If it's a floating point register, set the FPU Bitmask.
+    // If it's a general purpose register, set the CPU Bitmask.
+    if (Mips::FGR32RegClass.contains(Reg)) {
+      FPUBitmask |= (1 << RegNum);
+      CSFPRegsSize += FGR32RegSize;
+    } else if (Mips::AFGR64RegClass.contains(Reg)) {
       FPUBitmask |= (3 << RegNum);
       CSFPRegsSize += AFGR64RegSize;
       HasAFGR64Reg = true;
-      continue;
-    }
-
-    FPUBitmask |= (1 << RegNum);
-    CSFPRegsSize += FGR32RegSize;
-  }
-
-  // Set CPU Bitmask.
-  for (; i != e; ++i) {
-    unsigned Reg = CSI[i].getReg();
-    unsigned RegNum = TRI->getEncodingValue(Reg);
-    CPUBitmask |= (1 << RegNum);
+    } else if (Mips::GPR32RegClass.contains(Reg))
+      CPUBitmask |= (1 << RegNum);
   }
 
   // FP Regs are saved right below where the virtual frame pointer points to.
@@ -437,7 +428,7 @@ bool MipsAsmPrinter::isBlockOnlyReachableByFallthrough(const MachineBasicBlock*
 
 // Print out an operand for an inline asm expression.
 bool MipsAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
-                                     unsigned AsmVariant,const char *ExtraCode,
+                                     unsigned AsmVariant, const char *ExtraCode,
                                      raw_ostream &O) {
   // Does this asm operand have a single letter operand modifier?
   if (ExtraCode && ExtraCode[0]) {
@@ -539,18 +530,24 @@ bool MipsAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
                                            unsigned OpNum, unsigned AsmVariant,
                                            const char *ExtraCode,
                                            raw_ostream &O) {
-  int Offset = 0;
+  assert(OpNum + 1 < MI->getNumOperands() && "Insufficient operands");
+  const MachineOperand &BaseMO = MI->getOperand(OpNum);
+  const MachineOperand &OffsetMO = MI->getOperand(OpNum + 1);
+  assert(BaseMO.isReg() && "Unexpected base pointer for inline asm memory operand.");
+  assert(OffsetMO.isImm() && "Unexpected offset for inline asm memory operand.");
+  int Offset = OffsetMO.getImm();
+
   // Currently we are expecting either no ExtraCode or 'D'
   if (ExtraCode) {
     if (ExtraCode[0] == 'D')
-      Offset = 4;
+      Offset += 4;
     else
       return true; // Unknown modifier.
+    // FIXME: M = high order bits
+    // FIXME: L = low order bits
   }
 
-  const MachineOperand &MO = MI->getOperand(OpNum);
-  assert(MO.isReg() && "unexpected inline asm memory operand");
-  O << Offset << "($" << MipsInstPrinter::getRegisterName(MO.getReg()) << ")";
+  O << Offset << "($" << MipsInstPrinter::getRegisterName(BaseMO.getReg()) << ")";
 
   return false;
 }

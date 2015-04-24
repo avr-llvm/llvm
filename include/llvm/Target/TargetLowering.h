@@ -100,7 +100,8 @@ public:
     TypeExpandFloat,     // Split this float into two of half the size.
     TypeScalarizeVector, // Replace this one-element vector with its element.
     TypeSplitVector,     // Split this vector into two of half the size.
-    TypeWidenVector      // This vector should be widened into a larger vector.
+    TypeWidenVector,     // This vector should be widened into a larger vector.
+    TypePromoteFloat     // Replace this float with a larger one.
   };
 
   /// LegalizeKind holds the legalization kind that needs to happen to EVT
@@ -1080,6 +1081,11 @@ public:
     return false;
   }
 
+  /// Returns true if arguments should be sign-extended in lib calls.
+  virtual bool shouldSignExtendTypeInLibCall(EVT Type, bool IsSigned) const {
+    return IsSigned;
+ }
+
   /// Returns true if the given (atomic) load should be expanded by the
   /// IR-level AtomicExpand pass into a load-linked instruction
   /// (through emitLoadLinked()).
@@ -2025,6 +2031,7 @@ public:
                            ISD::CondCode &CCCode, SDLoc DL) const;
 
   /// Returns a pair of (return value, chain).
+  /// It is an error to pass RTLIB::UNKNOWN_LIBCALL as \p LC.
   std::pair<SDValue, SDValue> makeLibCall(SelectionDAG &DAG, RTLIB::Libcall LC,
                                           EVT RetVT, const SDValue *Ops,
                                           unsigned NumOps, bool isSigned,

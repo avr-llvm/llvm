@@ -23,6 +23,7 @@
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/MemoryDependenceAnalysis.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -33,7 +34,7 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Local.h"
 using namespace llvm;
 
@@ -167,7 +168,7 @@ static bool hasMemoryWrite(Instruction *I, const TargetLibraryInfo *TLI) {
       return true;
     }
   }
-  if (CallSite CS = I) {
+  if (auto CS = CallSite(I)) {
     if (Function *F = CS.getCalledFunction()) {
       if (TLI && TLI->has(LibFunc::strcpy) &&
           F->getName() == TLI->getName(LibFunc::strcpy)) {
@@ -261,7 +262,7 @@ static bool isRemovable(Instruction *I) {
     }
   }
 
-  if (CallSite CS = I)
+  if (auto CS = CallSite(I))
     return CS.getInstruction()->use_empty();
 
   return false;
@@ -305,7 +306,7 @@ static Value *getStoredPointerOperand(Instruction *I) {
     }
   }
 
-  CallSite CS = I;
+  CallSite CS(I);
   // All the supported functions so far happen to have dest as their first
   // argument.
   return CS.getArgument(0);
@@ -779,7 +780,7 @@ bool DSE::handleEndBlock(BasicBlock &BB) {
       continue;
     }
 
-    if (CallSite CS = cast<Value>(BBI)) {
+    if (auto CS = CallSite(BBI)) {
       // Remove allocation function calls from the list of dead stack objects; 
       // there can't be any references before the definition.
       if (isAllocLikeFn(BBI, TLI))

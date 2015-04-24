@@ -8,12 +8,10 @@
 /// \file
 //==-----------------------------------------------------------------------===//
 
-#include <deque>
-
 #include "AMDGPU.h"
 #include "AMDGPUInstrInfo.h"
-#include "R600InstrInfo.h"
 #include "AMDGPUSubtarget.h"
+#include "R600InstrInfo.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/SmallVector.h"
@@ -32,6 +30,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
+#include <deque>
 
 using namespace llvm;
 
@@ -624,7 +623,7 @@ DebugLoc AMDGPUCFGStructurizer::getLastDebugLocInBB(MachineBasicBlock *MBB) {
   for (MachineBasicBlock::iterator It = MBB->begin(); It != MBB->end();
       ++It) {
     MachineInstr *instr = &(*It);
-    if (instr->getDebugLoc().isUnknown() == false)
+    if (instr->getDebugLoc())
       DL = instr->getDebugLoc();
   }
   return DL;
@@ -1612,7 +1611,7 @@ void AMDGPUCFGStructurizer::settleLoopcontBlock(MachineBasicBlock *ContingMBB,
 
     bool UseContinueLogical = ((&*ContingMBB->rbegin()) == MI);
 
-    if (UseContinueLogical == false) {
+    if (!UseContinueLogical) {
       int BranchOpcode =
           TrueBranch == ContMBB ? getBranchNzeroOpcode(OldOpcode) :
           getBranchZeroOpcode(OldOpcode);

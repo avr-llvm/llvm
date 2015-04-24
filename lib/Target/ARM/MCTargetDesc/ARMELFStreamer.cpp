@@ -472,7 +472,7 @@ class ARMELFStreamer : public MCELFStreamer {
 public:
   friend class ARMTargetELFStreamer;
 
-  ARMELFStreamer(MCContext &Context, MCAsmBackend &TAB, raw_ostream &OS,
+  ARMELFStreamer(MCContext &Context, MCAsmBackend &TAB, raw_pwrite_stream &OS,
                  MCCodeEmitter *Emitter, bool IsThumb)
       : MCELFStreamer(Context, TAB, OS, Emitter), IsThumb(IsThumb),
         MappingSymbolCounter(0), LastEMS(EMS_None) {
@@ -817,6 +817,7 @@ void ARMTargetELFStreamer::emitArchDefaultAttributes() {
     break;
 
   case ARM::ARMV8A:
+  case ARM::ARMV8_1A:
     setAttributeItem(CPU_arch_profile, ApplicationProfile, false);
     setAttributeItem(ARM_ISA_use, Allowed, false);
     setAttributeItem(THUMB_ISA_use, AllowThumb32, false);
@@ -914,9 +915,8 @@ void ARMTargetELFStreamer::emitFPUDefaultAttributes() {
     setAttributeItem(ARMBuildAttrs::FP_arch,
                      ARMBuildAttrs::AllowFPARMv8A,
                      /* OverwriteExisting= */ false);
-    setAttributeItem(ARMBuildAttrs::Advanced_SIMD_arch,
-                     ARMBuildAttrs::AllowNeonARMv8,
-                     /* OverwriteExisting= */ false);
+    // 'Advanced_SIMD_arch' must be emitted not here, but within
+    // ARMAsmPrinter::emitAttributes(), depending on hasV8Ops() and hasV8_1a()
     break;
 
   case ARM::SOFTVFP:
@@ -1083,14 +1083,13 @@ inline void ARMELFStreamer::SwitchToEHSection(const char *Prefix,
   }
 
   // Get .ARM.extab or .ARM.exidx section
-  const MCSectionELF *EHSection = nullptr;
-  if (const MCSymbol *Group = FnSection.getGroup()) {
-    EHSection =
-        getContext().getELFSection(EHSecName, Type, Flags | ELF::SHF_GROUP,
-                                   FnSection.getEntrySize(), Group->getName());
-  } else {
-    EHSection = getContext().getELFSection(EHSecName, Type, Flags);
-  }
+  const MCSymbol *Group = FnSection.getGroup();
+  if (Group)
+    Flags |= ELF::SHF_GROUP;
+  const MCSectionELF *EHSection =
+      getContext().getELFSection(EHSecName, Type, Flags, 0, Group,
+                                 FnSection.getUniqueID(), nullptr, &FnSection);
+
   assert(EHSection && "Failed to get the required EH section");
 
   // Switch to .ARM.extab or .ARM.exidx section
@@ -1383,8 +1382,9 @@ MCTargetStreamer *createARMObjectTargetStreamer(MCStreamer &S,
 }
 
 MCELFStreamer *createARMELFStreamer(MCContext &Context, MCAsmBackend &TAB,
-                                    raw_ostream &OS, MCCodeEmitter *Emitter,
-                                    bool RelaxAll, bool IsThumb) {
+                                    raw_pwrite_stream &OS,
+                                    MCCodeEmitter *Emitter, bool RelaxAll,
+                                    bool IsThumb) {
     ARMELFStreamer *S = new ARMELFStreamer(Context, TAB, OS, Emitter, IsThumb);
     // FIXME: This should eventually end up somewhere else where more
     // intelligent flag decisions can be made. For now we are just maintaining

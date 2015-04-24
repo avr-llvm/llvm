@@ -38,6 +38,7 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
@@ -52,7 +53,6 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/SSAUpdater.h"
@@ -704,10 +704,10 @@ namespace {
             // We need to create an LCSSA PHI node for the incoming value and
             // store that.
             PHINode *PN = PHINode::Create(
-                I->getType(), PredCache.GetNumPreds(BB),
+                I->getType(), PredCache.size(BB),
                 I->getName() + ".lcssa", BB->begin());
-            for (BasicBlock **PI = PredCache.GetPreds(BB); *PI; ++PI)
-              PN->addIncoming(I, *PI);
+            for (BasicBlock *Pred : PredCache.get(BB))
+              PN->addIncoming(I, Pred);
             return PN;
           }
       return V;

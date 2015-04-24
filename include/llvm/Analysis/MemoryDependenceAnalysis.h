@@ -19,6 +19,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/PredIteratorCache.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/Pass.h"
 
@@ -325,11 +326,11 @@ namespace llvm {
     AliasAnalysis *AA;
     DominatorTree *DT;
     AssumptionCache *AC;
-    std::unique_ptr<PredIteratorCache> PredCache;
+    PredIteratorCache PredCache;
 
   public:
     MemoryDependenceAnalysis();
-    ~MemoryDependenceAnalysis();
+    ~MemoryDependenceAnalysis() override;
     static char ID;
 
     /// Pass Implementation stuff.  This doesn't do any analysis eagerly.

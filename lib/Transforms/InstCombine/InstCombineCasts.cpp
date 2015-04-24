@@ -1450,40 +1450,6 @@ Instruction *InstCombiner::commonPointerCastTransforms(CastInst &CI) {
       CI.setOperand(0, GEP->getOperand(0));
       return &CI;
     }
-
-    // If the GEP has a single use, and the base pointer is a bitcast, and the
-    // GEP computes a constant offset, see if we can convert these three
-    // instructions into fewer.  This typically happens with unions and other
-    // non-type-safe code.
-    unsigned AS = GEP->getPointerAddressSpace();
-    unsigned OffsetBits = DL.getPointerSizeInBits(AS);
-    APInt Offset(OffsetBits, 0);
-    BitCastInst *BCI = dyn_cast<BitCastInst>(GEP->getOperand(0));
-    if (GEP->hasOneUse() && BCI && GEP->accumulateConstantOffset(DL, Offset)) {
-      // FIXME: This is insufficiently tested - just a no-crash test
-      // (test/Transforms/InstCombine/2007-05-14-Crash.ll)
-      //
-      // Get the base pointer input of the bitcast, and the type it points to.
-      Value *OrigBase = BCI->getOperand(0);
-      SmallVector<Value*, 8> NewIndices;
-      if (FindElementAtOffset(OrigBase->getType(), Offset.getSExtValue(),
-                              NewIndices)) {
-        // FIXME: This codepath is completely untested - could be unreachable
-        // for all I know.
-        // If we were able to index down into an element, create the GEP
-        // and bitcast the result.  This eliminates one bitcast, potentially
-        // two.
-        Value *NGEP = cast<GEPOperator>(GEP)->isInBounds() ?
-          Builder->CreateInBoundsGEP(OrigBase, NewIndices) :
-          Builder->CreateGEP(OrigBase, NewIndices);
-        NGEP->takeName(GEP);
-
-        if (isa<BitCastInst>(CI))
-          return new BitCastInst(NGEP, CI.getType());
-        assert(isa<PtrToIntInst>(CI));
-        return new PtrToIntInst(NGEP, CI.getType());
-      }
-    }
   }
 
   return commonCastTransforms(CI);
@@ -1804,19 +1770,17 @@ Instruction *InstCombiner::visitBitCast(BitCastInst &CI) {
     // If the source and destination are pointers, and this cast is equivalent
     // to a getelementptr X, 0, 0, 0...  turn it into the appropriate gep.
     // This can enhance SROA and other transforms that want type-safe pointers.
-    Constant *ZeroUInt =
-      Constant::getNullValue(Type::getInt32Ty(CI.getContext()));
     unsigned NumZeros = 0;
     while (SrcElTy != DstElTy &&
            isa<CompositeType>(SrcElTy) && !SrcElTy->isPointerTy() &&
            SrcElTy->getNumContainedTypes() /* not "{}" */) {
-      SrcElTy = cast<CompositeType>(SrcElTy)->getTypeAtIndex(ZeroUInt);
+      SrcElTy = cast<CompositeType>(SrcElTy)->getTypeAtIndex(0U);
       ++NumZeros;
     }
 
     // If we found a path from the src to dest, create the getelementptr now.
     if (SrcElTy == DstElTy) {
-      SmallVector<Value*, 8> Idxs(NumZeros+1, ZeroUInt);
+      SmallVector<Value *, 8> Idxs(NumZeros + 1, Builder->getInt32(0));
       return GetElementPtrInst::CreateInBounds(Src, Idxs);
     }
   }

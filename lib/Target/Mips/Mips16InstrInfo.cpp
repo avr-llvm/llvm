@@ -24,6 +24,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cctype>
 
 using namespace llvm;
@@ -292,6 +293,9 @@ void Mips16InstrInfo::adjustStackPtrBigUnrestricted(
 void Mips16InstrInfo::adjustStackPtr(unsigned SP, int64_t Amount,
                                      MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator I) const {
+  if (Amount == 0)
+    return;
+
   if (isInt<16>(Amount))  // need to change to addiu sp, ....and isInt<16>
     BuildAddiuSpImm(MBB, I, Amount);
   else

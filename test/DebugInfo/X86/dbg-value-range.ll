@@ -8,7 +8,7 @@ entry:
   %tmp1 = getelementptr inbounds %struct.a, %struct.a* %b, i64 0, i32 0, !dbg !14
   %tmp2 = load i32, i32* %tmp1, align 4, !dbg !14
   tail call void @llvm.dbg.value(metadata i32 %tmp2, i64 0, metadata !11, metadata !MDExpression()), !dbg !14
-  %call = tail call i32 (...)* @foo(i32 %tmp2) nounwind , !dbg !18
+  %call = tail call i32 (...) @foo(i32 %tmp2) nounwind , !dbg !18
   %add = add nsw i32 %tmp2, 1, !dbg !19
   ret i32 %add, !dbg !19
 }
@@ -40,7 +40,7 @@ declare void @llvm.dbg.value(metadata, i64, metadata, metadata) nounwind readnon
 !20 = !{!0}
 !21 = !{!6, !11}
 !22 = !MDFile(filename: "bar.c", directory: "/private/tmp")
-!23 = !{i32 0}
+!23 = !{}
 
 ; Check that variable bar:b value range is appropriately truncated in debug info.
 ; The variable is in %rdi which is clobbered by 'movl %ebx, %edi'

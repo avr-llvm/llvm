@@ -31,6 +31,7 @@ static cl::opt<bool>
 FullRegNames("ppc-asm-full-reg-names", cl::Hidden, cl::init(false),
              cl::desc("Use full register names when printing assembly"));
 
+#define PRINT_ALIAS_INSTR
 #include "PPCGenAsmWriter.inc"
 
 void PPCInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
@@ -51,7 +52,7 @@ void PPCInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
 }
 
 void PPCInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
-                               StringRef Annot) {
+                               StringRef Annot, const MCSubtargetInfo &STI) {
   // Check for slwi/srwi mnemonics.
   if (MI->getOpcode() == PPC::RLWINM) {
     unsigned char SH = MI->getOperand(2).getImm();
@@ -111,8 +112,9 @@ void PPCInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
   // precision).  FIXME: Is there a better solution?
   if (MI->getOpcode() == TargetOpcode::COPY_TO_REGCLASS)
     return;
-  
-  printInstruction(MI, O);
+
+  if (!printAliasInstr(MI, O))
+    printInstruction(MI, O);
   printAnnotation(O, Annot);
 }
 
@@ -225,6 +227,13 @@ void PPCInstPrinter::printU2ImmOperand(const MCInst *MI, unsigned OpNo,
                                        raw_ostream &O) {
   unsigned int Value = MI->getOperand(OpNo).getImm();
   assert(Value <= 3 && "Invalid u2imm argument!");
+  O << (unsigned int)Value;
+}
+
+void PPCInstPrinter::printU3ImmOperand(const MCInst *MI, unsigned OpNo,
+                                       raw_ostream &O) {
+  unsigned int Value = MI->getOperand(OpNo).getImm();
+  assert(Value <= 8 && "Invalid u3imm argument!");
   O << (unsigned int)Value;
 }
 

@@ -73,8 +73,8 @@ namespace {
       }
 
       std::string getDescription() const {
-        return std::string((IsArg ? "Argument #" : "Return value #"))
-               + utostr(Idx) + " of function " + F->getName().str();
+        return (Twine(IsArg ? "Argument #" : "Return value #") + utostr(Idx) +
+                " of function " + F->getName()).str();
       }
     };
 
@@ -127,7 +127,7 @@ namespace {
     // As the code generation for module is finished (and DIBuilder is
     // finalized) we assume that subprogram descriptors won't be changed, and
     // they are stored in map for short duration anyway.
-    DenseMap<const Function *, DISubprogram> FunctionDIs;
+    DenseMap<const Function *, MDSubprogram *> FunctionDIs;
 
   protected:
     // DAH uses this to specify a different ID.
@@ -303,8 +303,8 @@ bool DAE::DeleteDeadVarargs(Function &Fn) {
   // Patch the pointer to LLVM function in debug info descriptor.
   auto DI = FunctionDIs.find(&Fn);
   if (DI != FunctionDIs.end()) {
-    DISubprogram SP = DI->second;
-    SP.replaceFunction(NF);
+    MDSubprogram *SP = DI->second;
+    SP->replaceFunction(NF);
     // Ensure the map is updated so it can be reused on non-varargs argument
     // eliminations of the same function.
     FunctionDIs.erase(DI);
@@ -482,7 +482,7 @@ DAE::Liveness DAE::SurveyUse(const Use *U,
       return Result;
     }
 
-    if (ImmutableCallSite CS = V) {
+    if (auto CS = ImmutableCallSite(V)) {
       const Function *F = CS.getCalledFunction();
       if (F) {
         // Used in a direct call.
@@ -1092,7 +1092,7 @@ bool DAE::RemoveDeadStuffFromFunction(Function *F) {
   // Patch the pointer to LLVM function in debug info descriptor.
   auto DI = FunctionDIs.find(F);
   if (DI != FunctionDIs.end())
-    DI->second.replaceFunction(NF);
+    DI->second->replaceFunction(NF);
 
   // Now that the old function is dead, delete it.
   F->eraseFromParent();

@@ -27,16 +27,10 @@ def SendMsgImm : Operand<i32> {
 }
 
 def isGCN : Predicate<"Subtarget->getGeneration() "
-                      ">= AMDGPUSubtarget::SOUTHERN_ISLANDS">;
-def isSICI : Predicate<
-  "Subtarget->getGeneration() == AMDGPUSubtarget::SOUTHERN_ISLANDS ||"
-  "Subtarget->getGeneration() == AMDGPUSubtarget::SEA_ISLANDS"
->;
-def isCI : Predicate<"Subtarget->getGeneration() "
-                      ">= AMDGPUSubtarget::SEA_ISLANDS">;
-def isVI : Predicate <
-  "Subtarget->getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS"
->;
+                      ">= AMDGPUSubtarget::SOUTHERN_ISLANDS">,
+            AssemblerPredicate<"FeatureGCN">;
+def isSI : Predicate<"Subtarget->getGeneration() "
+                      "== AMDGPUSubtarget::SOUTHERN_ISLANDS">;
 
 def HasFlatAddressSpace : Predicate<"Subtarget.hasFlatAddressSpace()">;
 
@@ -240,9 +234,9 @@ defm S_MAX_U32 : SOP2_32 <sop2<0x09>, "s_max_u32",
 >;
 } // End Defs = [SCC]
 
-defm S_CSELECT_B32 : SOP2_SELECT_32 <sop2<0x0a>, "s_cselect_b32", []>;
 
 let Uses = [SCC] in {
+  defm S_CSELECT_B32 : SOP2_32 <sop2<0x0a>, "s_cselect_b32", []>;
   defm S_CSELECT_B64 : SOP2_64 <sop2<0x0b>, "s_cselect_b64", []>;
 } // End Uses = [SCC]
 
@@ -306,7 +300,8 @@ defm S_ASHR_I64 : SOP2_64_32 <sop2<0x23, 0x21>, "s_ashr_i64",
 >;
 } // End Defs = [SCC]
 
-defm S_BFM_B32 : SOP2_32 <sop2<0x24, 0x22>, "s_bfm_b32", []>;
+defm S_BFM_B32 : SOP2_32 <sop2<0x24, 0x22>, "s_bfm_b32",
+  [(set i32:$dst, (AMDGPUbfm i32:$src0, i32:$src1))]>;
 defm S_BFM_B64 : SOP2_64 <sop2<0x25, 0x23>, "s_bfm_b64", []>;
 defm S_MUL_I32 : SOP2_32 <sop2<0x26, 0x24>, "s_mul_i32",
   [(set i32:$dst, (mul i32:$src0, i32:$src1))]
@@ -384,6 +379,7 @@ defm S_CMPK_EQ_I32 : SOPK_SCC <sopk<0x03, 0x02>, "s_cmpk_eq_i32",
 >;
 */
 
+defm S_CMPK_EQ_I32 : SOPK_SCC <sopk<0x03, 0x02>, "s_cmpk_eq_i32", []>;
 defm S_CMPK_LG_I32 : SOPK_SCC <sopk<0x04, 0x03>, "s_cmpk_lg_i32", []>;
 defm S_CMPK_GT_I32 : SOPK_SCC <sopk<0x05, 0x04>, "s_cmpk_gt_i32", []>;
 defm S_CMPK_GE_I32 : SOPK_SCC <sopk<0x06, 0x05>, "s_cmpk_ge_i32", []>;
@@ -397,18 +393,27 @@ defm S_CMPK_LT_U32 : SOPK_SCC <sopk<0x0d, 0x0c>, "s_cmpk_lt_u32", []>;
 defm S_CMPK_LE_U32 : SOPK_SCC <sopk<0x0e, 0x0d>, "s_cmpk_le_u32", []>;
 } // End isCompare = 1
 
-let isCommutable = 1 in {
-  let Defs = [SCC], isCommutable = 1 in {
-    defm S_ADDK_I32 : SOPK_32 <sopk<0x0f, 0x0e>, "s_addk_i32", []>;
-  }
-  defm S_MULK_I32 : SOPK_32 <sopk<0x10, 0x0f>, "s_mulk_i32", []>;
+let Defs = [SCC], isCommutable = 1, DisableEncoding = "$src0",
+    Constraints = "$sdst = $src0" in {
+  defm S_ADDK_I32 : SOPK_32TIE <sopk<0x0f, 0x0e>, "s_addk_i32", []>;
+  defm S_MULK_I32 : SOPK_32TIE <sopk<0x10, 0x0f>, "s_mulk_i32", []>;
 }
 
-//defm S_CBRANCH_I_FORK : SOPK_ <sopk<0x11, 0x10>, "s_cbranch_i_fork", []>;
+defm S_CBRANCH_I_FORK : SOPK_m <
+  sopk<0x11, 0x10>, "s_cbranch_i_fork", (outs),
+  (ins SReg_64:$sdst, u16imm:$simm16), " $sdst, $simm16"
+>;
 defm S_GETREG_B32 : SOPK_32 <sopk<0x12, 0x11>, "s_getreg_b32", []>;
-defm S_SETREG_B32 : SOPK_32 <sopk<0x13, 0x12>, "s_setreg_b32", []>;
-defm S_GETREG_REGRD_B32 : SOPK_32 <sopk<0x14, 0x13>, "s_getreg_regrd_b32", []>;
-//defm S_SETREG_IMM32_B32 : SOPK_32 <sopk<0x15, 0x14>, "s_setreg_imm32_b32", []>;
+defm S_SETREG_B32 : SOPK_m <
+  sopk<0x13, 0x12>, "s_setreg_b32", (outs),
+  (ins SReg_32:$sdst, u16imm:$simm16), " $sdst, $simm16"
+>;
+// FIXME: Not on SI?
+//defm S_GETREG_REGRD_B32 : SOPK_32 <sopk<0x14, 0x13>, "s_getreg_regrd_b32", []>;
+defm S_SETREG_IMM32_B32 : SOPK_IMM32 <
+  sopk<0x15, 0x14>, "s_setreg_imm32_b32", (outs),
+  (ins i32imm:$imm, u16imm:$simm16), " $imm, $simm16"
+>;
 
 //===----------------------------------------------------------------------===//
 // SOPP Instructions
@@ -507,31 +512,30 @@ def S_TTRACEDATA : SOPP <0x00000016, (ins), "s_ttracedata"> {
 // VOPC Instructions
 //===----------------------------------------------------------------------===//
 
-let isCompare = 1 in {
+let isCompare = 1, isCommutable = 1 in {
 
 defm V_CMP_F_F32 : VOPC_F32 <vopc<0x0, 0x40>, "v_cmp_f_f32">;
-defm V_CMP_LT_F32 : VOPC_F32 <vopc<0x1, 0x41>, "v_cmp_lt_f32", COND_OLT>;
+defm V_CMP_LT_F32 : VOPC_F32 <vopc<0x1, 0x41>, "v_cmp_lt_f32", COND_OLT, "v_cmp_gt_f32">;
 defm V_CMP_EQ_F32 : VOPC_F32 <vopc<0x2, 0x42>, "v_cmp_eq_f32", COND_OEQ>;
-defm V_CMP_LE_F32 : VOPC_F32 <vopc<0x3, 0x43>, "v_cmp_le_f32", COND_OLE>;
+defm V_CMP_LE_F32 : VOPC_F32 <vopc<0x3, 0x43>, "v_cmp_le_f32", COND_OLE, "v_cmp_ge_f32">;
 defm V_CMP_GT_F32 : VOPC_F32 <vopc<0x4, 0x44>, "v_cmp_gt_f32", COND_OGT>;
 defm V_CMP_LG_F32 : VOPC_F32 <vopc<0x5, 0x45>, "v_cmp_lg_f32", COND_ONE>;
 defm V_CMP_GE_F32 : VOPC_F32 <vopc<0x6, 0x46>, "v_cmp_ge_f32", COND_OGE>;
 defm V_CMP_O_F32 : VOPC_F32 <vopc<0x7, 0x47>, "v_cmp_o_f32", COND_O>;
 defm V_CMP_U_F32 : VOPC_F32 <vopc<0x8, 0x48>, "v_cmp_u_f32", COND_UO>;
-defm V_CMP_NGE_F32 : VOPC_F32 <vopc<0x9, 0x49>, "v_cmp_nge_f32",  COND_ULT>;
+defm V_CMP_NGE_F32 : VOPC_F32 <vopc<0x9, 0x49>, "v_cmp_nge_f32",  COND_ULT, "v_cmp_nle_f32">;
 defm V_CMP_NLG_F32 : VOPC_F32 <vopc<0xa, 0x4a>, "v_cmp_nlg_f32", COND_UEQ>;
-defm V_CMP_NGT_F32 : VOPC_F32 <vopc<0xb, 0x4b>, "v_cmp_ngt_f32", COND_ULE>;
+defm V_CMP_NGT_F32 : VOPC_F32 <vopc<0xb, 0x4b>, "v_cmp_ngt_f32", COND_ULE, "v_cmp_nlt_f32">;
 defm V_CMP_NLE_F32 : VOPC_F32 <vopc<0xc, 0x4c>, "v_cmp_nle_f32", COND_UGT>;
 defm V_CMP_NEQ_F32 : VOPC_F32 <vopc<0xd, 0x4d>, "v_cmp_neq_f32", COND_UNE>;
 defm V_CMP_NLT_F32 : VOPC_F32 <vopc<0xe, 0x4e>, "v_cmp_nlt_f32", COND_UGE>;
 defm V_CMP_TRU_F32 : VOPC_F32 <vopc<0xf, 0x4f>, "v_cmp_tru_f32">;
 
-let hasSideEffects = 1 in {
 
 defm V_CMPX_F_F32 : VOPCX_F32 <vopc<0x10, 0x50>, "v_cmpx_f_f32">;
-defm V_CMPX_LT_F32 : VOPCX_F32 <vopc<0x11, 0x51>, "v_cmpx_lt_f32">;
+defm V_CMPX_LT_F32 : VOPCX_F32 <vopc<0x11, 0x51>, "v_cmpx_lt_f32", "v_cmpx_gt_f32">;
 defm V_CMPX_EQ_F32 : VOPCX_F32 <vopc<0x12, 0x52>, "v_cmpx_eq_f32">;
-defm V_CMPX_LE_F32 : VOPCX_F32 <vopc<0x13, 0x53>, "v_cmpx_le_f32">;
+defm V_CMPX_LE_F32 : VOPCX_F32 <vopc<0x13, 0x53>, "v_cmpx_le_f32", "v_cmpx_ge_f32">;
 defm V_CMPX_GT_F32 : VOPCX_F32 <vopc<0x14, 0x54>, "v_cmpx_gt_f32">;
 defm V_CMPX_LG_F32 : VOPCX_F32 <vopc<0x15, 0x55>, "v_cmpx_lg_f32">;
 defm V_CMPX_GE_F32 : VOPCX_F32 <vopc<0x16, 0x56>, "v_cmpx_ge_f32">;
@@ -545,227 +549,202 @@ defm V_CMPX_NEQ_F32 : VOPCX_F32 <vopc<0x1d, 0x5d>, "v_cmpx_neq_f32">;
 defm V_CMPX_NLT_F32 : VOPCX_F32 <vopc<0x1e, 0x5e>, "v_cmpx_nlt_f32">;
 defm V_CMPX_TRU_F32 : VOPCX_F32 <vopc<0x1f, 0x5f>, "v_cmpx_tru_f32">;
 
-} // End hasSideEffects = 1
 
 defm V_CMP_F_F64 : VOPC_F64 <vopc<0x20, 0x60>, "v_cmp_f_f64">;
-defm V_CMP_LT_F64 : VOPC_F64 <vopc<0x21, 0x61>, "v_cmp_lt_f64", COND_OLT>;
+defm V_CMP_LT_F64 : VOPC_F64 <vopc<0x21, 0x61>, "v_cmp_lt_f64", COND_OLT, "v_cmp_gt_f64">;
 defm V_CMP_EQ_F64 : VOPC_F64 <vopc<0x22, 0x62>, "v_cmp_eq_f64", COND_OEQ>;
-defm V_CMP_LE_F64 : VOPC_F64 <vopc<0x23, 0x63>, "v_cmp_le_f64", COND_OLE>;
+defm V_CMP_LE_F64 : VOPC_F64 <vopc<0x23, 0x63>, "v_cmp_le_f64", COND_OLE, "v_cmp_ge_f64">;
 defm V_CMP_GT_F64 : VOPC_F64 <vopc<0x24, 0x64>, "v_cmp_gt_f64", COND_OGT>;
 defm V_CMP_LG_F64 : VOPC_F64 <vopc<0x25, 0x65>, "v_cmp_lg_f64", COND_ONE>;
 defm V_CMP_GE_F64 : VOPC_F64 <vopc<0x26, 0x66>, "v_cmp_ge_f64", COND_OGE>;
 defm V_CMP_O_F64 : VOPC_F64 <vopc<0x27, 0x67>, "v_cmp_o_f64", COND_O>;
 defm V_CMP_U_F64 : VOPC_F64 <vopc<0x28, 0x68>, "v_cmp_u_f64", COND_UO>;
-defm V_CMP_NGE_F64 : VOPC_F64 <vopc<0x29, 0x69>, "v_cmp_nge_f64", COND_ULT>;
+defm V_CMP_NGE_F64 : VOPC_F64 <vopc<0x29, 0x69>, "v_cmp_nge_f64", COND_ULT, "v_cmp_nle_f64">;
 defm V_CMP_NLG_F64 : VOPC_F64 <vopc<0x2a, 0x6a>, "v_cmp_nlg_f64", COND_UEQ>;
-defm V_CMP_NGT_F64 : VOPC_F64 <vopc<0x2b, 0x6b>, "v_cmp_ngt_f64", COND_ULE>;
+defm V_CMP_NGT_F64 : VOPC_F64 <vopc<0x2b, 0x6b>, "v_cmp_ngt_f64", COND_ULE, "v_cmp_nlt_f64">;
 defm V_CMP_NLE_F64 : VOPC_F64 <vopc<0x2c, 0x6c>, "v_cmp_nle_f64", COND_UGT>;
 defm V_CMP_NEQ_F64 : VOPC_F64 <vopc<0x2d, 0x6d>, "v_cmp_neq_f64", COND_UNE>;
 defm V_CMP_NLT_F64 : VOPC_F64 <vopc<0x2e, 0x6e>, "v_cmp_nlt_f64", COND_UGE>;
 defm V_CMP_TRU_F64 : VOPC_F64 <vopc<0x2f, 0x6f>, "v_cmp_tru_f64">;
 
-let hasSideEffects = 1 in {
 
 defm V_CMPX_F_F64 : VOPCX_F64 <vopc<0x30, 0x70>, "v_cmpx_f_f64">;
-defm V_CMPX_LT_F64 : VOPCX_F64 <vopc<0x31, 0x71>, "v_cmpx_lt_f64">;
+defm V_CMPX_LT_F64 : VOPCX_F64 <vopc<0x31, 0x71>, "v_cmpx_lt_f64", "v_cmpx_gt_f64">;
 defm V_CMPX_EQ_F64 : VOPCX_F64 <vopc<0x32, 0x72>, "v_cmpx_eq_f64">;
-defm V_CMPX_LE_F64 : VOPCX_F64 <vopc<0x33, 0x73>, "v_cmpx_le_f64">;
+defm V_CMPX_LE_F64 : VOPCX_F64 <vopc<0x33, 0x73>, "v_cmpx_le_f64", "v_cmpx_ge_f64">;
 defm V_CMPX_GT_F64 : VOPCX_F64 <vopc<0x34, 0x74>, "v_cmpx_gt_f64">;
 defm V_CMPX_LG_F64 : VOPCX_F64 <vopc<0x35, 0x75>, "v_cmpx_lg_f64">;
 defm V_CMPX_GE_F64 : VOPCX_F64 <vopc<0x36, 0x76>, "v_cmpx_ge_f64">;
 defm V_CMPX_O_F64 : VOPCX_F64 <vopc<0x37, 0x77>, "v_cmpx_o_f64">;
 defm V_CMPX_U_F64 : VOPCX_F64 <vopc<0x38, 0x78>, "v_cmpx_u_f64">;
-defm V_CMPX_NGE_F64 : VOPCX_F64 <vopc<0x39, 0x79>, "v_cmpx_nge_f64">;
+defm V_CMPX_NGE_F64 : VOPCX_F64 <vopc<0x39, 0x79>, "v_cmpx_nge_f64", "v_cmpx_nle_f64">;
 defm V_CMPX_NLG_F64 : VOPCX_F64 <vopc<0x3a, 0x7a>, "v_cmpx_nlg_f64">;
-defm V_CMPX_NGT_F64 : VOPCX_F64 <vopc<0x3b, 0x7b>, "v_cmpx_ngt_f64">;
+defm V_CMPX_NGT_F64 : VOPCX_F64 <vopc<0x3b, 0x7b>, "v_cmpx_ngt_f64", "v_cmpx_nlt_f64">;
 defm V_CMPX_NLE_F64 : VOPCX_F64 <vopc<0x3c, 0x7c>, "v_cmpx_nle_f64">;
 defm V_CMPX_NEQ_F64 : VOPCX_F64 <vopc<0x3d, 0x7d>, "v_cmpx_neq_f64">;
 defm V_CMPX_NLT_F64 : VOPCX_F64 <vopc<0x3e, 0x7e>, "v_cmpx_nlt_f64">;
 defm V_CMPX_TRU_F64 : VOPCX_F64 <vopc<0x3f, 0x7f>, "v_cmpx_tru_f64">;
 
-} // End hasSideEffects = 1
 
 let SubtargetPredicate = isSICI in {
 
 defm V_CMPS_F_F32 : VOPC_F32 <vopc<0x40>, "v_cmps_f_f32">;
-defm V_CMPS_LT_F32 : VOPC_F32 <vopc<0x41>, "v_cmps_lt_f32">;
+defm V_CMPS_LT_F32 : VOPC_F32 <vopc<0x41>, "v_cmps_lt_f32", COND_NULL, "v_cmps_gt_f32">;
 defm V_CMPS_EQ_F32 : VOPC_F32 <vopc<0x42>, "v_cmps_eq_f32">;
-defm V_CMPS_LE_F32 : VOPC_F32 <vopc<0x43>, "v_cmps_le_f32">;
+defm V_CMPS_LE_F32 : VOPC_F32 <vopc<0x43>, "v_cmps_le_f32", COND_NULL, "v_cmps_ge_f32">;
 defm V_CMPS_GT_F32 : VOPC_F32 <vopc<0x44>, "v_cmps_gt_f32">;
 defm V_CMPS_LG_F32 : VOPC_F32 <vopc<0x45>, "v_cmps_lg_f32">;
 defm V_CMPS_GE_F32 : VOPC_F32 <vopc<0x46>, "v_cmps_ge_f32">;
 defm V_CMPS_O_F32 : VOPC_F32 <vopc<0x47>, "v_cmps_o_f32">;
 defm V_CMPS_U_F32 : VOPC_F32 <vopc<0x48>, "v_cmps_u_f32">;
-defm V_CMPS_NGE_F32 : VOPC_F32 <vopc<0x49>, "v_cmps_nge_f32">;
+defm V_CMPS_NGE_F32 : VOPC_F32 <vopc<0x49>, "v_cmps_nge_f32", COND_NULL, "v_cmps_nle_f32">;
 defm V_CMPS_NLG_F32 : VOPC_F32 <vopc<0x4a>, "v_cmps_nlg_f32">;
-defm V_CMPS_NGT_F32 : VOPC_F32 <vopc<0x4b>, "v_cmps_ngt_f32">;
+defm V_CMPS_NGT_F32 : VOPC_F32 <vopc<0x4b>, "v_cmps_ngt_f32", COND_NULL, "v_cmps_nlt_f32">;
 defm V_CMPS_NLE_F32 : VOPC_F32 <vopc<0x4c>, "v_cmps_nle_f32">;
 defm V_CMPS_NEQ_F32 : VOPC_F32 <vopc<0x4d>, "v_cmps_neq_f32">;
 defm V_CMPS_NLT_F32 : VOPC_F32 <vopc<0x4e>, "v_cmps_nlt_f32">;
 defm V_CMPS_TRU_F32 : VOPC_F32 <vopc<0x4f>, "v_cmps_tru_f32">;
 
-let hasSideEffects = 1 in {
 
 defm V_CMPSX_F_F32 : VOPCX_F32 <vopc<0x50>, "v_cmpsx_f_f32">;
-defm V_CMPSX_LT_F32 : VOPCX_F32 <vopc<0x51>, "v_cmpsx_lt_f32">;
+defm V_CMPSX_LT_F32 : VOPCX_F32 <vopc<0x51>, "v_cmpsx_lt_f32", "v_cmpsx_gt_f32">;
 defm V_CMPSX_EQ_F32 : VOPCX_F32 <vopc<0x52>, "v_cmpsx_eq_f32">;
-defm V_CMPSX_LE_F32 : VOPCX_F32 <vopc<0x53>, "v_cmpsx_le_f32">;
+defm V_CMPSX_LE_F32 : VOPCX_F32 <vopc<0x53>, "v_cmpsx_le_f32", "v_cmpsx_ge_f32">;
 defm V_CMPSX_GT_F32 : VOPCX_F32 <vopc<0x54>, "v_cmpsx_gt_f32">;
 defm V_CMPSX_LG_F32 : VOPCX_F32 <vopc<0x55>, "v_cmpsx_lg_f32">;
 defm V_CMPSX_GE_F32 : VOPCX_F32 <vopc<0x56>, "v_cmpsx_ge_f32">;
 defm V_CMPSX_O_F32 : VOPCX_F32 <vopc<0x57>, "v_cmpsx_o_f32">;
 defm V_CMPSX_U_F32 : VOPCX_F32 <vopc<0x58>, "v_cmpsx_u_f32">;
-defm V_CMPSX_NGE_F32 : VOPCX_F32 <vopc<0x59>, "v_cmpsx_nge_f32">;
+defm V_CMPSX_NGE_F32 : VOPCX_F32 <vopc<0x59>, "v_cmpsx_nge_f32", "v_cmpsx_nle_f32">;
 defm V_CMPSX_NLG_F32 : VOPCX_F32 <vopc<0x5a>, "v_cmpsx_nlg_f32">;
-defm V_CMPSX_NGT_F32 : VOPCX_F32 <vopc<0x5b>, "v_cmpsx_ngt_f32">;
+defm V_CMPSX_NGT_F32 : VOPCX_F32 <vopc<0x5b>, "v_cmpsx_ngt_f32", "v_cmpsx_nlt_f32">;
 defm V_CMPSX_NLE_F32 : VOPCX_F32 <vopc<0x5c>, "v_cmpsx_nle_f32">;
 defm V_CMPSX_NEQ_F32 : VOPCX_F32 <vopc<0x5d>, "v_cmpsx_neq_f32">;
 defm V_CMPSX_NLT_F32 : VOPCX_F32 <vopc<0x5e>, "v_cmpsx_nlt_f32">;
 defm V_CMPSX_TRU_F32 : VOPCX_F32 <vopc<0x5f>, "v_cmpsx_tru_f32">;
 
-} // End hasSideEffects = 1
 
 defm V_CMPS_F_F64 : VOPC_F64 <vopc<0x60>, "v_cmps_f_f64">;
-defm V_CMPS_LT_F64 : VOPC_F64 <vopc<0x61>, "v_cmps_lt_f64">;
+defm V_CMPS_LT_F64 : VOPC_F64 <vopc<0x61>, "v_cmps_lt_f64", COND_NULL, "v_cmps_gt_f64">;
 defm V_CMPS_EQ_F64 : VOPC_F64 <vopc<0x62>, "v_cmps_eq_f64">;
-defm V_CMPS_LE_F64 : VOPC_F64 <vopc<0x63>, "v_cmps_le_f64">;
+defm V_CMPS_LE_F64 : VOPC_F64 <vopc<0x63>, "v_cmps_le_f64", COND_NULL, "v_cmps_ge_f64">;
 defm V_CMPS_GT_F64 : VOPC_F64 <vopc<0x64>, "v_cmps_gt_f64">;
 defm V_CMPS_LG_F64 : VOPC_F64 <vopc<0x65>, "v_cmps_lg_f64">;
 defm V_CMPS_GE_F64 : VOPC_F64 <vopc<0x66>, "v_cmps_ge_f64">;
 defm V_CMPS_O_F64 : VOPC_F64 <vopc<0x67>, "v_cmps_o_f64">;
 defm V_CMPS_U_F64 : VOPC_F64 <vopc<0x68>, "v_cmps_u_f64">;
-defm V_CMPS_NGE_F64 : VOPC_F64 <vopc<0x69>, "v_cmps_nge_f64">;
+defm V_CMPS_NGE_F64 : VOPC_F64 <vopc<0x69>, "v_cmps_nge_f64", COND_NULL, "v_cmps_nle_f64">;
 defm V_CMPS_NLG_F64 : VOPC_F64 <vopc<0x6a>, "v_cmps_nlg_f64">;
-defm V_CMPS_NGT_F64 : VOPC_F64 <vopc<0x6b>, "v_cmps_ngt_f64">;
+defm V_CMPS_NGT_F64 : VOPC_F64 <vopc<0x6b>, "v_cmps_ngt_f64", COND_NULL, "v_cmps_nlt_f64">;
 defm V_CMPS_NLE_F64 : VOPC_F64 <vopc<0x6c>, "v_cmps_nle_f64">;
 defm V_CMPS_NEQ_F64 : VOPC_F64 <vopc<0x6d>, "v_cmps_neq_f64">;
 defm V_CMPS_NLT_F64 : VOPC_F64 <vopc<0x6e>, "v_cmps_nlt_f64">;
 defm V_CMPS_TRU_F64 : VOPC_F64 <vopc<0x6f>, "v_cmps_tru_f64">;
 
-let hasSideEffects = 1, Defs = [EXEC] in {
 
-defm V_CMPSX_F_F64 : VOPC_F64 <vopc<0x70>, "v_cmpsx_f_f64">;
-defm V_CMPSX_LT_F64 : VOPC_F64 <vopc<0x71>, "v_cmpsx_lt_f64">;
-defm V_CMPSX_EQ_F64 : VOPC_F64 <vopc<0x72>, "v_cmpsx_eq_f64">;
-defm V_CMPSX_LE_F64 : VOPC_F64 <vopc<0x73>, "v_cmpsx_le_f64">;
-defm V_CMPSX_GT_F64 : VOPC_F64 <vopc<0x74>, "v_cmpsx_gt_f64">;
-defm V_CMPSX_LG_F64 : VOPC_F64 <vopc<0x75>, "v_cmpsx_lg_f64">;
-defm V_CMPSX_GE_F64 : VOPC_F64 <vopc<0x76>, "v_cmpsx_ge_f64">;
-defm V_CMPSX_O_F64 : VOPC_F64 <vopc<0x77>, "v_cmpsx_o_f64">;
-defm V_CMPSX_U_F64 : VOPC_F64 <vopc<0x78>, "v_cmpsx_u_f64">;
-defm V_CMPSX_NGE_F64 : VOPC_F64 <vopc<0x79>, "v_cmpsx_nge_f64">;
-defm V_CMPSX_NLG_F64 : VOPC_F64 <vopc<0x7a>, "v_cmpsx_nlg_f64">;
-defm V_CMPSX_NGT_F64 : VOPC_F64 <vopc<0x7b>, "v_cmpsx_ngt_f64">;
-defm V_CMPSX_NLE_F64 : VOPC_F64 <vopc<0x7c>, "v_cmpsx_nle_f64">;
-defm V_CMPSX_NEQ_F64 : VOPC_F64 <vopc<0x7d>, "v_cmpsx_neq_f64">;
-defm V_CMPSX_NLT_F64 : VOPC_F64 <vopc<0x7e>, "v_cmpsx_nlt_f64">;
-defm V_CMPSX_TRU_F64 : VOPC_F64 <vopc<0x7f>, "v_cmpsx_tru_f64">;
-
-} // End hasSideEffects = 1, Defs = [EXEC]
+defm V_CMPSX_F_F64 : VOPCX_F64 <vopc<0x70>, "v_cmpsx_f_f64">;
+defm V_CMPSX_LT_F64 : VOPCX_F64 <vopc<0x71>, "v_cmpsx_lt_f64", "v_cmpsx_gt_f64">;
+defm V_CMPSX_EQ_F64 : VOPCX_F64 <vopc<0x72>, "v_cmpsx_eq_f64">;
+defm V_CMPSX_LE_F64 : VOPCX_F64 <vopc<0x73>, "v_cmpsx_le_f64", "v_cmpsx_ge_f64">;
+defm V_CMPSX_GT_F64 : VOPCX_F64 <vopc<0x74>, "v_cmpsx_gt_f64">;
+defm V_CMPSX_LG_F64 : VOPCX_F64 <vopc<0x75>, "v_cmpsx_lg_f64">;
+defm V_CMPSX_GE_F64 : VOPCX_F64 <vopc<0x76>, "v_cmpsx_ge_f64">;
+defm V_CMPSX_O_F64 : VOPCX_F64 <vopc<0x77>, "v_cmpsx_o_f64">;
+defm V_CMPSX_U_F64 : VOPCX_F64 <vopc<0x78>, "v_cmpsx_u_f64">;
+defm V_CMPSX_NGE_F64 : VOPCX_F64 <vopc<0x79>, "v_cmpsx_nge_f64", "v_cmpsx_nle_f64">;
+defm V_CMPSX_NLG_F64 : VOPCX_F64 <vopc<0x7a>, "v_cmpsx_nlg_f64">;
+defm V_CMPSX_NGT_F64 : VOPCX_F64 <vopc<0x7b>, "v_cmpsx_ngt_f64", "v_cmpsx_nlt_f64">;
+defm V_CMPSX_NLE_F64 : VOPCX_F64 <vopc<0x7c>, "v_cmpsx_nle_f64">;
+defm V_CMPSX_NEQ_F64 : VOPCX_F64 <vopc<0x7d>, "v_cmpsx_neq_f64">;
+defm V_CMPSX_NLT_F64 : VOPCX_F64 <vopc<0x7e>, "v_cmpsx_nlt_f64">;
+defm V_CMPSX_TRU_F64 : VOPCX_F64 <vopc<0x7f>, "v_cmpsx_tru_f64">;
 
 } // End SubtargetPredicate = isSICI
 
 defm V_CMP_F_I32 : VOPC_I32 <vopc<0x80, 0xc0>, "v_cmp_f_i32">;
-defm V_CMP_LT_I32 : VOPC_I32 <vopc<0x81, 0xc1>, "v_cmp_lt_i32", COND_SLT>;
+defm V_CMP_LT_I32 : VOPC_I32 <vopc<0x81, 0xc1>, "v_cmp_lt_i32", COND_SLT, "v_cmp_gt_i32">;
 defm V_CMP_EQ_I32 : VOPC_I32 <vopc<0x82, 0xc2>, "v_cmp_eq_i32", COND_EQ>;
-defm V_CMP_LE_I32 : VOPC_I32 <vopc<0x83, 0xc3>, "v_cmp_le_i32", COND_SLE>;
+defm V_CMP_LE_I32 : VOPC_I32 <vopc<0x83, 0xc3>, "v_cmp_le_i32", COND_SLE, "v_cmp_ge_i32">;
 defm V_CMP_GT_I32 : VOPC_I32 <vopc<0x84, 0xc4>, "v_cmp_gt_i32", COND_SGT>;
 defm V_CMP_NE_I32 : VOPC_I32 <vopc<0x85, 0xc5>, "v_cmp_ne_i32", COND_NE>;
 defm V_CMP_GE_I32 : VOPC_I32 <vopc<0x86, 0xc6>, "v_cmp_ge_i32", COND_SGE>;
 defm V_CMP_T_I32 : VOPC_I32 <vopc<0x87, 0xc7>, "v_cmp_t_i32">;
 
-let hasSideEffects = 1 in {
 
 defm V_CMPX_F_I32 : VOPCX_I32 <vopc<0x90, 0xd0>, "v_cmpx_f_i32">;
-defm V_CMPX_LT_I32 : VOPCX_I32 <vopc<0x91, 0xd1>, "v_cmpx_lt_i32">;
+defm V_CMPX_LT_I32 : VOPCX_I32 <vopc<0x91, 0xd1>, "v_cmpx_lt_i32", "v_cmpx_gt_i32">;
 defm V_CMPX_EQ_I32 : VOPCX_I32 <vopc<0x92, 0xd2>, "v_cmpx_eq_i32">;
-defm V_CMPX_LE_I32 : VOPCX_I32 <vopc<0x93, 0xd3>, "v_cmpx_le_i32">;
+defm V_CMPX_LE_I32 : VOPCX_I32 <vopc<0x93, 0xd3>, "v_cmpx_le_i32", "v_cmpx_ge_i32">;
 defm V_CMPX_GT_I32 : VOPCX_I32 <vopc<0x94, 0xd4>, "v_cmpx_gt_i32">;
 defm V_CMPX_NE_I32 : VOPCX_I32 <vopc<0x95, 0xd5>, "v_cmpx_ne_i32">;
 defm V_CMPX_GE_I32 : VOPCX_I32 <vopc<0x96, 0xd6>, "v_cmpx_ge_i32">;
 defm V_CMPX_T_I32 : VOPCX_I32 <vopc<0x97, 0xd7>, "v_cmpx_t_i32">;
 
-} // End hasSideEffects = 1
 
 defm V_CMP_F_I64 : VOPC_I64 <vopc<0xa0, 0xe0>, "v_cmp_f_i64">;
-defm V_CMP_LT_I64 : VOPC_I64 <vopc<0xa1, 0xe1>, "v_cmp_lt_i64", COND_SLT>;
+defm V_CMP_LT_I64 : VOPC_I64 <vopc<0xa1, 0xe1>, "v_cmp_lt_i64", COND_SLT, "v_cmp_gt_i64">;
 defm V_CMP_EQ_I64 : VOPC_I64 <vopc<0xa2, 0xe2>, "v_cmp_eq_i64", COND_EQ>;
-defm V_CMP_LE_I64 : VOPC_I64 <vopc<0xa3, 0xe3>, "v_cmp_le_i64", COND_SLE>;
+defm V_CMP_LE_I64 : VOPC_I64 <vopc<0xa3, 0xe3>, "v_cmp_le_i64", COND_SLE, "v_cmp_ge_i64">;
 defm V_CMP_GT_I64 : VOPC_I64 <vopc<0xa4, 0xe4>, "v_cmp_gt_i64", COND_SGT>;
 defm V_CMP_NE_I64 : VOPC_I64 <vopc<0xa5, 0xe5>, "v_cmp_ne_i64", COND_NE>;
 defm V_CMP_GE_I64 : VOPC_I64 <vopc<0xa6, 0xe6>, "v_cmp_ge_i64", COND_SGE>;
 defm V_CMP_T_I64 : VOPC_I64 <vopc<0xa7, 0xe7>, "v_cmp_t_i64">;
 
-let hasSideEffects = 1 in {
 
 defm V_CMPX_F_I64 : VOPCX_I64 <vopc<0xb0, 0xf0>, "v_cmpx_f_i64">;
-defm V_CMPX_LT_I64 : VOPCX_I64 <vopc<0xb1, 0xf1>, "v_cmpx_lt_i64">;
+defm V_CMPX_LT_I64 : VOPCX_I64 <vopc<0xb1, 0xf1>, "v_cmpx_lt_i64", "v_cmpx_gt_i64">;
 defm V_CMPX_EQ_I64 : VOPCX_I64 <vopc<0xb2, 0xf2>, "v_cmpx_eq_i64">;
-defm V_CMPX_LE_I64 : VOPCX_I64 <vopc<0xb3, 0xf3>, "v_cmpx_le_i64">;
+defm V_CMPX_LE_I64 : VOPCX_I64 <vopc<0xb3, 0xf3>, "v_cmpx_le_i64", "v_cmpx_ge_i64">;
 defm V_CMPX_GT_I64 : VOPCX_I64 <vopc<0xb4, 0xf4>, "v_cmpx_gt_i64">;
 defm V_CMPX_NE_I64 : VOPCX_I64 <vopc<0xb5, 0xf5>, "v_cmpx_ne_i64">;
 defm V_CMPX_GE_I64 : VOPCX_I64 <vopc<0xb6, 0xf6>, "v_cmpx_ge_i64">;
 defm V_CMPX_T_I64 : VOPCX_I64 <vopc<0xb7, 0xf7>, "v_cmpx_t_i64">;
 
-} // End hasSideEffects = 1
 
 defm V_CMP_F_U32 : VOPC_I32 <vopc<0xc0, 0xc8>, "v_cmp_f_u32">;
-defm V_CMP_LT_U32 : VOPC_I32 <vopc<0xc1, 0xc9>, "v_cmp_lt_u32", COND_ULT>;
+defm V_CMP_LT_U32 : VOPC_I32 <vopc<0xc1, 0xc9>, "v_cmp_lt_u32", COND_ULT, "v_cmp_gt_u32">;
 defm V_CMP_EQ_U32 : VOPC_I32 <vopc<0xc2, 0xca>, "v_cmp_eq_u32", COND_EQ>;
-defm V_CMP_LE_U32 : VOPC_I32 <vopc<0xc3, 0xcb>, "v_cmp_le_u32", COND_ULE>;
+defm V_CMP_LE_U32 : VOPC_I32 <vopc<0xc3, 0xcb>, "v_cmp_le_u32", COND_ULE, "v_cmp_ge_u32">;
 defm V_CMP_GT_U32 : VOPC_I32 <vopc<0xc4, 0xcc>, "v_cmp_gt_u32", COND_UGT>;
 defm V_CMP_NE_U32 : VOPC_I32 <vopc<0xc5, 0xcd>, "v_cmp_ne_u32", COND_NE>;
 defm V_CMP_GE_U32 : VOPC_I32 <vopc<0xc6, 0xce>, "v_cmp_ge_u32", COND_UGE>;
 defm V_CMP_T_U32 : VOPC_I32 <vopc<0xc7, 0xcf>, "v_cmp_t_u32">;
 
-let hasSideEffects = 1 in {
 
 defm V_CMPX_F_U32 : VOPCX_I32 <vopc<0xd0, 0xd8>, "v_cmpx_f_u32">;
-defm V_CMPX_LT_U32 : VOPCX_I32 <vopc<0xd1, 0xd9>, "v_cmpx_lt_u32">;
+defm V_CMPX_LT_U32 : VOPCX_I32 <vopc<0xd1, 0xd9>, "v_cmpx_lt_u32", "v_cmpx_gt_u32">;
 defm V_CMPX_EQ_U32 : VOPCX_I32 <vopc<0xd2, 0xda>, "v_cmpx_eq_u32">;
-defm V_CMPX_LE_U32 : VOPCX_I32 <vopc<0xd3, 0xdb>, "v_cmpx_le_u32">;
+defm V_CMPX_LE_U32 : VOPCX_I32 <vopc<0xd3, 0xdb>, "v_cmpx_le_u32", "v_cmpx_le_u32">;
 defm V_CMPX_GT_U32 : VOPCX_I32 <vopc<0xd4, 0xdc>, "v_cmpx_gt_u32">;
 defm V_CMPX_NE_U32 : VOPCX_I32 <vopc<0xd5, 0xdd>, "v_cmpx_ne_u32">;
 defm V_CMPX_GE_U32 : VOPCX_I32 <vopc<0xd6, 0xde>, "v_cmpx_ge_u32">;
 defm V_CMPX_T_U32 : VOPCX_I32 <vopc<0xd7, 0xdf>, "v_cmpx_t_u32">;
 
-} // End hasSideEffects = 1
 
 defm V_CMP_F_U64 : VOPC_I64 <vopc<0xe0, 0xe8>, "v_cmp_f_u64">;
-defm V_CMP_LT_U64 : VOPC_I64 <vopc<0xe1, 0xe9>, "v_cmp_lt_u64", COND_ULT>;
+defm V_CMP_LT_U64 : VOPC_I64 <vopc<0xe1, 0xe9>, "v_cmp_lt_u64", COND_ULT, "v_cmp_gt_u64">;
 defm V_CMP_EQ_U64 : VOPC_I64 <vopc<0xe2, 0xea>, "v_cmp_eq_u64", COND_EQ>;
-defm V_CMP_LE_U64 : VOPC_I64 <vopc<0xe3, 0xeb>, "v_cmp_le_u64", COND_ULE>;
+defm V_CMP_LE_U64 : VOPC_I64 <vopc<0xe3, 0xeb>, "v_cmp_le_u64", COND_ULE, "v_cmp_ge_u64">;
 defm V_CMP_GT_U64 : VOPC_I64 <vopc<0xe4, 0xec>, "v_cmp_gt_u64", COND_UGT>;
 defm V_CMP_NE_U64 : VOPC_I64 <vopc<0xe5, 0xed>, "v_cmp_ne_u64", COND_NE>;
 defm V_CMP_GE_U64 : VOPC_I64 <vopc<0xe6, 0xee>, "v_cmp_ge_u64", COND_UGE>;
 defm V_CMP_T_U64 : VOPC_I64 <vopc<0xe7, 0xef>, "v_cmp_t_u64">;
 
-let hasSideEffects = 1 in {
-
 defm V_CMPX_F_U64 : VOPCX_I64 <vopc<0xf0, 0xf8>, "v_cmpx_f_u64">;
-defm V_CMPX_LT_U64 : VOPCX_I64 <vopc<0xf1, 0xf9>, "v_cmpx_lt_u64">;
+defm V_CMPX_LT_U64 : VOPCX_I64 <vopc<0xf1, 0xf9>, "v_cmpx_lt_u64", "v_cmpx_gt_u64">;
 defm V_CMPX_EQ_U64 : VOPCX_I64 <vopc<0xf2, 0xfa>, "v_cmpx_eq_u64">;
-defm V_CMPX_LE_U64 : VOPCX_I64 <vopc<0xf3, 0xfb>, "v_cmpx_le_u64">;
+defm V_CMPX_LE_U64 : VOPCX_I64 <vopc<0xf3, 0xfb>, "v_cmpx_le_u64", "v_cmpx_ge_u64">;
 defm V_CMPX_GT_U64 : VOPCX_I64 <vopc<0xf4, 0xfc>, "v_cmpx_gt_u64">;
 defm V_CMPX_NE_U64 : VOPCX_I64 <vopc<0xf5, 0xfd>, "v_cmpx_ne_u64">;
 defm V_CMPX_GE_U64 : VOPCX_I64 <vopc<0xf6, 0xfe>, "v_cmpx_ge_u64">;
 defm V_CMPX_T_U64 : VOPCX_I64 <vopc<0xf7, 0xff>, "v_cmpx_t_u64">;
 
-} // End hasSideEffects = 1
+} // End isCompare = 1, isCommutable = 1
 
 defm V_CMP_CLASS_F32 : VOPC_CLASS_F32 <vopc<0x88, 0x10>, "v_cmp_class_f32">;
-
-let hasSideEffects = 1 in {
 defm V_CMPX_CLASS_F32 : VOPCX_CLASS_F32 <vopc<0x98, 0x11>, "v_cmpx_class_f32">;
-} // End hasSideEffects = 1
-
 defm V_CMP_CLASS_F64 : VOPC_CLASS_F64 <vopc<0xa8, 0x12>, "v_cmp_class_f64">;
-
-let hasSideEffects = 1 in {
 defm V_CMPX_CLASS_F64 : VOPCX_CLASS_F64 <vopc<0xb8, 0x13>, "v_cmpx_class_f64">;
-} // End hasSideEffects = 1
-
-} // End isCompare = 1
 
 //===----------------------------------------------------------------------===//
 // DS Instructions
@@ -1293,7 +1272,6 @@ defm V_CVT_U32_F32 : VOP1Inst <vop1<0x7>, "v_cvt_u32_f32",
 defm V_CVT_I32_F32 : VOP1Inst <vop1<0x8>, "v_cvt_i32_f32",
   VOP_I32_F32, fp_to_sint
 >;
-defm V_MOV_FED_B32 : VOP1Inst <vop1<0x9>, "v_mov_fed_b32", VOP_I32_I32>;
 defm V_CVT_F16_F32 : VOP1Inst <vop1<0xa>, "v_cvt_f16_f32",
   VOP_I32_F32, fp_to_f16
 >;
@@ -1429,6 +1407,7 @@ let SubtargetPredicate = isSICI in {
 
 let SchedRW = [WriteQuarterRate32] in {
 
+defm V_MOV_FED_B32 : VOP1InstSI <vop1<0x9>, "v_mov_fed_b32", VOP_I32_I32>;
 defm V_LOG_CLAMP_F32 : VOP1InstSI <vop1<0x26>, "v_log_clamp_f32", VOP_F32_F32>;
 defm V_RCP_CLAMP_F32 : VOP1InstSI <vop1<0x28>, "v_rcp_clamp_f32", VOP_F32_F32>;
 defm V_RCP_LEGACY_F32 : VOP1InstSI <vop1<0x29>, "v_rcp_legacy_f32", VOP_F32_F32>;
@@ -1637,8 +1616,8 @@ defm V_MAC_LEGACY_F32 : VOP2_VI3_Inst <vop23<0x6, 0x28e>, "v_mac_legacy_f32",
 >;
 } // End isCommutable = 1
 
-defm V_BFM_B32 : VOP2_VI3_Inst <vop23<0x1e, 0x293>, "v_bfm_b32", VOP_I32_I32_I32,
-  AMDGPUbfm
+defm V_BFM_B32 : VOP2_VI3_Inst <vop23<0x1e, 0x293>, "v_bfm_b32",
+  VOP_I32_I32_I32
 >;
 defm V_BCNT_U32_B32 : VOP2_VI3_Inst <vop23<0x22, 0x28b>, "v_bcnt_u32_b32",
   VOP_I32_I32_I32
@@ -1652,7 +1631,6 @@ defm V_MBCNT_HI_U32_B32 : VOP2_VI3_Inst <vop23<0x24, 0x28d>, "v_mbcnt_hi_u32_b32
 defm V_LDEXP_F32 : VOP2_VI3_Inst <vop23<0x2b, 0x288>, "v_ldexp_f32",
   VOP_F32_F32_I32, AMDGPUldexp
 >;
-
 
 defm V_CVT_PKACCUM_U8_F32 : VOP2_VI3_Inst <vop23<0x2c, 0x1f0>, "v_cvt_pkaccum_u8_f32",
   VOP_I32_F32_I32>; // TODO: set "Uses = dst"
@@ -1707,14 +1685,12 @@ defm V_CUBEMA_F32 : VOP3Inst <vop3<0x147, 0x1c7>, "v_cubema_f32",
   VOP_F32_F32_F32_F32
 >;
 
-let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in {
 defm V_BFE_U32 : VOP3Inst <vop3<0x148, 0x1c8>, "v_bfe_u32",
   VOP_I32_I32_I32_I32, AMDGPUbfe_u32
 >;
 defm V_BFE_I32 : VOP3Inst <vop3<0x149, 0x1c9>, "v_bfe_i32",
   VOP_I32_I32_I32_I32, AMDGPUbfe_i32
 >;
-}
 
 defm V_BFI_B32 : VOP3Inst <vop3<0x14a, 0x1ca>, "v_bfi_b32",
   VOP_I32_I32_I32_I32, AMDGPUbfi
@@ -1901,6 +1877,11 @@ defm V_ASHRREV_I64 : VOP3Inst <vop3<0, 0x291>, "v_ashrrev_i64",
 // Pseudo Instructions
 //===----------------------------------------------------------------------===//
 let isCodeGenOnly = 1, isPseudo = 1 in {
+
+// For use in patterns
+def V_CNDMASK_B64_PSEUDO : VOP3Common <(outs VReg_64:$dst),
+  (ins VSrc_64:$src0, VSrc_64:$src1, SSrc_64:$src2), "", []
+>;
 
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in {
 // 64-bit vector move instruction.  This is mainly used by the SIFoldOperands
@@ -3343,6 +3324,89 @@ def : Pat <
   (f32 (select i1:$src2, f32:$src1, f32:$src0)),
   (V_CNDMASK_B32_e64 $src0, $src1, $src2)
 >;
+
+multiclass BFMPatterns <ValueType vt, InstSI BFM, InstSI MOV> {
+  def : Pat <
+    (vt (shl (vt (add (vt (shl 1, vt:$a)), -1)), vt:$b)),
+    (BFM $a, $b)
+  >;
+
+  def : Pat <
+    (vt (add (vt (shl 1, vt:$a)), -1)),
+    (BFM $a, (MOV 0))
+  >;
+}
+
+defm : BFMPatterns <i32, S_BFM_B32, S_MOV_B32>;
+// FIXME: defm : BFMPatterns <i64, S_BFM_B64, S_MOV_B64>;
+
+def : BFEPattern <V_BFE_U32, S_MOV_B32>;
+
+//===----------------------------------------------------------------------===//
+// Fract Patterns
+//===----------------------------------------------------------------------===//
+
+let Predicates = [isSI] in {
+
+// V_FRACT is buggy on SI, so the F32 version is never used and (x-floor(x)) is
+// used instead. However, SI doesn't have V_FLOOR_F64, so the most efficient
+// way to implement it is using V_FRACT_F64.
+// The workaround for the V_FRACT bug is:
+//    fract(x) = isnan(x) ? x : min(V_FRACT(x), 0.99999999999999999)
+
+// Convert (x + (-floor(x)) to fract(x)
+def : Pat <
+  (f64 (fadd (f64 (VOP3Mods f64:$x, i32:$mods)),
+             (f64 (fneg (f64 (ffloor (f64 (VOP3Mods f64:$x, i32:$mods)))))))),
+  (V_CNDMASK_B64_PSEUDO
+      $x,
+      (V_MIN_F64
+          SRCMODS.NONE,
+          (V_FRACT_F64_e64 $mods, $x, DSTCLAMP.NONE, DSTOMOD.NONE),
+          SRCMODS.NONE,
+          (V_MOV_B64_PSEUDO 0x3fefffffffffffff),
+          DSTCLAMP.NONE, DSTOMOD.NONE),
+      (V_CMP_CLASS_F64_e64 SRCMODS.NONE, $x, 3/*NaN*/))
+>;
+
+// Convert floor(x) to (x - fract(x))
+def : Pat <
+  (f64 (ffloor (f64 (VOP3Mods f64:$x, i32:$mods)))),
+  (V_ADD_F64
+      $mods,
+      $x,
+      SRCMODS.NEG,
+      (V_CNDMASK_B64_PSEUDO
+         $x,
+         (V_MIN_F64
+             SRCMODS.NONE,
+             (V_FRACT_F64_e64 $mods, $x, DSTCLAMP.NONE, DSTOMOD.NONE),
+             SRCMODS.NONE,
+             (V_MOV_B64_PSEUDO 0x3fefffffffffffff),
+             DSTCLAMP.NONE, DSTOMOD.NONE),
+         (V_CMP_CLASS_F64_e64 SRCMODS.NONE, $x, 3/*NaN*/)),
+      DSTCLAMP.NONE, DSTOMOD.NONE)
+>;
+
+} // End Predicates = [isSI]
+
+let Predicates = [isCI] in {
+
+// Convert (x - floor(x)) to fract(x)
+def : Pat <
+  (f32 (fsub (f32 (VOP3Mods f32:$x, i32:$mods)),
+             (f32 (ffloor (f32 (VOP3Mods f32:$x, i32:$mods)))))),
+  (V_FRACT_F32_e64 $mods, $x, DSTCLAMP.NONE, DSTOMOD.NONE)
+>;
+
+// Convert (x + (-floor(x))) to fract(x)
+def : Pat <
+  (f64 (fadd (f64 (VOP3Mods f64:$x, i32:$mods)),
+             (f64 (fneg (f64 (ffloor (f64 (VOP3Mods f64:$x, i32:$mods)))))))),
+  (V_FRACT_F64_e64 $mods, $x, DSTCLAMP.NONE, DSTOMOD.NONE)
+>;
+
+} // End Predicates = [isCI]
 
 //============================================================================//
 // Miscellaneous Optimization Patterns

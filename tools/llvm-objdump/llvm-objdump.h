@@ -1,4 +1,3 @@
-//===-- llvm-objdump.h ----------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -27,6 +26,7 @@ extern cl::opt<std::string> ArchName;
 extern cl::opt<std::string> MCPU;
 extern cl::list<std::string> MAttrs;
 extern cl::list<std::string> DumpSections;
+extern cl::opt<bool> Raw;
 extern cl::opt<bool> Disassemble;
 extern cl::opt<bool> NoShowRawInsn;
 extern cl::opt<bool> PrivateHeaders;
@@ -43,6 +43,7 @@ extern cl::opt<bool> LinkOptHints;
 extern cl::opt<bool> InfoPlist;
 extern cl::opt<bool> DylibsUsed;
 extern cl::opt<bool> DylibId;
+extern cl::opt<bool> ObjcMetaData;
 extern cl::opt<std::string> DisSymName;
 extern cl::opt<bool> NonVerbose;
 extern cl::opt<bool> Relocations;

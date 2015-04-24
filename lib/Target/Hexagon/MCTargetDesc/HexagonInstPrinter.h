@@ -25,10 +25,11 @@ namespace llvm {
                                 MCRegisterInfo const &MRI)
       : MCInstPrinter(MAI, MII, MRI), MII(MII) {}
 
-    void printInst(MCInst const *MI, raw_ostream &O, StringRef Annot) override;
+    void printInst(MCInst const *MI, raw_ostream &O, StringRef Annot,
+                   const MCSubtargetInfo &STI) override;
     virtual StringRef getOpcodeName(unsigned Opcode) const;
     void printInstruction(const MCInst *MI, raw_ostream &O);
-    StringRef getRegName(unsigned RegNo) const;
+    void printRegName(raw_ostream &OS, unsigned RegNo) const override;
     static const char *getRegisterName(unsigned RegNo);
 
     void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O) const;

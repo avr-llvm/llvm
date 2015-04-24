@@ -28,7 +28,7 @@
 //
 // The SCEV for %i is {0,+,1}<%L>. The SCEV for %i.next is {1,+,1}<%L>, however
 // it's useful to think about these as the same register, with some uses using
-// the value of the register before the add and some using // it after. In this
+// the value of the register before the add and some using it after. In this
 // example, the icmp is a post-increment user, since it uses %i.next, which is
 // the value of the induction variable after the increment. The other common
 // case of post-increment users is users outside the loop.
@@ -111,8 +111,6 @@ public:
   /// UsedByIndices - This represents the set of LSRUse indices which reference
   /// a particular register.
   SmallBitVector UsedByIndices;
-
-  RegSortData() {}
 
   void print(raw_ostream &OS) const;
   void dump() const;
@@ -1384,9 +1382,6 @@ static bool isAMCompletelyFolded(const TargetTransformInfo &TTI,
   switch (Kind) {
   case LSRUse::Address:
     return TTI.isLegalAddressingMode(AccessTy, BaseGV, BaseOffset, HasBaseReg, Scale);
-
-    // Otherwise, just guess that reg+reg addressing is legal.
-    //return ;
 
   case LSRUse::ICmpZero:
     // There's not even a target hook for querying whether it would be legal to

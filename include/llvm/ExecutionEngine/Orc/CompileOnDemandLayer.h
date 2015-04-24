@@ -16,7 +16,7 @@
 #define LLVM_EXECUTIONENGINE_ORC_COMPILEONDEMANDLAYER_H
 
 #include "IndirectionUtils.h"
-#include "LookasideRTDyldMM.h"
+#include "LambdaResolver.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ExecutionEngine/SectionMemoryManager.h"
 #include <list>
@@ -36,7 +36,7 @@ namespace orc {
 /// compiled only when it is first called.
 template <typename BaseLayerT, typename CompileCallbackMgrT>
 class CompileOnDemandLayer {
-public:
+private:
   /// @brief Lookup helper that provides compatibility with the classic
   ///        static-compilation symbol resolution process.
   ///
@@ -63,6 +63,8 @@ public:
 
     /// @brief Construct a scoped lookup.
     CODScopedLookup(BaseLayerT &BaseLayer) : BaseLayer(BaseLayer) {}
+
+    virtual ~CODScopedLookup() {}
 
     /// @brief Start a new context for a single logical module.
     LMHandle createLogicalModule() {
@@ -92,6 +94,10 @@ public:
       return nullptr;
     }
 
+    /// @brief Find an external symbol (via the user supplied SymbolResolver).
+    virtual RuntimeDyld::SymbolInfo
+    externalLookup(const std::string &Name) const = 0;
+
   private:
 
     JITSymbol findSymbolIn(LMHandle LMH, const std::string &Name) {
@@ -105,7 +111,29 @@ public:
     PseudoDylibModuleSetHandlesList Handles;
   };
 
-private:
+  template <typename ResolverPtrT>
+  class CODScopedLookupImpl : public CODScopedLookup {
+  public:
+    CODScopedLookupImpl(BaseLayerT &BaseLayer, ResolverPtrT Resolver)
+      : CODScopedLookup(BaseLayer), Resolver(std::move(Resolver)) {}
+
+    RuntimeDyld::SymbolInfo
+    externalLookup(const std::string &Name) const override {
+      return Resolver->findSymbol(Name);
+    }
+
+  private:
+    ResolverPtrT Resolver;
+  };
+
+  template <typename ResolverPtrT>
+  static std::shared_ptr<CODScopedLookup>
+  createCODScopedLookup(BaseLayerT &BaseLayer,
+                        ResolverPtrT Resolver) {
+    typedef CODScopedLookupImpl<ResolverPtrT> Impl;
+    return std::make_shared<Impl>(BaseLayer, std::move(Resolver));
+  }
+
   typedef typename BaseLayerT::ModuleSetHandleT BaseLayerModuleSetHandleT;
   typedef std::vector<BaseLayerModuleSetHandleT> BaseLayerModuleSetHandleListT;
 
@@ -138,37 +166,31 @@ public:
   /// @brief Handle to a set of loaded modules.
   typedef typename ModuleSetInfoListT::iterator ModuleSetHandleT;
 
-  // @brief Fallback lookup functor.
-  typedef std::function<uint64_t(const std::string &)> LookupFtor;
-
   /// @brief Construct a compile-on-demand layer instance.
-  CompileOnDemandLayer(BaseLayerT &BaseLayer, LLVMContext &Context)
-    : BaseLayer(BaseLayer),
-      CompileCallbackMgr(BaseLayer, Context, 0, 64) {}
+  CompileOnDemandLayer(BaseLayerT &BaseLayer, CompileCallbackMgrT &CallbackMgr)
+      : BaseLayer(BaseLayer), CompileCallbackMgr(CallbackMgr) {}
 
   /// @brief Add a module to the compile-on-demand layer.
-  template <typename ModuleSetT>
+  template <typename ModuleSetT, typename MemoryManagerPtrT,
+            typename SymbolResolverPtrT>
   ModuleSetHandleT addModuleSet(ModuleSetT Ms,
-                                LookupFtor FallbackLookup = nullptr) {
+                                MemoryManagerPtrT MemMgr,
+                                SymbolResolverPtrT Resolver) {
 
-    // If the user didn't supply a fallback lookup then just use
-    // getSymbolAddress.
-    if (!FallbackLookup)
-      FallbackLookup = [=](const std::string &Name) {
-                         return findSymbol(Name, true).getAddress();
-                       };
+    assert(MemMgr == nullptr &&
+           "User supplied memory managers not supported with COD yet.");
 
     // Create a lookup context and ModuleSetInfo for this module set.
     // For the purposes of symbol resolution the set Ms will be treated as if
     // the modules it contained had been linked together as a dylib.
-    auto DylibLookup = std::make_shared<CODScopedLookup>(BaseLayer);
+    auto DylibLookup = createCODScopedLookup(BaseLayer, std::move(Resolver));
     ModuleSetHandleT H =
         ModuleSetInfos.insert(ModuleSetInfos.end(), ModuleSetInfo(DylibLookup));
     ModuleSetInfo &MSI = ModuleSetInfos.back();
 
     // Process each of the modules in this module set.
     for (auto &M : Ms)
-      partitionAndAdd(*M, MSI, FallbackLookup);
+      partitionAndAdd(*M, MSI);
 
     return H;
   }
@@ -194,8 +216,8 @@ public:
   ///        below this one.
   JITSymbol findSymbolIn(ModuleSetHandleT H, const std::string &Name,
                          bool ExportedSymbolsOnly) {
-    BaseLayerModuleSetHandleListT &BaseLayerHandles = H->second;
-    for (auto &BH : BaseLayerHandles) {
+
+    for (auto &BH : H->BaseLayerModuleSetHandles) {
       if (auto Symbol = BaseLayer.findSymbolIn(BH, Name, ExportedSymbolsOnly))
         return Symbol;
     }
@@ -204,8 +226,7 @@ public:
 
 private:
 
-  void partitionAndAdd(Module &M, ModuleSetInfo &MSI,
-                       LookupFtor FallbackLookup) {
+  void partitionAndAdd(Module &M, ModuleSetInfo &MSI) {
     const char *AddrSuffix = "$orc_addr";
     const char *BodySuffix = "$orc_body";
 
@@ -225,8 +246,7 @@ private:
     auto FunctionModules = std::move(PartitionedModule.Functions);
 
     // Emit the commons stright away.
-    auto CommonHandle = addModule(std::move(CommonsModule), MSI, LogicalModule,
-                                  FallbackLookup);
+    auto CommonHandle = addModule(std::move(CommonsModule), MSI, LogicalModule);
     BaseLayer.emitAndFinalize(CommonHandle);
 
     // Map of definition names to callback-info data structures. We'll use
@@ -256,10 +276,12 @@ private:
         Function *Proto = StubsModule->getFunction(Name);
         assert(Proto && "Failed to clone function decl into stubs module.");
         auto CallbackInfo =
-          CompileCallbackMgr.getCompileCallback(*Proto->getFunctionType());
+          CompileCallbackMgr.getCompileCallback(Proto->getContext());
         GlobalVariable *FunctionBodyPointer =
-          createImplPointer(*Proto, Name + AddrSuffix,
-                            CallbackInfo.getAddress());
+          createImplPointer(*Proto->getType(), *Proto->getParent(),
+                            Name + AddrSuffix,
+                            createIRTypedAddress(*Proto->getFunctionType(),
+                                                 CallbackInfo.getAddress()));
         makeStub(*Proto, *FunctionBodyPointer);
 
         F.setName(Name + BodySuffix);
@@ -269,7 +291,7 @@ private:
         NewStubInfos.push_back(StubInfos.insert(StubInfos.begin(), KV));
       }
 
-      auto H = addModule(std::move(SubM), MSI, LogicalModule, FallbackLookup);
+      auto H = addModule(std::move(SubM), MSI, LogicalModule);
 
       // Set the compile actions for this module:
       for (auto &KVPair : NewStubInfos) {
@@ -287,14 +309,14 @@ private:
     // Ok - we've processed all the partitioned modules. Now add the
     // stubs/globals module and set the update actions.
     auto StubsH =
-      addModule(std::move(StubsModule), MSI, LogicalModule, FallbackLookup);
+      addModule(std::move(StubsModule), MSI, LogicalModule);
 
     for (auto &KVPair : StubInfos) {
       std::string AddrName = Mangle(KVPair.first + AddrSuffix,
                                     M.getDataLayout());
       auto &CCInfo = KVPair.second;
       CCInfo.setUpdateAction(
-        CompileCallbackMgr.getLocalFPUpdater(StubsH, AddrName));
+        getLocalFPUpdater(BaseLayer, StubsH, AddrName));
     }
   }
 
@@ -305,8 +327,7 @@ private:
   BaseLayerModuleSetHandleT addModule(
                                std::unique_ptr<Module> M,
                                ModuleSetInfo &MSI,
-                               typename CODScopedLookup::LMHandle LogicalModule,
-                               LookupFtor FallbackLookup) {
+                               typename CODScopedLookup::LMHandle LogicalModule) {
 
     // Add this module to the JIT with a memory manager that uses the
     // DylibLookup to resolve symbols.
@@ -314,19 +335,25 @@ private:
     MSet.push_back(std::move(M));
 
     auto DylibLookup = MSI.Lookup;
-    auto MM =
-      createLookasideRTDyldMM<SectionMemoryManager>(
+    auto Resolver =
+      createLambdaResolver(
         [=](const std::string &Name) {
           if (auto Symbol = DylibLookup->findSymbol(LogicalModule, Name))
-            return Symbol.getAddress();
-          return FallbackLookup(Name);
+            return RuntimeDyld::SymbolInfo(Symbol.getAddress(),
+                                           Symbol.getFlags());
+          return DylibLookup->externalLookup(Name);
         },
-        [=](const std::string &Name) {
-          return DylibLookup->findSymbol(LogicalModule, Name).getAddress();
+        [=](const std::string &Name) -> RuntimeDyld::SymbolInfo {
+          if (auto Symbol = DylibLookup->findSymbol(LogicalModule, Name))
+            return RuntimeDyld::SymbolInfo(Symbol.getAddress(),
+                                           Symbol.getFlags());
+          return nullptr;
         });
 
     BaseLayerModuleSetHandleT H =
-      BaseLayer.addModuleSet(std::move(MSet), std::move(MM));
+      BaseLayer.addModuleSet(std::move(MSet),
+                             make_unique<SectionMemoryManager>(),
+                             std::move(Resolver));
     // Add this module to the logical module lookup.
     DylibLookup->addToLogicalModule(LogicalModule, H);
     MSI.BaseLayerModuleSetHandles.push_back(H);
@@ -345,7 +372,7 @@ private:
   }
 
   BaseLayerT &BaseLayer;
-  CompileCallbackMgrT CompileCallbackMgr;
+  CompileCallbackMgrT &CompileCallbackMgr;
   ModuleSetInfoListT ModuleSetInfos;
 };
 

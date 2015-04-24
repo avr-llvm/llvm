@@ -60,7 +60,7 @@ cond.end:                                         ; preds = %entry, %cond.true
 
 if.then:                                          ; preds = %cond.end
   %puts = tail call i32 @puts(i8* getelementptr inbounds ([21 x i8], [21 x i8]* @str, i64 0, i64 0))
-  %call12 = tail call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([14 x i8], [14 x i8]* @.str1, i64 0, i64 0), i32 %call, i32 %cond) nounwind optsize, !dbg !26
+  %call12 = tail call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([14 x i8], [14 x i8]* @.str1, i64 0, i64 0), i32 %call, i32 %cond) nounwind optsize, !dbg !26
   ret i32 1, !dbg !27
 
 return:                                           ; preds = %cond.end
@@ -110,5 +110,5 @@ declare i32 @puts(i8* nocapture) nounwind
 !29 = !{!10, !11, !12}
 !30 = !{!14, !17}
 !31 = !MDFile(filename: "rem_small.c", directory: "/private/tmp")
-!32 = !{i32 0}
+!32 = !{}
 !33 = !{i32 1, !"Debug Info Version", i32 3}

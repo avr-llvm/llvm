@@ -58,6 +58,10 @@ EnableJoining("join-liveintervals",
               cl::desc("Coalesce copies (default=true)"),
               cl::init(true));
 
+static cl::opt<bool> UseTerminalRule("terminal-rule",
+                                     cl::desc("Apply the terminal rule"),
+                                     cl::init(false));
+
 /// Temporary flag to test critical edge unsplitting.
 static cl::opt<bool>
 EnableJoinSplits("join-splitedges",
@@ -205,6 +209,20 @@ namespace {
     /// Handle copies of undef values.
     /// Returns true if @p CopyMI was a copy of an undef value and eliminated.
     bool eliminateUndefCopy(MachineInstr *CopyMI);
+
+    /// Check whether or not we should apply the terminal rule on the
+    /// destination (Dst) of \p Copy.
+    /// When the terminal rule applies, Copy is not profitable to
+    /// coalesce.
+    /// Dst is terminal if it has exactly one affinity (Dst, Src) and
+    /// at least one interference (Dst, Dst2). If Dst is terminal, the
+    /// terminal rule consists in checking that at least one of
+    /// interfering node, say Dst2, has an affinity of equal or greater
+    /// weight with Src.
+    /// In that case, Dst2 and Dst will not be able to be both coalesced
+    /// with Src. Since Dst2 exposes more coalescing opportunities than
+    /// Dst, we can drop \p Copy.
+    bool applyTerminalRule(const MachineInstr &Copy) const;
 
   public:
     static char ID; ///< Class identification, replacement for typeinfo
@@ -1758,6 +1776,9 @@ public:
   void eraseInstrs(SmallPtrSetImpl<MachineInstr*> &ErasedInstrs,
                    SmallVectorImpl<unsigned> &ShrinkRegs);
 
+  /// Remove liverange defs at places where implicit defs will be removed.
+  void removeImplicitDefs();
+
   /// Get the value assignments suitable for passing to LiveInterval::join.
   const int *getAssignments() const { return Assignments.data(); }
 };
@@ -1858,7 +1879,11 @@ JoinVals::analyzeValue(unsigned ValNo, JoinVals &Other) {
     assert(DefMI != nullptr);
     if (SubRangeJoin) {
       // We don't care about the lanes when joining subregister ranges.
-      V.ValidLanes = V.WriteLanes = 1;
+      V.WriteLanes = V.ValidLanes = 1;
+      if (DefMI->isImplicitDef()) {
+        V.ValidLanes = 0;
+        V.ErasableImplicitDef = true;
+      }
     } else {
       bool Redef = false;
       V.ValidLanes = V.WriteLanes = computeWriteLanes(DefMI, Redef);
@@ -2341,6 +2366,18 @@ void JoinVals::pruneSubRegValues(LiveInterval &LI, unsigned &ShrinkMask)
     LI.removeEmptySubRanges();
 }
 
+void JoinVals::removeImplicitDefs() {
+  for (unsigned i = 0, e = LR.getNumValNums(); i != e; ++i) {
+    Val &V = Vals[i];
+    if (V.Resolution != CR_Keep || !V.ErasableImplicitDef || !V.Pruned)
+      continue;
+
+    VNInfo *VNI = LR.getValNumInfo(i);
+    VNI->markUnused();
+    LR.removeValNo(VNI);
+  }
+}
+
 void JoinVals::eraseInstrs(SmallPtrSetImpl<MachineInstr*> &ErasedInstrs,
                            SmallVectorImpl<unsigned> &ShrinkRegs) {
   for (unsigned i = 0, e = LR.getNumValNums(); i != e; ++i) {
@@ -2415,6 +2452,9 @@ bool RegisterCoalescer::joinSubRegRanges(LiveRange &LRange, LiveRange &RRange,
   SmallVector<SlotIndex, 8> EndPoints;
   LHSVals.pruneValues(RHSVals, EndPoints, false);
   RHSVals.pruneValues(LHSVals, EndPoints, false);
+
+  LHSVals.removeImplicitDefs();
+  RHSVals.removeImplicitDefs();
 
   LRange.verify();
   RRange.verify();
@@ -2675,6 +2715,64 @@ copyCoalesceWorkList(MutableArrayRef<MachineInstr*> CurrList) {
   return Progress;
 }
 
+/// Check if DstReg is a terminal node.
+/// I.e., it does not have any affinity other than \p Copy.
+static bool isTerminalReg(unsigned DstReg, const MachineInstr &Copy,
+                          const MachineRegisterInfo *MRI) {
+  assert(Copy.isCopyLike());
+  // Check if the destination of this copy as any other affinity.
+  for (const MachineInstr &MI : MRI->reg_nodbg_instructions(DstReg))
+    if (&MI != &Copy && MI.isCopyLike())
+      return false;
+  return true;
+}
+
+bool RegisterCoalescer::applyTerminalRule(const MachineInstr &Copy) const {
+  assert(Copy.isCopyLike());
+  if (!UseTerminalRule)
+    return false;
+  unsigned DstReg, DstSubReg, SrcReg, SrcSubReg;
+  isMoveInstr(*TRI, &Copy, SrcReg, DstReg, SrcSubReg, DstSubReg);
+  // Check if the destination of this copy has any other affinity.
+  if (TargetRegisterInfo::isPhysicalRegister(DstReg) ||
+      // If SrcReg is a physical register, the copy won't be coalesced.
+      // Ignoring it may have other side effect (like missing
+      // rematerialization). So keep it.
+      TargetRegisterInfo::isPhysicalRegister(SrcReg) ||
+      !isTerminalReg(DstReg, Copy, MRI))
+    return false;
+
+  // DstReg is a terminal node. Check if it inteferes with any other
+  // copy involving SrcReg.
+  const MachineBasicBlock *OrigBB = Copy.getParent();
+  const LiveInterval &DstLI = LIS->getInterval(DstReg);
+  for (const MachineInstr &MI : MRI->reg_nodbg_instructions(SrcReg)) {
+    // Technically we should check if the weight of the new copy is
+    // interesting compared to the other one and update the weight
+    // of the copies accordingly. However, this would only work if
+    // we would gather all the copies first then coalesce, whereas
+    // right now we interleave both actions.
+    // For now, just consider the copies that are in the same block.
+    if (&MI == &Copy || !MI.isCopyLike() || MI.getParent() != OrigBB)
+      continue;
+    unsigned OtherReg, OtherSubReg, OtherSrcReg, OtherSrcSubReg;
+    isMoveInstr(*TRI, &Copy, OtherSrcReg, OtherReg, OtherSrcSubReg,
+                OtherSubReg);
+    if (OtherReg == SrcReg)
+      OtherReg = OtherSrcReg;
+    // Check if OtherReg is a non-terminal.
+    if (TargetRegisterInfo::isPhysicalRegister(OtherReg) ||
+        isTerminalReg(OtherReg, MI, MRI))
+      continue;
+    // Check that OtherReg interfere with DstReg.
+    if (LIS->getInterval(OtherReg).overlaps(DstLI)) {
+      DEBUG(dbgs() << "Apply terminal rule for: " << PrintReg(DstReg) << '\n');
+      return true;
+    }
+  }
+  return false;
+}
+
 void
 RegisterCoalescer::copyCoalesceInMBB(MachineBasicBlock *MBB) {
   DEBUG(dbgs() << MBB->getName() << ":\n");
@@ -2683,6 +2781,8 @@ RegisterCoalescer::copyCoalesceInMBB(MachineBasicBlock *MBB) {
   // yet, it might invalidate the iterator.
   const unsigned PrevSize = WorkList.size();
   if (JoinGlobalCopies) {
+    SmallVector<MachineInstr*, 2> LocalTerminals;
+    SmallVector<MachineInstr*, 2> GlobalTerminals;
     // Coalesce copies bottom-up to coalesce local defs before local uses. They
     // are not inherently easier to resolve, but slightly preferable until we
     // have local live range splitting. In particular this is required by
@@ -2691,17 +2791,35 @@ RegisterCoalescer::copyCoalesceInMBB(MachineBasicBlock *MBB) {
          MII != E; ++MII) {
       if (!MII->isCopyLike())
         continue;
-      if (isLocalCopy(&(*MII), LIS))
-        LocalWorkList.push_back(&(*MII));
-      else
-        WorkList.push_back(&(*MII));
+      bool ApplyTerminalRule = applyTerminalRule(*MII);
+      if (isLocalCopy(&(*MII), LIS)) {
+        if (ApplyTerminalRule)
+          LocalTerminals.push_back(&(*MII));
+        else
+          LocalWorkList.push_back(&(*MII));
+      } else {
+        if (ApplyTerminalRule)
+          GlobalTerminals.push_back(&(*MII));
+        else
+          WorkList.push_back(&(*MII));
+      }
     }
+    // Append the copies evicted by the terminal rule at the end of the list.
+    LocalWorkList.append(LocalTerminals.begin(), LocalTerminals.end());
+    WorkList.append(GlobalTerminals.begin(), GlobalTerminals.end());
   }
   else {
+    SmallVector<MachineInstr*, 2> Terminals;
      for (MachineBasicBlock::iterator MII = MBB->begin(), E = MBB->end();
           MII != E; ++MII)
-       if (MII->isCopyLike())
-         WorkList.push_back(MII);
+       if (MII->isCopyLike()) {
+        if (applyTerminalRule(*MII))
+          Terminals.push_back(&(*MII));
+        else
+          WorkList.push_back(MII);
+       }
+     // Append the copies evicted by the terminal rule at the end of the list.
+     WorkList.append(Terminals.begin(), Terminals.end());
   }
   // Try coalescing the collected copies immediately, and remove the nulls.
   // This prevents the WorkList from getting too large since most copies are

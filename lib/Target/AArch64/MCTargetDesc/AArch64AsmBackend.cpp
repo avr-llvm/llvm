@@ -18,6 +18,7 @@
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSectionMachO.h"
+#include "llvm/MC/MCValue.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MachO.h"
 using namespace llvm;
@@ -246,10 +247,7 @@ bool AArch64AsmBackend::writeNopData(uint64_t Count, MCObjectWriter *OW) const {
   // If the count is not 4-byte aligned, we must be writing data into the text
   // section (otherwise we have unaligned instructions, and thus have far
   // bigger problems), so just write zeros instead.
-  if ((Count & 3) != 0) {
-    for (uint64_t i = 0, e = (Count & 3); i != e; ++i)
-      OW->Write8(0);
-  }
+  OW->WriteZeros(Count % 4);
 
   // We are properly aligned, so write NOPs as requested.
   Count /= 4;
@@ -312,7 +310,7 @@ public:
   DarwinAArch64AsmBackend(const Target &T, const MCRegisterInfo &MRI)
       : AArch64AsmBackend(T), MRI(MRI) {}
 
-  MCObjectWriter *createObjectWriter(raw_ostream &OS) const override {
+  MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override {
     return createAArch64MachObjectWriter(OS, MachO::CPU_TYPE_ARM64,
                                          MachO::CPU_SUBTYPE_ARM64_ALL);
   }
@@ -460,7 +458,7 @@ public:
   ELFAArch64AsmBackend(const Target &T, uint8_t OSABI, bool IsLittleEndian)
     : AArch64AsmBackend(T), OSABI(OSABI), IsLittleEndian(IsLittleEndian) {}
 
-  MCObjectWriter *createObjectWriter(raw_ostream &OS) const override {
+  MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override {
     return createAArch64ELFObjectWriter(OS, OSABI, IsLittleEndian);
   }
 
@@ -493,14 +491,28 @@ void ELFAArch64AsmBackend::processFixupValue(
     IsResolved = false;
 }
 
+// Returns whether this fixup is based on an address in the .eh_frame section,
+// and therefore should be byte swapped.
+// FIXME: Should be replaced with something more principled.
+static bool isByteSwappedFixup(const MCExpr *E) {
+  MCValue Val;
+  if (!E->EvaluateAsRelocatable(Val, nullptr, nullptr))
+    return false;
+
+  if (!Val.getSymA() || Val.getSymA()->getSymbol().isUndefined())
+    return false;
+
+  const MCSectionELF *SecELF =
+      dyn_cast<MCSectionELF>(&Val.getSymA()->getSymbol().getSection());
+  return SecELF->getSectionName() == ".eh_frame";
+}
+
 void ELFAArch64AsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
                                       unsigned DataSize, uint64_t Value,
                                       bool IsPCRel) const {
   // store fixups in .eh_frame section in big endian order
   if (!IsLittleEndian && Fixup.getKind() == FK_Data_4) {
-    const MCSection *Sec = Fixup.getValue()->FindAssociatedSection();
-    const MCSectionELF *SecELF = dyn_cast_or_null<const MCSectionELF>(Sec);
-    if (SecELF && SecELF->getSectionName() == ".eh_frame")
+    if (isByteSwappedFixup(Fixup.getValue()))
       Value = ByteSwap_32(unsigned(Value));
   }
   AArch64AsmBackend::applyFixup (Fixup, Data, DataSize, Value, IsPCRel);

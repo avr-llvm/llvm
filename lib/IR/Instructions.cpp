@@ -352,6 +352,12 @@ void CallInst::addDereferenceableAttr(unsigned i, uint64_t Bytes) {
   setAttributes(PAL);
 }
 
+void CallInst::addDereferenceableOrNullAttr(unsigned i, uint64_t Bytes) {
+  AttributeSet PAL = getAttributes();
+  PAL = PAL.addDereferenceableOrNullAttr(getContext(), i, Bytes);
+  setAttributes(PAL);
+}
+
 bool CallInst::hasFnAttrImpl(Attribute::AttrKind A) const {
   if (AttributeList.hasAttribute(AttributeSet::FunctionIndex, A))
     return true;
@@ -614,6 +620,12 @@ void InvokeInst::removeAttribute(unsigned i, Attribute attr) {
 void InvokeInst::addDereferenceableAttr(unsigned i, uint64_t Bytes) {
   AttributeSet PAL = getAttributes();
   PAL = PAL.addDereferenceableAttr(getContext(), i, Bytes);
+  setAttributes(PAL);
+}
+
+void InvokeInst::addDereferenceableOrNullAttr(unsigned i, uint64_t Bytes) {
+  AttributeSet PAL = getAttributes();
+  PAL = PAL.addDereferenceableOrNullAttr(getContext(), i, Bytes);
   setAttributes(PAL);
 }
 
@@ -933,9 +945,9 @@ LoadInst::LoadInst(Value *Ptr, const Twine &Name, bool isVolatile,
                    BasicBlock *InsertAE)
     : LoadInst(Ptr, Name, isVolatile, /*Align=*/0, InsertAE) {}
 
-LoadInst::LoadInst(Value *Ptr, const Twine &Name, bool isVolatile,
+LoadInst::LoadInst(Type *Ty, Value *Ptr, const Twine &Name, bool isVolatile,
                    unsigned Align, Instruction *InsertBef)
-    : LoadInst(Ptr, Name, isVolatile, Align, NotAtomic, CrossThread,
+    : LoadInst(Ty, Ptr, Name, isVolatile, Align, NotAtomic, CrossThread,
                InsertBef) {}
 
 LoadInst::LoadInst(Value *Ptr, const Twine &Name, bool isVolatile,
@@ -943,12 +955,10 @@ LoadInst::LoadInst(Value *Ptr, const Twine &Name, bool isVolatile,
     : LoadInst(Ptr, Name, isVolatile, Align, NotAtomic, CrossThread, InsertAE) {
 }
 
-LoadInst::LoadInst(Value *Ptr, const Twine &Name, bool isVolatile, 
+LoadInst::LoadInst(Type *Ty, Value *Ptr, const Twine &Name, bool isVolatile,
                    unsigned Align, AtomicOrdering Order,
-                   SynchronizationScope SynchScope,
-                   Instruction *InsertBef)
-  : UnaryInstruction(cast<PointerType>(Ptr->getType())->getElementType(),
-                     Load, Ptr, InsertBef) {
+                   SynchronizationScope SynchScope, Instruction *InsertBef)
+    : UnaryInstruction(Ty, Load, Ptr, InsertBef) {
   setVolatile(isVolatile);
   setAlignment(Align);
   setAtomic(Order, SynchScope);
@@ -1258,11 +1268,7 @@ GetElementPtrInst::GetElementPtrInst(const GetElementPtrInst &GEPI)
 /// pointer type.
 ///
 template <typename IndexTy>
-static Type *getIndexedTypeInternal(Type *Ptr, ArrayRef<IndexTy> IdxList) {
-  PointerType *PTy = dyn_cast<PointerType>(Ptr->getScalarType());
-  if (!PTy) return nullptr;   // Type isn't a pointer type!
-  Type *Agg = PTy->getElementType();
-
+static Type *getIndexedTypeInternal(Type *Agg, ArrayRef<IndexTy> IdxList) {
   // Handle the special case of the empty set index set, which is always valid.
   if (IdxList.empty())
     return Agg;
@@ -1283,17 +1289,17 @@ static Type *getIndexedTypeInternal(Type *Ptr, ArrayRef<IndexTy> IdxList) {
   return CurIdx == IdxList.size() ? Agg : nullptr;
 }
 
-Type *GetElementPtrInst::getIndexedType(Type *Ptr, ArrayRef<Value *> IdxList) {
-  return getIndexedTypeInternal(Ptr, IdxList);
+Type *GetElementPtrInst::getIndexedType(Type *Ty, ArrayRef<Value *> IdxList) {
+  return getIndexedTypeInternal(Ty, IdxList);
 }
 
-Type *GetElementPtrInst::getIndexedType(Type *Ptr,
+Type *GetElementPtrInst::getIndexedType(Type *Ty,
                                         ArrayRef<Constant *> IdxList) {
-  return getIndexedTypeInternal(Ptr, IdxList);
+  return getIndexedTypeInternal(Ty, IdxList);
 }
 
-Type *GetElementPtrInst::getIndexedType(Type *Ptr, ArrayRef<uint64_t> IdxList) {
-  return getIndexedTypeInternal(Ptr, IdxList);
+Type *GetElementPtrInst::getIndexedType(Type *Ty, ArrayRef<uint64_t> IdxList) {
+  return getIndexedTypeInternal(Ty, IdxList);
 }
 
 /// hasAllZeroIndices - Return true if all of the indices of this GEP are
@@ -2112,7 +2118,7 @@ unsigned CastInst::isEliminableCastPair(
     // N  X  X  U  S  F  F  N  X  N  2  V  V   |
     // C  T  T  I  I  P  P  C  T  T  P  T  T  -+
     {  1, 0, 0,99,99, 0, 0,99,99,99, 0, 3, 0}, // Trunc         -+
-    {  8, 1, 9,99,99, 2, 0,99,99,99, 2, 3, 0}, // ZExt           |
+    {  8, 1, 9,99,99, 2,17,99,99,99, 2, 3, 0}, // ZExt           |
     {  8, 0, 1,99,99, 0, 2,99,99,99, 0, 3, 0}, // SExt           |
     {  0, 0, 0,99,99, 0, 0,99,99,99, 0, 3, 0}, // FPToUI         |
     {  0, 0, 0,99,99, 0, 0,99,99,99, 0, 3, 0}, // FPToSI         |
@@ -2279,6 +2285,9 @@ unsigned CastInst::isEliminableCastPair(
         "Illegal bitcast, ptrtoint sequence!");
       // Allowed, use second cast's opcode
       return secondOp;
+    case 17:
+      // (sitofp (zext x)) -> (uitofp x)
+      return Instruction::UIToFP;
     case 99: 
       // Cast combination can't happen (error in input). This is for all cases
       // where the MidTy is not the same for the two cast instructions.
@@ -2529,44 +2538,38 @@ bool CastInst::isCastable(Type *SrcTy, Type *DestTy) {
 
   // Run through the possibilities ...
   if (DestTy->isIntegerTy()) {               // Casting to integral
-    if (SrcTy->isIntegerTy()) {                // Casting from integral
+    if (SrcTy->isIntegerTy())                // Casting from integral
         return true;
-    } else if (SrcTy->isFloatingPointTy()) {   // Casting from floating pt
+    if (SrcTy->isFloatingPointTy())   // Casting from floating pt
       return true;
-    } else if (SrcTy->isVectorTy()) {          // Casting from vector
+    if (SrcTy->isVectorTy())          // Casting from vector
       return DestBits == SrcBits;
-    } else {                                   // Casting from something else
-      return SrcTy->isPointerTy();
-    }
-  } else if (DestTy->isFloatingPointTy()) {  // Casting to floating pt
-    if (SrcTy->isIntegerTy()) {                // Casting from integral
+                                      // Casting from something else
+    return SrcTy->isPointerTy();
+  } 
+  if (DestTy->isFloatingPointTy()) {  // Casting to floating pt
+    if (SrcTy->isIntegerTy())                // Casting from integral
       return true;
-    } else if (SrcTy->isFloatingPointTy()) {   // Casting from floating pt
+    if (SrcTy->isFloatingPointTy())   // Casting from floating pt
       return true;
-    } else if (SrcTy->isVectorTy()) {          // Casting from vector
+    if (SrcTy->isVectorTy())          // Casting from vector
       return DestBits == SrcBits;
-    } else {                                   // Casting from something else
-      return false;
-    }
-  } else if (DestTy->isVectorTy()) {         // Casting to vector
-    return DestBits == SrcBits;
-  } else if (DestTy->isPointerTy()) {        // Casting to pointer
-    if (SrcTy->isPointerTy()) {                // Casting from pointer
-      return true;
-    } else if (SrcTy->isIntegerTy()) {         // Casting from integral
-      return true;
-    } else {                                   // Casting from something else
-      return false;
-    }
-  } else if (DestTy->isX86_MMXTy()) {
-    if (SrcTy->isVectorTy()) {
-      return DestBits == SrcBits;       // 64-bit vector to MMX
-    } else {
-      return false;
-    }
-  } else {                                   // Casting to something else
+                                    // Casting from something else
     return false;
   }
+  if (DestTy->isVectorTy())         // Casting to vector
+    return DestBits == SrcBits;
+  if (DestTy->isPointerTy()) {        // Casting to pointer
+    if (SrcTy->isPointerTy())                // Casting from pointer
+      return true;
+    return SrcTy->isIntegerTy();             // Casting from integral
+  } 
+  if (DestTy->isX86_MMXTy()) {
+    if (SrcTy->isVectorTy())
+      return DestBits == SrcBits;       // 64-bit vector to MMX
+    return false;
+  }                                    // Casting to something else
+  return false;
 }
 
 bool CastInst::isBitCastable(Type *SrcTy, Type *DestTy) {

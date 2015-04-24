@@ -10,8 +10,8 @@ target triple = "x86_64-apple-darwin10.2"
 define i32 @_ZN3foo3bazEi(%struct.foo* nocapture %this, i32 %x) nounwind readnone optsize noinline ssp align 2 {
 ;CHECK: DEBUG_VALUE: baz:this <- RDI{{$}}
 entry:
-  tail call void @llvm.dbg.value(metadata %struct.foo* %this, i64 0, metadata !15, metadata !MDExpression())
-  tail call void @llvm.dbg.value(metadata i32 %x, i64 0, metadata !16, metadata !MDExpression())
+  tail call void @llvm.dbg.value(metadata %struct.foo* %this, i64 0, metadata !15, metadata !MDExpression()), !dbg !MDLocation(scope: !8)
+  tail call void @llvm.dbg.value(metadata i32 %x, i64 0, metadata !16, metadata !MDExpression()), !dbg !MDLocation(scope: !8)
   %0 = mul nsw i32 %x, 7, !dbg !29                ; <i32> [#uses=1]
   %1 = add nsw i32 %0, 1, !dbg !29                ; <i32> [#uses=1]
   ret i32 %1, !dbg !29
@@ -55,6 +55,6 @@ declare void @llvm.dbg.value(metadata, i64, metadata, metadata) nounwind readnon
 !29 = !MDLocation(line: 16, scope: !30)
 !30 = distinct !MDLexicalBlock(line: 15, column: 0, file: !31, scope: !8)
 !31 = !MDFile(filename: "foo.cp", directory: "/tmp/")
-!32 = !{i32 0}
+!32 = !{}
 !33 = !{!1, !8, !18}
 !34 = !{i32 1, !"Debug Info Version", i32 3}

@@ -24,8 +24,6 @@
 
 namespace llvm {
 
-class Deserializer;
-
 /// This class is used to read from an LLVM bitcode stream, maintaining
 /// information that is global to decoding the entire file. While a file is
 /// being read, multiple cursors can be independently advanced or skipped around
@@ -164,7 +162,6 @@ struct BitstreamEntry {
 /// Unlike iterators, BitstreamCursors are heavy-weight objects that should not
 /// be passed by value.
 class BitstreamCursor {
-  friend class Deserializer;
   BitstreamReader *BitStream;
   size_t NextChar;
 
@@ -201,6 +198,8 @@ class BitstreamCursor {
 
 
 public:
+  static const size_t MaxChunkSize = sizeof(word_t) * 8;
+
   BitstreamCursor() { init(nullptr); }
 
   explicit BitstreamCursor(BitstreamReader &R) { init(&R); }
@@ -338,7 +337,7 @@ public:
   }
 
   word_t Read(unsigned NumBits) {
-    static const unsigned BitsInWord = sizeof(word_t) * 8;
+    static const unsigned BitsInWord = MaxChunkSize;
 
     assert(NumBits && NumBits <= BitsInWord &&
            "Cannot return zero or more than BitsInWord bits!");

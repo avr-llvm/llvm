@@ -16,6 +16,7 @@
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/CodeMetrics.h"
+#include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -23,14 +24,13 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/UnrollLoop.h"
-#include "llvm/IR/InstVisitor.h"
-#include "llvm/Analysis/InstructionSimplify.h"
 #include <climits>
 
 using namespace llvm;
@@ -165,6 +165,7 @@ namespace {
       UP.MaxCount = UINT_MAX;
       UP.Partial = CurrentAllowPartial;
       UP.Runtime = CurrentRuntime;
+      UP.AllowExpensiveTripCount = false;
       TTI.getUnrollingPreferences(L, UP);
     }
 
@@ -259,6 +260,7 @@ static bool isLoadFromConstantInitializer(Value *V) {
   return false;
 }
 
+namespace {
 struct FindConstantPointers {
   bool LoadCanBeConstantFolded;
   bool IndexIsConstant;
@@ -541,6 +543,7 @@ public:
     return NumberOfOptimizedInstructions;
   }
 };
+} // namespace
 
 // Complete loop unrolling can make some loads constant, and we need to know if
 // that would expose any further optimization opportunities.
@@ -884,8 +887,8 @@ bool LoopUnroll::runOnLoop(Loop *L, LPPassManager &LPM) {
   }
 
   // Unroll the loop.
-  if (!UnrollLoop(L, Count, TripCount, AllowRuntime, TripMultiple, LI, this,
-                  &LPM, &AC))
+  if (!UnrollLoop(L, Count, TripCount, AllowRuntime, UP.AllowExpensiveTripCount,
+                  TripMultiple, LI, this, &LPM, &AC))
     return false;
 
   return true;

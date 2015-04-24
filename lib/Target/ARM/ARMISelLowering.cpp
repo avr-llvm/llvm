@@ -41,14 +41,15 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Type.h"
 #include "llvm/MC/MCSectionMachO.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetOptions.h"
 #include <utility>
 using namespace llvm;
@@ -614,6 +615,12 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FRINT,      MVT::f64, Expand);
     setOperationAction(ISD::FNEARBYINT, MVT::f64, Expand);
     setOperationAction(ISD::FFLOOR,     MVT::f64, Expand);
+    setOperationAction(ISD::SINT_TO_FP, MVT::i32, Custom);
+    setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
+    setOperationAction(ISD::FP_TO_SINT, MVT::i32, Custom);
+    setOperationAction(ISD::FP_TO_UINT, MVT::i32, Custom);
+    setOperationAction(ISD::FP_TO_SINT, MVT::f64, Custom);
+    setOperationAction(ISD::FP_TO_UINT, MVT::f64, Custom);
     setOperationAction(ISD::FP_ROUND,   MVT::f32, Custom);
     setOperationAction(ISD::FP_EXTEND,  MVT::f64, Custom);
   }
@@ -869,14 +876,6 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
 
   // Various VFP goodness
   if (!TM.Options.UseSoftFloat && !Subtarget->isThumb1Only()) {
-    // int <-> fp are custom expanded into bit_convert + ARMISD ops.
-    if (Subtarget->hasVFP2()) {
-      setOperationAction(ISD::SINT_TO_FP, MVT::i32, Custom);
-      setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
-      setOperationAction(ISD::FP_TO_UINT, MVT::i32, Custom);
-      setOperationAction(ISD::FP_TO_SINT, MVT::i32, Custom);
-    }
-
     // FP-ARMv8 adds f64 <-> f16 conversion. Before that it should be expanded.
     if (!Subtarget->hasFPARMv8() || Subtarget->isFPOnlySP()) {
       setOperationAction(ISD::FP16_TO_FP, MVT::f64, Expand);
@@ -1032,11 +1031,6 @@ const char *ARMTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case ARMISD::CMOV:          return "ARMISD::CMOV";
 
   case ARMISD::RBIT:          return "ARMISD::RBIT";
-
-  case ARMISD::FTOSI:         return "ARMISD::FTOSI";
-  case ARMISD::FTOUI:         return "ARMISD::FTOUI";
-  case ARMISD::SITOF:         return "ARMISD::SITOF";
-  case ARMISD::UITOF:         return "ARMISD::UITOF";
 
   case ARMISD::SRL_FLAG:      return "ARMISD::SRL_FLAG";
   case ARMISD::SRA_FLAG:      return "ARMISD::SRA_FLAG";
@@ -3510,25 +3504,34 @@ SDValue ARMTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
   ARMCC::CondCodes CondCode, CondCode2;
   FPCCToARMCC(CC, CondCode, CondCode2);
 
-  // Try to generate VSEL on ARMv8.
+  // Try to generate VMAXNM/VMINNM on ARMv8.
   if (Subtarget->hasFPARMv8() && (TrueVal.getValueType() == MVT::f32 ||
                                   TrueVal.getValueType() == MVT::f64)) {
-    // We can select VMAXNM/VMINNM from a compare followed by a select with the
+    // We can use VMAXNM/VMINNM for a compare followed by a select with the
     // same operands, as follows:
-    //   c = fcmp [ogt, olt, ugt, ult] a, b
+    //   c = fcmp [?gt, ?ge, ?lt, ?le] a, b
     //   select c, a, b
-    // We only do this in unsafe-fp-math, because signed zeros and NaNs are
-    // handled differently than the original code sequence.
+    // In NoNaNsFPMath the CC will have been changed from, e.g., 'ogt' to 'gt'.
+    // We only do this transformation in UnsafeFPMath and for no-NaNs
+    // comparisons, because signed zeros and NaNs are handled differently than
+    // the original code sequence.
+    // FIXME: There are more cases that can be transformed even with NaNs,
+    // signed zeroes and safe math.  E.g. in the following, the result will be
+    // FalseVal if a is a NaN or -0./0. and that's what vmaxnm will give, too.
+    //   c = fcmp ogt, a, 0. ; select c, a, 0. => vmaxnm a, 0.
+    // FIXME: There is similar code that allows some extensions in
+    // AArch64TargetLowering::LowerSELECT_CC that should be shared with this
+    // code.
     if (getTargetMachine().Options.UnsafeFPMath) {
       if (LHS == TrueVal && RHS == FalseVal) {
-        if (CC == ISD::SETOGT || CC == ISD::SETUGT)
+        if (CC == ISD::SETGT || CC == ISD::SETGE)
           return DAG.getNode(ARMISD::VMAXNM, dl, VT, TrueVal, FalseVal);
-        if (CC == ISD::SETOLT || CC == ISD::SETULT)
+        if (CC == ISD::SETLT || CC == ISD::SETLE)
           return DAG.getNode(ARMISD::VMINNM, dl, VT, TrueVal, FalseVal);
       } else if (LHS == FalseVal && RHS == TrueVal) {
-        if (CC == ISD::SETOLT || CC == ISD::SETULT)
+        if (CC == ISD::SETLT || CC == ISD::SETLE)
           return DAG.getNode(ARMISD::VMAXNM, dl, VT, TrueVal, FalseVal);
-        if (CC == ISD::SETOGT || CC == ISD::SETUGT)
+        if (CC == ISD::SETGT || CC == ISD::SETGE)
           return DAG.getNode(ARMISD::VMINNM, dl, VT, TrueVal, FalseVal);
       }
     }
@@ -3795,7 +3798,6 @@ SDValue ARMTargetLowering::LowerFP_TO_INT(SDValue Op, SelectionDAG &DAG) const {
   EVT VT = Op.getValueType();
   if (VT.isVector())
     return LowerVectorFP_TO_INT(Op, DAG);
-
   if (Subtarget->isFPOnlySP() && Op.getOperand(0).getValueType() == MVT::f64) {
     RTLIB::Libcall LC;
     if (Op.getOpcode() == ISD::FP_TO_SINT)
@@ -3808,20 +3810,7 @@ SDValue ARMTargetLowering::LowerFP_TO_INT(SDValue Op, SelectionDAG &DAG) const {
                        /*isSigned*/ false, SDLoc(Op)).first;
   }
 
-  SDLoc dl(Op);
-  unsigned Opc;
-
-  switch (Op.getOpcode()) {
-  default: llvm_unreachable("Invalid opcode!");
-  case ISD::FP_TO_SINT:
-    Opc = ARMISD::FTOSI;
-    break;
-  case ISD::FP_TO_UINT:
-    Opc = ARMISD::FTOUI;
-    break;
-  }
-  Op = DAG.getNode(Opc, dl, MVT::f32, Op.getOperand(0));
-  return DAG.getNode(ISD::BITCAST, dl, MVT::i32, Op);
+  return Op;
 }
 
 static SDValue LowerVectorINT_TO_FP(SDValue Op, SelectionDAG &DAG) {
@@ -3861,7 +3850,6 @@ SDValue ARMTargetLowering::LowerINT_TO_FP(SDValue Op, SelectionDAG &DAG) const {
   EVT VT = Op.getValueType();
   if (VT.isVector())
     return LowerVectorINT_TO_FP(Op, DAG);
-
   if (Subtarget->isFPOnlySP() && Op.getValueType() == MVT::f64) {
     RTLIB::Libcall LC;
     if (Op.getOpcode() == ISD::SINT_TO_FP)
@@ -3874,21 +3862,7 @@ SDValue ARMTargetLowering::LowerINT_TO_FP(SDValue Op, SelectionDAG &DAG) const {
                        /*isSigned*/ false, SDLoc(Op)).first;
   }
 
-  SDLoc dl(Op);
-  unsigned Opc;
-
-  switch (Op.getOpcode()) {
-  default: llvm_unreachable("Invalid opcode!");
-  case ISD::SINT_TO_FP:
-    Opc = ARMISD::SITOF;
-    break;
-  case ISD::UINT_TO_FP:
-    Opc = ARMISD::UITOF;
-    break;
-  }
-
-  Op = DAG.getNode(ISD::BITCAST, dl, MVT::f32, Op.getOperand(0));
-  return DAG.getNode(Opc, dl, VT, Op);
+  return Op;
 }
 
 SDValue ARMTargetLowering::LowerFCOPYSIGN(SDValue Op, SelectionDAG &DAG) const {
@@ -7140,16 +7114,20 @@ ARMTargetLowering::EmitStructByval(MachineInstr *MI,
 
   // Load an immediate to varEnd.
   unsigned varEnd = MRI.createVirtualRegister(TRC);
-  if (IsThumb2) {
+  if (Subtarget->useMovt(*MF)) {
     unsigned Vtmp = varEnd;
     if ((LoopSize & 0xFFFF0000) != 0)
       Vtmp = MRI.createVirtualRegister(TRC);
-    AddDefaultPred(BuildMI(BB, dl, TII->get(ARM::t2MOVi16), Vtmp)
-                       .addImm(LoopSize & 0xFFFF));
+    AddDefaultPred(BuildMI(BB, dl,
+                           TII->get(IsThumb2 ? ARM::t2MOVi16 : ARM::MOVi16),
+                           Vtmp).addImm(LoopSize & 0xFFFF));
 
     if ((LoopSize & 0xFFFF0000) != 0)
-      AddDefaultPred(BuildMI(BB, dl, TII->get(ARM::t2MOVTi16), varEnd)
-                         .addReg(Vtmp).addImm(LoopSize >> 16));
+      AddDefaultPred(BuildMI(BB, dl,
+                             TII->get(IsThumb2 ? ARM::t2MOVTi16 : ARM::MOVTi16),
+                             varEnd)
+                         .addReg(Vtmp)
+                         .addImm(LoopSize >> 16));
   } else {
     MachineConstantPool *ConstantPool = MF->getConstantPool();
     Type *Int32Ty = Type::getInt32Ty(MF->getFunction()->getContext());

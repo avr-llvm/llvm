@@ -120,12 +120,20 @@ bool SIInstrInfo::areLoadsFromSameBasePtr(SDNode *Load0, SDNode *Load1,
     if (Load0->getOperand(0) != Load1->getOperand(0))
       return false;
 
+    const ConstantSDNode *Load0Offset =
+        dyn_cast<ConstantSDNode>(Load0->getOperand(1));
+    const ConstantSDNode *Load1Offset =
+        dyn_cast<ConstantSDNode>(Load1->getOperand(1));
+
+    if (!Load0Offset || !Load1Offset)
+      return false;
+
     // Check chain.
     if (findChainOperand(Load0) != findChainOperand(Load1))
       return false;
 
-    Offset0 = cast<ConstantSDNode>(Load0->getOperand(1))->getZExtValue();
-    Offset1 = cast<ConstantSDNode>(Load1->getOperand(1))->getZExtValue();
+    Offset0 = Load0Offset->getZExtValue();
+    Offset1 = Load1Offset->getZExtValue();
     return true;
   }
 
@@ -418,7 +426,9 @@ SIInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   }
 }
 
-unsigned SIInstrInfo::commuteOpcode(unsigned Opcode) const {
+unsigned SIInstrInfo::commuteOpcode(const MachineInstr &MI) const {
+  const unsigned Opcode = MI.getOpcode();
+
   int NewOpc;
 
   // Try to map original to commuted opcode
@@ -717,6 +727,26 @@ bool SIInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
     MI->eraseFromParent();
     break;
   }
+
+  case AMDGPU::V_CNDMASK_B64_PSEUDO: {
+    unsigned Dst = MI->getOperand(0).getReg();
+    unsigned DstLo = RI.getSubReg(Dst, AMDGPU::sub0);
+    unsigned DstHi = RI.getSubReg(Dst, AMDGPU::sub1);
+    unsigned Src0 = MI->getOperand(1).getReg();
+    unsigned Src1 = MI->getOperand(2).getReg();
+    const MachineOperand &SrcCond = MI->getOperand(3);
+
+    BuildMI(MBB, MI, DL, get(AMDGPU::V_CNDMASK_B32_e64), DstLo)
+        .addReg(RI.getSubReg(Src0, AMDGPU::sub0))
+        .addReg(RI.getSubReg(Src1, AMDGPU::sub0))
+        .addOperand(SrcCond);
+    BuildMI(MBB, MI, DL, get(AMDGPU::V_CNDMASK_B32_e64), DstHi)
+        .addReg(RI.getSubReg(Src0, AMDGPU::sub1))
+        .addReg(RI.getSubReg(Src1, AMDGPU::sub1))
+        .addOperand(SrcCond);
+    MI->eraseFromParent();
+    break;
+  }
   }
   return true;
 }
@@ -789,7 +819,7 @@ MachineInstr *SIInstrInfo::commuteInstruction(MachineInstr *MI,
   }
 
   if (MI)
-    MI->setDesc(get(commuteOpcode(MI->getOpcode())));
+    MI->setDesc(get(commuteOpcode(*MI)));
 
   return MI;
 }
@@ -1376,6 +1406,7 @@ unsigned SIInstrInfo::getVALUOp(const MachineInstr &MI) {
   case AMDGPU::S_SEXT_I32_I16: return AMDGPU::V_BFE_I32;
   case AMDGPU::S_BFE_U32: return AMDGPU::V_BFE_U32;
   case AMDGPU::S_BFE_I32: return AMDGPU::V_BFE_I32;
+  case AMDGPU::S_BFM_B32: return AMDGPU::V_BFM_B32_e64;
   case AMDGPU::S_BREV_B32: return AMDGPU::V_BFREV_B32_e32;
   case AMDGPU::S_NOT_B32: return AMDGPU::V_NOT_B32_e32;
   case AMDGPU::S_NOT_B64: return AMDGPU::V_NOT_B32_e32;
