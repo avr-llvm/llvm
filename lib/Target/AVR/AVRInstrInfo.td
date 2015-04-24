@@ -1032,7 +1032,7 @@ isReMaterializable = 1 in
                               [(set GPR8:$reg, (load i16:$ptrreg))]>,
                   Requires<[HasSRAM]>;
 
-    let Constraints = "@earlyclobber $ptrreg" in
+    let Constraints = "@earlyclobber $reg" in
     def LDWRdPtr : Pseudo<(outs DREGS:$reg),
                           (ins PTRDISPREGS:$ptrreg),
                           "ldw\t$reg, $ptrreg",
