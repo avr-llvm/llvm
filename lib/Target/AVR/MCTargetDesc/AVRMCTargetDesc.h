@@ -26,7 +26,7 @@ namespace llvm
     class MCContext;
     class StringRef;
     class Target;
-    class raw_ostream;
+    class raw_pwrite_stream;
 
     extern Target TheAVRTarget;
 
@@ -46,7 +46,7 @@ namespace llvm
     MCAsmBackend *createAVRAsmBackendEB(const Target &T, const MCRegisterInfo &MRI,
                                         StringRef TT, StringRef CPU);
                                         
-    MCObjectWriter *createAVRELFObjectWriter(raw_ostream &OS,
+    MCObjectWriter *createAVRELFObjectWriter(raw_pwrite_stream &OS,
                                              uint8_t OSABI,
                                              bool IsLittleEndian);
 

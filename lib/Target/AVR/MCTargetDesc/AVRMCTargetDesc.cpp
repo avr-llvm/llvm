@@ -68,12 +68,11 @@ static MCCodeGenInfo *createAVRMCCodeGenInfo(StringRef TT, Reloc::Model RM,
   return X;
 }
 
-static MCInstPrinter *createAVRMCInstPrinter(const Target &T,
+static MCInstPrinter *createAVRMCInstPrinter(const Triple &T,
                                              unsigned SyntaxVariant,
                                              const MCAsmInfo &MAI,
                                              const MCInstrInfo &MII,
-                                             const MCRegisterInfo &MRI,
-                                             const MCSubtargetInfo &STI)
+                                             const MCRegisterInfo &MRI)
 {
   if (SyntaxVariant == 0)
   {
@@ -84,7 +83,7 @@ static MCInstPrinter *createAVRMCInstPrinter(const Target &T,
 }
 
 static MCStreamer *createMCStreamer(const Triple &T, MCContext &Context,
-                                    MCAsmBackend &MAB, raw_ostream &OS,
+                                    MCAsmBackend &MAB, raw_pwrite_stream &OS,
                                     MCCodeEmitter *Emitter, bool RelaxAll) {
   return createELFStreamer(Context, MAB, OS, Emitter, RelaxAll);
 }

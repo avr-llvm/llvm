@@ -34,7 +34,7 @@ public:
   AVRAsmBackend(const Target &T, Triple::OSType _OSType, bool _IsLittle)
       : MCAsmBackend(), OSType(_OSType), IsLittle(_IsLittle) {}
 
-  MCObjectWriter *createObjectWriter(raw_ostream &OS) const override;
+  MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override;
 
   void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
                   uint64_t Value, bool IsPCRel) const override;

@@ -78,7 +78,7 @@ static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
   return Value;
 }
 
-MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_ostream &OS) const {
+MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_pwrite_stream &OS) const {
   return createAVRELFObjectWriter(OS,
     MCELFObjectTargetWriter::getOSABI(OSType),
     IsLittle);

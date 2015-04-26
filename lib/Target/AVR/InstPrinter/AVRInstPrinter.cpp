@@ -49,7 +49,7 @@ static char getPtrRegName(const char *RegName)
 }
 
 void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
-                               StringRef Annot)
+                               StringRef Annot, const MCSubtargetInfo &STI)
 {
   unsigned Opcode = MI->getOpcode();
 
@@ -117,14 +117,6 @@ void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   O << *Op.getExpr();
 }
 
-void AVRInstPrinter::printMemriOperand(const MCInst *MI, unsigned OpNo,
-                                       raw_ostream &O)
-{
-  // The memri operand is of the form "Y+<offs>".
-  printOperand(MI, OpNo, O, "ptr");
-  O << '+';
-  printOperand(MI, OpNo + 1, O);
-}
 
 /// print_pcrel_imm - This is used to print an immediate value that ends up
 /// being encoded as a pc-relative value.
