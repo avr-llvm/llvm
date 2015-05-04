@@ -47,14 +47,14 @@ public:
     ATReg(1), Reorder(true), Macro(true), Features(Features_) {}
 
   MipsAssemblerOptions(const MipsAssemblerOptions *Opts) {
-    ATReg = Opts->getATRegNum();
+    ATReg = Opts->getATRegIndex();
     Reorder = Opts->isReorder();
     Macro = Opts->isMacro();
     Features = Opts->getFeatures();
   }
 
-  unsigned getATRegNum() const { return ATReg; }
-  bool setATReg(unsigned Reg) {
+  unsigned getATRegIndex() const { return ATReg; }
+  bool setATRegIndex(unsigned Reg) {
     if (Reg > 31)
       return false;
 
@@ -179,7 +179,7 @@ class MipsAsmParser : public MCTargetAsmParser {
   bool expandJalWithRegs(MCInst &Inst, SMLoc IDLoc,
                          SmallVectorImpl<MCInst> &Instructions);
 
-  bool expandLoadImm(MCInst &Inst, SMLoc IDLoc,
+  bool expandLoadImm(MCInst &Inst, bool Is32BitImm, SMLoc IDLoc,
                      SmallVectorImpl<MCInst> &Instructions);
 
   bool expandLoadAddressImm(MCInst &Inst, SMLoc IDLoc,
@@ -436,8 +436,8 @@ public:
   // TODO: see how can we get this info.
   bool abiUsesSoftFloat() const { return false; }
 
-  /// Warn if RegNo is the current assembler temporary.
-  void warnIfAssemblerTemporary(int RegNo, SMLoc Loc);
+  /// Warn if RegIndex is the same as the current AT.
+  void warnIfRegIndexIsAT(unsigned RegIndex, SMLoc Loc);
 };
 }
 
@@ -546,7 +546,7 @@ public:
   /// target.
   unsigned getGPR32Reg() const {
     assert(isRegIdx() && (RegIdx.Kind & RegKind_GPR) && "Invalid access!");
-    AsmParser.warnIfAssemblerTemporary(RegIdx.Index, StartLoc);
+    AsmParser.warnIfRegIndexIsAT(RegIdx.Index, StartLoc);
     unsigned ClassID = Mips::GPR32RegClassID;
     return RegIdx.RegInfo->getRegClass(ClassID).getRegister(RegIdx.Index);
   }
@@ -1609,13 +1609,9 @@ bool MipsAsmParser::expandInstruction(MCInst &Inst, SMLoc IDLoc,
   switch (Inst.getOpcode()) {
   default: llvm_unreachable("unimplemented expansion");
   case Mips::LoadImm32:
-    return expandLoadImm(Inst, IDLoc, Instructions);
+    return expandLoadImm(Inst, true, IDLoc, Instructions);
   case Mips::LoadImm64:
-    if (!isGP64bit()) {
-      Error(IDLoc, "instruction requires a 64-bit architecture");
-      return true;
-    }
-    return expandLoadImm(Inst, IDLoc, Instructions);
+    return expandLoadImm(Inst, false, IDLoc, Instructions);
   case Mips::LoadAddrImm32:
     return expandLoadAddressImm(Inst, IDLoc, Instructions);
   case Mips::LoadAddrReg32:
@@ -1632,19 +1628,31 @@ bool MipsAsmParser::expandInstruction(MCInst &Inst, SMLoc IDLoc,
 }
 
 namespace {
-template <bool PerformShift>
-void createShiftOr(MCOperand Operand, unsigned RegNo, SMLoc IDLoc,
-                   SmallVectorImpl<MCInst> &Instructions) {
+template <unsigned ShiftAmount>
+void createLShiftOri(MCOperand Operand, unsigned RegNo, SMLoc IDLoc,
+                     SmallVectorImpl<MCInst> &Instructions) {
   MCInst tmpInst;
-  if (PerformShift) {
+  if (ShiftAmount >= 32) {
+    tmpInst.setOpcode(Mips::DSLL32);
+    tmpInst.addOperand(MCOperand::CreateReg(RegNo));
+    tmpInst.addOperand(MCOperand::CreateReg(RegNo));
+    tmpInst.addOperand(MCOperand::CreateImm(ShiftAmount - 32));
+    tmpInst.setLoc(IDLoc);
+    Instructions.push_back(tmpInst);
+    tmpInst.clear();
+  } else if (ShiftAmount > 0) {
     tmpInst.setOpcode(Mips::DSLL);
     tmpInst.addOperand(MCOperand::CreateReg(RegNo));
     tmpInst.addOperand(MCOperand::CreateReg(RegNo));
-    tmpInst.addOperand(MCOperand::CreateImm(16));
+    tmpInst.addOperand(MCOperand::CreateImm(ShiftAmount));
     tmpInst.setLoc(IDLoc);
     Instructions.push_back(tmpInst);
     tmpInst.clear();
   }
+  // There's no need for an ORi if the immediate is 0.
+  if (Operand.isImm() && Operand.getImm() == 0)
+    return;
+
   tmpInst.setOpcode(Mips::ORi);
   tmpInst.addOperand(MCOperand::CreateReg(RegNo));
   tmpInst.addOperand(MCOperand::CreateReg(RegNo));
@@ -1653,12 +1661,11 @@ void createShiftOr(MCOperand Operand, unsigned RegNo, SMLoc IDLoc,
   Instructions.push_back(tmpInst);
 }
 
-template <int Shift, bool PerformShift>
-void createShiftOr(int64_t Value, unsigned RegNo, SMLoc IDLoc,
-                   SmallVectorImpl<MCInst> &Instructions) {
-  createShiftOr<PerformShift>(
-      MCOperand::CreateImm(((Value & (0xffffLL << Shift)) >> Shift)), RegNo,
-      IDLoc, Instructions);
+template <unsigned ShiftAmount>
+void createLShiftOri(int64_t Value, unsigned RegNo, SMLoc IDLoc,
+                     SmallVectorImpl<MCInst> &Instructions) {
+  createLShiftOri<ShiftAmount>(MCOperand::CreateImm(Value), RegNo, IDLoc,
+                               Instructions);
 }
 }
 
@@ -1704,8 +1711,13 @@ bool MipsAsmParser::expandJalWithRegs(MCInst &Inst, SMLoc IDLoc,
   return false;
 }
 
-bool MipsAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
+bool MipsAsmParser::expandLoadImm(MCInst &Inst, bool Is32BitImm, SMLoc IDLoc,
                                   SmallVectorImpl<MCInst> &Instructions) {
+  if (!Is32BitImm && !isGP64bit()) {
+    Error(IDLoc, "instruction requires a 64-bit architecture");
+    return true;
+  }
+
   MCInst tmpInst;
   const MCOperand &ImmOp = Inst.getOperand(1);
   assert(ImmOp.isImm() && "expected immediate operand kind");
@@ -1713,6 +1725,7 @@ bool MipsAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
   assert(RegOp.isReg() && "expected register operand kind");
 
   int64_t ImmValue = ImmOp.getImm();
+  unsigned Reg = RegOp.getReg();
   tmpInst.setLoc(IDLoc);
   // FIXME: gas has a special case for values that are 000...1111, which
   // becomes a li -1 and then a dsrl
@@ -1720,7 +1733,7 @@ bool MipsAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
     // For unsigned and positive signed 16-bit values (0 <= j <= 65535):
     // li d,j => ori d,$zero,j
     tmpInst.setOpcode(Mips::ORi);
-    tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+    tmpInst.addOperand(MCOperand::CreateReg(Reg));
     tmpInst.addOperand(MCOperand::CreateReg(Mips::ZERO));
     tmpInst.addOperand(MCOperand::CreateImm(ImmValue));
     Instructions.push_back(tmpInst);
@@ -1728,7 +1741,7 @@ bool MipsAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
     // For negative signed 16-bit values (-32768 <= j < 0):
     // li d,j => addiu d,$zero,j
     tmpInst.setOpcode(Mips::ADDiu);
-    tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
+    tmpInst.addOperand(MCOperand::CreateReg(Reg));
     tmpInst.addOperand(MCOperand::CreateReg(Mips::ZERO));
     tmpInst.addOperand(MCOperand::CreateImm(ImmValue));
     Instructions.push_back(tmpInst);
@@ -1736,14 +1749,17 @@ bool MipsAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
     // For all other values which are representable as a 32-bit integer:
     // li d,j => lui d,hi16(j)
     //           ori d,d,lo16(j)
+    uint16_t Bits31To16 = (ImmValue >> 16) & 0xffff;
+    uint16_t Bits15To0 = ImmValue & 0xffff;
+
     tmpInst.setOpcode(Mips::LUi);
-    tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
-    tmpInst.addOperand(MCOperand::CreateImm((ImmValue & 0xffff0000) >> 16));
+    tmpInst.addOperand(MCOperand::CreateReg(Reg));
+    tmpInst.addOperand(MCOperand::CreateImm(Bits31To16));
     Instructions.push_back(tmpInst);
-    createShiftOr<0, false>(ImmValue, RegOp.getReg(), IDLoc, Instructions);
+    createLShiftOri<0>(Bits15To0, Reg, IDLoc, Instructions);
   } else if ((ImmValue & (0xffffLL << 48)) == 0) {
-    if (!isGP64bit()) {
-      Error(IDLoc, "instruction requires a 64-bit architecture");
+    if (Is32BitImm) {
+      Error(IDLoc, "instruction requires a 32-bit immediate");
       return true;
     }
 
@@ -1752,7 +1768,7 @@ bool MipsAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
     // <- hi16 ->             <- lo16 ->
     //  _________________________________
     // |          |          |          |
-    // | 16-bytes | 16-bytes | 16-bytes |
+    // | 16-bits  | 16-bits  | 16-bits  |
     // |__________|__________|__________|
     //
     // For any 64-bit value that is representable as a 48-bit integer:
@@ -1760,16 +1776,19 @@ bool MipsAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
     //           ori d,d,hi16(lo32(j))
     //           dsll d,d,16
     //           ori d,d,lo16(lo32(j))
+    uint16_t Bits47To32 = (ImmValue >> 32) & 0xffff;
+    uint16_t Bits31To16 = (ImmValue >> 16) & 0xffff;
+    uint16_t Bits15To0 = ImmValue & 0xffff;
+
     tmpInst.setOpcode(Mips::LUi);
-    tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
-    tmpInst.addOperand(
-        MCOperand::CreateImm((ImmValue & (0xffffLL << 32)) >> 32));
+    tmpInst.addOperand(MCOperand::CreateReg(Reg));
+    tmpInst.addOperand(MCOperand::CreateImm(Bits47To32));
     Instructions.push_back(tmpInst);
-    createShiftOr<16, false>(ImmValue, RegOp.getReg(), IDLoc, Instructions);
-    createShiftOr<0, true>(ImmValue, RegOp.getReg(), IDLoc, Instructions);
+    createLShiftOri<0>(Bits31To16, Reg, IDLoc, Instructions);
+    createLShiftOri<16>(Bits15To0, Reg, IDLoc, Instructions);
   } else {
-    if (!isGP64bit()) {
-      Error(IDLoc, "instruction requires a 64-bit architecture");
+    if (Is32BitImm) {
+      Error(IDLoc, "instruction requires a 32-bit immediate");
       return true;
     }
 
@@ -1777,7 +1796,7 @@ bool MipsAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
     // <- hi16 ->                        <- lo16 ->
     //  ___________________________________________
     // |          |          |          |          |
-    // | 16-bytes | 16-bytes | 16-bytes | 16-bytes |
+    // | 16-bits  | 16-bits  | 16-bits  | 16-bits  |
     // |__________|__________|__________|__________|
     //
     // For all other values which are representable as a 64-bit integer:
@@ -1787,14 +1806,25 @@ bool MipsAsmParser::expandLoadImm(MCInst &Inst, SMLoc IDLoc,
     //           ori d,d,hi16(lo32(j))
     //           dsll d,d,16
     //           ori d,d,lo16(lo32(j))
+    uint16_t Bits63To48 = (ImmValue >> 48) & 0xffff;
+    uint16_t Bits47To32 = (ImmValue >> 32) & 0xffff;
+    uint16_t Bits31To16 = (ImmValue >> 16) & 0xffff;
+    uint16_t Bits15To0 = ImmValue & 0xffff;
+
     tmpInst.setOpcode(Mips::LUi);
-    tmpInst.addOperand(MCOperand::CreateReg(RegOp.getReg()));
-    tmpInst.addOperand(
-        MCOperand::CreateImm((ImmValue & (0xffffLL << 48)) >> 48));
+    tmpInst.addOperand(MCOperand::CreateReg(Reg));
+    tmpInst.addOperand(MCOperand::CreateImm(Bits63To48));
     Instructions.push_back(tmpInst);
-    createShiftOr<32, false>(ImmValue, RegOp.getReg(), IDLoc, Instructions);
-    createShiftOr<16, true>(ImmValue, RegOp.getReg(), IDLoc, Instructions);
-    createShiftOr<0, true>(ImmValue, RegOp.getReg(), IDLoc, Instructions);
+    createLShiftOri<0>(Bits47To32, Reg, IDLoc, Instructions);
+
+    // When Bits31To16 is 0, do a left shift of 32 bits instead of doing
+    // two left shifts of 16 bits.
+    if (Bits31To16 == 0) {
+      createLShiftOri<32>(Bits15To0, Reg, IDLoc, Instructions);
+    } else {
+      createLShiftOri<16>(Bits31To16, Reg, IDLoc, Instructions);
+      createLShiftOri<16>(Bits15To0, Reg, IDLoc, Instructions);
+    }
   }
   return false;
 }
@@ -1933,11 +1963,11 @@ MipsAsmParser::expandLoadAddressSym(MCInst &Inst, SMLoc IDLoc,
     tmpInst.addOperand(MCOperand::CreateExpr(HighestExpr));
     Instructions.push_back(tmpInst);
 
-    createShiftOr<false>(MCOperand::CreateExpr(HigherExpr), RegNo, SMLoc(),
-                         Instructions);
-    createShiftOr<true>(MCOperand::CreateExpr(HiExpr), RegNo, SMLoc(),
+    createLShiftOri<0>(MCOperand::CreateExpr(HigherExpr), RegNo, SMLoc(),
+                       Instructions);
+    createLShiftOri<16>(MCOperand::CreateExpr(HiExpr), RegNo, SMLoc(),
                         Instructions);
-    createShiftOr<true>(MCOperand::CreateExpr(LoExpr), RegNo, SMLoc(),
+    createLShiftOri<16>(MCOperand::CreateExpr(LoExpr), RegNo, SMLoc(),
                         Instructions);
   } else {
     // Otherwise, expand to:
@@ -1948,8 +1978,8 @@ MipsAsmParser::expandLoadAddressSym(MCInst &Inst, SMLoc IDLoc,
     tmpInst.addOperand(MCOperand::CreateExpr(HiExpr));
     Instructions.push_back(tmpInst);
 
-    createShiftOr<false>(MCOperand::CreateExpr(LoExpr), RegNo, SMLoc(),
-                         Instructions);
+    createLShiftOri<0>(MCOperand::CreateExpr(LoExpr), RegNo, SMLoc(),
+                       Instructions);
   }
 }
 
@@ -2203,15 +2233,10 @@ bool MipsAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   llvm_unreachable("Implement any new match types added!");
 }
 
-void MipsAsmParser::warnIfAssemblerTemporary(int RegIndex, SMLoc Loc) {
-  if ((RegIndex != 0) && 
-      ((int)AssemblerOptions.back()->getATRegNum() == RegIndex)) {
-    if (RegIndex == 1)
-      Warning(Loc, "used $at without \".set noat\"");
-    else
-      Warning(Loc, Twine("used $") + Twine(RegIndex) + " with \".set at=$" +
-                       Twine(RegIndex) + "\"");
-  }
+void MipsAsmParser::warnIfRegIndexIsAT(unsigned RegIndex, SMLoc Loc) {
+  if (RegIndex != 0 && AssemblerOptions.back()->getATRegIndex() == RegIndex)
+    Warning(Loc, "used $at (currently $" + Twine(RegIndex) +
+                     ") without \".set noat\"");
 }
 
 void
@@ -2386,7 +2411,7 @@ int MipsAsmParser::matchMSA128CtrlRegisterName(StringRef Name) {
 }
 
 unsigned MipsAsmParser::getATReg(SMLoc Loc) {
-  unsigned ATIndex = AssemblerOptions.back()->getATRegNum();
+  unsigned ATIndex = AssemblerOptions.back()->getATRegIndex();
   if (ATIndex == 0) {
     reportParseError(Loc,
                      "pseudo-instruction requires $at, which is not available");
@@ -3300,7 +3325,7 @@ bool MipsAsmParser::parseSetNoAtDirective() {
   // Line should look like: ".set noat".
 
   // Set the $at register to $0.
-  AssemblerOptions.back()->setATReg(0);
+  AssemblerOptions.back()->setATRegIndex(0);
 
   Parser.Lex(); // Eat "noat".
 
@@ -3323,7 +3348,7 @@ bool MipsAsmParser::parseSetAtDirective() {
 
   if (getLexer().is(AsmToken::EndOfStatement)) {
     // No register was specified, so we set $at to $1.
-    AssemblerOptions.back()->setATReg(1);
+    AssemblerOptions.back()->setATRegIndex(1);
 
     getTargetStreamer().emitDirectiveSetAt();
     Parser.Lex(); // Consume the EndOfStatement.
@@ -3360,7 +3385,7 @@ bool MipsAsmParser::parseSetAtDirective() {
   }
 
   // Check if $reg is a valid register. If it is, set $at to $reg.
-  if (!AssemblerOptions.back()->setATReg(AtRegNo)) {
+  if (!AssemblerOptions.back()->setATRegIndex(AtRegNo)) {
     reportParseError("invalid register");
     return false;
   }

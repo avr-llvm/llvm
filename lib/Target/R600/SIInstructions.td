@@ -97,7 +97,7 @@ defm S_BUFFER_LOAD_DWORDX16 : SMRD_Helper <
 //===----------------------------------------------------------------------===//
 
 let isMoveImm = 1 in {
-  let isReMaterializable = 1 in {
+  let isReMaterializable = 1, isAsCheapAsAMove = 1 in {
     defm S_MOV_B32 : SOP1_32 <sop1<0x03, 0x00>, "s_mov_b32", []>;
     defm S_MOV_B64 : SOP1_64 <sop1<0x04, 0x01>, "s_mov_b64", []>;
   } // let isRematerializeable = 1
@@ -1234,7 +1234,7 @@ let vdst = 0, src0 = 0 in {
 defm V_NOP : VOP1_m <vop1<0x0>, (outs), (ins), "v_nop", [], "v_nop">;
 }
 
-let isMoveImm = 1 in {
+let isMoveImm = 1, isReMaterializable = 1, isAsCheapAsAMove = 1 in {
 defm V_MOV_B32 : VOP1Inst <vop1<0x1>, "v_mov_b32", VOP_I32_I32>;
 } // End isMoveImm = 1
 
@@ -1896,8 +1896,8 @@ def SGPR_USE : InstSI <(outs),(ins), "", []>;
 // SI pseudo instructions. These are used by the CFG structurizer pass
 // and should be lowered to ISA instructions prior to codegen.
 
-let mayLoad = 1, mayStore = 1, hasSideEffects = 1,
-    Uses = [EXEC], Defs = [EXEC] in {
+let mayLoad = 1, mayStore = 1, hasSideEffects = 1 in {
+let Uses = [EXEC], Defs = [EXEC] in {
 
 let isBranch = 1, isTerminator = 1 in {
 
@@ -1954,15 +1954,18 @@ def SI_END_CF : InstSI <
   [(int_SI_end_cf i64:$saved)]
 >;
 
+} // End Uses = [EXEC], Defs = [EXEC]
+
+let Uses = [EXEC], Defs = [EXEC,VCC] in {
 def SI_KILL : InstSI <
   (outs),
   (ins VSrc_32:$src),
   "si_kill $src",
   [(int_AMDGPU_kill f32:$src)]
 >;
+} // End Uses = [EXEC], Defs = [EXEC,VCC]
 
 } // end mayLoad = 1, mayStore = 1, hasSideEffects = 1
-  // Uses = [EXEC], Defs = [EXEC]
 
 let Uses = [EXEC], Defs = [EXEC,VCC,M0] in {
 

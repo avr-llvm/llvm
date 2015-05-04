@@ -409,6 +409,9 @@ uint32_t ELFObjectFile<ELFT>::getSymbolFlags(DataRefImpl Symb) const {
   if (isExportedToOtherDSO(ESym))
     Result |= SymbolRef::SF_Exported;
 
+  if (ESym->getVisibility() == ELF::STV_HIDDEN)
+    Result |= SymbolRef::SF_Hidden;
+
   return Result;
 }
 
@@ -928,7 +931,7 @@ unsigned ELFObjectFile<ELFT>::getArch() const {
 
   case ELF::EM_SPARC:
   case ELF::EM_SPARC32PLUS:
-    return Triple::sparc;
+    return IsLittleEndian ? Triple::sparcel : Triple::sparc;
   case ELF::EM_SPARCV9:
     return Triple::sparcv9;
 

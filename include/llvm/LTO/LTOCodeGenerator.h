@@ -80,6 +80,7 @@ struct LTOCodeGenerator {
   void setOptLevel(unsigned optLevel) { OptLevel = optLevel; }
 
   void setShouldInternalize(bool Value) { ShouldInternalize = Value; }
+  void setShouldEmbedUselists(bool Value) { ShouldEmbedUselists = Value; }
 
   void addMustPreserveSymbol(const char *sym) { MustPreserveSymbols[sym] = 1; }
 
@@ -155,15 +156,14 @@ private:
 
   typedef StringMap<uint8_t> StringSet;
 
-  void initialize();
   void destroyMergedModule();
   std::unique_ptr<LLVMContext> OwnedContext;
   LLVMContext &Context;
   Linker IRLinker;
-  TargetMachine *TargetMach;
-  bool EmitDwarfDebugInfo;
-  bool ScopeRestrictionsDone;
-  lto_codegen_model CodeModel;
+  TargetMachine *TargetMach = nullptr;
+  bool EmitDwarfDebugInfo = false;
+  bool ScopeRestrictionsDone = false;
+  lto_codegen_model CodeModel = LTO_CODEGEN_PIC_MODEL_DEFAULT;
   StringSet MustPreserveSymbols;
   StringSet AsmUndefinedRefs;
   std::unique_ptr<MemoryBuffer> NativeObjectFile;
@@ -172,11 +172,12 @@ private:
   std::string MAttr;
   std::string NativeObjectPath;
   TargetOptions Options;
-  unsigned OptLevel;
-  lto_diagnostic_handler_t DiagHandler;
-  void *DiagContext;
-  LTOModule *OwnedModule;
-  bool ShouldInternalize;
+  unsigned OptLevel = 2;
+  lto_diagnostic_handler_t DiagHandler = nullptr;
+  void *DiagContext = nullptr;
+  LTOModule *OwnedModule = nullptr;
+  bool ShouldInternalize = true;
+  bool ShouldEmbedUselists = false;
 };
 }
 #endif

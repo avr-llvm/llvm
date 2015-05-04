@@ -2573,7 +2573,7 @@ bool AArch64FastISel::optimizeSelect(const SelectInst *SI) {
     Src1Reg = emitLogicalOp_ri(ISD::XOR, MVT::i32, Src1Reg, Src1IsKill, 1);
     Src1IsKill = true;
   }
-  unsigned ResultReg = fastEmitInst_rr(Opc, &AArch64::GPR32spRegClass, Src1Reg,
+  unsigned ResultReg = fastEmitInst_rr(Opc, &AArch64::GPR32RegClass, Src1Reg,
                                        Src1IsKill, Src2Reg, Src2IsKill);
   updateValueMap(SI, ResultReg);
   return true;
@@ -2679,8 +2679,11 @@ bool AArch64FastISel::selectSelect(const Instruction *I) {
       return false;
     bool CondIsKill = hasTrivialKill(Cond);
 
+    const MCInstrDesc &II = TII.get(AArch64::ANDSWri);
+    CondReg = constrainOperandRegClass(II, CondReg, 1);
+
     // Emit a TST instruction (ANDS wzr, reg, #imm).
-    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(AArch64::ANDSWri),
+    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II,
             AArch64::WZR)
         .addReg(CondReg, getKillRegState(CondIsKill))
         .addImm(AArch64_AM::encodeLogicalImmediate(1, 32));
@@ -3595,7 +3598,10 @@ bool AArch64FastISel::fastLowerIntrinsicCall(const IntrinsicInst *II) {
                     AArch64_AM::ASR, 31, /*WantResult=*/false);
       } else {
         assert(VT == MVT::i64 && "Unexpected value type.");
-        MulReg = emitMul_rr(VT, LHSReg, LHSIsKill, RHSReg, RHSIsKill);
+        // LHSReg and RHSReg cannot be killed by this Mul, since they are
+        // reused in the next instruction.
+        MulReg = emitMul_rr(VT, LHSReg, /*IsKill=*/false, RHSReg,
+                            /*IsKill=*/false);
         unsigned SMULHReg = fastEmit_rr(VT, VT, ISD::MULHS, LHSReg, LHSIsKill,
                                         RHSReg, RHSIsKill);
         emitSubs_rs(VT, SMULHReg, /*IsKill=*/true, MulReg, /*IsKill=*/false,
@@ -3624,7 +3630,10 @@ bool AArch64FastISel::fastLowerIntrinsicCall(const IntrinsicInst *II) {
                                             AArch64::sub_32);
       } else {
         assert(VT == MVT::i64 && "Unexpected value type.");
-        MulReg = emitMul_rr(VT, LHSReg, LHSIsKill, RHSReg, RHSIsKill);
+        // LHSReg and RHSReg cannot be killed by this Mul, since they are
+        // reused in the next instruction.
+        MulReg = emitMul_rr(VT, LHSReg, /*IsKill=*/false, RHSReg,
+                            /*IsKill=*/false);
         unsigned UMULHReg = fastEmit_rr(VT, VT, ISD::MULHU, LHSReg, LHSIsKill,
                                         RHSReg, RHSIsKill);
         emitSubs_rr(VT, AArch64::XZR, /*IsKill=*/true, UMULHReg,

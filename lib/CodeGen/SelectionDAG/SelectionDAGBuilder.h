@@ -153,7 +153,7 @@ private:
       unsigned JTCasesIndex;
       unsigned BTCasesIndex;
     };
-    uint64_t Weight;
+    uint32_t Weight;
 
     static CaseCluster range(const ConstantInt *Low, const ConstantInt *High,
                              MachineBasicBlock *MBB, uint32_t Weight) {
@@ -667,6 +667,8 @@ public:
   // generate the debug data structures now that we've seen its definition.
   void resolveDanglingDebugInfo(const Value *V, SDValue Val);
   SDValue getValue(const Value *V);
+  bool findValue(const Value *V) const;
+
   SDValue getNonRegisterValue(const Value *V);
   SDValue getValueImpl(const Value *V);
 
@@ -814,6 +816,8 @@ private:
   void visitStore(const StoreInst &I);
   void visitMaskedLoad(const CallInst &I);
   void visitMaskedStore(const CallInst &I);
+  void visitMaskedGather(const CallInst &I);
+  void visitMaskedScatter(const CallInst &I);
   void visitAtomicCmpXchg(const AtomicCmpXchgInst &I);
   void visitAtomicRMW(const AtomicRMWInst &I);
   void visitFence(const FenceInst &I);
@@ -862,8 +866,8 @@ private:
   /// EmitFuncArgumentDbgValue - If V is an function argument then create
   /// corresponding DBG_VALUE machine instruction for it now. At the end of
   /// instruction selection, they will be inserted to the entry BB.
-  bool EmitFuncArgumentDbgValue(const Value *V, MDLocalVariable *Variable,
-                                MDExpression *Expr, MDLocation *DL,
+  bool EmitFuncArgumentDbgValue(const Value *V, DILocalVariable *Variable,
+                                DIExpression *Expr, DILocation *DL,
                                 int64_t Offset, bool IsIndirect,
                                 const SDValue &N);
 

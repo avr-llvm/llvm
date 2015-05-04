@@ -73,6 +73,8 @@ return (Ord == Release ||
 /// AllocaInst - an instruction to allocate memory on the stack
 ///
 class AllocaInst : public UnaryInstruction {
+  Type *AllocatedType;
+
 protected:
   AllocaInst *clone_impl() const override;
 public:
@@ -113,7 +115,10 @@ public:
   /// getAllocatedType - Return the type that is being allocated by the
   /// instruction.
   ///
-  Type *getAllocatedType() const;
+  Type *getAllocatedType() const { return AllocatedType; }
+  /// \brief for use only in special circumstances that need to generically
+  /// transform a whole instruction (eg: IR linking and vectorization).
+  void setAllocatedType(Type *Ty) { AllocatedType = Ty; }
 
   /// getAlignment - Return the alignment of the memory that is being allocated
   /// by the instruction.
@@ -1284,14 +1289,26 @@ public:
 ///
 class CallInst : public Instruction {
   AttributeSet AttributeList; ///< parameter attributes for call
+  FunctionType *FTy;
   CallInst(const CallInst &CI);
-  void init(Value *Func, ArrayRef<Value *> Args, const Twine &NameStr);
+  void init(Value *Func, ArrayRef<Value *> Args, const Twine &NameStr) {
+    init(cast<FunctionType>(
+             cast<PointerType>(Func->getType())->getElementType()),
+         Func, Args, NameStr);
+  }
+  void init(FunctionType *FTy, Value *Func, ArrayRef<Value *> Args,
+            const Twine &NameStr);
   void init(Value *Func, const Twine &NameStr);
 
   /// Construct a CallInst given a range of arguments.
   /// \brief Construct a CallInst from a range of arguments
-  inline CallInst(Value *Func, ArrayRef<Value *> Args,
+  inline CallInst(FunctionType *Ty, Value *Func, ArrayRef<Value *> Args,
                   const Twine &NameStr, Instruction *InsertBefore);
+  inline CallInst(Value *Func, ArrayRef<Value *> Args, const Twine &NameStr,
+                  Instruction *InsertBefore)
+      : CallInst(cast<FunctionType>(
+                     cast<PointerType>(Func->getType())->getElementType()),
+                 Func, Args, NameStr, InsertBefore) {}
 
   /// Construct a CallInst given a range of arguments.
   /// \brief Construct a CallInst from a range of arguments
@@ -1308,8 +1325,15 @@ public:
                           ArrayRef<Value *> Args,
                           const Twine &NameStr = "",
                           Instruction *InsertBefore = nullptr) {
-    return new(unsigned(Args.size() + 1))
-      CallInst(Func, Args, NameStr, InsertBefore);
+    return Create(cast<FunctionType>(
+                      cast<PointerType>(Func->getType())->getElementType()),
+                  Func, Args, NameStr, InsertBefore);
+  }
+  static CallInst *Create(FunctionType *Ty, Value *Func, ArrayRef<Value *> Args,
+                          const Twine &NameStr = "",
+                          Instruction *InsertBefore = nullptr) {
+    return new (unsigned(Args.size() + 1))
+        CallInst(Ty, Func, Args, NameStr, InsertBefore);
   }
   static CallInst *Create(Value *Func,
                           ArrayRef<Value *> Args,
@@ -1347,9 +1371,11 @@ public:
 
   ~CallInst() override;
 
-  FunctionType *getFunctionType() const {
-    return cast<FunctionType>(
-        cast<PointerType>(getCalledValue()->getType())->getElementType());
+  FunctionType *getFunctionType() const { return FTy; }
+
+  void mutateFunctionType(FunctionType *FTy) {
+    mutateType(FTy->getReturnType());
+    this->FTy = FTy;
   }
 
   // Note that 'musttail' implies 'tail'.
@@ -1533,6 +1559,14 @@ public:
 
   /// setCalledFunction - Set the function called.
   void setCalledFunction(Value* Fn) {
+    setCalledFunction(
+        cast<FunctionType>(cast<PointerType>(Fn->getType())->getElementType()),
+        Fn);
+  }
+  void setCalledFunction(FunctionType *FTy, Value *Fn) {
+    this->FTy = FTy;
+    assert(FTy == cast<FunctionType>(
+                      cast<PointerType>(Fn->getType())->getElementType()));
     Op<-1>() = Fn;
   }
 
@@ -1573,14 +1607,12 @@ CallInst::CallInst(Value *Func, ArrayRef<Value *> Args,
   init(Func, Args, NameStr);
 }
 
-CallInst::CallInst(Value *Func, ArrayRef<Value *> Args,
+CallInst::CallInst(FunctionType *Ty, Value *Func, ArrayRef<Value *> Args,
                    const Twine &NameStr, Instruction *InsertBefore)
-  : Instruction(cast<FunctionType>(cast<PointerType>(Func->getType())
-                                   ->getElementType())->getReturnType(),
-                Instruction::Call,
-                OperandTraits<CallInst>::op_end(this) - (Args.size() + 1),
-                unsigned(Args.size() + 1), InsertBefore) {
-  init(Func, Args, NameStr);
+    : Instruction(Ty->getReturnType(), Instruction::Call,
+                  OperandTraits<CallInst>::op_end(this) - (Args.size() + 1),
+                  unsigned(Args.size() + 1), InsertBefore) {
+  init(Ty, Func, Args, NameStr);
 }
 
 
@@ -3034,6 +3066,7 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(IndirectBrInst, Value)
 ///
 class InvokeInst : public TerminatorInst {
   AttributeSet AttributeList;
+  FunctionType *FTy;
   InvokeInst(const InvokeInst &BI);
   void init(Value *Func, BasicBlock *IfNormal, BasicBlock *IfException,
             ArrayRef<Value *> Args, const Twine &NameStr);
@@ -3073,6 +3106,13 @@ public:
 
   /// Provide fast operand accessors
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
+
+  FunctionType *getFunctionType() const { return FTy; }
+
+  void mutateFunctionType(FunctionType *FTy) {
+    mutateType(FTy->getReturnType());
+    this->FTy = FTy;
+  }
 
   /// getNumArgOperands - Return the number of invoke arguments.
   ///
@@ -3223,6 +3263,14 @@ public:
 
   /// setCalledFunction - Set the function called.
   void setCalledFunction(Value* Fn) {
+    setCalledFunction(
+        cast<FunctionType>(cast<PointerType>(Fn->getType())->getElementType()),
+        Fn);
+  }
+  void setCalledFunction(FunctionType *FTy, Value *Fn) {
+    this->FTy = FTy;
+    assert(FTy == cast<FunctionType>(
+                      cast<PointerType>(Fn->getType())->getElementType()));
     Op<-3>() = Fn;
   }
 

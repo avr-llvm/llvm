@@ -228,7 +228,7 @@ protected:
 
   /// True if the expression
   ///   .long f - g
-  /// uses an relocation but it can be supressed by writting
+  /// uses a relocation but it can be suppressed by writing
   ///   a = f - g
   ///   .long a
   bool SetDirectiveSuppressesReloc;
@@ -256,7 +256,7 @@ protected:
   /// argument and how it is interpreted.  Defaults to NoAlignment.
   LCOMM::LCOMMType LCOMMDirectiveAlignmentType;
 
-  // True if the target allows .align directives on funtions. This is true for
+  // True if the target allows .align directives on functions. This is true for
   // most targets, so defaults to true.
   bool HasFunctionAlignment;
 
@@ -339,7 +339,7 @@ protected:
 
   std::vector<MCCFIInstruction> InitialFrameState;
 
-  //===--- Integrated Assembler State ----------------------------------===//
+  //===--- Integrated Assembler Information ----------------------------===//
 
   /// Should we use the integrated assembler?
   /// The integrated assembler should be enabled by default (by the
@@ -350,6 +350,10 @@ protected:
 
   /// Compress DWARF debug sections. Defaults to false.
   bool CompressDebugSections;
+
+  /// True if the integrated assembler should interpret 'a >> b' constant
+  /// expressions as logical rather than arithmetic.
+  bool UseLogicalShr;
 
 public:
   explicit MCAsmInfo();
@@ -538,6 +542,8 @@ public:
   void setCompressDebugSections(bool CompressDebugSections) {
     this->CompressDebugSections = CompressDebugSections;
   }
+
+  bool shouldUseLogicalShr() const { return UseLogicalShr; }
 };
 }
 

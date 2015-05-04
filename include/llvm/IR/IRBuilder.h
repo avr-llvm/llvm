@@ -1448,8 +1448,14 @@ public:
   }
   CallInst *CreateCall2(Value *Callee, Value *Arg1, Value *Arg2,
                         const Twine &Name = "") {
+    return CreateCall2(cast<FunctionType>(cast<PointerType>(Callee->getType())
+                                              ->getElementType()),
+                       Callee, Arg1, Arg2, Name);
+  }
+  CallInst *CreateCall2(FunctionType *Ty, Value *Callee, Value *Arg1,
+                        Value *Arg2, const Twine &Name = "") {
     Value *Args[] = { Arg1, Arg2 };
-    return Insert(CallInst::Create(Callee, Args), Name);
+    return Insert(CallInst::Create(Ty, Callee, Args), Name);
   }
   CallInst *CreateCall3(Value *Callee, Value *Arg1, Value *Arg2, Value *Arg3,
                         const Twine &Name = "") {
@@ -1493,6 +1499,11 @@ public:
     return Insert(ExtractElementInst::Create(Vec, Idx), Name);
   }
 
+  Value *CreateExtractElement(Value *Vec, uint64_t Idx,
+                              const Twine &Name = "") {
+    return CreateExtractElement(Vec, getInt64(Idx), Name);
+  }
+
   Value *CreateInsertElement(Value *Vec, Value *NewElt, Value *Idx,
                              const Twine &Name = "") {
     if (Constant *VC = dyn_cast<Constant>(Vec))
@@ -1500,6 +1511,11 @@ public:
         if (Constant *IC = dyn_cast<Constant>(Idx))
           return Insert(Folder.CreateInsertElement(VC, NC, IC), Name);
     return Insert(InsertElementInst::Create(Vec, NewElt, Idx), Name);
+  }
+
+  Value *CreateInsertElement(Value *Vec, Value *NewElt, uint64_t Idx,
+                             const Twine &Name = "") {
+    return CreateInsertElement(Vec, NewElt, getInt64(Idx), Name);
   }
 
   Value *CreateShuffleVector(Value *V1, Value *V2, Value *Mask,

@@ -1921,6 +1921,13 @@ ARMBaseInstrInfo::optimizeSelect(MachineInstr *MI,
   SeenMIs.insert(NewMI);
   SeenMIs.erase(DefMI);
 
+  // If MI is inside a loop, and DefMI is outside the loop, then kill flags on
+  // DefMI would be invalid when tranferred inside the loop.  Checking for a
+  // loop is expensive, but at least remove kill flags if they are in different
+  // BBs.
+  if (DefMI->getParent() != MI->getParent())
+    NewMI->clearKillInfo();
+
   // The caller will erase MI, but not DefMI.
   DefMI->eraseFromParent();
   return NewMI;
@@ -2315,16 +2322,6 @@ static bool isSuitableForMask(MachineInstr *&MI, unsigned SrcReg,
       if (SrcReg == MI->getOperand(CommonUse ? 1 : 0).getReg())
         return true;
       break;
-    case ARM::COPY: {
-      // Walk down one instruction which is potentially an 'and'.
-      const MachineInstr &Copy = *MI;
-      MachineBasicBlock::iterator AND(
-        std::next(MachineBasicBlock::iterator(MI)));
-      if (AND == MI->getParent()->end()) return false;
-      MI = AND;
-      return isSuitableForMask(MI, Copy.getOperand(0).getReg(),
-                               CmpMask, true);
-    }
   }
 
   return false;

@@ -51,7 +51,7 @@ void DwarfFile::emitUnits(bool UseOffsets) {
   for (const auto &TheU : CUs) {
     DIE &Die = TheU->getUnitDie();
     const MCSection *USection = TheU->getSection();
-    Asm->OutStreamer.SwitchSection(USection);
+    Asm->OutStreamer->SwitchSection(USection);
 
     TheU->emitHeader(UseOffsets);
 
@@ -124,7 +124,7 @@ void DwarfFile::emitAbbrevs(const MCSection *Section) {
   // Check to see if it is worth the effort.
   if (!Abbreviations.empty()) {
     // Start the debug abbrev section.
-    Asm->OutStreamer.SwitchSection(Section);
+    Asm->OutStreamer->SwitchSection(Section);
     Asm->emitDwarfAbbrevs(Abbreviations);
   }
 }
@@ -137,7 +137,7 @@ void DwarfFile::emitStrings(const MCSection *StrSection,
 
 bool DwarfFile::addScopeVariable(LexicalScope *LS, DbgVariable *Var) {
   SmallVectorImpl<DbgVariable *> &Vars = ScopeVariables[LS];
-  const MDLocalVariable *DV = Var->getVariable();
+  const DILocalVariable *DV = Var->getVariable();
   // Variables with positive arg numbers are parameters.
   if (unsigned ArgNum = DV->getArg()) {
     // Keep all parameters in order at the start of the variable list to ensure

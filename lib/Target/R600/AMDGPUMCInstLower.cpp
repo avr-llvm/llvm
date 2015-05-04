@@ -113,7 +113,7 @@ void AMDGPUAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   } else {
     MCInst TmpInst;
     MCInstLowering.lower(MI, TmpInst);
-    EmitToStreamer(OutStreamer, TmpInst);
+    EmitToStreamer(*OutStreamer, TmpInst);
 
     if (STI.dumpCode()) {
       // Disassemble instruction/operands to text.
@@ -132,7 +132,7 @@ void AMDGPUAsmPrinter::EmitInstruction(const MachineInstr *MI) {
       SmallVector<char, 16> CodeBytes;
       raw_svector_ostream CodeStream(CodeBytes);
 
-      MCObjectStreamer &ObjStreamer = (MCObjectStreamer &)OutStreamer;
+      auto &ObjStreamer = static_cast<MCObjectStreamer&>(*OutStreamer);
       MCCodeEmitter &InstEmitter = ObjStreamer.getAssembler().getEmitter();
       InstEmitter.EncodeInstruction(TmpInst, CodeStream, Fixups,
                                     MF->getSubtarget<MCSubtargetInfo>());

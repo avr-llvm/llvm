@@ -716,6 +716,8 @@ def tls64addr : ComplexPattern<i64, 5, "SelectTLSADDRAddr",
 def tls64baseaddr : ComplexPattern<i64, 5, "SelectTLSADDRAddr",
                                [tglobaltlsaddr], []>;
 
+def vectoraddr : ComplexPattern<iPTR, 5, "SelectVectorAddr", [],[SDNPWantParent]>;
+
 //===----------------------------------------------------------------------===//
 // X86 Instruction Predicate Definitions.
 def HasCMov      : Predicate<"Subtarget->hasCMov()">;
@@ -2223,7 +2225,7 @@ let Predicates = [HasBMI2], Defs = [EFLAGS] in {
 
 def CountTrailingOnes : SDNodeXForm<imm, [{
   // Count the trailing ones in the immediate.
-  return getI8Imm(countTrailingOnes(N->getZExtValue()));
+  return getI8Imm(countTrailingOnes(N->getZExtValue()), SDLoc(N));
 }]>;
 
 def BZHIMask : ImmLeaf<i64, [{

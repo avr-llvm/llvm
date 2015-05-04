@@ -206,8 +206,12 @@ namespace llvm {
       FMUL_RND,
       FDIV_RND,
       
-      // Integer sub with unsigned saturation.
+      // Integer add/sub with unsigned saturation.
+      ADDUS,
       SUBUS,
+      // Integer add/sub with signed saturation.
+      ADDS,
+      SUBS,
 
       /// Integer horizontal add.
       HADD,
@@ -367,8 +371,6 @@ namespace llvm {
       VPERMI,
       VPERM2X128,
       VBROADCAST,
-      // masked broadcast
-      VBROADCASTM,
       // Insert/Extract vector element
       VINSERT,
       VEXTRACT,

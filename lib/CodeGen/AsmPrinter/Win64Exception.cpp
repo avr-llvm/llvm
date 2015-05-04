@@ -83,7 +83,7 @@ void Win64Exception::beginFunction(const MachineFunction *MF) {
               GlobalValue::getRealLinkageName(F->getName()));
 
       // Emit a symbol assignment.
-      Asm->OutStreamer.EmitAssignment(
+      Asm->OutStreamer->EmitAssignment(
           HandlerTypeParentFrameOffset,
           MCConstantExpr::Create(I->second, Asm->OutContext));
     }
@@ -92,14 +92,14 @@ void Win64Exception::beginFunction(const MachineFunction *MF) {
   if (!shouldEmitPersonality && !shouldEmitMoves)
     return;
 
-  Asm->OutStreamer.EmitWinCFIStartProc(Asm->CurrentFnSym);
+  Asm->OutStreamer->EmitWinCFIStartProc(Asm->CurrentFnSym);
 
   if (!shouldEmitPersonality)
     return;
 
   const MCSymbol *PersHandlerSym =
       TLOF.getCFIPersonalitySymbol(Per, *Asm->Mang, Asm->TM, MMI);
-  Asm->OutStreamer.EmitWinEHHandler(PersHandlerSym, true, true);
+  Asm->OutStreamer->EmitWinEHHandler(PersHandlerSym, true, true);
 }
 
 /// endFunction - Gather and emit post-function exception information.
@@ -117,10 +117,10 @@ void Win64Exception::endFunction(const MachineFunction *MF) {
     MMI->TidyLandingPads();
 
   if (shouldEmitPersonality) {
-    Asm->OutStreamer.PushSection();
+    Asm->OutStreamer->PushSection();
 
     // Emit an UNWIND_INFO struct describing the prologue.
-    Asm->OutStreamer.EmitWinEHHandlerData();
+    Asm->OutStreamer->EmitWinEHHandlerData();
 
     // Emit the tables appropriate to the personality function in use. If we
     // don't recognize the personality, assume it uses an Itanium-style LSDA.
@@ -131,9 +131,9 @@ void Win64Exception::endFunction(const MachineFunction *MF) {
     else
       emitExceptionTable();
 
-    Asm->OutStreamer.PopSection();
+    Asm->OutStreamer->PopSection();
   }
-  Asm->OutStreamer.EmitWinCFIEndProc();
+  Asm->OutStreamer->EmitWinCFIEndProc();
 }
 
 const MCExpr *Win64Exception::createImageRel32(const MCSymbol *Value) {
@@ -206,15 +206,9 @@ void Win64Exception::emitCSpecificHandlerTable() {
   for (const CallSiteEntry &CSE : CallSites) {
     if (!CSE.LPad)
       continue; // Ignore gaps.
-    for (int Selector : CSE.LPad->TypeIds) {
-      // Ignore C++ filter clauses in SEH.
-      // FIXME: Implement cleanup clauses.
-      if (isCatchEHSelector(Selector))
-        ++NumEntries;
-    }
     NumEntries += CSE.LPad->SEHHandlers.size();
   }
-  Asm->OutStreamer.EmitIntValue(NumEntries, 4);
+  Asm->OutStreamer->EmitIntValue(NumEntries, 4);
 
   // If there are no actions, we don't need to iterate again.
   if (NumEntries == 0)
@@ -247,59 +241,25 @@ void Win64Exception::emitCSpecificHandlerTable() {
 
     // Emit an entry for each action.
     for (SEHHandler Handler : LPad->SEHHandlers) {
-      Asm->OutStreamer.EmitValue(Begin, 4);
-      Asm->OutStreamer.EmitValue(End, 4);
+      Asm->OutStreamer->EmitValue(Begin, 4);
+      Asm->OutStreamer->EmitValue(End, 4);
 
       // Emit the filter or finally function pointer, if present. Otherwise,
       // emit '1' to indicate a catch-all.
       const Function *F = Handler.FilterOrFinally;
       if (F)
-        Asm->OutStreamer.EmitValue(createImageRel32(Asm->getSymbol(F)), 4);
+        Asm->OutStreamer->EmitValue(createImageRel32(Asm->getSymbol(F)), 4);
       else
-        Asm->OutStreamer.EmitIntValue(1, 4);
+        Asm->OutStreamer->EmitIntValue(1, 4);
 
       // Emit the recovery address, if present. Otherwise, this must be a
       // finally.
       const BlockAddress *BA = Handler.RecoverBA;
       if (BA)
-        Asm->OutStreamer.EmitValue(
+        Asm->OutStreamer->EmitValue(
             createImageRel32(Asm->GetBlockAddressSymbol(BA)), 4);
       else
-        Asm->OutStreamer.EmitIntValue(0, 4);
-    }
-    if (!LPad->SEHHandlers.empty())
-      continue;
-
-    // These aren't really type info globals, they are actually pointers to
-    // filter functions ordered by selector. The zero selector is used for
-    // cleanups, so slot zero corresponds to selector 1.
-    const std::vector<const GlobalValue *> &SelectorToFilter = MMI->getTypeInfos();
-
-    // Do a parallel iteration across typeids and clause labels, skipping filter
-    // clauses.
-    size_t NextClauseLabel = 0;
-    for (size_t I = 0, E = LPad->TypeIds.size(); I < E; ++I) {
-      // AddLandingPadInfo stores the clauses in reverse, but there is a FIXME
-      // to change that.
-      int Selector = LPad->TypeIds[E - I - 1];
-
-      // Ignore C++ filter clauses in SEH.
-      // FIXME: Implement cleanup clauses.
-      if (!isCatchEHSelector(Selector))
-        continue;
-
-      Asm->OutStreamer.EmitValue(Begin, 4);
-      Asm->OutStreamer.EmitValue(End, 4);
-      if (isCatchEHSelector(Selector)) {
-        assert(unsigned(Selector - 1) < SelectorToFilter.size());
-        const GlobalValue *TI = SelectorToFilter[Selector - 1];
-        if (TI) // Emit the filter function pointer.
-          Asm->OutStreamer.EmitValue(createImageRel32(Asm->getSymbol(TI)), 4);
-        else  // Otherwise, this is a "catch i8* null", or catch all.
-          Asm->OutStreamer.EmitIntValue(1, 4);
-      }
-      MCSymbol *ClauseLabel = LPad->ClauseLabels[NextClauseLabel++];
-      Asm->OutStreamer.EmitValue(createImageRel32(ClauseLabel), 4);
+        Asm->OutStreamer->EmitIntValue(0, 4);
     }
   }
 }
@@ -307,7 +267,7 @@ void Win64Exception::emitCSpecificHandlerTable() {
 void Win64Exception::emitCXXFrameHandler3Table(const MachineFunction *MF) {
   const Function *F = MF->getFunction();
   const Function *ParentF = MMI->getWinEHParent(F);
-  auto &OS = Asm->OutStreamer;
+  auto &OS = *Asm->OutStreamer;
   WinEHFuncInfo &FuncInfo = MMI->getWinEHFuncInfo(ParentF);
 
   StringRef ParentLinkageName =

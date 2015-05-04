@@ -504,7 +504,7 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
       DebugLoc DL = MI->getDebugLoc();
       bool IsIndirect = MI->isIndirectDebugValue();
       unsigned Offset = IsIndirect ? MI->getOperand(1).getImm() : 0;
-      assert(cast<MDLocalVariable>(Variable)->isValidLocationForIntrinsic(DL) &&
+      assert(cast<DILocalVariable>(Variable)->isValidLocationForIntrinsic(DL) &&
              "Expected inlined-at fields to agree");
       // Def is never a terminator here, so it is ok to increment InsertPos.
       BuildMI(*EntryMBB, ++InsertPos, DL, TII->get(TargetOpcode::DBG_VALUE),
@@ -955,76 +955,14 @@ bool SelectionDAGISel::PrepareEHLandingPad() {
         // Mark the clause as a landing pad or MI passes will delete it.
         ClauseBB->setIsLandingPad();
       }
-    } else {
-      // Otherwise, we haven't done the preparation, and we need to invent some
-      // clause basic blocks that branch into the landingpad.
-      // FIXME: Remove this code once SEH preparation works.
-      ActionsCall = nullptr;
-
-      // Make virtual registers and a series of labels that fill in values for
-      // the clauses.
-      auto &RI = MF->getRegInfo();
-      FuncInfo->ExceptionSelectorVirtReg = RI.createVirtualRegister(PtrRC);
-
-      // Emit separate machine basic blocks with separate labels for each clause
-      // before the main landing pad block.
-      MachineInstrBuilder SelectorPHI = BuildMI(
-          *MBB, MBB->begin(), SDB->getCurDebugLoc(),
-          TII->get(TargetOpcode::PHI), FuncInfo->ExceptionSelectorVirtReg);
-      for (unsigned I = 0, E = LPadInst->getNumClauses(); I != E; ++I) {
-        // Skip filter clauses, we can't implement them.
-        if (LPadInst->isFilter(I))
-          continue;
-
-        MachineBasicBlock *ClauseBB = MF->CreateMachineBasicBlock(LLVMBB);
-        MF->insert(MBB, ClauseBB);
-
-        // Add the edge from the invoke to the clause.
-        for (MachineBasicBlock *InvokeBB : InvokeBBs)
-          InvokeBB->addSuccessor(ClauseBB);
-
-        // Mark the clause as a landing pad or MI passes will delete it.
-        ClauseBB->setIsLandingPad();
-
-        GlobalValue *ClauseGV = ExtractTypeInfo(LPadInst->getClause(I));
-
-        // Start the BB with a label.
-        MCSymbol *ClauseLabel = MF->getMMI().addClauseForLandingPad(MBB);
-        BuildMI(*ClauseBB, ClauseBB->begin(), SDB->getCurDebugLoc(), II)
-            .addSym(ClauseLabel);
-
-        // Construct a simple BB that defines a register with the typeid
-        // constant.
-        FuncInfo->MBB = ClauseBB;
-        FuncInfo->InsertPt = ClauseBB->end();
-        unsigned VReg = SDB->visitLandingPadClauseBB(ClauseGV, MBB);
-        CurDAG->setRoot(SDB->getRoot());
-        SDB->clear();
-        CodeGenAndEmitDAG();
-
-        // Add the typeid virtual register to the phi in the main landing pad.
-        SelectorPHI.addReg(VReg).addMBB(ClauseBB);
-      }
     }
 
     // Remove the edge from the invoke to the lpad.
     for (MachineBasicBlock *InvokeBB : InvokeBBs)
       InvokeBB->removeSuccessor(MBB);
 
-    // Restore FuncInfo back to its previous state and select the main landing
-    // pad block.
-    FuncInfo->MBB = MBB;
-    FuncInfo->InsertPt = MBB->end();
-
-    // Transfer EH state number assigned to the IR block to the MBB.
-    if (Personality == EHPersonality::MSVC_CXX) {
-      WinEHFuncInfo &FI = MF->getMMI().getWinEHFuncInfo(MF->getFunction());
-      MF->getMMI().addWinEHState(MBB, FI.LandingPadStateMap[LPadInst]);
-    }
-
-    // Select instructions for the landingpad if there was no llvm.eh.actions
-    // call.
-    return ActionsCall == nullptr;
+    // Don't select instructions for the landingpad.
+    return false;
   }
 
   // Mark exception register as live in.
@@ -1772,11 +1710,10 @@ bool SelectionDAGISel::CheckOrMask(SDValue LHS, ConstantSDNode *RHS,
   return false;
 }
 
-
 /// SelectInlineAsmMemoryOperands - Calls to this are automatically generated
 /// by tblgen.  Others should not call it.
 void SelectionDAGISel::
-SelectInlineAsmMemoryOperands(std::vector<SDValue> &Ops) {
+SelectInlineAsmMemoryOperands(std::vector<SDValue> &Ops, SDLoc DL) {
   std::vector<SDValue> InOps;
   std::swap(InOps, Ops);
 
@@ -1822,7 +1759,7 @@ SelectInlineAsmMemoryOperands(std::vector<SDValue> &Ops) {
       // Add this to the output node.
       unsigned NewFlags =
         InlineAsm::getFlagWord(InlineAsm::Kind_Mem, SelOps.size());
-      Ops.push_back(CurDAG->getTargetConstant(NewFlags, MVT::i32));
+      Ops.push_back(CurDAG->getTargetConstant(NewFlags, DL, MVT::i32));
       Ops.insert(Ops.end(), SelOps.begin(), SelOps.end());
       i += 2;
     }
@@ -1968,11 +1905,13 @@ bool SelectionDAGISel::IsLegalToFold(SDValue N, SDNode *U, SDNode *Root,
 }
 
 SDNode *SelectionDAGISel::Select_INLINEASM(SDNode *N) {
+  SDLoc DL(N);
+
   std::vector<SDValue> Ops(N->op_begin(), N->op_end());
-  SelectInlineAsmMemoryOperands(Ops);
+  SelectInlineAsmMemoryOperands(Ops, DL);
 
   const EVT VTs[] = {MVT::Other, MVT::Glue};
-  SDValue New = CurDAG->getNode(ISD::INLINEASM, SDLoc(N), VTs, Ops);
+  SDValue New = CurDAG->getNode(ISD::INLINEASM, DL, VTs, Ops);
   New->setNodeId(-1);
   return New.getNode();
 }
@@ -2994,7 +2933,8 @@ SelectCodeCommon(SDNode *NodeToMatch, const unsigned char *MatcherTable,
       if (Val & 128)
         Val = GetVBR(Val, MatcherTable, MatcherIndex);
       RecordedNodes.push_back(std::pair<SDValue, SDNode*>(
-                              CurDAG->getTargetConstant(Val, VT), nullptr));
+                              CurDAG->getTargetConstant(Val, SDLoc(NodeToMatch),
+                                                        VT), nullptr));
       continue;
     }
     case OPC_EmitRegister: {
@@ -3026,10 +2966,12 @@ SelectCodeCommon(SDNode *NodeToMatch, const unsigned char *MatcherTable,
 
       if (Imm->getOpcode() == ISD::Constant) {
         const ConstantInt *Val=cast<ConstantSDNode>(Imm)->getConstantIntValue();
-        Imm = CurDAG->getConstant(*Val, Imm.getValueType(), true);
+        Imm = CurDAG->getConstant(*Val, SDLoc(NodeToMatch), Imm.getValueType(),
+                                  true);
       } else if (Imm->getOpcode() == ISD::ConstantFP) {
         const ConstantFP *Val=cast<ConstantFPSDNode>(Imm)->getConstantFPValue();
-        Imm = CurDAG->getConstantFP(*Val, Imm.getValueType(), true);
+        Imm = CurDAG->getConstantFP(*Val, SDLoc(NodeToMatch),
+                                    Imm.getValueType(), true);
       }
 
       RecordedNodes.push_back(std::make_pair(Imm, RecordedNodes[RecNo].second));

@@ -173,7 +173,10 @@ def X86vsrai   : SDNode<"X86ISD::VSRAI", SDTIntShiftOp>;
 def SDTX86CmpPTest : SDTypeProfile<1, 2, [SDTCisVT<0, i32>,
                                           SDTCisVec<1>,
                                           SDTCisSameAs<2, 1>]>;
+def X86addus   : SDNode<"X86ISD::ADDUS", SDTIntBinOp>;
 def X86subus   : SDNode<"X86ISD::SUBUS", SDTIntBinOp>;
+def X86adds    : SDNode<"X86ISD::ADDS", SDTIntBinOp>;
+def X86subs    : SDNode<"X86ISD::SUBS", SDTIntBinOp>;
 def X86ptest   : SDNode<"X86ISD::PTEST", SDTX86CmpPTest>;
 def X86testp   : SDNode<"X86ISD::TESTP", SDTX86CmpPTest>;
 def X86kortest : SDNode<"X86ISD::KORTEST", SDTX86CmpPTest>;
@@ -270,7 +273,6 @@ def X86VPermiv3   : SDNode<"X86ISD::VPERMIV3",  SDTShuff3Op>;
 def X86VPerm2x128 : SDNode<"X86ISD::VPERM2X128", SDTShuff3OpI>;
 
 def X86VBroadcast : SDNode<"X86ISD::VBROADCAST", SDTVBroadcast>;
-def X86VBroadcastm : SDNode<"X86ISD::VBROADCASTM", SDTVBroadcastm>;
 def X86Vinsert   : SDNode<"X86ISD::VINSERT",  SDTypeProfile<1, 3,
                               [SDTCisSameAs<0, 1>, SDTCisPtrTy<3>]>, []>;
 def X86Vextract   : SDNode<"X86ISD::VEXTRACT",  SDTypeProfile<1, 2,
@@ -528,6 +530,52 @@ def unalignednontemporalstore : PatFrag<(ops node:$val, node:$ptr),
   return false;
 }]>;
 
+def mgatherv8i32 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+  (masked_gather node:$src1, node:$src2, node:$src3) , [{
+  if (MaskedGatherSDNode *Mgt = dyn_cast<MaskedGatherSDNode>(N))
+    return (Mgt->getIndex().getValueType() == MVT::v8i32 ||
+            Mgt->getBasePtr().getValueType() == MVT::v8i32);
+  return false;
+}]>;
+
+def mgatherv8i64 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+  (masked_gather node:$src1, node:$src2, node:$src3) , [{
+  if (MaskedGatherSDNode *Mgt = dyn_cast<MaskedGatherSDNode>(N))
+    return (Mgt->getIndex().getValueType() == MVT::v8i64 ||
+            Mgt->getBasePtr().getValueType() == MVT::v8i64);
+  return false;
+}]>;
+def mgatherv16i32 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+  (masked_gather node:$src1, node:$src2, node:$src3) , [{
+  if (MaskedGatherSDNode *Mgt = dyn_cast<MaskedGatherSDNode>(N))
+    return (Mgt->getIndex().getValueType() == MVT::v16i32 ||
+            Mgt->getBasePtr().getValueType() == MVT::v16i32);
+  return false;
+}]>;
+
+def mscatterv8i32 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+  (masked_scatter node:$src1, node:$src2, node:$src3) , [{
+  if (MaskedScatterSDNode *Sc = dyn_cast<MaskedScatterSDNode>(N))
+    return (Sc->getIndex().getValueType() == MVT::v8i32 ||
+            Sc->getBasePtr().getValueType() == MVT::v8i32);
+  return false;
+}]>;
+
+def mscatterv8i64 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+  (masked_scatter node:$src1, node:$src2, node:$src3) , [{
+  if (MaskedScatterSDNode *Sc = dyn_cast<MaskedScatterSDNode>(N))
+    return (Sc->getIndex().getValueType() == MVT::v8i64 ||
+            Sc->getBasePtr().getValueType() == MVT::v8i64);
+  return false;
+}]>;
+def mscatterv16i32 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+  (masked_scatter node:$src1, node:$src2, node:$src3) , [{
+  if (MaskedScatterSDNode *Sc = dyn_cast<MaskedScatterSDNode>(N))
+    return (Sc->getIndex().getValueType() == MVT::v16i32 ||
+            Sc->getBasePtr().getValueType() == MVT::v16i32);
+  return false;
+}]>;
+
 // 128-bit bitconvert pattern fragments
 def bc_v4f32 : PatFrag<(ops node:$in), (v4f32 (bitconvert node:$in))>;
 def bc_v2f64 : PatFrag<(ops node:$in), (v2f64 (bitconvert node:$in))>;
@@ -566,7 +614,7 @@ def fp32imm0 : PatLeaf<(f32 fpimm), [{
 
 def I8Imm : SDNodeXForm<imm, [{
   // Transformation function: get the low 8 bits.
-  return getI8Imm((uint8_t)N->getZExtValue());
+  return getI8Imm((uint8_t)N->getZExtValue(), SDLoc(N));
 }]>;
 
 def FROUND_NO_EXC : ImmLeaf<i32, [{ return Imm == 8; }]>;
@@ -577,31 +625,31 @@ def FROUND_CURRENT : ImmLeaf<i32, [{
 // BYTE_imm - Transform bit immediates into byte immediates.
 def BYTE_imm  : SDNodeXForm<imm, [{
   // Transformation function: imm >> 3
-  return getI32Imm(N->getZExtValue() >> 3);
+  return getI32Imm(N->getZExtValue() >> 3, SDLoc(N));
 }]>;
 
 // EXTRACT_get_vextract128_imm xform function: convert extract_subvector index
 // to VEXTRACTF128/VEXTRACTI128 imm.
 def EXTRACT_get_vextract128_imm : SDNodeXForm<extract_subvector, [{
-  return getI8Imm(X86::getExtractVEXTRACT128Immediate(N));
+  return getI8Imm(X86::getExtractVEXTRACT128Immediate(N), SDLoc(N));
 }]>;
 
 // INSERT_get_vinsert128_imm xform function: convert insert_subvector index to
 // VINSERTF128/VINSERTI128 imm.
 def INSERT_get_vinsert128_imm : SDNodeXForm<insert_subvector, [{
-  return getI8Imm(X86::getInsertVINSERT128Immediate(N));
+  return getI8Imm(X86::getInsertVINSERT128Immediate(N), SDLoc(N));
 }]>;
 
 // EXTRACT_get_vextract256_imm xform function: convert extract_subvector index
 // to VEXTRACTF64x4 imm.
 def EXTRACT_get_vextract256_imm : SDNodeXForm<extract_subvector, [{
-  return getI8Imm(X86::getExtractVEXTRACT256Immediate(N));
+  return getI8Imm(X86::getExtractVEXTRACT256Immediate(N), SDLoc(N));
 }]>;
 
 // INSERT_get_vinsert256_imm xform function: convert insert_subvector index to
 // VINSERTF64x4 imm.
 def INSERT_get_vinsert256_imm : SDNodeXForm<insert_subvector, [{
-  return getI8Imm(X86::getInsertVINSERT256Immediate(N));
+  return getI8Imm(X86::getInsertVINSERT256Immediate(N), SDLoc(N));
 }]>;
 
 def vextract128_extract : PatFrag<(ops node:$bigvec, node:$index),
