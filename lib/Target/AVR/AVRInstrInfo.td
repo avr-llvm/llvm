@@ -159,6 +159,7 @@ def memspi : Operand<iPTR>
 }
 
 // Branch targets have OtherVT type and print as pc-relative values.
+// TODO: possibly redundant
 def brtarget : Operand<OtherVT>
 {
   let PrintMethod = "print_pcrel_imm";
@@ -181,6 +182,12 @@ def rel_condbr_13_target : Operand<OtherVT>
 {
     let PrintMethod = "print_pcrel_imm";
     let EncoderMethod = "getRelCondBr13TargetEncoding";
+}
+
+// The target of a 22 or 16-bit call/jmp instruction.
+def call_target : Operand<iPTR>
+{
+    let EncoderMethod = "getCallTargetEncoding";
 }
 
 // Addressing mode pattern reg+imm6
@@ -684,7 +691,7 @@ isTerminator = 1 in
 
     def JMPk : F32BRk<0b110,
                       (outs),
-                      (ins brtarget:$target),
+                      (ins call_target:$target),
                       "jmp\t$target",
                       []>,
                Requires<[HasJMPCALL]>;
@@ -730,7 +737,7 @@ let isCall = 1 in
     let Uses = [SP] in
     def CALLk : F32BRk<0b111,
                        (outs),
-                       (ins i16imm:$dst),
+                       (ins call_target:$dst),
                        "call\t$dst",
                        [(AVRcall imm:$dst)]>,
                 Requires<[HasJMPCALL]>;

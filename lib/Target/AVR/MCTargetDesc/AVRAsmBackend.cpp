@@ -29,27 +29,41 @@
 
 using namespace llvm;
 
-// FIXME: we are using this function for all relative fixups.
-// Is this what we should be doing?
-// Also, this will fail with 32 bit instructions.
-static unsigned adjustFixupRelCondbr(unsigned size,
-                                  const MCFixup &Fixup, uint64_t Value,
-                                  MCContext *Ctx = nullptr)
+namespace
+{
+inline unsigned adjustFixupRelCondbr(unsigned size,
+                                     const MCFixup &Fixup,
+                                     uint64_t Value,
+                                     MCContext *Ctx = nullptr)
 {
   // Take the size of the current instruction away.
   Value -= 2;
 
-  // We now check if Value can be encoded as a 7-bit signed immediate.
-  //if (!isIntN(size, Value) && Ctx)
-  //  Ctx->FatalError(Fixup.getLoc(), "out of range brcond fixup");
+  // We now check if Value can fit in the specified size.
+  if (!isIntN(size, Value) && Ctx != nullptr)
+    Ctx->FatalError(Fixup.getLoc(), "out of range conditional branch target");
     
-  Value >>= 2;
+  Value >>= 1;
   
   return Value;
 }
 
+// TODO: On some targets, the program counter is 16-bits with 128KB progmem maximum.
+//       On other targets, the counter is 22-bits with 8MB progmem maximum.
+//       It might be a good idea to check whether the value fits into the size depending
+//       on what the current target is, instead of the maximum - 22 bits.
+inline unsigned adjustFixupCall(const MCFixup &Fixup,
+                                uint64_t Value,
+                                MCContext *Ctx = nullptr)
+{
+  if(!isIntN(22, Value) && Ctx != nullptr)
+    Ctx->FatalError(Fixup.getLoc(), "out of range call target");
+
+  return Value >> 1;
+}
+
 // Prepare value for the target space for it
-static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
+inline unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
                                  MCContext *Ctx = nullptr) {
 
   unsigned Kind = Fixup.getKind();
@@ -73,9 +87,15 @@ static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
     Value = adjustFixupRelCondbr(13, Fixup, Value, Ctx);
     break;
   }
+  case AVR::fixup_call:
+  {
+    Value = adjustFixupCall(Fixup, Value, Ctx);
+    break;
+  }
   }
 
   return Value;
+}
 }
 
 MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_pwrite_stream &OS) const {
@@ -145,7 +165,7 @@ getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_hi8_ldi_pm_neg",  0,      8,    0 },
     { "fixup_hh8_ldi_pm_neg",  0,      8,    0 },
 
-    { "fixup_call",            0,      0xff, 0 },
+    { "fixup_call",            0,      22, 0 },
     { "fixup_ldi",             0,      0xff, 0 },
 
     { "fixup_6",               0,      6,    0 },

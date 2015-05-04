@@ -231,6 +231,25 @@ AVRMCCodeEmitter::getI8ImmComEncoding(const MCInst &MI, unsigned OpNo,
   return compliment;
 }
 
+unsigned
+AVRMCCodeEmitter::getCallTargetEncoding(const MCInst &MI, unsigned OpNo,
+                                        SmallVectorImpl<MCFixup> &Fixups,
+                                        const MCSubtargetInfo &STI) const {
+  auto MO = MI.getOperand(OpNo);
+  assert(MO.isImm());
+  
+  if (MO.isExpr())
+  {
+    Fixups.push_back(MCFixup::Create(0, MO.getExpr(), MCFixupKind(AVR::fixup_call), MI.getLoc()));
+    
+    return 0;
+  } 
+  else {
+    return MO.getImm() >> 1;
+  }
+}
+
+
 unsigned AVRMCCodeEmitter::
 getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
                const MCSubtargetInfo &STI) const {
