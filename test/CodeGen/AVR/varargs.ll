@@ -1,4 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
+; XFAIL: *
 
 declare void @llvm.va_start(i8*)
 declare i16 @vsprintf(i8* nocapture, i8* nocapture, i8*)

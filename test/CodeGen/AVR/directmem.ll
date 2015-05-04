@@ -1,4 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
+; XFAIL: *
 
 @char = common global i8 0
 @char.array = common global [3 x i8] zeroinitializer

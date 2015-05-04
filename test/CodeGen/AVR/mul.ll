@@ -1,4 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
+; XFAIL: *
 
 define i8 @mult8(i8 %a, i8 %b) {
 ; CHECK-LABEL: mult8:

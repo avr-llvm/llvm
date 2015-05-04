@@ -1,4 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
+; XFAIL: *
 
 declare i16 @allocate(i16*, i16*)
 

@@ -1,4 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
+; XFAIL: *
 
 ;CHECK-LABEL: no_operands:
 define void @no_operands() {

@@ -1,4 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
+; XFAIL: *
 
 define avr_intrcc void @interrupt_handler() {
 ; CHECK-LABEL: interrupt_handler:

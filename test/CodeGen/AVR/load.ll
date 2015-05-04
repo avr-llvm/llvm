@@ -1,4 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
+; XFAIL: *
 
 define i8 @load8(i8* %x) {
 ; CHECK-LABEL: load8:

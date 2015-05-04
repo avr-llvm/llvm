@@ -1,4 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
+; XFAIL: *
 
 @brind.k = private unnamed_addr constant [2 x i8*] [i8* blockaddress(@brind, %return), i8* blockaddress(@brind, %b)], align 1
 

@@ -1,4 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
+; XFAIL: *
 
 define void @store8(i8* %x, i8 %y) {
 ; CHECK-LABEL: store8:
