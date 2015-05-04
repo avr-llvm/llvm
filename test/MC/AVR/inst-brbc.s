@@ -4,8 +4,8 @@
 foo:
 
   brbc 3, .+8
-  brbc 0, .+0
+  brbc 0, .-16
 
-; CHECK: brbc 3, .+8                   ; encoding: [0x1b,0xf4]
-; CHECK: brbc 0, .+0                   ; encoding: [0xf0,0xf7]
+; CHECK: brbc 3, .+8                   ; encoding: [0x23,0xf4]
+; CHECK: brbc 0, .-16                  ; encoding: [0xc0,0xf7]
 

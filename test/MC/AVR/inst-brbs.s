@@ -3,9 +3,9 @@
 
 foo:
 
-  brbs 3, 8
-  brbs 0, 0
+  brbs 3, .+8
+  brbs 0, .-12
 
-; CHECK: brbs 3, 8                   ; encoding: [0x1b,0xf0]
-; CHECK: brbs 0, 0                   ; encoding: [0xf0,0xf3]
+; CHECK: brbs 3, .+8                   ; encoding: [0x23,0xf0]
+; CHECK: brbs 0, .-12                  ; encoding: [0xd0,0xf3]
 

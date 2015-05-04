@@ -55,6 +55,7 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
 
   // First handle load and store instructions with postinc or predec
   // of the form "ld reg, X+".
+  // TODO: is this necessary anymore now that we encode this into AVRInstrInfo.td
   switch (Opcode)
   {
   case AVR::LDRdPtr:
@@ -128,7 +129,14 @@ void AVRInstPrinter::print_pcrel_imm(const MCInst *MI, unsigned OpNo,
   if (Op.isImm())
   {
     int64_t Imm = Op.getImm();
-    O << '.' << ((Imm >= 0) ? '+' : '-') << Imm;
+    O << '.';
+
+    // Print a position sign if needed.
+    // Negative values have their sign printed automatically.
+    if(Imm >= 0)
+      O << '+';
+
+    O << Imm;
     return;
   }
 

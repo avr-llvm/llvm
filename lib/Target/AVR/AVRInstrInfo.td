@@ -158,13 +158,6 @@ def memspi : Operand<iPTR>
   let MIOperandInfo = (ops GPRSP, i16imm);
 }
 
-// Branch targets have OtherVT type and print as pc-relative values.
-// TODO: possibly redundant
-def brtarget : Operand<OtherVT>
-{
-  let PrintMethod = "print_pcrel_imm";
-}
-
 def i8imm_com : Operand<i8>
 {
   let EncoderMethod = "getI8ImmComEncoding";
@@ -952,7 +945,7 @@ Uses = [SREG] in
                       [(AVRbrcond bb:$target, AVR_COND_MI)]>;
 
     def BRPLk : FBRsk<1,
-                      0b101,
+                      0b010,
                       (outs),
                       (ins rel_condbr_7_target:$target),
                       "brpl\t$target",

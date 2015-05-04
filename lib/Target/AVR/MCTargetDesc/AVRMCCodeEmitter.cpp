@@ -162,7 +162,7 @@ AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
     return 0;
   } 
   else {
-    return (MO.getImm() - 2) >> 1;
+    return MO.getImm() >> 1;
   }
 }
 
