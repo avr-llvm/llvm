@@ -1,4 +1,5 @@
 ; RUN: llvm-mc -triple avr-none -mattr=movw -show-encoding < %s | FileCheck %s
+; XFAIL: *
 
 
 foo:
