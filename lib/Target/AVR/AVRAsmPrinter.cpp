@@ -58,7 +58,7 @@ public:
                              raw_ostream &O) override;
 
 public: // AsmPrinter
-  void EmitInstruction(const MachineInstr *MI);
+  void EmitInstruction(const MachineInstr *MI) override;
 };
 
 } // end of anonymous namespace
@@ -196,7 +196,7 @@ void AVRAsmPrinter::EmitInstruction(const MachineInstr *MI)
 
   MCInst I;
   MCInstLowering.Lower(MI, I);
-  OutStreamer.EmitInstruction(I, getSubtargetInfo());
+  EmitToStreamer(*OutStreamer, I);
 }
 
 //===----------------------------------------------------------------------===//

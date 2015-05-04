@@ -76,12 +76,12 @@ def AVRasrLoop : SDNode<"AVRISD::ASRLOOP", SDTIntShiftOp>;
 
 def imm8_neg_XFORM : SDNodeXForm<imm,
 [{
-  return CurDAG->getTargetConstant(-N->getAPIntValue(), MVT::i8);
+  return CurDAG->getTargetConstant(-N->getAPIntValue(), SDLoc(N), MVT::i8);
 }]>;
 
 def imm16_neg_XFORM : SDNodeXForm<imm,
 [{
-  return CurDAG->getTargetConstant(-N->getAPIntValue(), MVT::i16);
+  return CurDAG->getTargetConstant(-N->getAPIntValue(), SDLoc(N), MVT::i16);
 }]>;
 
 def imm0_63_neg : PatLeaf<(imm),
@@ -94,19 +94,19 @@ def uimm6 : PatLeaf<(imm), [{ return isUInt<6>(N->getZExtValue()); }]>;
 
 def ioaddr_XFORM : SDNodeXForm<imm,
 [{
-  return CurDAG->getTargetConstant(uint8_t(N->getZExtValue()) - 0x20, MVT::i8);
+  return CurDAG->getTargetConstant(uint8_t(N->getZExtValue()) - 0x20, SDLoc(N), MVT::i8);
 }]>;
 
 def iobitpos8_XFORM : SDNodeXForm<imm,
 [{
   return CurDAG->getTargetConstant(Log2_32(uint8_t(N->getZExtValue())),
-                                   MVT::i8);
+                                   SDLoc(N), MVT::i8);
 }]>;
 
 def iobitposn8_XFORM : SDNodeXForm<imm,
 [{
   return CurDAG->getTargetConstant(Log2_32(uint8_t(~N->getZExtValue())),
-                                   MVT::i8);
+                                   SDLoc(N), MVT::i8);
 }]>;
 
 def ioaddr8 : PatLeaf<(imm),

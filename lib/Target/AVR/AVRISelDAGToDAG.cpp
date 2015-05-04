@@ -75,12 +75,14 @@ AVRDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
 bool
 AVRDAGToDAGISel::SelectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp)
 {
+  SDLoc DL(Op);
+
   // if N (the address) is a FI get the TargetFrameIndex.
   if (const FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(N))
   {
     Base = CurDAG->getTargetFrameIndex(FIN->getIndex(),
                                        getTargetLowering()->getPointerTy());
-    Disp = CurDAG->getTargetConstant(0, MVT::i8);
+    Disp = CurDAG->getTargetConstant(0, DL, MVT::i8);
 
     return true;
   }
@@ -110,7 +112,7 @@ AVRDAGToDAGISel::SelectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp)
       int FI = cast<FrameIndexSDNode>(N.getOperand(0))->getIndex();
       Base = CurDAG->getTargetFrameIndex(FI,
                                          getTargetLowering()->getPointerTy());
-      Disp = CurDAG->getTargetConstant(RHSC, MVT::i16);
+      Disp = CurDAG->getTargetConstant(RHSC, DL, MVT::i16);
 
       return true;
     }
@@ -124,7 +126,7 @@ AVRDAGToDAGISel::SelectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp)
         || (VT == MVT::i16 && RHSC >= 0 && RHSC < 63))
     {
       Base = N.getOperand(0);
-      Disp = CurDAG->getTargetConstant(RHSC, MVT::i8);
+      Disp = CurDAG->getTargetConstant(RHSC, DL, MVT::i8);
 
       return true;
     }
@@ -223,6 +225,7 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
   MachineRegisterInfo &RI = MF->getRegInfo();
   const AVRTargetMachine& TM = (const AVRTargetMachine&)MF->getTarget();
   const TargetLowering* TL = TM.getSubtargetImpl()->getTargetLowering();
+  SDLoc DL(Op);
 
   const RegisterSDNode *RegNode = dyn_cast<RegisterSDNode>(Op);
 
@@ -288,16 +291,16 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
       if (RI.getRegClass(Reg)
           != &AVR::PTRDISPREGSRegClass)
       {
-        SDLoc dl(CopyFromRegOp);
+        SDLoc DL(CopyFromRegOp);
 
         unsigned VReg = RI.createVirtualRegister(
             &AVR::PTRDISPREGSRegClass);
 
-        SDValue CopyToReg = CurDAG->getCopyToReg(CopyFromRegOp, dl,
+        SDValue CopyToReg = CurDAG->getCopyToReg(CopyFromRegOp, DL,
                                                  VReg, CopyFromRegOp);
 
         SDValue NewCopyFromRegOp =
-            CurDAG->getCopyFromReg(CopyToReg, dl, VReg, TL->getPointerTy());
+            CurDAG->getCopyFromReg(CopyToReg, DL, VReg, TL->getPointerTy());
 
         Base = NewCopyFromRegOp;
       }
@@ -309,7 +312,7 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
       if (ImmNode->getValueType(0) != MVT::i8)
       {
         Disp = CurDAG->getTargetConstant(
-            ImmNode->getAPIntValue().getZExtValue(), MVT::i8);
+            ImmNode->getAPIntValue().getZExtValue(), DL, MVT::i8);
       }
       else
       {
@@ -327,13 +330,11 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
   // Create chain that puts Op into pointer register
   // and return that register.
 
-  SDLoc dl(Op);
-
   unsigned VReg = RI.createVirtualRegister(&AVR::PTRDISPREGSRegClass);
 
-  SDValue CopyToReg = CurDAG->getCopyToReg(Op, dl, VReg, Op);
+  SDValue CopyToReg = CurDAG->getCopyToReg(Op, DL, VReg, Op);
   SDValue CopyFromReg =
-      CurDAG->getCopyFromReg(CopyToReg, dl, VReg, TL->getPointerTy());
+      CurDAG->getCopyFromReg(CopyToReg, DL, VReg, TL->getPointerTy());
 
   OutOps.push_back(CopyFromReg);
 
@@ -343,7 +344,7 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
 SDNode *AVRDAGToDAGISel::Select(SDNode *N)
 {
   unsigned Opcode = N->getOpcode();
-  SDLoc dl(N);
+  SDLoc DL(N);
 
   // Dump information about the Node being selected.
   DEBUG(errs() << "Selecting: "; N->dump(CurDAG); errs() << "\n");
@@ -367,7 +368,7 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
 
       return CurDAG->SelectNodeTo(N, AVR::FRMIDX,
                                   getTargetLowering()->getPointerTy(), TFI,
-                                  CurDAG->getTargetConstant(0, MVT::i16));
+                                  CurDAG->getTargetConstant(0, DL, MVT::i16));
     }
   case ISD::STORE:
     {
@@ -392,12 +393,12 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
       int CST =(int)cast<ConstantSDNode>(BasePtr.getOperand(1))->getZExtValue();
       SDValue Chain = ST->getChain();
       SDValue StoredVal = ST->getValue();
-      SDValue Offset = CurDAG->getTargetConstant(CST, MVT::i16);
+      SDValue Offset = CurDAG->getTargetConstant(CST, DL, MVT::i16);
       SDValue Ops[] = { BasePtr.getOperand(0), Offset, StoredVal, Chain };
       unsigned Opc = (StoredVal.getValueType() == MVT::i16) ? AVR::STDWSPQRr
                                                             : AVR::STDSPQRr;
 
-      SDNode *ResNode = CurDAG->getMachineNode(Opc, dl, MVT::Other, Ops);
+      SDNode *ResNode = CurDAG->getMachineNode(Opc, DL, MVT::Other, Ops);
 
       // Transfer memoperands.
       MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(1);
@@ -421,15 +422,15 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
         SDValue Ptr = LD->getBasePtr();
         SDNode *ResNode;
 
-        Chain = CurDAG->getCopyToReg(Chain, dl, AVR::R31R30, Ptr, SDValue());
-        Ptr = CurDAG->getCopyFromReg(Chain, dl, AVR::R31R30, MVT::i16,
+        Chain = CurDAG->getCopyToReg(Chain, DL, AVR::R31R30, Ptr, SDValue());
+        Ptr = CurDAG->getCopyFromReg(Chain, DL, AVR::R31R30, MVT::i16,
                                      Chain.getValue(1));
 
         // Check if the opcode can be converted into an indexed load.
         if (unsigned LPMOpc = SelectIndexedProgMemLoad(LD, VT))
         {
           // It is legal to fold the load into an indexed load.
-          ResNode = CurDAG->getMachineNode(LPMOpc, dl, VT, MVT::i16, MVT::Other,
+          ResNode = CurDAG->getMachineNode(LPMOpc, DL, VT, MVT::i16, MVT::Other,
                                            Ptr, Ptr.getValue(1));
           ReplaceUses(SDValue(N, 2), SDValue(ResNode, 2));
         }
@@ -439,11 +440,11 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
           switch (VT.SimpleTy)
           {
           case MVT::i8:
-            ResNode = CurDAG->getMachineNode(AVR::LPMRdZ, dl, MVT::i8,
+            ResNode = CurDAG->getMachineNode(AVR::LPMRdZ, DL, MVT::i8,
                                              MVT::Other, Ptr, Ptr.getValue(1));
             break;
           case MVT::i16:
-            ResNode = CurDAG->getMachineNode(AVR::LPMWRdZ, dl, MVT::i16,
+            ResNode = CurDAG->getMachineNode(AVR::LPMWRdZ, DL, MVT::i16,
                                              MVT::i16, MVT::Other, Ptr,
                                              Ptr.getValue(1));
             ReplaceUses(SDValue(N, 2), SDValue(ResNode, 2));
@@ -494,7 +495,7 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
         --LastOpNum;
       }
 
-      Chain = CurDAG->getCopyToReg(Chain, dl, AVR::R31R30, Callee, InFlag);
+      Chain = CurDAG->getCopyToReg(Chain, DL, AVR::R31R30, Callee, InFlag);
       SmallVector<SDValue, 8> Ops;
       Ops.push_back(CurDAG->getRegister(AVR::R31R30, MVT::i16));
 
@@ -506,7 +507,7 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
       Ops.push_back(Chain);
       Ops.push_back(Chain.getValue(1));
 
-      SDNode *ResNode = CurDAG->getMachineNode(AVR::ICALL, dl, MVT::Other,
+      SDNode *ResNode = CurDAG->getMachineNode(AVR::ICALL, DL, MVT::Other,
                                                MVT::Glue, Ops);
 
       ReplaceUses(SDValue(N, 0), SDValue(ResNode, 0));
@@ -520,8 +521,8 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
       SDValue Chain = N->getOperand(0);
       SDValue JmpAddr = N->getOperand(1);
 
-      Chain = CurDAG->getCopyToReg(Chain, dl, AVR::R31R30, JmpAddr);
-      SDNode *ResNode = CurDAG->getMachineNode(AVR::IJMP, dl, MVT::Other,Chain);
+      Chain = CurDAG->getCopyToReg(Chain, DL, AVR::R31R30, JmpAddr);
+      SDNode *ResNode = CurDAG->getMachineNode(AVR::IJMP, DL, MVT::Other,Chain);
 
       ReplaceUses(SDValue(N, 0), SDValue(ResNode, 0));
 

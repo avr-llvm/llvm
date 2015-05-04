@@ -258,7 +258,7 @@ static AVRCC::CondCodes intCCToAVRCC(ISD::CondCode CC)
 /// the given operands.
 SDValue AVRTargetLowering::getAVRCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
                                      SDValue &AVRcc, SelectionDAG &DAG,
-                                     SDLoc dl) const
+                                     SDLoc DL) const
 {
   SDValue Cmp;
   EVT VT = LHS.getValueType();
@@ -286,7 +286,7 @@ SDValue AVRTargetLowering::getAVRCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
             // When doing lhs > -1 use a tst instruction on the top part of lhs
             // and use brpl instead of using a chain of cp/cpc.
             UseTest = true;
-            AVRcc = DAG.getConstant(AVRCC::COND_PL, MVT::i8);
+            AVRcc = DAG.getConstant(AVRCC::COND_PL, DL, MVT::i8);
             break;
           }
         case 0:
@@ -294,7 +294,7 @@ SDValue AVRTargetLowering::getAVRCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
             // Turn lhs > 0 into 0 < lhs since 0 can be materialized with
             // __zero_reg__ in lhs.
             RHS = LHS;
-            LHS = DAG.getConstant(0, VT);
+            LHS = DAG.getConstant(0, DL, VT);
             CC = ISD::SETLT;
             break;
           }
@@ -302,7 +302,7 @@ SDValue AVRTargetLowering::getAVRCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
           {
             // Turn lhs < rhs with lhs constant into rhs >= lhs+1, this allows
             // us to  fold the constant into the cmp instruction.
-            RHS = DAG.getConstant(C->getSExtValue() + 1, VT);
+            RHS = DAG.getConstant(C->getSExtValue() + 1, DL, VT);
             CC = ISD::SETGE;
             break;
           }
@@ -325,7 +325,7 @@ SDValue AVRTargetLowering::getAVRCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
             // Turn lhs < 1 into 0 >= lhs since 0 can be materialized with
             // __zero_reg__ in lhs.
             RHS = LHS;
-            LHS = DAG.getConstant(0, VT);
+            LHS = DAG.getConstant(0, DL, VT);
             CC = ISD::SETGE;
             break;
           }
@@ -334,7 +334,7 @@ SDValue AVRTargetLowering::getAVRCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
             // When doing lhs < 0 use a tst instruction on the top part of lhs
             // and use brmi instead of using a chain of cp/cpc.
             UseTest = true;
-            AVRcc = DAG.getConstant(AVRCC::COND_MI, MVT::i8);
+            AVRcc = DAG.getConstant(AVRCC::COND_MI, DL, MVT::i8);
             break;
           }
         }
@@ -354,7 +354,7 @@ SDValue AVRTargetLowering::getAVRCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
       // fold the constant into the cmp instruction.
       if (const ConstantSDNode *C = dyn_cast<ConstantSDNode>(RHS))
       {
-        RHS = DAG.getConstant(C->getSExtValue() + 1, VT);
+        RHS = DAG.getConstant(C->getSExtValue() + 1, DL, VT);
         CC = ISD::SETUGE;
         break;
       }
@@ -369,71 +369,71 @@ SDValue AVRTargetLowering::getAVRCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
   // using the default and/or/xor expansion code which is much longer.
   if (VT == MVT::i32)
   {
-    SDValue LHSlo = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, LHS,
-                                DAG.getIntPtrConstant(0));
-    SDValue LHShi = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, LHS,
-                                DAG.getIntPtrConstant(1));
-    SDValue RHSlo = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, RHS,
-                                DAG.getIntPtrConstant(0));
-    SDValue RHShi = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, RHS,
-                                DAG.getIntPtrConstant(1));
+    SDValue LHSlo = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, LHS,
+                                DAG.getIntPtrConstant(0, DL));
+    SDValue LHShi = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, LHS,
+                                DAG.getIntPtrConstant(1, DL));
+    SDValue RHSlo = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, RHS,
+                                DAG.getIntPtrConstant(0, DL));
+    SDValue RHShi = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, RHS,
+                                DAG.getIntPtrConstant(1, DL));
 
     if (UseTest)
     {
       // When using tst we only care about the highest part.
-      SDValue Top = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i8, LHShi,
-                                DAG.getIntPtrConstant(1));
-      Cmp = DAG.getNode(AVRISD::TST, dl, MVT::Glue, Top);
+      SDValue Top = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i8, LHShi,
+                                DAG.getIntPtrConstant(1, DL));
+      Cmp = DAG.getNode(AVRISD::TST, DL, MVT::Glue, Top);
     }
     else
     {
-      Cmp = DAG.getNode(AVRISD::CMP, dl, MVT::Glue, LHSlo, RHSlo);
-      Cmp = DAG.getNode(AVRISD::CMPC, dl, MVT::Glue, LHShi, RHShi, Cmp);
+      Cmp = DAG.getNode(AVRISD::CMP, DL, MVT::Glue, LHSlo, RHSlo);
+      Cmp = DAG.getNode(AVRISD::CMPC, DL, MVT::Glue, LHShi, RHShi, Cmp);
     }
   }
   else if (VT == MVT::i64)
   {
-    SDValue LHS_0 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i32, LHS,
-                                DAG.getIntPtrConstant(0));
-    SDValue LHS_1 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i32, LHS,
-                                DAG.getIntPtrConstant(1));
+    SDValue LHS_0 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, LHS,
+                                DAG.getIntPtrConstant(0, DL));
+    SDValue LHS_1 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, LHS,
+                                DAG.getIntPtrConstant(1, DL));
 
-    SDValue LHS0 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, LHS_0,
-                               DAG.getIntPtrConstant(0));
-    SDValue LHS1 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, LHS_0,
-                               DAG.getIntPtrConstant(1));
-    SDValue LHS2 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, LHS_1,
-                               DAG.getIntPtrConstant(0));
-    SDValue LHS3 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, LHS_1,
-                               DAG.getIntPtrConstant(1));
+    SDValue LHS0 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, LHS_0,
+                               DAG.getIntPtrConstant(0, DL));
+    SDValue LHS1 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, LHS_0,
+                               DAG.getIntPtrConstant(1, DL));
+    SDValue LHS2 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, LHS_1,
+                               DAG.getIntPtrConstant(0, DL));
+    SDValue LHS3 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, LHS_1,
+                               DAG.getIntPtrConstant(1, DL));
 
-    SDValue RHS_0 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i32, RHS,
-                                DAG.getIntPtrConstant(0));
-    SDValue RHS_1 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i32, RHS,
-                                DAG.getIntPtrConstant(1));
+    SDValue RHS_0 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, RHS,
+                                DAG.getIntPtrConstant(0, DL));
+    SDValue RHS_1 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, RHS,
+                                DAG.getIntPtrConstant(1, DL));
 
-    SDValue RHS0 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, RHS_0,
-                               DAG.getIntPtrConstant(0));
-    SDValue RHS1 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, RHS_0,
-                               DAG.getIntPtrConstant(1));
-    SDValue RHS2 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, RHS_1,
-                               DAG.getIntPtrConstant(0));
-    SDValue RHS3 = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i16, RHS_1,
-                               DAG.getIntPtrConstant(1));
+    SDValue RHS0 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, RHS_0,
+                               DAG.getIntPtrConstant(0, DL));
+    SDValue RHS1 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, RHS_0,
+                               DAG.getIntPtrConstant(1, DL));
+    SDValue RHS2 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, RHS_1,
+                               DAG.getIntPtrConstant(0, DL));
+    SDValue RHS3 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i16, RHS_1,
+                               DAG.getIntPtrConstant(1, DL));
 
     if (UseTest)
     {
       // When using tst we only care about the highest part.
-      SDValue Top = DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i8, LHS3,
-                                DAG.getIntPtrConstant(1));
-      Cmp = DAG.getNode(AVRISD::TST, dl, MVT::Glue, Top);
+      SDValue Top = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i8, LHS3,
+                                DAG.getIntPtrConstant(1, DL));
+      Cmp = DAG.getNode(AVRISD::TST, DL, MVT::Glue, Top);
     }
     else
     {
-      Cmp = DAG.getNode(AVRISD::CMP, dl, MVT::Glue, LHS0, RHS0);
-      Cmp = DAG.getNode(AVRISD::CMPC, dl, MVT::Glue, LHS1, RHS1, Cmp);
-      Cmp = DAG.getNode(AVRISD::CMPC, dl, MVT::Glue, LHS2, RHS2, Cmp);
-      Cmp = DAG.getNode(AVRISD::CMPC, dl, MVT::Glue, LHS3, RHS3, Cmp);
+      Cmp = DAG.getNode(AVRISD::CMP, DL, MVT::Glue, LHS0, RHS0);
+      Cmp = DAG.getNode(AVRISD::CMPC, DL, MVT::Glue, LHS1, RHS1, Cmp);
+      Cmp = DAG.getNode(AVRISD::CMPC, DL, MVT::Glue, LHS2, RHS2, Cmp);
+      Cmp = DAG.getNode(AVRISD::CMPC, DL, MVT::Glue, LHS3, RHS3, Cmp);
     }
   }
   else if (VT == MVT::i8 || VT == MVT::i16)
@@ -441,13 +441,13 @@ SDValue AVRTargetLowering::getAVRCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
     if (UseTest)
     {
       // When using tst we only care about the highest part.
-      Cmp = DAG.getNode(AVRISD::TST, dl, MVT::Glue,
-        (VT == MVT::i8) ? LHS : DAG.getNode(ISD::EXTRACT_ELEMENT, dl, MVT::i8,
-                                            LHS, DAG.getIntPtrConstant(1)));
+      Cmp = DAG.getNode(AVRISD::TST, DL, MVT::Glue,
+        (VT == MVT::i8) ? LHS : DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i8,
+                                            LHS, DAG.getIntPtrConstant(1, DL)));
     }
     else
     {
-      Cmp = DAG.getNode(AVRISD::CMP, dl, MVT::Glue, LHS, RHS);
+      Cmp = DAG.getNode(AVRISD::CMP, DL, MVT::Glue, LHS, RHS);
     }
   }
   else
@@ -458,7 +458,7 @@ SDValue AVRTargetLowering::getAVRCmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
   // When using a test instruction AVRcc is already set.
   if (!UseTest)
   {
-    AVRcc = DAG.getConstant(intCCToAVRCC(CC), MVT::i8);
+    AVRcc = DAG.getConstant(intCCToAVRCC(CC), DL, MVT::i8);
   }
 
   return Cmp;
@@ -503,17 +503,17 @@ SDValue AVRTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const
   SDValue LHS = Op.getOperand(0);
   SDValue RHS = Op.getOperand(1);
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
-  SDLoc dl(Op);
+  SDLoc DL(Op);
 
   SDValue TargetCC;
-  SDValue Cmp = getAVRCmp(LHS, RHS, CC, TargetCC, DAG, dl);
+  SDValue Cmp = getAVRCmp(LHS, RHS, CC, TargetCC, DAG, DL);
 
-  SDValue TrueV = DAG.getConstant(1, Op.getValueType());
-  SDValue FalseV = DAG.getConstant(0, Op.getValueType());
+  SDValue TrueV = DAG.getConstant(1, DL, Op.getValueType());
+  SDValue FalseV = DAG.getConstant(0, DL, Op.getValueType());
   SDVTList VTs = DAG.getVTList(Op.getValueType(), MVT::Glue);
   SDValue Ops[] = { TrueV, FalseV, TargetCC, Cmp };
 
-  return DAG.getNode(AVRISD::SELECT_CC, dl, VTs, Ops);
+  return DAG.getNode(AVRISD::SELECT_CC, DL, VTs, Ops);
 }
 
 SDValue AVRTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const
@@ -566,7 +566,7 @@ void AVRTargetLowering::ReplaceNodeResults(SDNode *N,
                                            SmallVectorImpl<SDValue> &Results,
                                            SelectionDAG &DAG) const
 {
-  SDLoc dl(N);
+  SDLoc DL(N);
 
   switch (N->getOpcode())
   {
@@ -578,8 +578,9 @@ void AVRTargetLowering::ReplaceNodeResults(SDNode *N,
       if (const ConstantSDNode *C = dyn_cast<ConstantSDNode>(N->getOperand(1)))
       {
         SDValue Sub =
-          DAG.getNode(ISD::SUB, dl, N->getValueType(0), N->getOperand(0),
-                      DAG.getConstant(-C->getAPIntValue(), C->getValueType(0)));
+          DAG.getNode(ISD::SUB, DL, N->getValueType(0), N->getOperand(0),
+                      DAG.getConstant(-C->getAPIntValue(),
+                                      DL, C->getValueType(0)));
         Results.push_back(Sub);
         return;
       }
@@ -627,6 +628,7 @@ bool AVRTargetLowering::getPreIndexedAddressParts(SDNode *N, SDValue &Base,
 {
   EVT VT;
   const SDNode *Op;
+  SDLoc DL(N);
 
   if (const LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
   {
@@ -672,7 +674,7 @@ bool AVRTargetLowering::getPreIndexedAddressParts(SDNode *N, SDValue &Base,
     }
 
     Base = Op->getOperand(0);
-    Offset = DAG.getConstant(RHSC, MVT::i8);
+    Offset = DAG.getConstant(RHSC, DL, MVT::i8);
     AM = ISD::PRE_DEC;
 
     return true;
@@ -691,6 +693,7 @@ bool AVRTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
                                                    SelectionDAG &DAG) const
 {
   EVT VT;
+  SDLoc DL(N);
 
   if (const LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
   {
@@ -730,7 +733,7 @@ bool AVRTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
     }
 
     Base = Op->getOperand(0);
-    Offset = DAG.getConstant(RHSC, MVT::i8);
+    Offset = DAG.getConstant(RHSC, DL, MVT::i8);
     AM = ISD::POST_INC;
 
     return true;
@@ -991,7 +994,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                              SmallVectorImpl<SDValue> &InVals) const
 {
   SelectionDAG &DAG = CLI.DAG;
-  SDLoc &dl = CLI.DL;
+  SDLoc &DL = CLI.DL;
   SmallVectorImpl<ISD::OutputArg> &Outs = CLI.Outs;
   SmallVectorImpl<SDValue> &OutVals = CLI.OutVals;
   SmallVectorImpl<ISD::InputArg> &Ins = CLI.Ins;
@@ -1018,7 +1021,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     const GlobalValue *GV = G->getGlobal();
 
     F = cast<Function>(GV);
-    Callee = DAG.getTargetGlobalAddress(GV, dl, getPointerTy());
+    Callee = DAG.getTargetGlobalAddress(GV, DL, getPointerTy());
   }
   else if (const ExternalSymbolSDNode *ES =
              dyn_cast<ExternalSymbolSDNode>(Callee))
@@ -1031,8 +1034,8 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // Get a count of how many bytes are to be pushed on the stack.
   unsigned NumBytes = CCInfo.getNextStackOffset();
 
-  Chain = DAG.getCALLSEQ_START(Chain, DAG.getIntPtrConstant(NumBytes, true),
-                               dl);
+  Chain = DAG.getCALLSEQ_START(Chain, DAG.getIntPtrConstant(NumBytes, DL, true),
+                               DL);
 
   SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPass;
 
@@ -1053,16 +1056,16 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     case CCValAssign::Full:
       break;
     case CCValAssign::SExt:
-      Arg = DAG.getNode(ISD::SIGN_EXTEND, dl, RegVT, Arg);
+      Arg = DAG.getNode(ISD::SIGN_EXTEND, DL, RegVT, Arg);
       break;
     case CCValAssign::ZExt:
-      Arg = DAG.getNode(ISD::ZERO_EXTEND, dl, RegVT, Arg);
+      Arg = DAG.getNode(ISD::ZERO_EXTEND, DL, RegVT, Arg);
       break;
     case CCValAssign::AExt:
-      Arg = DAG.getNode(ISD::ANY_EXTEND, dl, RegVT, Arg);
+      Arg = DAG.getNode(ISD::ANY_EXTEND, DL, RegVT, Arg);
       break;
     case CCValAssign::BCvt:
-      Arg = DAG.getNode(ISD::BITCAST, dl, RegVT, Arg);
+      Arg = DAG.getNode(ISD::BITCAST, DL, RegVT, Arg);
       break;
     }
 
@@ -1094,12 +1097,12 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       assert(VA.isMemLoc());
 
       // SP points to one stack slot further so add one to adjust it.
-      SDValue PtrOff = DAG.getNode(ISD::ADD, dl, getPointerTy(),
+      SDValue PtrOff = DAG.getNode(ISD::ADD, DL, getPointerTy(),
                                    DAG.getRegister(AVR::SP, getPointerTy()),
                                    DAG.getIntPtrConstant(VA.getLocMemOffset()
-                                                         + 1));
+                                                         + 1, DL));
 
-      Chain = DAG.getStore(Chain, dl, Arg, PtrOff,
+      Chain = DAG.getStore(Chain, DL, Arg, PtrOff,
                            MachinePointerInfo::getStack(VA.getLocMemOffset()),
                            false, false, 0);
     }
@@ -1111,7 +1114,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   SDValue InFlag;
   for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i)
   {
-    Chain = DAG.getCopyToReg(Chain, dl, RegsToPass[i].first,
+    Chain = DAG.getCopyToReg(Chain, DL, RegsToPass[i].first,
                              RegsToPass[i].second, InFlag);
     InFlag = Chain.getValue(1);
   }
@@ -1142,12 +1145,12 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     Ops.push_back(InFlag);
   }
 
-  Chain = DAG.getNode(AVRISD::CALL, dl, NodeTys, Ops);
+  Chain = DAG.getNode(AVRISD::CALL, DL, NodeTys, Ops);
   InFlag = Chain.getValue(1);
 
   // Create the CALLSEQ_END node.
-  Chain = DAG.getCALLSEQ_END(Chain, DAG.getIntPtrConstant(NumBytes, true),
-                             DAG.getIntPtrConstant(0, true), InFlag, dl);
+  Chain = DAG.getCALLSEQ_END(Chain, DAG.getIntPtrConstant(NumBytes, DL, true),
+                             DAG.getIntPtrConstant(0, DL, true), InFlag, DL);
 
   if (!Ins.empty())
   {
@@ -1156,7 +1159,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   // Handle result values, copying them out of physregs into vregs that we
   // return.
-  return LowerCallResult(Chain, InFlag, CallConv, isVarArg, Ins, dl, DAG,
+  return LowerCallResult(Chain, InFlag, CallConv, isVarArg, Ins, DL, DAG,
                          InVals);
 }
 
@@ -1701,6 +1704,7 @@ void AVRTargetLowering::LowerAsmOperandForConstraint(SDValue Op,
                                                      SelectionDAG &DAG) const
 {
   SDValue Result(0, 0);
+  SDLoc DL(Op);
   EVT Ty = Op.getValueType();
 
   // Currently only support length 1 constraints.
@@ -1737,19 +1741,19 @@ void AVRTargetLowering::LowerAsmOperandForConstraint(SDValue Op,
       {
       case 'I': // 0..63
         if (!isUInt<6>(CUVal64)) return;
-        Result = DAG.getTargetConstant(CUVal64, Ty);
+        Result = DAG.getTargetConstant(CUVal64, DL, Ty);
         break;
       case 'J': // -63..0
         if (CVal64 < -63 || CVal64 > 0) return;
-        Result = DAG.getTargetConstant(CVal64, Ty);
+        Result = DAG.getTargetConstant(CVal64, DL, Ty);
         break;
       case 'K': // 2
         if (CUVal64 != 2) return;
-        Result = DAG.getTargetConstant(CUVal64, Ty);
+        Result = DAG.getTargetConstant(CUVal64, DL, Ty);
         break;
       case 'L': // 0
         if (CUVal64 != 0) return;
-        Result = DAG.getTargetConstant(CUVal64, Ty);
+        Result = DAG.getTargetConstant(CUVal64, DL, Ty);
         break;
       case 'M': // 0..255
         if (!isUInt<8>(CUVal64)) return;
@@ -1760,23 +1764,23 @@ void AVRTargetLowering::LowerAsmOperandForConstraint(SDValue Op,
         {
           Ty = MVT::i16;
         }
-        Result = DAG.getTargetConstant(CUVal64, Ty);
+        Result = DAG.getTargetConstant(CUVal64, DL, Ty);
         break;
       case 'N': // -1
         if (CVal64 != -1) return;
-        Result = DAG.getTargetConstant(CVal64, Ty);
+        Result = DAG.getTargetConstant(CVal64, DL, Ty);
         break;
       case 'O': // 8, 16, 24
         if (CUVal64 != 8 && CUVal64 != 16 && CUVal64 != 24) return;
-        Result = DAG.getTargetConstant(CUVal64, Ty);
+        Result = DAG.getTargetConstant(CUVal64, DL, Ty);
         break;
       case 'P': // 1
         if (CUVal64 != 1) return;
-        Result = DAG.getTargetConstant(CUVal64, Ty);
+        Result = DAG.getTargetConstant(CUVal64, DL, Ty);
         break;
       case 'R': // -6..5
         if (CVal64 < -6 || CVal64 > 5) return;
-        Result = DAG.getTargetConstant(CVal64, Ty);
+        Result = DAG.getTargetConstant(CVal64, DL, Ty);
         break;
       }
 
@@ -1787,7 +1791,7 @@ void AVRTargetLowering::LowerAsmOperandForConstraint(SDValue Op,
     if (!FC || !FC->isZero())
       return;
     // Soften float to i8 0
-    Result = DAG.getTargetConstant(0, MVT::i8);
+    Result = DAG.getTargetConstant(0, DL, MVT::i8);
     break;
   }
 
