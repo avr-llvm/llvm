@@ -1,5 +1,4 @@
-; RUN: llc < %s -march=avr | FileCheck %s
-; XFAIL: *
+; RUN: llc -mattr=mul < %s -march=avr | FileCheck %s
 
 declare float @dsin(float)
 declare float @dcos(float)
@@ -16,14 +15,14 @@ entry:
 ; CHECK-NEXT: in r29, 62
 ; CHECK-NEXT: sbiw r28, [[SIZE:[0-9]+]]
 ; CHECK-NEXT: in r0, 63
-; CHECK-NEXT: cli
+; CHECK-NEXT: bclr 7
 ; CHECK-NEXT: out 62, r29
 ; CHECK-NEXT: out 63, r0
 ; CHECK-NEXT: out 61, r28
 ; epilogue code:
 ; CHECK: adiw r28, [[SIZE]]
 ; CHECK-NEXT: in r0, 63
-; CHECK-NEXT: cli
+; CHECK-NEXT: bclr 7
 ; CHECK-NEXT: out 62, r29
 ; CHECK-NEXT: out 63, r0
 ; CHECK-NEXT: out 61, r28

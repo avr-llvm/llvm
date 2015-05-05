@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=avr | FileCheck %s
+; RUN: llc -mattr=sram < %s -march=avr | FileCheck %s
 ; XFAIL: *
 
 define i8 @load8(i8* %x) {

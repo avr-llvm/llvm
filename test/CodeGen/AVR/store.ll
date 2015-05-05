@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=avr | FileCheck %s
+; RUN: llc -mattr=sram < %s -march=avr | FileCheck %s
 ; XFAIL: *
 
 define void @store8(i8* %x, i8 %y) {
@@ -19,7 +19,7 @@ define void @store16(i16* %x, i16 %y) {
 define void @store8disp(i8* %x, i8 %y) {
 ; CHECK-LABEL: store8disp:
 ; CHECK: std Z+63, r22
-  %arrayidx = getelementptr inbounds i8* %x, i16 63
+  %arrayidx = getelementptr inbounds i8, i8* %x, i16 63
   store i8 %y, i8* %arrayidx
   ret void
 }
@@ -30,7 +30,7 @@ define void @store8nodisp(i8* %x, i8 %y) {
 ; CHECK: subi r30, 192
 ; CHECK: sbci r31, 255
 ; CHECK: st Z, r22
-  %arrayidx = getelementptr inbounds i8* %x, i16 64
+  %arrayidx = getelementptr inbounds i8, i8* %x, i16 64
   store i8 %y, i8* %arrayidx
   ret void
 }
@@ -39,7 +39,7 @@ define void @store16disp(i16* %x, i16 %y) {
 ; CHECK-LABEL: store16disp:
 ; CHECK: std Z+62, r22
 ; CHECK: std Z+63, r23
-  %arrayidx = getelementptr inbounds i16* %x, i16 31
+  %arrayidx = getelementptr inbounds i16, i16* %x, i16 31
   store i16 %y, i16* %arrayidx
   ret void
 }
@@ -51,7 +51,7 @@ define void @store16nodisp(i16* %x, i16 %y) {
 ; CHECK: sbci r31, 255
 ; CHECK: st Z, r22
 ; CHECK: std Z+1, r23
-  %arrayidx = getelementptr inbounds i16* %x, i16 32
+  %arrayidx = getelementptr inbounds i16, i16* %x, i16 32
   store i16 %y, i16* %arrayidx
   ret void
 }
@@ -66,7 +66,7 @@ while.body:                                       ; preds = %entry, %while.body
   %dec5.in = phi i8 [ %dec5, %while.body ], [ %y, %entry ]
   %x.addr.04 = phi i8* [ %incdec.ptr, %while.body ], [ %x, %entry ]
   %dec5 = add i8 %dec5.in, -1
-  %incdec.ptr = getelementptr inbounds i8* %x.addr.04, i16 1
+  %incdec.ptr = getelementptr inbounds i8, i8* %x.addr.04, i16 1
   store i8 %dec5, i8* %x.addr.04
   %tobool = icmp eq i8 %dec5, 0
   br i1 %tobool, label %while.end, label %while.body
@@ -85,7 +85,7 @@ while.body:                                       ; preds = %entry, %while.body
   %dec5.in = phi i16 [ %dec5, %while.body ], [ %y, %entry ]
   %x.addr.04 = phi i16* [ %incdec.ptr, %while.body ], [ %x, %entry ]
   %dec5 = add nsw i16 %dec5.in, -1
-  %incdec.ptr = getelementptr inbounds i16* %x.addr.04, i16 1
+  %incdec.ptr = getelementptr inbounds i16, i16* %x.addr.04, i16 1
   store i16 %dec5, i16* %x.addr.04
   %tobool = icmp eq i16 %dec5, 0
   br i1 %tobool, label %while.end, label %while.body
@@ -103,7 +103,7 @@ while.body:                                       ; preds = %entry, %while.body
   %dec5.in = phi i8 [ %dec5, %while.body ], [ %y, %entry ]
   %x.addr.04 = phi i8* [ %incdec.ptr, %while.body ], [ %x, %entry ]
   %dec5 = add i8 %dec5.in, -1
-  %incdec.ptr = getelementptr inbounds i8* %x.addr.04, i16 -1
+  %incdec.ptr = getelementptr inbounds i8, i8* %x.addr.04, i16 -1
   store i8 %dec5, i8* %incdec.ptr
   %tobool = icmp eq i8 %dec5, 0
   br i1 %tobool, label %while.end, label %while.body
@@ -122,7 +122,7 @@ while.body:                                       ; preds = %entry, %while.body
   %dec5.in = phi i16 [ %dec5, %while.body ], [ %y, %entry ]
   %x.addr.04 = phi i16* [ %incdec.ptr, %while.body ], [ %x, %entry ]
   %dec5 = add nsw i16 %dec5.in, -1
-  %incdec.ptr = getelementptr inbounds i16* %x.addr.04, i16 -1
+  %incdec.ptr = getelementptr inbounds i16, i16* %x.addr.04, i16 -1
   store i16 %dec5, i16* %incdec.ptr
   %tobool = icmp eq i16 %dec5, 0
   br i1 %tobool, label %while.end, label %while.body

@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=avr | FileCheck %s
+; RUN: llc -mattr=sram,movw,addsubiw < %s -march=avr | FileCheck %s
 ; XFAIL: *
 
 declare void @llvm.va_start(i8*)
@@ -55,6 +55,6 @@ define void @varargcall() {
 ; CHECK: push [[REG1]]
 ; CHECK: call
 ; CHECK: adiw r30, 6
-  tail call void (i16, ...)* @var1223(i16 -21555, i16 -12867, i16 -8257)
+  tail call void (i16, ...) @var1223(i16 -21555, i16 -12867, i16 -8257)
   ret void
 }

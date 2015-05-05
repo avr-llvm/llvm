@@ -1,5 +1,4 @@
-; RUN: llc < %s -march=avr | FileCheck %s
-; XFAIL: *
+; RUN: llc -mattr=sram,addsubiw < %s -march=avr | FileCheck %s
 
 @char = common global i8 0
 @char.array = common global [3 x i8] zeroinitializer
@@ -40,16 +39,16 @@ define void @array8_store() {
 ; CHECK: sts char.array, [[REG1]]
 ; CHECK: ldi [[REG:r[0-9]+]], 3
 ; CHECK: sts char.array+2, [[REG]]
-  store i8 1, i8* getelementptr inbounds ([3 x i8]* @char.array, i32 0, i64 0)
-  store i8 2, i8* getelementptr inbounds ([3 x i8]* @char.array, i32 0, i64 1)
-  store i8 3, i8* getelementptr inbounds ([3 x i8]* @char.array, i32 0, i64 2)
+  store i8 1, i8* getelementptr inbounds ([3 x i8], [3 x i8]* @char.array, i32 0, i64 0)
+  store i8 2, i8* getelementptr inbounds ([3 x i8], [3 x i8]* @char.array, i32 0, i64 1)
+  store i8 3, i8* getelementptr inbounds ([3 x i8], [3 x i8]* @char.array, i32 0, i64 2)
   ret void
 }
 
 define i8 @array8_load() {
 ; CHECK-LABEL: array8_load:
 ; CHECK: lds r24, char.array+2
-  %result = load i8, i8* getelementptr inbounds ([3 x i8]* @char.array, i32 0, i64 2)
+  %result = load i8, i8* getelementptr inbounds ([3 x i8], [3 x i8]* @char.array, i32 0, i64 2)
   ret i8 %result
 }
 
@@ -96,9 +95,9 @@ define void @array16_store() {
 ; CHECK: ldi [[REG2:r[0-9]+]], 170
 ; CHECK: sts int.array+5, [[REG2]]
 ; CHECK: sts int.array+4, [[REG1]]
-  store i16 43707, i16* getelementptr inbounds ([3 x i16]* @int.array, i32 0, i64 0)
-  store i16 43724, i16* getelementptr inbounds ([3 x i16]* @int.array, i32 0, i64 1)
-  store i16 43741, i16* getelementptr inbounds ([3 x i16]* @int.array, i32 0, i64 2)
+  store i16 43707, i16* getelementptr inbounds ([3 x i16], [3 x i16]* @int.array, i32 0, i64 0)
+  store i16 43724, i16* getelementptr inbounds ([3 x i16], [3 x i16]* @int.array, i32 0, i64 1)
+  store i16 43741, i16* getelementptr inbounds ([3 x i16], [3 x i16]* @int.array, i32 0, i64 2)
   ret void
 }
 
@@ -106,7 +105,7 @@ define i16 @array16_load() {
 ; CHECK-LABEL: array16_load:
 ; CHECK: lds r24, int.array+4
 ; CHECK: lds r25, int.array+5
-  %result = load i16, i16* getelementptr inbounds ([3 x i16]* @int.array, i32 0, i64 2)
+  %result = load i16, i16* getelementptr inbounds ([3 x i16], [3 x i16]* @int.array, i32 0, i64 2)
   ret i16 %result
 }
 
@@ -173,9 +172,9 @@ define void @array32_store() {
 ; CHECK: ldi [[REG2:r[0-9]+]], 187
 ; CHECK: sts long.array+9, [[REG2]]
 ; CHECK: sts long.array+8, [[REG1]]
-  store i32 2887454020, i32* getelementptr inbounds ([3 x i32]* @long.array, i32 0, i64 0)
-  store i32 1432778632, i32* getelementptr inbounds ([3 x i32]* @long.array, i32 0, i64 1)
-  store i32 2578103244, i32* getelementptr inbounds ([3 x i32]* @long.array, i32 0, i64 2)
+  store i32 2887454020, i32* getelementptr inbounds ([3 x i32], [3 x i32]* @long.array, i32 0, i64 0)
+  store i32 1432778632, i32* getelementptr inbounds ([3 x i32], [3 x i32]* @long.array, i32 0, i64 1)
+  store i32 2578103244, i32* getelementptr inbounds ([3 x i32], [3 x i32]* @long.array, i32 0, i64 2)
   ret void
 }
 
@@ -185,7 +184,7 @@ define i32 @array32_load() {
 ; CHECK: lds r23, long.array+9
 ; CHECK: lds r24, long.array+10
 ; CHECK: lds r25, long.array+11
-  %result = load i32, i32* getelementptr inbounds ([3 x i32]* @long.array, i32 0, i64 2)
+  %result = load i32, i32* getelementptr inbounds ([3 x i32], [3 x i32]* @long.array, i32 0, i64 2)
   ret i32 %result
 }
 
@@ -263,9 +262,9 @@ define void @array64_store() {
 ; CHECK: ldi [[REG2:r[0-9]+]], 119
 ; CHECK: sts longlong.array+1, [[REG2]]
 ; CHECK: sts longlong.array, [[REG1]]
-  store i64 1234605616436508552, i64* getelementptr inbounds ([3 x i64]* @longlong.array, i64 0, i64 0)
-  store i64 81985529216486895, i64* getelementptr inbounds ([3 x i64]* @longlong.array, i64 0, i64 1)
-  store i64 1836475854449306472, i64* getelementptr inbounds ([3 x i64]* @longlong.array, i64 0, i64 2)
+  store i64 1234605616436508552, i64* getelementptr inbounds ([3 x i64], [3 x i64]* @longlong.array, i64 0, i64 0)
+  store i64 81985529216486895, i64* getelementptr inbounds ([3 x i64], [3 x i64]* @longlong.array, i64 0, i64 1)
+  store i64 1836475854449306472, i64* getelementptr inbounds ([3 x i64], [3 x i64]* @longlong.array, i64 0, i64 2)
   ret void
 }
 
@@ -279,7 +278,7 @@ define i64 @array64_load() {
 ; CHECK: lds r23, longlong.array+21
 ; CHECK: lds r24, longlong.array+22
 ; CHECK: lds r25, longlong.array+23
-  %result = load i64, i64* getelementptr inbounds ([3 x i64]* @longlong.array, i64 0, i64 2)
+  %result = load i64, i64* getelementptr inbounds ([3 x i64], [3 x i64]* @longlong.array, i64 0, i64 2)
   ret i64 %result
 }
 
