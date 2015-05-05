@@ -813,6 +813,8 @@ void MatchableInfo::tokenizeAsmString(const AsmMatcherInfo &Info) {
     case ']':
     case '*':
     case '!':
+    case '+':
+    case '-':
     case ' ':
     case '\t':
     case ',':
