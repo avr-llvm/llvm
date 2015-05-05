@@ -11,6 +11,18 @@
 //
 //===----------------------------------------------------------------------===//
 
+// NOTE: Instruction with postincrement
+//       All instructions with a '+' as part of the instruction must have
+//       a space between the '+' symbol on either side in the instruction
+//       definition.
+//       If there is no space, `tablegen` will take the '+' token and the
+//       adjacent token(s) to be a single, combined token.
+//       For example, the instruction definition "lpm\tZ+" will result
+//       in the parser expecting a combined token "Z+", instead of a
+//       seperate "Z" and a seperate "+", which will cause instruction
+//       parsing to fail.
+
+
 //===----------------------------------------------------------------------===//
 // Instruction format superclass
 //===----------------------------------------------------------------------===//
@@ -1048,13 +1060,13 @@ Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
     def LDRdPtrPi : FSTLDPtrPiReg<0b0,
                                   (outs GPR8:$reg, PTRREGS:$base_wb),
                                   (ins LDSTPtrReg:$ptrreg),
-                                  "ld\t$reg, $ptrreg+",
+                                  "ld\t$reg, $ptrreg +",
                                   []>,
                     Requires<[HasSRAM]>;
 
     def LDWRdPtrPi : Pseudo<(outs DREGS:$reg, PTRREGS:$base_wb),
                             (ins PTRREGS:$ptrreg),
-                            "ldw\t$reg, $ptrreg+",
+                            "ldw\t$reg, $ptrreg +",
                             []>,
                      Requires<[HasSRAM]>;
 
@@ -1153,7 +1165,7 @@ let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
     def STPtrPiRr : FSTLDPtrPiReg<0b1,
                                   (outs LDSTPtrReg:$base_wb),
                                   (ins LDSTPtrReg:$ptrreg, GPR8:$reg, i8imm:$offs),
-                                  "st\t$ptrreg+, $reg",
+                                  "st\t$ptrreg +, $reg",
                                   [(set i16:$base_wb,
                                   (post_store GPR8:$reg, i16:$ptrreg, imm:$offs))]>,
                     Requires<[HasSRAM]>;
@@ -1163,7 +1175,7 @@ let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
     // Post increments P.
     def STWPtrPiRr : Pseudo<(outs PTRREGS:$base_wb),
                             (ins PTRREGS:$ptrreg, DREGS:$trh, i8imm:$offs),
-                            "stw\t$ptrreg+, $trh",
+                            "stw\t$ptrreg +, $trh",
                             [(set PTRREGS:$base_wb,
                              (post_store DREGS:$trh, PTRREGS:$ptrreg, imm:$offs))]>,
                      Requires<[HasSRAM]>;
@@ -1251,13 +1263,13 @@ Uses = [R31R30] in
                              1,
                              (outs GPR8:$dst),
                              (ins),
-                             "lpm\t$dst, Z+",
+                             "lpm\t$dst, Z +",
                              []>,
                        Requires<[HasLPMX]>;
 
         def LPMWRdZPi : Pseudo<(outs DREGS:$dst),
                                (ins),
-                               "lpmw\t$dst, Z+",
+                               "lpmw\t$dst, Z +",
                                []>,
                         Requires<[HasLPMX]>;
     }
@@ -1289,7 +1301,7 @@ Uses = [R31R30] in
                           1,
                           (outs GPR8:$dst),
                           (ins),
-                          "elpm\t$dst, Z+",
+                          "elpm\t$dst, Z +",
                           []>,
                     Requires<[HasELPMX]>;
 }
@@ -1309,7 +1321,7 @@ let Uses = [R31R30, R1, R0] in
     def SPMZPi : F16<0b1001010111111000,
                      (outs),
                      (ins),
-                     "spm Z+",
+                     "spm Z +",
                      []>,
                  Requires<[HasSPMX]>;
 }
