@@ -22,10 +22,9 @@ public:
 
 // This part is for ascii assembly output
 class AVRTargetAsmStreamer : public AVRTargetStreamer {
-  formatted_raw_ostream &OS;
 
 public:
-  AVRTargetAsmStreamer(MCStreamer &S, formatted_raw_ostream &OS);
+  AVRTargetAsmStreamer(MCStreamer &);
 };
 
 // This part is for ELF object output

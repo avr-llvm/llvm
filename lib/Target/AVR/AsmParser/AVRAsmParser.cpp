@@ -228,9 +228,6 @@ public:
         OS << ")";
         
         break;
-      default:
-        llvm_unreachable("unimplemented");
-        break;
     }
     
     OS << "\n";

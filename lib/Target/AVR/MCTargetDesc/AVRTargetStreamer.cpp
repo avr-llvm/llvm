@@ -20,9 +20,8 @@ using namespace llvm;
 // pin vtable to this file
 AVRTargetStreamer::AVRTargetStreamer(MCStreamer &S) : MCTargetStreamer(S) {}
 
-AVRTargetAsmStreamer::AVRTargetAsmStreamer(MCStreamer &S,
-                                               formatted_raw_ostream &OS)
-    : AVRTargetStreamer(S), OS(OS) {}
+AVRTargetAsmStreamer::AVRTargetAsmStreamer(MCStreamer &S)
+    : AVRTargetStreamer(S) {}
 
 AVRTargetELFStreamer::AVRTargetELFStreamer(MCStreamer &S)
     : AVRTargetStreamer(S) {}
