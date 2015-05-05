@@ -18,4 +18,4 @@ script:
   - mkdir build && cd build
   - cmake -DLLVM_TARGETS_TO_BUILD="AVR" .. 
   - make -j3
-  - bin/llvm-lit `find .. type -d -name AVR`
+  - bin/llvm-lit `find test -type d -name AVR`
