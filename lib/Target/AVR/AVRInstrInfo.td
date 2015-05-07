@@ -651,7 +651,7 @@ Defs = [SREG] in
 // TST Rd
 // Test for zero of minus.
 // This operation is identical to a `Rd AND Rd`.
-def : InstAlias<"tst\t$rd", (ANDRdRr GPR8:$rd, GPR8:$rd)>;
+def : InstAlias<"tst\t$rd", (ANDRdRr GPR8:$rd, GPR8:$rd), 1>;
 
 // Jump instructions
 let isBarrier = 1,
@@ -1582,7 +1582,7 @@ def : InstAlias<"clr\t$rd", (EORRdRr GPR8:$rd, GPR8:$rd)>;
 // Alias for LDI Rd, 0xff
 // ---------
 // Sets all bits in a register.
-def : InstAlias<"ser\t$rd", (LDIRdK LD8:$rd, 0xff)>;
+def : InstAlias<"ser\t$rd", (LDIRdK LD8:$rd, 0xff), 0>;
 
 let Defs = [SREG] in
 def BSETs : FS<0,

@@ -17,6 +17,7 @@
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
 #include <cstring>
@@ -24,6 +25,7 @@
 using namespace llvm;
 
 // Include the auto-generated portion of the assembly writer.
+#define PRINT_ALIAS_INSTR
 #include "AVRGenAsmWriter.inc"
 
 //:FIXME: this should be done somewhere else
@@ -85,7 +87,9 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
     return;
   }
 
-  printInstruction(MI, O);
+  if(!printAliasInstr(MI, O))
+    printInstruction(MI, O);
+
   printAnnotation(O, Annot);
 }
 
