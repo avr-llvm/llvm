@@ -2,7 +2,7 @@
 
 define avr_intrcc void @interrupt_handler() {
 ; CHECK-LABEL: interrupt_handler:
-; CHECK: bset 7
+; CHECK: sei
 ; CHECK-NEXT: push r0
 ; CHECK-NEXT: push r1
 ; CHECK-NEXT: in r0, 63
