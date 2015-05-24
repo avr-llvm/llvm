@@ -85,6 +85,10 @@ static cl::opt<bool> EnableLoopInterchange(
     "enable-loopinterchange", cl::init(false), cl::Hidden,
     cl::desc("Enable the new, experimental LoopInterchange Pass"));
 
+static cl::opt<bool> EnableLoopDistribute(
+    "enable-loop-distribute", cl::init(false), cl::Hidden,
+    cl::desc("Enable the new, experimental LoopDistribution Pass"));
+
 PassManagerBuilder::PassManagerBuilder() {
     OptLevel = 2;
     SizeLevel = 0;
@@ -320,6 +324,11 @@ void PassManagerBuilder::populateModulePassManager(
   // on the rotated form.
   MPM.add(createLoopRotatePass());
 
+  // Distribute loops to allow partial vectorization.  I.e. isolate dependences
+  // into separate loop that would otherwise inhibit vectorization.
+  if (EnableLoopDistribute)
+    MPM.add(createLoopDistributePass());
+
   MPM.add(createLoopVectorizePass(DisableUnrollLoops, LoopVectorize));
   // FIXME: Because of #pragma vectorize enable, the passes below are always
   // inserted in the pipeline, even when the vectorizer doesn't run (ex. when
@@ -373,9 +382,8 @@ void PassManagerBuilder::populateModulePassManager(
   if (!DisableUnrollLoops) {
     MPM.add(createLoopUnrollPass());    // Unroll small loops
 
-    // This is a barrier pass to avoid combine LICM pass and loop unroll pass
-    // within same loop pass manager.
-    MPM.add(createInstructionSimplifierPass());
+    // LoopUnroll may generate some redundency to cleanup.
+    MPM.add(createInstructionCombiningPass());
 
     // Runtime unrolling will introduce runtime check in loop prologue. If the
     // unrolled loop is a inner loop, then the prologue will be inside the

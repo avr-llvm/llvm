@@ -31,6 +31,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/Statepoint.h"
 #include "llvm/IR/TypeFinder.h"
 #include "llvm/IR/UseListOrder.h"
 #include "llvm/IR/ValueSymbolTable.h"
@@ -1625,6 +1626,7 @@ static void writeDICompileUnit(raw_ostream &Out, const DICompileUnit *N,
   Printer.printMetadata("subprograms", N->getRawSubprograms());
   Printer.printMetadata("globals", N->getRawGlobalVariables());
   Printer.printMetadata("imports", N->getRawImportedEntities());
+  Printer.printInt("dwoId", N->getDWOId());
   Out << ")";
 }
 
@@ -2004,6 +2006,10 @@ private:
   // printInfoComment - Print a little comment after the instruction indicating
   // which slot it occupies.
   void printInfoComment(const Value &V);
+
+  // printGCRelocateComment - print comment after call to the gc.relocate
+  // intrinsic indicating base and derived pointer names.
+  void printGCRelocateComment(const Value &V);
 };
 } // namespace
 
@@ -2644,10 +2650,26 @@ void AssemblyWriter::printInstructionLine(const Instruction &I) {
   Out << '\n';
 }
 
+/// printGCRelocateComment - print comment after call to the gc.relocate
+/// intrinsic indicating base and derived pointer names.
+void AssemblyWriter::printGCRelocateComment(const Value &V) {
+  assert(isGCRelocate(&V));
+  GCRelocateOperands GCOps(cast<Instruction>(&V));
+
+  Out << " ; (";
+  writeOperand(GCOps.getBasePtr(), false);
+  Out << ", ";
+  writeOperand(GCOps.getDerivedPtr(), false);
+  Out << ")";
+}
+
 /// printInfoComment - Print a little comment after the instruction indicating
 /// which slot it occupies.
 ///
 void AssemblyWriter::printInfoComment(const Value &V) {
+  if (isGCRelocate(&V))
+    printGCRelocateComment(V);
+
   if (AnnotationWriter)
     AnnotationWriter->printInfoComment(V, Out);
 }

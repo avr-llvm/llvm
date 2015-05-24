@@ -55,7 +55,7 @@ HexagonMCCodeEmitter::HexagonMCCodeEmitter(MCInstrInfo const &aMII,
     : MCT(aMCT), MCII(aMII), Addend(new unsigned(0)),
       Extended(new bool(false)) {}
 
-void HexagonMCCodeEmitter::EncodeInstruction(MCInst const &MI, raw_ostream &OS,
+void HexagonMCCodeEmitter::encodeInstruction(MCInst const &MI, raw_ostream &OS,
                                              SmallVectorImpl<MCFixup> &Fixups,
                                              MCSubtargetInfo const &STI) const {
   uint64_t Binary = getBinaryCodeForInstr(MI, Fixups, STI) | getPacketBits(MI);
@@ -494,7 +494,7 @@ unsigned HexagonMCCodeEmitter::getExprOpValue(const MCInst &MI,
   }
 
   MCFixup fixup =
-      MCFixup::Create(*Addend, MO.getExpr(), MCFixupKind(FixupKind));
+      MCFixup::create(*Addend, MO.getExpr(), MCFixupKind(FixupKind));
   Fixups.push_back(fixup);
   // All of the information is in the fixup.
   return (0);

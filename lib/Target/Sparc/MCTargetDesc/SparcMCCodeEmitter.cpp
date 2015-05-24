@@ -41,7 +41,7 @@ public:
 
   ~SparcMCCodeEmitter() override {}
 
-  void EncodeInstruction(const MCInst &MI, raw_ostream &OS,
+  void encodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups,
                          const MCSubtargetInfo &STI) const override;
 
@@ -79,7 +79,7 @@ MCCodeEmitter *llvm::createSparcMCCodeEmitter(const MCInstrInfo &MCII,
   return new SparcMCCodeEmitter(Ctx);
 }
 
-void SparcMCCodeEmitter::EncodeInstruction(const MCInst &MI, raw_ostream &OS,
+void SparcMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
                                            SmallVectorImpl<MCFixup> &Fixups,
                                            const MCSubtargetInfo &STI) const {
   unsigned Bits = getBinaryCodeForInstr(MI, Fixups, STI);
@@ -132,7 +132,7 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   const MCExpr *Expr = MO.getExpr();
   if (const SparcMCExpr *SExpr = dyn_cast<SparcMCExpr>(Expr)) {
     MCFixupKind Kind = (MCFixupKind)SExpr->getFixupKind();
-    Fixups.push_back(MCFixup::Create(0, Expr, Kind));
+    Fixups.push_back(MCFixup::create(0, Expr, Kind));
     return 0;
   }
 
@@ -154,7 +154,7 @@ getCallTargetOpValue(const MCInst &MI, unsigned OpNo,
 
   if (MI.getOpcode() == SP::TLS_CALL) {
     // No fixups for __tls_get_addr. Will emit for fixups for tls_symbol in
-    // EncodeInstruction.
+    // encodeInstruction.
 #ifndef NDEBUG
     // Verify that the callee is actually __tls_get_addr.
     const SparcMCExpr *SExpr = dyn_cast<SparcMCExpr>(MO.getExpr());
@@ -174,7 +174,7 @@ getCallTargetOpValue(const MCInst &MI, unsigned OpNo,
       fixupKind = (MCFixupKind)Sparc::fixup_sparc_wplt30;
   }
 
-  Fixups.push_back(MCFixup::Create(0, MO.getExpr(), fixupKind));
+  Fixups.push_back(MCFixup::create(0, MO.getExpr(), fixupKind));
 
   return 0;
 }
@@ -187,7 +187,7 @@ getBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
   if (MO.isReg() || MO.isImm())
     return getMachineOpValue(MI, MO, Fixups, STI);
 
-  Fixups.push_back(MCFixup::Create(0, MO.getExpr(),
+  Fixups.push_back(MCFixup::create(0, MO.getExpr(),
                                    (MCFixupKind)Sparc::fixup_sparc_br22));
   return 0;
 }
@@ -200,7 +200,7 @@ getBranchPredTargetOpValue(const MCInst &MI, unsigned OpNo,
   if (MO.isReg() || MO.isImm())
     return getMachineOpValue(MI, MO, Fixups, STI);
 
-  Fixups.push_back(MCFixup::Create(0, MO.getExpr(),
+  Fixups.push_back(MCFixup::create(0, MO.getExpr(),
                                    (MCFixupKind)Sparc::fixup_sparc_br19));
   return 0;
 }
@@ -212,9 +212,9 @@ getBranchOnRegTargetOpValue(const MCInst &MI, unsigned OpNo,
   if (MO.isReg() || MO.isImm())
     return getMachineOpValue(MI, MO, Fixups, STI);
 
-  Fixups.push_back(MCFixup::Create(0, MO.getExpr(),
+  Fixups.push_back(MCFixup::create(0, MO.getExpr(),
                                    (MCFixupKind)Sparc::fixup_sparc_br16_2));
-  Fixups.push_back(MCFixup::Create(0, MO.getExpr(),
+  Fixups.push_back(MCFixup::create(0, MO.getExpr(),
                                    (MCFixupKind)Sparc::fixup_sparc_br16_14));
 
   return 0;

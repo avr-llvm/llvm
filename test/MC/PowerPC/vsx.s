@@ -5,30 +5,48 @@
 # CHECK-LE: xxswapd 7, 63                      # encoding: [0x56,0xfa,0xff,0xf0]
             xxswapd %vs7, %vs63
 
-# CHECK-BE: lxsdx 39, 5, 31                     # encoding: [0x7c,0xe5,0xfc,0x99]
-# CHECK-LE: lxsdx 39, 5, 31                     # encoding: [0x99,0xfc,0xe5,0x7c]
+# CHECK-BE: lxsdx 39, 5, 31                    # encoding: [0x7c,0xe5,0xfc,0x99]
+# CHECK-LE: lxsdx 39, 5, 31                    # encoding: [0x99,0xfc,0xe5,0x7c]
             lxsdx 39, 5, 31
-# CHECK-BE: lxvd2x 39, 5, 31                    # encoding: [0x7c,0xe5,0xfe,0x99]
-# CHECK-LE: lxvd2x 39, 5, 31                    # encoding: [0x99,0xfe,0xe5,0x7c]
+# CHECK-BE: lxsiwax 39, 5, 31                  # encoding: [0x7c,0xe5,0xf8,0x99]
+# CHECK-LE: lxsiwax 39, 5, 31                  # encoding: [0x99,0xf8,0xe5,0x7c]
+            lxsiwax 39, 5, 31
+# CHECK-BE: lxsiwzx 39, 5, 31                  # encoding: [0x7c,0xe5,0xf8,0x19]
+# CHECK-LE: lxsiwzx 39, 5, 31                  # encoding: [0x19,0xf8,0xe5,0x7c]
+            lxsiwzx 39, 5, 31
+# CHECK-BE: lxsspx 39, 5, 31                   # encoding: [0x7c,0xe5,0xfc,0x19]
+# CHECK-LE: lxsspx 39, 5, 31                   # encoding: [0x19,0xfc,0xe5,0x7c]
+            lxsspx 39, 5, 31
+# CHECK-BE: lxvd2x 39, 5, 31                   # encoding: [0x7c,0xe5,0xfe,0x99]
+# CHECK-LE: lxvd2x 39, 5, 31                   # encoding: [0x99,0xfe,0xe5,0x7c]
             lxvd2x 39, 5, 31
-# CHECK-BE: lxvdsx 39, 5, 31                    # encoding: [0x7c,0xe5,0xfa,0x99]
-# CHECK-LE: lxvdsx 39, 5, 31                    # encoding: [0x99,0xfa,0xe5,0x7c]
+# CHECK-BE: lxvdsx 39, 5, 31                   # encoding: [0x7c,0xe5,0xfa,0x99]
+# CHECK-LE: lxvdsx 39, 5, 31                   # encoding: [0x99,0xfa,0xe5,0x7c]
             lxvdsx 39, 5, 31
-# CHECK-BE: lxvw4x 39, 5, 31                    # encoding: [0x7c,0xe5,0xfe,0x19]
-# CHECK-LE: lxvw4x 39, 5, 31                    # encoding: [0x19,0xfe,0xe5,0x7c]
+# CHECK-BE: lxvw4x 39, 5, 31                   # encoding: [0x7c,0xe5,0xfe,0x19]
+# CHECK-LE: lxvw4x 39, 5, 31                   # encoding: [0x19,0xfe,0xe5,0x7c]
             lxvw4x 39, 5, 31
-# CHECK-BE: stxsdx 40, 5, 31                    # encoding: [0x7d,0x05,0xfd,0x99]
-# CHECK-LE: stxsdx 40, 5, 31                    # encoding: [0x99,0xfd,0x05,0x7d]
+# CHECK-BE: stxsdx 40, 5, 31                   # encoding: [0x7d,0x05,0xfd,0x99]
+# CHECK-LE: stxsdx 40, 5, 31                   # encoding: [0x99,0xfd,0x05,0x7d]
             stxsdx 40, 5, 31
-# CHECK-BE: stxvd2x 40, 5, 31                   # encoding: [0x7d,0x05,0xff,0x99]
-# CHECK-LE: stxvd2x 40, 5, 31                   # encoding: [0x99,0xff,0x05,0x7d]
+# CHECK-BE: stxsiwx 40, 5, 31                  # encoding: [0x7d,0x05,0xf9,0x19]
+# CHECK-LE: stxsiwx 40, 5, 31                  # encoding: [0x19,0xf9,0x05,0x7d]
+            stxsiwx 40, 5, 31
+# CHECK-BE: stxsspx 40, 5, 31                  # encoding: [0x7d,0x05,0xfd,0x19]
+# CHECK-LE: stxsspx 40, 5, 31                  # encoding: [0x19,0xfd,0x05,0x7d]
+            stxsspx 40, 5, 31
+# CHECK-BE: stxvd2x 40, 5, 31                  # encoding: [0x7d,0x05,0xff,0x99]
+# CHECK-LE: stxvd2x 40, 5, 31                  # encoding: [0x99,0xff,0x05,0x7d]
             stxvd2x 40, 5, 31
-# CHECK-BE: stxvw4x 40, 5, 31                   # encoding: [0x7d,0x05,0xff,0x19]
-# CHECK-LE: stxvw4x 40, 5, 31                   # encoding: [0x19,0xff,0x05,0x7d]
+# CHECK-BE: stxvw4x 40, 5, 31                  # encoding: [0x7d,0x05,0xff,0x19]
+# CHECK-LE: stxvw4x 40, 5, 31                  # encoding: [0x19,0xff,0x05,0x7d]
             stxvw4x 40, 5, 31
 # CHECK-BE: xsabsdp 7, 27                      # encoding: [0xf0,0xe0,0xdd,0x64]
 # CHECK-LE: xsabsdp 7, 27                      # encoding: [0x64,0xdd,0xe0,0xf0]
             xsabsdp 7, 27
+# CHECK-BE: xsaddsp 7, 63, 27                  # encoding: [0xf0,0xff,0xd8,0x04]
+# CHECK-LE: xsaddsp 7, 63, 27                  # encoding: [0x04,0xd8,0xff,0xf0]
+            xsaddsp 7, 63, 27
 # CHECK-BE: xsadddp 7, 63, 27                  # encoding: [0xf0,0xff,0xd9,0x04]
 # CHECK-LE: xsadddp 7, 63, 27                  # encoding: [0x04,0xd9,0xff,0xf0]
             xsadddp 7, 63, 27
@@ -65,6 +83,9 @@
 # CHECK-BE: xscvuxddp 7, 27                    # encoding: [0xf0,0xe0,0xdd,0xa0]
 # CHECK-LE: xscvuxddp 7, 27                    # encoding: [0xa0,0xdd,0xe0,0xf0]
             xscvuxddp 7, 27
+# CHECK-BE: xsdivsp 7, 63, 27                  # encoding: [0xf0,0xff,0xd8,0xc4]
+# CHECK-LE: xsdivsp 7, 63, 27                  # encoding: [0xc4,0xd8,0xff,0xf0]
+            xsdivsp 7, 63, 27
 # CHECK-BE: xsdivdp 7, 63, 27                  # encoding: [0xf0,0xff,0xd9,0xc4]
 # CHECK-LE: xsdivdp 7, 63, 27                  # encoding: [0xc4,0xd9,0xff,0xf0]
             xsdivdp 7, 63, 27
@@ -86,6 +107,9 @@
 # CHECK-BE: xsmsubmdp 7, 63, 27                # encoding: [0xf0,0xff,0xd9,0xcc]
 # CHECK-LE: xsmsubmdp 7, 63, 27                # encoding: [0xcc,0xd9,0xff,0xf0]
             xsmsubmdp 7, 63, 27
+# CHECK-BE: xsmulsp 7, 63, 27                  # encoding: [0xf0,0xff,0xd8,0x84]
+# CHECK-LE: xsmulsp 7, 63, 27                  # encoding: [0x84,0xd8,0xff,0xf0]
+            xsmulsp 7, 63, 27
 # CHECK-BE: xsmuldp 7, 63, 27                  # encoding: [0xf0,0xff,0xd9,0x84]
 # CHECK-LE: xsmuldp 7, 63, 27                  # encoding: [0x84,0xd9,0xff,0xf0]
             xsmuldp 7, 63, 27
@@ -122,15 +146,27 @@
 # CHECK-BE: xsrdpiz 7, 27                      # encoding: [0xf0,0xe0,0xd9,0x64]
 # CHECK-LE: xsrdpiz 7, 27                      # encoding: [0x64,0xd9,0xe0,0xf0]
             xsrdpiz 7, 27
+# CHECK-BE: xsresp 7, 27                       # encoding: [0xf0,0xe0,0xd8,0x68]
+# CHECK-LE: xsresp 7, 27                       # encoding: [0x68,0xd8,0xe0,0xf0]
+            xsresp 7, 27
 # CHECK-BE: xsredp 7, 27                       # encoding: [0xf0,0xe0,0xd9,0x68]
 # CHECK-LE: xsredp 7, 27                       # encoding: [0x68,0xd9,0xe0,0xf0]
             xsredp 7, 27
+# CHECK-BE: xsrsqrtesp 7, 27                   # encoding: [0xf0,0xe0,0xd8,0x28]
+# CHECK-LE: xsrsqrtesp 7, 27                   # encoding: [0x28,0xd8,0xe0,0xf0]
+            xsrsqrtesp 7, 27
 # CHECK-BE: xsrsqrtedp 7, 27                   # encoding: [0xf0,0xe0,0xd9,0x28]
 # CHECK-LE: xsrsqrtedp 7, 27                   # encoding: [0x28,0xd9,0xe0,0xf0]
             xsrsqrtedp 7, 27
+# CHECK-BE: xssqrtsp 7, 27                     # encoding: [0xf0,0xe0,0xd8,0x2c]
+# CHECK-LE: xssqrtsp 7, 27                     # encoding: [0x2c,0xd8,0xe0,0xf0]
+            xssqrtsp 7, 27
 # CHECK-BE: xssqrtdp 7, 27                     # encoding: [0xf0,0xe0,0xd9,0x2c]
 # CHECK-LE: xssqrtdp 7, 27                     # encoding: [0x2c,0xd9,0xe0,0xf0]
             xssqrtdp 7, 27
+# CHECK-BE: xssubsp 7, 63, 27                  # encoding: [0xf0,0xff,0xd8,0x44]
+# CHECK-LE: xssubsp 7, 63, 27                  # encoding: [0x44,0xd8,0xff,0xf0]
+            xssubsp 7, 63, 27
 # CHECK-BE: xssubdp 7, 63, 27                  # encoding: [0xf0,0xff,0xd9,0x44]
 # CHECK-LE: xssubdp 7, 63, 27                  # encoding: [0x44,0xd9,0xff,0xf0]
             xssubdp 7, 63, 27

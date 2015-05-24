@@ -97,7 +97,7 @@ static void printSymbolOperand(X86AsmPrinter &P, const MachineOperand &MO,
     // Handle dllimport linkage.
     if (MO.getTargetFlags() == X86II::MO_DLLIMPORT)
       GVSym =
-          P.OutContext.GetOrCreateSymbol(Twine("__imp_") + GVSym->getName());
+          P.OutContext.getOrCreateSymbol(Twine("__imp_") + GVSym->getName());
 
     if (MO.getTargetFlags() == X86II::MO_DARWIN_NONLAZY ||
         MO.getTargetFlags() == X86II::MO_DARWIN_NONLAZY_PIC_BASE) {
@@ -513,7 +513,7 @@ void X86AsmPrinter::EmitStartOfAsmFile(Module &M) {
     // Emit an absolute @feat.00 symbol.  This appears to be some kind of
     // compiler features bitfield read by link.exe.
     if (TT.getArch() == Triple::x86) {
-      MCSymbol *S = MMI->getContext().GetOrCreateSymbol(StringRef("@feat.00"));
+      MCSymbol *S = MMI->getContext().getOrCreateSymbol(StringRef("@feat.00"));
       OutStreamer->BeginCOFFSymbolDef(S);
       OutStreamer->EmitCOFFSymbolStorageClass(COFF::IMAGE_SYM_CLASS_STATIC);
       OutStreamer->EmitCOFFSymbolType(COFF::IMAGE_SYM_DTYPE_NULL);
@@ -615,12 +615,11 @@ void X86AsmPrinter::EmitEndOfAsmFile(Module &M) {
 
     Stubs = MMIMacho.GetFnStubList();
     if (!Stubs.empty()) {
-      const MCSection *TheSection =
-        OutContext.getMachOSection("__IMPORT", "__jump_table",
-                                   MachO::S_SYMBOL_STUBS |
-                                   MachO::S_ATTR_SELF_MODIFYING_CODE |
-                                   MachO::S_ATTR_PURE_INSTRUCTIONS,
-                                   5, SectionKind::getMetadata());
+      MCSection *TheSection = OutContext.getMachOSection(
+          "__IMPORT", "__jump_table",
+          MachO::S_SYMBOL_STUBS | MachO::S_ATTR_SELF_MODIFYING_CODE |
+              MachO::S_ATTR_PURE_INSTRUCTIONS,
+          5, SectionKind::getMetadata());
       OutStreamer->SwitchSection(TheSection);
 
       for (const auto &Stub : Stubs) {
@@ -641,10 +640,9 @@ void X86AsmPrinter::EmitEndOfAsmFile(Module &M) {
     // Output stubs for external and common global variables.
     Stubs = MMIMacho.GetGVStubList();
     if (!Stubs.empty()) {
-      const MCSection *TheSection =
-        OutContext.getMachOSection("__IMPORT", "__pointers",
-                                   MachO::S_NON_LAZY_SYMBOL_POINTERS,
-                                   SectionKind::getMetadata());
+      MCSection *TheSection = OutContext.getMachOSection(
+          "__IMPORT", "__pointers", MachO::S_NON_LAZY_SYMBOL_POINTERS,
+          SectionKind::getMetadata());
       OutStreamer->SwitchSection(TheSection);
 
       for (auto &Stub : Stubs)
@@ -656,10 +654,9 @@ void X86AsmPrinter::EmitEndOfAsmFile(Module &M) {
 
     Stubs = MMIMacho.GetHiddenGVStubList();
     if (!Stubs.empty()) {
-      const MCSection *TheSection =
-        OutContext.getMachOSection("__IMPORT", "__pointers",
-                                   MachO::S_NON_LAZY_SYMBOL_POINTERS,
-                                   SectionKind::getMetadata());
+      MCSection *TheSection = OutContext.getMachOSection(
+          "__IMPORT", "__pointers", MachO::S_NON_LAZY_SYMBOL_POINTERS,
+          SectionKind::getMetadata());
       OutStreamer->SwitchSection(TheSection);
 
       for (auto &Stub : Stubs)
@@ -682,7 +679,7 @@ void X86AsmPrinter::EmitEndOfAsmFile(Module &M) {
   if (TT.isKnownWindowsMSVCEnvironment() && MMI->usesVAFloatArgument()) {
     StringRef SymbolName =
         (TT.getArch() == Triple::x86_64) ? "_fltused" : "__fltused";
-    MCSymbol *S = MMI->getContext().GetOrCreateSymbol(SymbolName);
+    MCSymbol *S = MMI->getContext().getOrCreateSymbol(SymbolName);
     OutStreamer->EmitSymbolAttribute(S, MCSA_Global);
   }
 

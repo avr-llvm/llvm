@@ -637,8 +637,10 @@ HexagonTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   if (InFlag.getNode())
     Ops.push_back(InFlag);
 
-  if (isTailCall)
+  if (isTailCall) {
+    MF.getFrameInfo()->setHasTailCall();
     return DAG.getNode(HexagonISD::TC_RETURN, dl, NodeTys, Ops);
+  }
 
   int OpCode = doesNotReturn ? HexagonISD::CALLv3nr : HexagonISD::CALLv3;
   Chain = DAG.getNode(OpCode, dl, NodeTys, Ops);
@@ -1706,8 +1708,7 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &TM,
 
 
 const char* HexagonTargetLowering::getTargetNodeName(unsigned Opcode) const {
-  switch (Opcode) {
-  default: return nullptr;
+  switch ((HexagonISD::NodeType)Opcode) {
   case HexagonISD::ALLOCA:        return "HexagonISD::ALLOCA";
   case HexagonISD::ARGEXTEND:     return "HexagonISD::ARGEXTEND";
   case HexagonISD::AT_GOT:        return "HexagonISD::AT_GOT";
@@ -1757,7 +1758,9 @@ const char* HexagonTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case HexagonISD::VSRLW:         return "HexagonISD::VSRLW";
   case HexagonISD::VSXTBH:        return "HexagonISD::VSXTBH";
   case HexagonISD::VSXTBW:        return "HexagonISD::VSXTBW";
+  case HexagonISD::OP_END:        break;
   }
+  return nullptr;
 }
 
 bool HexagonTargetLowering::isTruncateFree(Type *Ty1, Type *Ty2) const {

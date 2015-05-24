@@ -22,7 +22,6 @@
 #include "MipsTargetMachine.h"
 #include "MipsTargetStreamer.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -121,7 +120,7 @@ void MipsAsmPrinter::emitPseudoIndirectBranch(MCStreamer &OutStreamer,
 
   if (HasLinkReg) {
     unsigned ZeroReg = Subtarget->isGP64bit() ? Mips::ZERO_64 : Mips::ZERO;
-    TmpInst0.addOperand(MCOperand::CreateReg(ZeroReg));
+    TmpInst0.addOperand(MCOperand::createReg(ZeroReg));
   }
 
   lowerOperand(MI->getOperand(0), MCOp);
@@ -384,6 +383,12 @@ void MipsAsmPrinter::EmitFunctionBodyEnd() {
   OutStreamer->EmitDataRegion(MCDR_DataRegionEnd);
 }
 
+void MipsAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock &MBB) {
+  MipsTargetStreamer &TS = getTargetStreamer();
+  if (MBB.size() == 0)
+    TS.emitDirectiveInsn();
+}
+
 /// isBlockOnlyReachableByFallthough - Return true if the basic block has
 /// exactly one predecessor and the control transfer mechanism between
 /// the predecessor and this block is a fall-through.
@@ -442,12 +447,12 @@ bool MipsAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
     case 'X': // hex const int
       if ((MO.getType()) != MachineOperand::MO_Immediate)
         return true;
-      O << "0x" << StringRef(utohexstr(MO.getImm())).lower();
+      O << "0x" << Twine::utohexstr(MO.getImm());
       return false;
     case 'x': // hex const int (low 16 bits)
       if ((MO.getType()) != MachineOperand::MO_Immediate)
         return true;
-      O << "0x" << StringRef(utohexstr(MO.getImm() & 0xffff)).lower();
+      O << "0x" << Twine::utohexstr(MO.getImm() & 0xffff);
       return false;
     case 'd': // decimal const int
       if ((MO.getType()) != MachineOperand::MO_Immediate)
@@ -773,7 +778,7 @@ void MipsAsmPrinter::EmitJal(const MCSubtargetInfo &STI, MCSymbol *Symbol) {
   MCInst I;
   I.setOpcode(Mips::JAL);
   I.addOperand(
-      MCOperand::CreateExpr(MCSymbolRefExpr::Create(Symbol, OutContext)));
+      MCOperand::createExpr(MCSymbolRefExpr::Create(Symbol, OutContext)));
   OutStreamer->EmitInstruction(I, STI);
 }
 
@@ -781,7 +786,7 @@ void MipsAsmPrinter::EmitInstrReg(const MCSubtargetInfo &STI, unsigned Opcode,
                                   unsigned Reg) {
   MCInst I;
   I.setOpcode(Opcode);
-  I.addOperand(MCOperand::CreateReg(Reg));
+  I.addOperand(MCOperand::createReg(Reg));
   OutStreamer->EmitInstruction(I, STI);
 }
 
@@ -800,8 +805,8 @@ void MipsAsmPrinter::EmitInstrRegReg(const MCSubtargetInfo &STI,
     Reg2 = Temp;
   }
   I.setOpcode(Opcode);
-  I.addOperand(MCOperand::CreateReg(Reg1));
-  I.addOperand(MCOperand::CreateReg(Reg2));
+  I.addOperand(MCOperand::createReg(Reg1));
+  I.addOperand(MCOperand::createReg(Reg2));
   OutStreamer->EmitInstruction(I, STI);
 }
 
@@ -810,9 +815,9 @@ void MipsAsmPrinter::EmitInstrRegRegReg(const MCSubtargetInfo &STI,
                                         unsigned Reg2, unsigned Reg3) {
   MCInst I;
   I.setOpcode(Opcode);
-  I.addOperand(MCOperand::CreateReg(Reg1));
-  I.addOperand(MCOperand::CreateReg(Reg2));
-  I.addOperand(MCOperand::CreateReg(Reg3));
+  I.addOperand(MCOperand::createReg(Reg1));
+  I.addOperand(MCOperand::createReg(Reg2));
+  I.addOperand(MCOperand::createReg(Reg3));
   OutStreamer->EmitInstruction(I, STI);
 }
 
@@ -887,7 +892,7 @@ void MipsAsmPrinter::EmitSwapFPIntRetval(
 
 void MipsAsmPrinter::EmitFPCallStub(
     const char *Symbol, const Mips16HardFloatInfo::FuncSignature *Signature) {
-  MCSymbol *MSymbol = OutContext.GetOrCreateSymbol(StringRef(Symbol));
+  MCSymbol *MSymbol = OutContext.getOrCreateSymbol(StringRef(Symbol));
   using namespace Mips16HardFloatInfo;
   bool LE = getDataLayout().isLittleEndian();
   // Construct a local MCSubtargetInfo here.
@@ -957,7 +962,7 @@ void MipsAsmPrinter::EmitFPCallStub(
   //
   // .section mips16.call.fpxxxx,"ax",@progbits
   //
-  const MCSectionELF *M = OutContext.getELFSection(
+  MCSectionELF *M = OutContext.getELFSection(
       ".mips16.call.fp." + std::string(Symbol), ELF::SHT_PROGBITS,
       ELF::SHF_ALLOC | ELF::SHF_EXECINSTR);
   OutStreamer->SwitchSection(M, nullptr);
@@ -978,10 +983,10 @@ void MipsAsmPrinter::EmitFPCallStub(
   //  __call_stub_fp_xxxx:
   //
   std::string x = "__call_stub_fp_" + std::string(Symbol);
-  MCSymbol *Stub = OutContext.GetOrCreateSymbol(StringRef(x));
+  MCSymbol *Stub = OutContext.getOrCreateSymbol(StringRef(x));
   TS.emitDirectiveEnt(*Stub);
   MCSymbol *MType =
-      OutContext.GetOrCreateSymbol("__call_stub_fp_" + Twine(Symbol));
+      OutContext.getOrCreateSymbol("__call_stub_fp_" + Twine(Symbol));
   OutStreamer->EmitSymbolAttribute(MType, MCSA_ELF_TypeFunction);
   OutStreamer->EmitLabel(Stub);
 
@@ -1021,7 +1026,7 @@ void MipsAsmPrinter::EmitFPCallStub(
   // else
   EmitInstrReg(*STI, Mips::JR, Mips::S2);
 
-  MCSymbol *Tmp = OutContext.CreateTempSymbol();
+  MCSymbol *Tmp = OutContext.createTempSymbol();
   OutStreamer->EmitLabel(Tmp);
   const MCSymbolRefExpr *E = MCSymbolRefExpr::Create(Stub, OutContext);
   const MCSymbolRefExpr *T = MCSymbolRefExpr::Create(Tmp, OutContext);

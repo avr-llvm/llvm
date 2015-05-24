@@ -30,6 +30,7 @@
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstBuilder.h"
 #include "llvm/MC/MCStreamer.h"
@@ -87,7 +88,7 @@ namespace llvm {
       SmallString<256> Code;
       SmallVector<MCFixup, 4> Fixups;
       raw_svector_ostream VecOS(Code);
-      CodeEmitter->EncodeInstruction(Inst, VecOS, Fixups, STI);
+      CodeEmitter->encodeInstruction(Inst, VecOS, Fixups, STI);
       VecOS.flush();
       CurrentShadowSize += Code.size();
       if (CurrentShadowSize >= RequiredShadowSize)
@@ -164,7 +165,7 @@ GetSymbolFromOperand(const MachineOperand &MO) const {
   unsigned OrigLen = Name.size() - PrefixLen;
 
   Name += Suffix;
-  MCSymbol *Sym = Ctx.GetOrCreateSymbol(Name);
+  MCSymbol *Sym = Ctx.getOrCreateSymbol(Name);
 
   StringRef OrigName = StringRef(Name).substr(PrefixLen, OrigLen);
 
@@ -211,7 +212,7 @@ GetSymbolFromOperand(const MachineOperand &MO) const {
     } else {
       StubSym =
         MachineModuleInfoImpl::
-        StubValueTy(Ctx.GetOrCreateSymbol(OrigName), false);
+        StubValueTy(Ctx.getOrCreateSymbol(OrigName), false);
     }
     break;
   }
@@ -274,7 +275,7 @@ MCOperand X86MCInstLower::LowerSymbolOperand(const MachineOperand &MO,
       // relocations the assembler will generate for differences between
       // local labels. This is only safe when the symbols are in the same
       // section so we are restricting it to jumptable references.
-      MCSymbol *Label = Ctx.CreateTempSymbol();
+      MCSymbol *Label = Ctx.createTempSymbol();
       AsmPrinter.OutStreamer->EmitAssignment(Label, Expr);
       Expr = MCSymbolRefExpr::Create(Label, Ctx);
     }
@@ -288,7 +289,7 @@ MCOperand X86MCInstLower::LowerSymbolOperand(const MachineOperand &MO,
     Expr = MCBinaryExpr::CreateAdd(Expr,
                                    MCConstantExpr::Create(MO.getOffset(), Ctx),
                                    Ctx);
-  return MCOperand::CreateExpr(Expr);
+  return MCOperand::createExpr(Expr);
 }
 
 
@@ -412,10 +413,10 @@ void X86MCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
     case MachineOperand::MO_Register:
       // Ignore all implicit register operands.
       if (MO.isImplicit()) continue;
-      MCOp = MCOperand::CreateReg(MO.getReg());
+      MCOp = MCOperand::createReg(MO.getReg());
       break;
     case MachineOperand::MO_Immediate:
-      MCOp = MCOperand::CreateImm(MO.getImm());
+      MCOp = MCOperand::createImm(MO.getImm());
       break;
     case MachineOperand::MO_MachineBasicBlock:
     case MachineOperand::MO_GlobalAddress:
@@ -714,28 +715,28 @@ void X86AsmPrinter::LowerTlsAddr(X86MCInstLower &MCInstLowering,
   MCInst LEA;
   if (is64Bits) {
     LEA.setOpcode(X86::LEA64r);
-    LEA.addOperand(MCOperand::CreateReg(X86::RDI)); // dest
-    LEA.addOperand(MCOperand::CreateReg(X86::RIP)); // base
-    LEA.addOperand(MCOperand::CreateImm(1));        // scale
-    LEA.addOperand(MCOperand::CreateReg(0));        // index
-    LEA.addOperand(MCOperand::CreateExpr(symRef));  // disp
-    LEA.addOperand(MCOperand::CreateReg(0));        // seg
+    LEA.addOperand(MCOperand::createReg(X86::RDI)); // dest
+    LEA.addOperand(MCOperand::createReg(X86::RIP)); // base
+    LEA.addOperand(MCOperand::createImm(1));        // scale
+    LEA.addOperand(MCOperand::createReg(0));        // index
+    LEA.addOperand(MCOperand::createExpr(symRef));  // disp
+    LEA.addOperand(MCOperand::createReg(0));        // seg
   } else if (SRVK == MCSymbolRefExpr::VK_TLSLDM) {
     LEA.setOpcode(X86::LEA32r);
-    LEA.addOperand(MCOperand::CreateReg(X86::EAX)); // dest
-    LEA.addOperand(MCOperand::CreateReg(X86::EBX)); // base
-    LEA.addOperand(MCOperand::CreateImm(1));        // scale
-    LEA.addOperand(MCOperand::CreateReg(0));        // index
-    LEA.addOperand(MCOperand::CreateExpr(symRef));  // disp
-    LEA.addOperand(MCOperand::CreateReg(0));        // seg
+    LEA.addOperand(MCOperand::createReg(X86::EAX)); // dest
+    LEA.addOperand(MCOperand::createReg(X86::EBX)); // base
+    LEA.addOperand(MCOperand::createImm(1));        // scale
+    LEA.addOperand(MCOperand::createReg(0));        // index
+    LEA.addOperand(MCOperand::createExpr(symRef));  // disp
+    LEA.addOperand(MCOperand::createReg(0));        // seg
   } else {
     LEA.setOpcode(X86::LEA32r);
-    LEA.addOperand(MCOperand::CreateReg(X86::EAX)); // dest
-    LEA.addOperand(MCOperand::CreateReg(0));        // base
-    LEA.addOperand(MCOperand::CreateImm(1));        // scale
-    LEA.addOperand(MCOperand::CreateReg(X86::EBX)); // index
-    LEA.addOperand(MCOperand::CreateExpr(symRef));  // disp
-    LEA.addOperand(MCOperand::CreateReg(0));        // seg
+    LEA.addOperand(MCOperand::createReg(X86::EAX)); // dest
+    LEA.addOperand(MCOperand::createReg(0));        // base
+    LEA.addOperand(MCOperand::createImm(1));        // scale
+    LEA.addOperand(MCOperand::createReg(X86::EBX)); // index
+    LEA.addOperand(MCOperand::createExpr(symRef));  // disp
+    LEA.addOperand(MCOperand::createReg(0));        // seg
   }
   EmitAndCountInstruction(LEA);
 
@@ -746,7 +747,7 @@ void X86AsmPrinter::LowerTlsAddr(X86MCInstLower &MCInstLowering,
   }
 
   StringRef name = is64Bits ? "__tls_get_addr" : "___tls_get_addr";
-  MCSymbol *tlsGetAddr = context.GetOrCreateSymbol(name);
+  MCSymbol *tlsGetAddr = context.getOrCreateSymbol(name);
   const MCSymbolRefExpr *tlsRef =
     MCSymbolRefExpr::Create(tlsGetAddr,
                             MCSymbolRefExpr::VK_PLT,
@@ -808,51 +809,53 @@ static void EmitNops(MCStreamer &OS, unsigned NumBytes, bool Is64Bit, const MCSu
   } // while (NumBytes)
 }
 
-static void LowerSTATEPOINT(MCStreamer &OS, StackMaps &SM,
-                            const MachineInstr &MI, bool Is64Bit,
-                            const TargetMachine& TM,
-                            const MCSubtargetInfo& STI,
-                            X86MCInstLower &MCInstLowering) {
-  assert(Is64Bit && "Statepoint currently only supports X86-64");
+void X86AsmPrinter::LowerSTATEPOINT(const MachineInstr &MI,
+                                    X86MCInstLower &MCIL) {
+  assert(Subtarget->is64Bit() && "Statepoint currently only supports X86-64");
 
-  // Lower call target and choose correct opcode
-  const MachineOperand &call_target = StatepointOpers(&MI).getCallTarget();
-  MCOperand call_target_mcop;
-  unsigned call_opcode;
-  switch (call_target.getType()) {
-  case MachineOperand::MO_GlobalAddress:
-  case MachineOperand::MO_ExternalSymbol:
-    call_target_mcop = MCInstLowering.LowerSymbolOperand(
-      call_target,
-      MCInstLowering.GetSymbolFromOperand(call_target));
-    call_opcode = X86::CALL64pcrel32;
-    // Currently, we only support relative addressing with statepoints.
-    // Otherwise, we'll need a scratch register to hold the target
-    // address.  You'll fail asserts during load & relocation if this
-    // symbol is to far away. (TODO: support non-relative addressing)
-    break;
-  case MachineOperand::MO_Immediate:
-    call_target_mcop = MCOperand::CreateImm(call_target.getImm());
-    call_opcode = X86::CALL64pcrel32;
-    // Currently, we only support relative addressing with statepoints.
-    // Otherwise, we'll need a scratch register to hold the target
-    // immediate.  You'll fail asserts during load & relocation if this
-    // address is to far away. (TODO: support non-relative addressing)
-    break;
-  case MachineOperand::MO_Register:
-    call_target_mcop = MCOperand::CreateReg(call_target.getReg());
-    call_opcode = X86::CALL64r;
-    break;
-  default:
-    llvm_unreachable("Unsupported operand type in statepoint call target");
-    break;
+  StatepointOpers SOpers(&MI);
+  if (unsigned PatchBytes = SOpers.getNumPatchBytes()) {
+    EmitNops(*OutStreamer, PatchBytes, Subtarget->is64Bit(),
+             getSubtargetInfo());
+  } else {
+    // Lower call target and choose correct opcode
+    const MachineOperand &CallTarget = SOpers.getCallTarget();
+    MCOperand CallTargetMCOp;
+    unsigned CallOpcode;
+    switch (CallTarget.getType()) {
+    case MachineOperand::MO_GlobalAddress:
+    case MachineOperand::MO_ExternalSymbol:
+      CallTargetMCOp = MCIL.LowerSymbolOperand(
+          CallTarget, MCIL.GetSymbolFromOperand(CallTarget));
+      CallOpcode = X86::CALL64pcrel32;
+      // Currently, we only support relative addressing with statepoints.
+      // Otherwise, we'll need a scratch register to hold the target
+      // address.  You'll fail asserts during load & relocation if this
+      // symbol is to far away. (TODO: support non-relative addressing)
+      break;
+    case MachineOperand::MO_Immediate:
+      CallTargetMCOp = MCOperand::createImm(CallTarget.getImm());
+      CallOpcode = X86::CALL64pcrel32;
+      // Currently, we only support relative addressing with statepoints.
+      // Otherwise, we'll need a scratch register to hold the target
+      // immediate.  You'll fail asserts during load & relocation if this
+      // address is to far away. (TODO: support non-relative addressing)
+      break;
+    case MachineOperand::MO_Register:
+      CallTargetMCOp = MCOperand::createReg(CallTarget.getReg());
+      CallOpcode = X86::CALL64r;
+      break;
+    default:
+      llvm_unreachable("Unsupported operand type in statepoint call target");
+      break;
+    }
+
+    // Emit call
+    MCInst CallInst;
+    CallInst.setOpcode(CallOpcode);
+    CallInst.addOperand(CallTargetMCOp);
+    OutStreamer->EmitInstruction(CallInst, getSubtargetInfo());
   }
-
-  // Emit call
-  MCInst call_inst;
-  call_inst.setOpcode(call_opcode);
-  call_inst.addOperand(call_target_mcop);
-  OS.EmitInstruction(call_inst, STI);
 
   // Record our statepoint node in the same section used by STACKMAP
   // and PATCHPOINT
@@ -895,7 +898,7 @@ void X86AsmPrinter::LowerPATCHPOINT(const MachineInstr &MI,
       llvm_unreachable("Unrecognized callee operand type.");
     case MachineOperand::MO_Immediate:
       if (CalleeMO.getImm())
-        CalleeMCOp = MCOperand::CreateImm(CalleeMO.getImm());
+        CalleeMCOp = MCOperand::createImm(CalleeMO.getImm());
       break;
     case MachineOperand::MO_ExternalSymbol:
     case MachineOperand::MO_GlobalAddress:
@@ -1091,7 +1094,7 @@ void X86AsmPrinter::EmitInstruction(const MachineInstr *MI) {
     //   MYGLOBAL + (. - PICBASE)
     // However, we can't generate a ".", so just emit a new label here and refer
     // to it.
-    MCSymbol *DotSym = OutContext.CreateTempSymbol();
+    MCSymbol *DotSym = OutContext.createTempSymbol();
     OutStreamer->EmitLabel(DotSym);
 
     // Now that we have emitted the label, lower the complex operand expression.
@@ -1112,8 +1115,7 @@ void X86AsmPrinter::EmitInstruction(const MachineInstr *MI) {
     return;
   }
   case TargetOpcode::STATEPOINT:
-    return LowerSTATEPOINT(*OutStreamer, SM, *MI, Subtarget->is64Bit(), TM,
-                           getSubtargetInfo(), MCInstLowering);
+    return LowerSTATEPOINT(*MI, MCInstLowering);
 
   case TargetOpcode::STACKMAP:
     return LowerSTACKMAP(*MI);

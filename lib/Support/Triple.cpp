@@ -12,6 +12,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/TargetParser.h"
 #include <cstring>
 using namespace llvm;
 
@@ -241,56 +242,61 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
 }
 
 static Triple::ArchType parseARMArch(StringRef ArchName) {
-  size_t offset = StringRef::npos;
+  unsigned ISA = ARMTargetParser::parseArchISA(ArchName);
+  unsigned ENDIAN = ARMTargetParser::parseArchEndian(ArchName);
+
   Triple::ArchType arch = Triple::UnknownArch;
-  bool isThumb = ArchName.startswith("thumb");
-
-  if (ArchName.equals("arm"))
-    return Triple::arm;
-  if (ArchName.equals("armeb"))
-    return Triple::armeb;
-  if (ArchName.equals("thumb"))
-    return Triple::thumb;
-  if (ArchName.equals("thumbeb"))
-    return Triple::thumbeb;
-  if (ArchName.equals("arm64") || ArchName.equals("aarch64"))
-    return Triple::aarch64;
-  if (ArchName.equals("aarch64_be"))
-    return Triple::aarch64_be;
-
-  if (ArchName.startswith("armv")) {
-    offset = 3;
-    if (ArchName.endswith("eb")) {
-      arch = Triple::armeb;
-      ArchName = ArchName.substr(0, ArchName.size() - 2);
-    } else
+  switch (ENDIAN) {
+  case ARM::EK_LITTLE: {
+    switch (ISA) {
+    case ARM::IK_ARM:
       arch = Triple::arm;
-  } else if (ArchName.startswith("armebv")) {
-    offset = 5;
-    arch = Triple::armeb;
-  } else if (ArchName.startswith("thumbv")) {
-    offset = 5;
-    if (ArchName.endswith("eb")) {
-      arch = Triple::thumbeb;
-      ArchName = ArchName.substr(0, ArchName.size() - 2);
-    } else
+      break;
+    case ARM::IK_THUMB:
       arch = Triple::thumb;
-  } else if (ArchName.startswith("thumbebv")) {
-    offset = 7;
-    arch = Triple::thumbeb;
+      break;
+    case ARM::IK_AARCH64:
+      arch = Triple::aarch64;
+      break;
+    }
+    break;
   }
-  return StringSwitch<Triple::ArchType>(ArchName.substr(offset))
-    .Cases("v2", "v2a", isThumb ? Triple::UnknownArch : arch)
-    .Cases("v3", "v3m", isThumb ? Triple::UnknownArch : arch)
-    .Cases("v4", "v4t", arch)
-    .Cases("v5", "v5e", "v5t", "v5te", "v5tej", arch)
-    .Cases("v6", "v6j", "v6k", "v6m", "v6sm", arch)
-    .Cases("v6t2", "v6z", "v6zk", arch)
-    .Cases("v7", "v7a", "v7em", "v7l", arch)
-    .Cases("v7m", "v7r", "v7s", arch)
-    .Cases("v8", "v8a", arch)
-    .Cases("v8.1", "v8.1a", arch)
-    .Default(Triple::UnknownArch);
+  case ARM::EK_BIG: {
+    switch (ISA) {
+    case ARM::IK_ARM:
+      arch = Triple::armeb;
+      break;
+    case ARM::IK_THUMB:
+      arch = Triple::thumbeb;
+      break;
+    case ARM::IK_AARCH64:
+      arch = Triple::aarch64_be;
+      break;
+    }
+    break;
+  }
+  }
+
+  ArchName = ARMTargetParser::getCanonicalArchName(ArchName);
+  if (ArchName.empty())
+    return Triple::UnknownArch;
+
+  // Thumb only exists in v4+
+  if (ISA == ARM::IK_THUMB &&
+      (ArchName.startswith("v2") || ArchName.startswith("v3")))
+    return Triple::UnknownArch;
+
+  // Thumb only for v6m
+  unsigned Profile = ARMTargetParser::parseArchProfile(ArchName);
+  unsigned Version = ARMTargetParser::parseArchVersion(ArchName);
+  if (Profile == ARM::PK_M && Version == 6) {
+    if (ENDIAN == ARM::EK_BIG)
+      return Triple::thumbeb;
+    else
+      return Triple::thumb;
+  }
+
+  return arch;
 }
 
 static Triple::ArchType parseArch(StringRef ArchName) {
@@ -410,6 +416,8 @@ static Triple::ObjectFormatType parseFormat(StringRef EnvironmentName) {
     .Default(Triple::UnknownObjectFormat);
 }
 
+// FIXME: Use ARMTargetParser. This would require using Triple::ARMSubArch*
+// in ARMBuildAttrs and in ARCHNames' DefaultArch fields.
 static Triple::SubArchType parseSubArch(StringRef SubArchName) {
   if (SubArchName.endswith("eb"))
     SubArchName = SubArchName.substr(0, SubArchName.size() - 2);
@@ -1079,14 +1087,15 @@ Triple Triple::get64BitArchVariant() const {
   return T;
 }
 
-// FIXME: tblgen this.
 const char *Triple::getARMCPUForArch(StringRef MArch) const {
   if (MArch.empty())
     MArch = getArchName();
 
+  // Some defaults are forced.
   switch (getOS()) {
   case llvm::Triple::FreeBSD:
   case llvm::Triple::NetBSD:
+    // FIXME: This doesn't work on BE/thumb variants.
     if (MArch == "armv6")
       return "arm1176jzf-s";
     break;
@@ -1097,52 +1106,16 @@ const char *Triple::getARMCPUForArch(StringRef MArch) const {
     break;
   }
 
-  const char *result = nullptr;
-  size_t offset = StringRef::npos;
-  if (MArch.startswith("arm"))
-    offset = 3;
-  if (MArch.startswith("thumb"))
-    offset = 5;
-  if (offset != StringRef::npos && MArch.substr(offset, 2) == "eb")
-    offset += 2;
-  if (MArch.endswith("eb"))
-    MArch = MArch.substr(0, MArch.size() - 2);
-  if (offset != StringRef::npos)
-    result = llvm::StringSwitch<const char *>(MArch.substr(offset))
-      .Cases("v2", "v2a", "arm2")
-      .Case("v3", "arm6")
-      .Case("v3m", "arm7m")
-      .Case("v4", "strongarm")
-      .Case("v4t", "arm7tdmi")
-      .Cases("v5", "v5t", "arm10tdmi")
-      .Cases("v5e", "v5te", "arm1022e")
-      .Case("v5tej", "arm926ej-s")
-      .Case("v6", "arm1136jf-s")
-      .Case("v6j", "arm1136j-s")
-      .Cases("v6k", "v6z", "v6zk", "arm1176jzf-s")
-      .Case("v6t2", "arm1156t2-s")
-      .Cases("v6m", "v6-m", "v6sm", "v6s-m", "cortex-m0")
-      .Cases("v7", "v7a", "v7-a", "v7l", "v7-l", "cortex-a8")
-      .Cases("v7s", "v7-s", "swift")
-      .Cases("v7r", "v7-r", "cortex-r4")
-      .Cases("v7m", "v7-m", "cortex-m3")
-      .Cases("v7em", "v7e-m", "cortex-m4")
-      .Cases("v8", "v8a", "v8-a", "cortex-a53")
-      .Cases("v8.1a", "v8.1-a", "generic")
-      .Default(nullptr);
-  else
-    result = llvm::StringSwitch<const char *>(MArch)
-      .Case("ep9312", "ep9312")
-      .Case("iwmmxt", "iwmmxt")
-      .Case("xscale", "xscale")
-      .Default(nullptr);
+  MArch = ARMTargetParser::getCanonicalArchName(MArch);
+  if (MArch.empty())
+    return nullptr;
 
-  if (result)
-    return result;
+  const char *CPU = ARMTargetParser::getDefaultCPU(MArch);
+  if (CPU)
+    return CPU;
 
-  // If all else failed, return the most base CPU with thumb interworking
-  // supported by LLVM.
-  // FIXME: Should warn once that we're falling back.
+  // If no specific architecture version is requested, return the minimum CPU
+  // required by the OS and environment.
   switch (getOS()) {
   case llvm::Triple::NetBSD:
     switch (getEnvironment()) {
@@ -1165,4 +1138,6 @@ const char *Triple::getARMCPUForArch(StringRef MArch) const {
       return "arm7tdmi";
     }
   }
+
+  llvm_unreachable("invalid arch name");
 }

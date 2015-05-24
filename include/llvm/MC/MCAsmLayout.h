@@ -29,19 +29,19 @@ class MCSymbolData;
 /// even during the relaxation process.
 class MCAsmLayout {
 public:
-  typedef llvm::SmallVectorImpl<MCSectionData*>::const_iterator const_iterator;
-  typedef llvm::SmallVectorImpl<MCSectionData*>::iterator iterator;
+  typedef llvm::SmallVectorImpl<MCSectionData *>::const_iterator const_iterator;
+  typedef llvm::SmallVectorImpl<MCSectionData *>::iterator iterator;
 
 private:
   MCAssembler &Assembler;
 
   /// List of sections in layout order.
-  llvm::SmallVector<MCSectionData*, 16> SectionOrder;
+  llvm::SmallVector<MCSectionData *, 16> SectionOrder;
 
   /// The last fragment which was laid out, or 0 if nothing has been laid
   /// out. Fragments are always laid out in order, so all fragments with a
   /// lower ordinal will be valid.
-  mutable DenseMap<const MCSectionData*, MCFragment*> LastValidFragment;
+  mutable DenseMap<const MCSectionData *, MCFragment *> LastValidFragment;
 
   /// \brief Make sure that the layout for the given fragment is valid, lazily
   /// computing it if necessary.
@@ -69,10 +69,10 @@ public:
   /// \name Section Access (in layout order)
   /// @{
 
-  llvm::SmallVectorImpl<MCSectionData*> &getSectionOrder() {
+  llvm::SmallVectorImpl<MCSectionData *> &getSectionOrder() {
     return SectionOrder;
   }
-  const llvm::SmallVectorImpl<MCSectionData*> &getSectionOrder() const {
+  const llvm::SmallVectorImpl<MCSectionData *> &getSectionOrder() const {
     return SectionOrder;
   }
 
@@ -99,10 +99,10 @@ public:
   /// \brief Get the offset of the given symbol, as computed in the current
   /// layout.
   /// \return True on success.
-  bool getSymbolOffset(const MCSymbolData *SD, uint64_t &Val) const;
+  bool getSymbolOffset(const MCSymbol &S, uint64_t &Val) const;
 
   /// \brief Variant that reports a fatal error if the offset is not computable.
-  uint64_t getSymbolOffset(const MCSymbolData *SD) const;
+  uint64_t getSymbolOffset(const MCSymbol &S) const;
 
   /// \brief If this symbol is equivalent to A + Constant, return A.
   const MCSymbol *getBaseSymbol(const MCSymbol &Symbol) const;

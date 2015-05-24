@@ -156,10 +156,9 @@ define <16 x i16> @trunc_v16i32_to_v16i16(<16 x i32> %x) {
 }
 
 ; CHECK-LABEL: trunc_i32_to_i1
-; CHECK: testb
-; CHECK: setne
-; CKECK: orl
-; CHECK: ret
+; CHECK: movw    $-4, %ax
+; CHECK: kmovw   %eax, %k1
+; CKECK: korw
 define i16 @trunc_i32_to_i1(i32 %a) {
   %a_i = trunc i32 %a to i1
   %maskv = insertelement <16 x i1> <i1 true, i1 false, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true, i1 true>, i1 %a_i, i32 0
@@ -193,3 +192,13 @@ define <8 x i64> @sext_8i1_8i64(<8 x i32> %a1, <8 x i32> %a2) nounwind {
   %y = sext <8 x i1> %x to <8 x i64>
   ret <8 x i64> %y
 }
+
+; CHECK-LABEL: @extload_v8i64
+; CHECK: vpmovsxbq
+define void @extload_v8i64(<8 x i8>* %a, <8 x i64>* %res) {
+  %sign_load = load <8 x i8>, <8 x i8>* %a
+  %c = sext <8 x i8> %sign_load to <8 x i64>
+  store <8 x i64> %c, <8 x i64>* %res
+  ret void
+}
+

@@ -308,6 +308,10 @@ namespace ISD {
     /// part.
     MULHU, MULHS,
 
+    /// [US]{MIN/MAX} - Binary minimum or maximum or signed or unsigned
+    /// integers.
+    SMIN, SMAX, UMIN, UMAX,
+
     /// Bitwise operators - logical and, logical or, logical xor.
     AND, OR, XOR,
 
@@ -700,6 +704,15 @@ namespace ISD {
     /// This corresponds to the llvm.lifetime.* intrinsics. The first operand
     /// is the chain and the second operand is the alloca pointer.
     LIFETIME_START, LIFETIME_END,
+
+    /// GC_TRANSITION_START/GC_TRANSITION_END - These operators mark the
+    /// beginning and end of GC transition  sequence, and carry arbitrary
+    /// information that target might need for lowering.  The first operand is
+    /// a chain, the rest are specified by the target and not touched by the DAG
+    /// optimizers. GC_TRANSITION_START..GC_TRANSITION_END pairs may not be
+    /// nested.
+    GC_TRANSITION_START,
+    GC_TRANSITION_END,
 
     /// BUILTIN_OP_END - This must be the last enum value in this list.
     /// The target-specific pre-isel opcode values start here.

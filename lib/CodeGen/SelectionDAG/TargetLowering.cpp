@@ -1086,9 +1086,19 @@ bool TargetLowering::SimplifyDemandedBits(SDValue Op,
 
   // If we know the value of all of the demanded bits, return this as a
   // constant.
-  if ((NewMask & (KnownZero|KnownOne)) == NewMask)
+  if ((NewMask & (KnownZero|KnownOne)) == NewMask) {
+    // Avoid folding to a constant if any OpaqueConstant is involved.
+    const SDNode *N = Op.getNode();
+    for (SDNodeIterator I = SDNodeIterator::begin(N),
+         E = SDNodeIterator::end(N); I != E; ++I) {
+      SDNode *Op = *I;
+      if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(Op))
+        if (C->isOpaque())
+          return false;
+    }
     return TLO.CombineTo(Op,
                          TLO.DAG.getConstant(KnownOne, dl, Op.getValueType()));
+  }
 
   return false;
 }
@@ -1730,7 +1740,8 @@ TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
           ShiftBits = C1.countTrailingZeros();
         }
         NewC = NewC.lshr(ShiftBits);
-        if (ShiftBits && isLegalICmpImmediate(NewC.getSExtValue())) {
+        if (ShiftBits && NewC.getMinSignedBits() <= 64 &&
+          isLegalICmpImmediate(NewC.getSExtValue())) {
           EVT ShiftTy = DCI.isBeforeLegalize() ?
             getPointerTy() : getShiftAmountTy(N0.getValueType());
           EVT CmpTy = N0.getValueType();
@@ -2658,8 +2669,8 @@ SDValue TargetLowering::BuildExactSDIV(SDValue Op1, SDValue Op2, SDLoc dl,
   unsigned ShAmt = d.countTrailingZeros();
   if (ShAmt) {
     // TODO: For UDIV use SRL instead of SRA.
-    SDValue Amt = DAG.getConstant(ShAmt, dl,
-                                  getShiftAmountTy(Op1.getValueType()));
+    SDValue Amt =
+        DAG.getConstant(ShAmt, dl, getShiftAmountTy(Op1.getValueType()));
     Op1 = DAG.getNode(ISD::SRA, dl, Op1.getValueType(), Op1, Amt, false, false,
                       true);
     d = d.ashr(ShAmt);

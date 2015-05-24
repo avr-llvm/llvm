@@ -145,6 +145,7 @@ void ARMSubtarget::initializeEnvironment() {
   HasVMLxForwarding = false;
   SlowFPBrcc = false;
   InThumbMode = false;
+  UseSoftFloat = false;
   HasThumb2 = false;
   NoARM = false;
   IsR9Reserved = ReserveR9;
@@ -351,4 +352,11 @@ bool ARMSubtarget::useMovt(const MachineFunction &MF) const {
   // range otherwise.
   return UseMovt && (isTargetWindows() ||
                      !MF.getFunction()->hasFnAttribute(Attribute::MinSize));
+}
+
+bool ARMSubtarget::useFastISel() const {
+  // Thumb2 support on iOS; ARM support on iOS, Linux and NaCl.
+  return TM.Options.EnableFastISel &&
+         ((isTargetMachO() && !isThumb1Only()) ||
+          (isTargetLinux() && !isThumb()) || (isTargetNaCl() && !isThumb()));
 }

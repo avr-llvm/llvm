@@ -18,7 +18,6 @@
 
 #include "llvm/MC/MCDirectives.h"
 #include "llvm/MC/MCDwarf.h"
-#include "llvm/MC/MachineLocation.h"
 #include <cassert>
 #include <vector>
 
@@ -37,6 +36,7 @@ enum class EncodingType {
   ARM,     /// Windows NT (Windows on ARM)
   CE,      /// Windows CE ARM, PowerPC, SH3, SH4
   Itanium, /// Windows x64, Windows Itanium (IA-64)
+  X86,     /// Windows x86, uses no CFI, just EH tables
   MIPS = Alpha,
 };
 }
@@ -388,7 +388,7 @@ public:
   /// Targets can implement this method to specify a section to switch to if the
   /// translation unit doesn't have any trampolines that require an executable
   /// stack.
-  virtual const MCSection *getNonexecutableStackSection(MCContext &Ctx) const {
+  virtual MCSection *getNonexecutableStackSection(MCContext &Ctx) const {
     return nullptr;
   }
 
@@ -506,12 +506,13 @@ public:
   /// frame information to unwind.
   bool usesCFIForEH() const {
     return (ExceptionsType == ExceptionHandling::DwarfCFI ||
-            ExceptionsType == ExceptionHandling::ARM ||
-            ExceptionsType == ExceptionHandling::WinEH);
+            ExceptionsType == ExceptionHandling::ARM || usesWindowsCFI());
   }
 
   bool usesWindowsCFI() const {
-    return ExceptionsType == ExceptionHandling::WinEH;
+    return ExceptionsType == ExceptionHandling::WinEH &&
+           (WinEHEncodingType != WinEH::EncodingType::Invalid &&
+            WinEHEncodingType != WinEH::EncodingType::X86);
   }
 
   bool doesDwarfUseRelocationsAcrossSections() const {

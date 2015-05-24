@@ -112,7 +112,8 @@ SDValue MipsTargetLowering::getTargetNode(ConstantPoolSDNode *N, EVT Ty,
 }
 
 const char *MipsTargetLowering::getTargetNodeName(unsigned Opcode) const {
-  switch (Opcode) {
+  switch ((MipsISD::NodeType)Opcode) {
+  case MipsISD::FIRST_NUMBER:      break;
   case MipsISD::JmpLink:           return "MipsISD::JmpLink";
   case MipsISD::TailCall:          return "MipsISD::TailCall";
   case MipsISD::Hi:                return "MipsISD::Hi";
@@ -142,6 +143,7 @@ const char *MipsTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case MipsISD::BuildPairF64:      return "MipsISD::BuildPairF64";
   case MipsISD::ExtractElementF64: return "MipsISD::ExtractElementF64";
   case MipsISD::Wrapper:           return "MipsISD::Wrapper";
+  case MipsISD::DynAlloc:          return "MipsISD::DynAlloc";
   case MipsISD::Sync:              return "MipsISD::Sync";
   case MipsISD::Ext:               return "MipsISD::Ext";
   case MipsISD::Ins:               return "MipsISD::Ins";
@@ -161,6 +163,28 @@ const char *MipsTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case MipsISD::EXTR_RS_W:         return "MipsISD::EXTR_RS_W";
   case MipsISD::SHILO:             return "MipsISD::SHILO";
   case MipsISD::MTHLIP:            return "MipsISD::MTHLIP";
+  case MipsISD::MULSAQ_S_W_PH:     return "MipsISD::MULSAQ_S_W_PH";
+  case MipsISD::MAQ_S_W_PHL:       return "MipsISD::MAQ_S_W_PHL";
+  case MipsISD::MAQ_S_W_PHR:       return "MipsISD::MAQ_S_W_PHR";
+  case MipsISD::MAQ_SA_W_PHL:      return "MipsISD::MAQ_SA_W_PHL";
+  case MipsISD::MAQ_SA_W_PHR:      return "MipsISD::MAQ_SA_W_PHR";
+  case MipsISD::DPAU_H_QBL:        return "MipsISD::DPAU_H_QBL";
+  case MipsISD::DPAU_H_QBR:        return "MipsISD::DPAU_H_QBR";
+  case MipsISD::DPSU_H_QBL:        return "MipsISD::DPSU_H_QBL";
+  case MipsISD::DPSU_H_QBR:        return "MipsISD::DPSU_H_QBR";
+  case MipsISD::DPAQ_S_W_PH:       return "MipsISD::DPAQ_S_W_PH";
+  case MipsISD::DPSQ_S_W_PH:       return "MipsISD::DPSQ_S_W_PH";
+  case MipsISD::DPAQ_SA_L_W:       return "MipsISD::DPAQ_SA_L_W";
+  case MipsISD::DPSQ_SA_L_W:       return "MipsISD::DPSQ_SA_L_W";
+  case MipsISD::DPA_W_PH:          return "MipsISD::DPA_W_PH";
+  case MipsISD::DPS_W_PH:          return "MipsISD::DPS_W_PH";
+  case MipsISD::DPAQX_S_W_PH:      return "MipsISD::DPAQX_S_W_PH";
+  case MipsISD::DPAQX_SA_W_PH:     return "MipsISD::DPAQX_SA_W_PH";
+  case MipsISD::DPAX_W_PH:         return "MipsISD::DPAX_W_PH";
+  case MipsISD::DPSX_W_PH:         return "MipsISD::DPSX_W_PH";
+  case MipsISD::DPSQX_S_W_PH:      return "MipsISD::DPSQX_S_W_PH";
+  case MipsISD::DPSQX_SA_W_PH:     return "MipsISD::DPSQX_SA_W_PH";
+  case MipsISD::MULSA_W_PH:        return "MipsISD::MULSA_W_PH";
   case MipsISD::MULT:              return "MipsISD::MULT";
   case MipsISD::MULTU:             return "MipsISD::MULTU";
   case MipsISD::MADD_DSP:          return "MipsISD::MADD_DSP";
@@ -197,8 +221,8 @@ const char *MipsTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case MipsISD::PCKEV:             return "MipsISD::PCKEV";
   case MipsISD::PCKOD:             return "MipsISD::PCKOD";
   case MipsISD::INSVE:             return "MipsISD::INSVE";
-  default:                         return nullptr;
   }
+  return nullptr;
 }
 
 MipsTargetLowering::MipsTargetLowering(const MipsTargetMachine &TM,
@@ -2993,7 +3017,7 @@ MipsTargetLowering::LowerFormalArguments(SDValue Chain,
         // when allocating floating point values to integer registers.
         // This shouldn't influence how we load the value into registers unless
         // we are targetting softfloat.
-        if (VA.getValVT().isFloatingPoint() && !Subtarget.abiUsesSoftFloat())
+        if (VA.getValVT().isFloatingPoint() && !Subtarget.useSoftFloat())
           LocVT = VA.getValVT();
       }
 
@@ -3063,7 +3087,7 @@ MipsTargetLowering::CanLowerReturn(CallingConv::ID CallConv,
 
 bool
 MipsTargetLowering::shouldSignExtendTypeInLibCall(EVT Type, bool IsSigned) const {
-  if (Subtarget.hasMips3() && Subtarget.abiUsesSoftFloat()) {
+  if (Subtarget.hasMips3() && Subtarget.useSoftFloat()) {
     if (Type == MVT::i32)
       return true;
   }
@@ -3572,6 +3596,10 @@ unsigned MipsTargetLowering::getJumpTableEncoding() const {
     return MachineJumpTableInfo::EK_GPRel64BlockAddress;
 
   return TargetLowering::getJumpTableEncoding();
+}
+
+bool MipsTargetLowering::useSoftFloat() const {
+  return Subtarget.useSoftFloat();
 }
 
 void MipsTargetLowering::copyByValRegs(

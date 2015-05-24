@@ -49,7 +49,7 @@ void MCWinCOFFStreamer::EmitInstToData(const MCInst &Inst,
   SmallVector<MCFixup, 4> Fixups;
   SmallString<256> Code;
   raw_svector_ostream VecOS(Code);
-  getAssembler().getEmitter().EncodeInstruction(Inst, VecOS, Fixups, STI);
+  getAssembler().getEmitter().encodeInstruction(Inst, VecOS, Fixups, STI);
   VecOS.flush();
 
   // Add the fixups and data.
@@ -161,7 +161,7 @@ void MCWinCOFFStreamer::EndCOFFSymbolDef() {
 void MCWinCOFFStreamer::EmitCOFFSectionIndex(MCSymbol const *Symbol) {
   MCDataFragment *DF = getOrCreateDataFragment();
   const MCSymbolRefExpr *SRE = MCSymbolRefExpr::Create(Symbol, getContext());
-  MCFixup Fixup = MCFixup::Create(DF->getContents().size(), SRE, FK_SecRel_2);
+  MCFixup Fixup = MCFixup::create(DF->getContents().size(), SRE, FK_SecRel_2);
   DF->getFixups().push_back(Fixup);
   DF->getContents().resize(DF->getContents().size() + 2, 0);
 }
@@ -169,7 +169,7 @@ void MCWinCOFFStreamer::EmitCOFFSectionIndex(MCSymbol const *Symbol) {
 void MCWinCOFFStreamer::EmitCOFFSecRel32(MCSymbol const *Symbol) {
   MCDataFragment *DF = getOrCreateDataFragment();
   const MCSymbolRefExpr *SRE = MCSymbolRefExpr::Create(Symbol, getContext());
-  MCFixup Fixup = MCFixup::Create(DF->getContents().size(), SRE, FK_SecRel_4);
+  MCFixup Fixup = MCFixup::create(DF->getContents().size(), SRE, FK_SecRel_4);
   DF->getFixups().push_back(Fixup);
   DF->getContents().resize(DF->getContents().size() + 4, 0);
 }
@@ -219,10 +219,10 @@ void MCWinCOFFStreamer::EmitLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                                               unsigned ByteAlignment) {
   assert(!Symbol->isInSection() && "Symbol must not already have a section!");
 
-  const MCSection *Section = getContext().getObjectFileInfo()->getBSSSection();
+  MCSection *Section = getContext().getObjectFileInfo()->getBSSSection();
   MCSectionData &SectionData = getAssembler().getOrCreateSectionData(*Section);
-  if (SectionData.getAlignment() < ByteAlignment)
-    SectionData.setAlignment(ByteAlignment);
+  if (Section->getAlignment() < ByteAlignment)
+    Section->setAlignment(ByteAlignment);
 
   MCSymbolData &SD = getAssembler().getOrCreateSymbolData(*Symbol);
   SD.setExternal(false);
@@ -238,15 +238,13 @@ void MCWinCOFFStreamer::EmitLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
   SD.setFragment(Fragment);
 }
 
-void MCWinCOFFStreamer::EmitZerofill(const MCSection *Section,
-                                     MCSymbol *Symbol, uint64_t Size,
-                                     unsigned ByteAlignment) {
+void MCWinCOFFStreamer::EmitZerofill(MCSection *Section, MCSymbol *Symbol,
+                                     uint64_t Size, unsigned ByteAlignment) {
   llvm_unreachable("not implemented");
 }
 
-void MCWinCOFFStreamer::EmitTBSSSymbol(const MCSection *Section,
-                                       MCSymbol *Symbol, uint64_t Size,
-                                       unsigned ByteAlignment) {
+void MCWinCOFFStreamer::EmitTBSSSymbol(MCSection *Section, MCSymbol *Symbol,
+                                       uint64_t Size, unsigned ByteAlignment) {
   llvm_unreachable("not implemented");
 }
 
@@ -269,7 +267,7 @@ void MCWinCOFFStreamer::FinishImpl() {
 
 LLVM_ATTRIBUTE_NORETURN
 void MCWinCOFFStreamer::FatalError(const Twine &Msg) const {
-  getContext().FatalError(SMLoc(), Msg);
+  getContext().reportFatalError(SMLoc(), Msg);
 }
 }
 

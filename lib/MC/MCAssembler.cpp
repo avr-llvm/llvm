@@ -120,25 +120,23 @@ uint64_t MCAsmLayout::getFragmentOffset(const MCFragment *F) const {
 }
 
 // Simple getSymbolOffset helper for the non-varibale case.
-static bool getLabelOffset(const MCAsmLayout &Layout, const MCSymbolData &SD,
+static bool getLabelOffset(const MCAsmLayout &Layout, const MCSymbol &S,
                            bool ReportError, uint64_t &Val) {
+  const MCSymbolData &SD = S.getData();
   if (!SD.getFragment()) {
     if (ReportError)
       report_fatal_error("unable to evaluate offset to undefined symbol '" +
-                         SD.getSymbol().getName() + "'");
+                         S.getName() + "'");
     return false;
   }
   Val = Layout.getFragmentOffset(SD.getFragment()) + SD.getOffset();
   return true;
 }
 
-static bool getSymbolOffsetImpl(const MCAsmLayout &Layout,
-                                const MCSymbolData *SD, bool ReportError,
-                                uint64_t &Val) {
-  const MCSymbol &S = SD->getSymbol();
-
+static bool getSymbolOffsetImpl(const MCAsmLayout &Layout, const MCSymbol &S,
+                                bool ReportError, uint64_t &Val) {
   if (!S.isVariable())
-    return getLabelOffset(Layout, *SD, ReportError, Val);
+    return getLabelOffset(Layout, S, ReportError, Val);
 
   // If SD is a variable, evaluate it.
   MCValue Target;
@@ -148,13 +146,10 @@ static bool getSymbolOffsetImpl(const MCAsmLayout &Layout,
 
   uint64_t Offset = Target.getConstant();
 
-  const MCAssembler &Asm = Layout.getAssembler();
-
   const MCSymbolRefExpr *A = Target.getSymA();
   if (A) {
     uint64_t ValA;
-    if (!getLabelOffset(Layout, Asm.getSymbolData(A->getSymbol()), ReportError,
-                        ValA))
+    if (!getLabelOffset(Layout, A->getSymbol(), ReportError, ValA))
       return false;
     Offset += ValA;
   }
@@ -162,8 +157,7 @@ static bool getSymbolOffsetImpl(const MCAsmLayout &Layout,
   const MCSymbolRefExpr *B = Target.getSymB();
   if (B) {
     uint64_t ValB;
-    if (!getLabelOffset(Layout, Asm.getSymbolData(B->getSymbol()), ReportError,
-                        ValB))
+    if (!getLabelOffset(Layout, B->getSymbol(), ReportError, ValB))
       return false;
     Offset -= ValB;
   }
@@ -172,13 +166,13 @@ static bool getSymbolOffsetImpl(const MCAsmLayout &Layout,
   return true;
 }
 
-bool MCAsmLayout::getSymbolOffset(const MCSymbolData *SD, uint64_t &Val) const {
-  return getSymbolOffsetImpl(*this, SD, false, Val);
+bool MCAsmLayout::getSymbolOffset(const MCSymbol &S, uint64_t &Val) const {
+  return getSymbolOffsetImpl(*this, S, false, Val);
 }
 
-uint64_t MCAsmLayout::getSymbolOffset(const MCSymbolData *SD) const {
+uint64_t MCAsmLayout::getSymbolOffset(const MCSymbol &S) const {
   uint64_t Val;
-  getSymbolOffsetImpl(*this, SD, true, Val);
+  getSymbolOffsetImpl(*this, S, true, Val);
   return Val;
 }
 
@@ -193,7 +187,7 @@ const MCSymbol *MCAsmLayout::getBaseSymbol(const MCSymbol &Symbol) const {
 
   const MCSymbolRefExpr *RefB = Value.getSymB();
   if (RefB)
-    Assembler.getContext().FatalError(
+    Assembler.getContext().reportFatalError(
         SMLoc(), Twine("symbol '") + RefB->getSymbol().getName() +
                      "' could not be evaluated in a subtraction expression");
 
@@ -206,7 +200,7 @@ const MCSymbol *MCAsmLayout::getBaseSymbol(const MCSymbol &Symbol) const {
   const MCSymbolData &ASD = Asm.getSymbolData(ASym);
   if (ASD.isCommon()) {
     // FIXME: we should probably add a SMLoc to MCExpr.
-    Asm.getContext().FatalError(SMLoc(),
+    Asm.getContext().reportFatalError(SMLoc(),
                                 "Common symbol " + ASym.getName() +
                                     " cannot be used in assignment expr");
   }
@@ -298,8 +292,8 @@ MCEncodedFragmentWithFixups::~MCEncodedFragmentWithFixups() {
 
 MCSectionData::MCSectionData() : Section(nullptr) {}
 
-MCSectionData::MCSectionData(const MCSection &Section, MCAssembler *A)
-    : Section(&Section), Ordinal(~UINT32_C(0)), Alignment(1),
+MCSectionData::MCSectionData(MCSection &Section, MCAssembler *A)
+    : Section(&Section), Ordinal(~UINT32_C(0)),
       BundleLockState(NotBundleLocked), BundleLockNestingDepth(0),
       BundleGroupBeforeFirstInst(false), HasInstructions(false) {
   if (A)
@@ -358,18 +352,6 @@ void MCSectionData::setBundleLockState(BundleLockStateType NewState) {
 
 /* *** */
 
-MCSymbolData::MCSymbolData() : Symbol(nullptr) {}
-
-MCSymbolData::MCSymbolData(const MCSymbol &Symbol, MCFragment *Fragment,
-                           uint64_t Offset, MCAssembler *A)
-    : Symbol(&Symbol), Fragment(Fragment), Offset(Offset), SymbolSize(nullptr),
-      CommonAlign(-1U), Flags(0), Index(0) {
-  if (A)
-    A->getSymbolList().push_back(this);
-}
-
-/* *** */
-
 MCAssembler::MCAssembler(MCContext &Context_, MCAsmBackend &Backend_,
                          MCCodeEmitter &Emitter_, MCObjectWriter &Writer_,
                          raw_ostream &OS_)
@@ -386,7 +368,6 @@ void MCAssembler::reset() {
   Sections.clear();
   Symbols.clear();
   SectionMap.clear();
-  SymbolMap.clear();
   IndirectSymbols.clear();
   DataRegions.clear();
   LinkerOptions.clear();
@@ -456,23 +437,23 @@ bool MCAssembler::isSymbolLinkerVisible(const MCSymbol &Symbol) const {
   return false;
 }
 
-const MCSymbolData *MCAssembler::getAtom(const MCSymbolData *SD) const {
+const MCSymbol *MCAssembler::getAtom(const MCSymbol &S) const {
   // Linker visible symbols define atoms.
-  if (isSymbolLinkerVisible(SD->getSymbol()))
-    return SD;
+  if (isSymbolLinkerVisible(S))
+    return &S;
 
   // Absolute and undefined symbols have no defining atom.
-  if (!SD->getFragment())
+  if (!S.getData().getFragment())
     return nullptr;
 
   // Non-linker visible symbols in sections which can't be atomized have no
   // defining atom.
   if (!getContext().getAsmInfo()->isSectionAtomizableBySymbols(
-          SD->getFragment()->getParent()->getSection()))
+          S.getData().getFragment()->getParent()->getSection()))
     return nullptr;
 
   // Otherwise, return the atom for the containing fragment.
-  return SD->getFragment()->getAtom();
+  return S.getData().getFragment()->getAtom();
 }
 
 bool MCAssembler::evaluateFixup(const MCAsmLayout &Layout,
@@ -485,7 +466,7 @@ bool MCAssembler::evaluateFixup(const MCAsmLayout &Layout,
   // fixup and records a relocation if one is needed.
   const MCExpr *Expr = Fixup.getValue();
   if (!Expr->EvaluateAsRelocatable(Target, &Layout, &Fixup))
-    getContext().FatalError(Fixup.getLoc(), "expected relocatable expression");
+    getContext().reportFatalError(Fixup.getLoc(), "expected relocatable expression");
 
   bool IsPCRel = Backend.getFixupKindInfo(
     Fixup.getKind()).Flags & MCFixupKindInfo::FKF_IsPCRel;
@@ -502,9 +483,8 @@ bool MCAssembler::evaluateFixup(const MCAsmLayout &Layout,
       if (A->getKind() != MCSymbolRefExpr::VK_None || SA.isUndefined()) {
         IsResolved = false;
       } else {
-        const MCSymbolData &DataA = getSymbolData(SA);
         IsResolved = getWriter().IsSymbolRefDifferenceFullyResolvedImpl(
-            *this, DataA, *DF, false, true);
+            *this, SA, *DF, false, true);
       }
     }
   } else {
@@ -516,12 +496,12 @@ bool MCAssembler::evaluateFixup(const MCAsmLayout &Layout,
   if (const MCSymbolRefExpr *A = Target.getSymA()) {
     const MCSymbol &Sym = A->getSymbol();
     if (Sym.isDefined())
-      Value += Layout.getSymbolOffset(&getSymbolData(Sym));
+      Value += Layout.getSymbolOffset(Sym);
   }
   if (const MCSymbolRefExpr *B = Target.getSymB()) {
     const MCSymbol &Sym = B->getSymbol();
     if (Sym.isDefined())
-      Value -= Layout.getSymbolOffset(&getSymbolData(Sym));
+      Value -= Layout.getSymbolOffset(Sym);
   }
 
 
@@ -1020,7 +1000,7 @@ bool MCAssembler::relaxInstruction(MCAsmLayout &Layout,
   SmallVector<MCFixup, 4> Fixups;
   SmallString<256> Code;
   raw_svector_ostream VecOS(Code);
-  getEmitter().EncodeInstruction(Relaxed, VecOS, Fixups, F.getSubtargetInfo());
+  getEmitter().encodeInstruction(Relaxed, VecOS, Fixups, F.getSubtargetInfo());
   VecOS.flush();
 
   // Update the fragment.
@@ -1273,8 +1253,7 @@ void MCSectionData::dump() {
   raw_ostream &OS = llvm::errs();
 
   OS << "<MCSectionData";
-  OS << " Alignment:" << getAlignment()
-     << " Fragments:[\n      ";
+  OS << " Fragments:[\n      ";
   for (iterator it = begin(), ie = end(); it != ie; ++it) {
     if (it != begin()) OS << ",\n      ";
     it->dump();
@@ -1285,11 +1264,11 @@ void MCSectionData::dump() {
 void MCSymbolData::dump() const {
   raw_ostream &OS = llvm::errs();
 
-  OS << "<MCSymbolData Symbol:" << getSymbol()
+  OS << "<MCSymbolData"
      << " Fragment:" << getFragment();
   if (!isCommon())
     OS << " Offset:" << getOffset();
-  OS << " Flags:" << getFlags() << " Index:" << getIndex();
+  OS << " Flags:" << getFlags();
   if (isCommon())
     OS << " (common, size:" << getCommonSize()
        << " align: " << getCommonAlignment() << ")";
@@ -1314,7 +1293,11 @@ void MCAssembler::dump() {
 
   for (symbol_iterator it = symbol_begin(), ie = symbol_end(); it != ie; ++it) {
     if (it != symbol_begin()) OS << ",\n           ";
+    OS << "(";
     it->dump();
+    OS << ", Index:" << it->getIndex() << ", ";
+    it->getData().dump();
+    OS << ")";
   }
   OS << "]>\n";
 }

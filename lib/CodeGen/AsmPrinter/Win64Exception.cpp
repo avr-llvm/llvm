@@ -274,7 +274,7 @@ void Win64Exception::emitCXXFrameHandler3Table(const MachineFunction *MF) {
       GlobalValue::getRealLinkageName(ParentF->getName());
 
   MCSymbol *FuncInfoXData =
-      Asm->OutContext.GetOrCreateSymbol(Twine("$cppxdata$", ParentLinkageName));
+      Asm->OutContext.getOrCreateSymbol(Twine("$cppxdata$", ParentLinkageName));
   OS.EmitValue(createImageRel32(FuncInfoXData), 4);
 
   // The Itanium LSDA table sorts similar landing pads together to simplify the
@@ -299,6 +299,17 @@ void Win64Exception::emitCXXFrameHandler3Table(const MachineFunction *MF) {
 
   // The parent function and the catch handlers contribute to the 'ip2state'
   // table.
+
+  // Include ip2state entries for the beginning of the main function and
+  // for catch handler functions.
+  if (F == ParentF) {
+    FuncInfo.IPToStateList.push_back(std::make_pair(LastLabel, -1));
+    LastEHState = -1;
+  } else if (FuncInfo.HandlerBaseState.count(F)) {
+    FuncInfo.IPToStateList.push_back(std::make_pair(LastLabel, 
+                                     FuncInfo.HandlerBaseState[F]));
+    LastEHState = FuncInfo.HandlerBaseState[F];
+  }
   for (const auto &MBB : *MF) {
     for (const auto &MI : MBB) {
       if (!MI.isEHLabel()) {
@@ -323,7 +334,8 @@ void Win64Exception::emitCXXFrameHandler3Table(const MachineFunction *MF) {
       assert(BeginLabel == LandingPad->BeginLabels[P.RangeIndex] &&
              "Inconsistent landing pad map!");
 
-      if (SawPotentiallyThrowing) {
+      // FIXME: Should this be using FuncInfo.HandlerBaseState?
+      if (SawPotentiallyThrowing && LastEHState != -1) {
         FuncInfo.IPToStateList.push_back(std::make_pair(LastLabel, -1));
         SawPotentiallyThrowing = false;
         LastEHState = -1;
@@ -350,13 +362,13 @@ void Win64Exception::emitCXXFrameHandler3Table(const MachineFunction *MF) {
   MCSymbol *TryBlockMapXData = nullptr;
   MCSymbol *IPToStateXData = nullptr;
   if (!FuncInfo.UnwindMap.empty())
-    UnwindMapXData = Asm->OutContext.GetOrCreateSymbol(
+    UnwindMapXData = Asm->OutContext.getOrCreateSymbol(
         Twine("$stateUnwindMap$", ParentLinkageName));
   if (!FuncInfo.TryBlockMap.empty())
-    TryBlockMapXData = Asm->OutContext.GetOrCreateSymbol(
+    TryBlockMapXData = Asm->OutContext.getOrCreateSymbol(
         Twine("$tryMap$", ParentLinkageName));
   if (!FuncInfo.IPToStateList.empty())
-    IPToStateXData = Asm->OutContext.GetOrCreateSymbol(
+    IPToStateXData = Asm->OutContext.getOrCreateSymbol(
         Twine("$ip2state$", ParentLinkageName));
 
   // FuncInfo {
@@ -414,7 +426,7 @@ void Win64Exception::emitCXXFrameHandler3Table(const MachineFunction *MF) {
 
       if (!TBME.HandlerArray.empty())
         HandlerMapXData =
-            Asm->OutContext.GetOrCreateSymbol(Twine("$handlerMap$")
+            Asm->OutContext.getOrCreateSymbol(Twine("$handlerMap$")
                                                   .concat(Twine(I))
                                                   .concat("$")
                                                   .concat(ParentLinkageName));

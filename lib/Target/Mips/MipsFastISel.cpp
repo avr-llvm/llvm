@@ -13,6 +13,7 @@
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -390,8 +391,10 @@ bool MipsFastISel::computeAddress(const Value *Obj, Address &Addr) {
       Opcode = I->getOpcode();
       U = I;
     }
-  } else if (isa<ConstantExpr>(Obj))
-    return false;
+  } else if (const ConstantExpr *C = dyn_cast<ConstantExpr>(Obj)) {
+    Opcode = C->getOpcode();
+    U = C;
+  }
   switch (Opcode) {
   default:
     break;
@@ -998,7 +1001,9 @@ bool MipsFastISel::processCallArgs(CallLoweringInfo &CLI,
         }
       }
     }
-    if (((ArgVT == MVT::i32) || (ArgVT == MVT::f32)) && VA.isMemLoc()) {
+    if (((ArgVT == MVT::i32) || (ArgVT == MVT::f32) || (ArgVT == MVT::i16) ||
+         (ArgVT == MVT::i8)) &&
+        VA.isMemLoc()) {
       switch (VA.getLocMemOffset()) {
       case 0:
         VA.convertToReg(Mips::A0);

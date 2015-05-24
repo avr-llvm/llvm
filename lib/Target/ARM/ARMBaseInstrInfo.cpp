@@ -655,7 +655,7 @@ unsigned ARMBaseInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
       ? 1 : ((Opc == ARM::t2TBH_JT) ? 2 : 4);
     unsigned NumOps = MCID.getNumOperands();
     MachineOperand JTOP =
-      MI->getOperand(NumOps - (MI->isPredicable() ? 3 : 2));
+      MI->getOperand(NumOps - (MI->isPredicable() ? 2 : 1));
     unsigned JTI = JTOP.getIndex();
     const MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
     assert(MJTI != nullptr);
@@ -1434,7 +1434,7 @@ ARMBaseInstrInfo::duplicate(MachineInstr *Orig, MachineFunction &MF) const {
 bool ARMBaseInstrInfo::produceSameValue(const MachineInstr *MI0,
                                         const MachineInstr *MI1,
                                         const MachineRegisterInfo *MRI) const {
-  int Opcode = MI0->getOpcode();
+  unsigned Opcode = MI0->getOpcode();
   if (Opcode == ARM::t2LDRpci ||
       Opcode == ARM::t2LDRpci_pic ||
       Opcode == ARM::tLDRpci ||
@@ -1771,7 +1771,7 @@ llvm::getInstrPredicate(const MachineInstr *MI, unsigned &PredReg) {
 }
 
 
-int llvm::getMatchingCondBranchOpcode(int Opc) {
+unsigned llvm::getMatchingCondBranchOpcode(unsigned Opc) {
   if (Opc == ARM::B)
     return ARM::Bcc;
   if (Opc == ARM::tB)
@@ -1839,8 +1839,7 @@ static MachineInstr *canFoldIntoMOVCC(unsigned Reg,
       return nullptr;
   }
   bool DontMoveAcrossStores = true;
-  if (!MI->isSafeToMove(TII, /* AliasAnalysis = */ nullptr,
-                        DontMoveAcrossStores))
+  if (!MI->isSafeToMove(/* AliasAnalysis = */ nullptr, DontMoveAcrossStores))
     return nullptr;
   return MI;
 }

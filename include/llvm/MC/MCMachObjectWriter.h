@@ -81,7 +81,7 @@ class MachObjectWriter : public MCObjectWriter {
   /// MachSymbolData - Helper struct for containing some precomputed information
   /// on symbols.
   struct MachSymbolData {
-    MCSymbolData *SymbolData;
+    const MCSymbol *Symbol;
     uint64_t StringIndex;
     uint8_t SectionIndex;
 
@@ -96,9 +96,9 @@ class MachObjectWriter : public MCObjectWriter {
   /// @{
 
   struct RelAndSymbol {
-    const MCSymbolData *Sym;
+    const MCSymbol *Sym;
     MachO::any_relocation_info MRE;
-    RelAndSymbol(const MCSymbolData *Sym, const MachO::any_relocation_info &MRE)
+    RelAndSymbol(const MCSymbol *Sym, const MachO::any_relocation_info &MRE)
         : Sym(Sym), MRE(MRE) {}
   };
 
@@ -144,8 +144,7 @@ public:
   uint64_t getSectionAddress(const MCSectionData* SD) const {
     return SectionAddress.lookup(SD);
   }
-  uint64_t getSymbolAddress(const MCSymbolData* SD,
-                            const MCAsmLayout &Layout) const;
+  uint64_t getSymbolAddress(const MCSymbol &S, const MCAsmLayout &Layout) const;
 
   uint64_t getFragmentAddress(const MCFragment *Fragment,
                               const MCAsmLayout &Layout) const;
@@ -153,7 +152,7 @@ public:
   uint64_t getPaddingSize(const MCSectionData *SD,
                           const MCAsmLayout &Layout) const;
 
-  bool doesSymbolRequireExternRelocation(const MCSymbolData *SD);
+  bool doesSymbolRequireExternRelocation(const MCSymbol &S);
 
   /// @}
 
@@ -223,7 +222,7 @@ public:
   // to a symbol it should be passed as \p RelSymbol so that it can be updated
   // afterwards. If the relocation doesn't refer to a symbol, nullptr should be
   // used.
-  void addRelocation(const MCSymbolData *RelSymbol, const MCSectionData *SD,
+  void addRelocation(const MCSymbol *RelSymbol, const MCSectionData *SD,
                      MachO::any_relocation_info &MRE) {
     RelAndSymbol P(RelSymbol, MRE);
     Relocations[SD].push_back(P);
@@ -263,9 +262,8 @@ public:
                                 const MCAsmLayout &Layout) override;
 
   bool IsSymbolRefDifferenceFullyResolvedImpl(const MCAssembler &Asm,
-                                              const MCSymbolData &DataA,
-                                              const MCFragment &FB,
-                                              bool InSet,
+                                              const MCSymbol &SymA,
+                                              const MCFragment &FB, bool InSet,
                                               bool IsPCRel) const override;
 
   void WriteObject(MCAssembler &Asm, const MCAsmLayout &Layout) override;

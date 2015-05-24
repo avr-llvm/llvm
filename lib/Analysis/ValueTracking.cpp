@@ -138,6 +138,21 @@ void llvm::computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
                      Query(AC, safeCxtI(V, CxtI), DT));
 }
 
+bool llvm::haveNoCommonBitsSet(Value *LHS, Value *RHS, const DataLayout &DL,
+                               AssumptionCache *AC, const Instruction *CxtI,
+                               const DominatorTree *DT) {
+  assert(LHS->getType() == RHS->getType() &&
+         "LHS and RHS should have the same type");
+  assert(LHS->getType()->isIntOrIntVectorTy() &&
+         "LHS and RHS should be integers");
+  IntegerType *IT = cast<IntegerType>(LHS->getType()->getScalarType());
+  APInt LHSKnownZero(IT->getBitWidth(), 0), LHSKnownOne(IT->getBitWidth(), 0);
+  APInt RHSKnownZero(IT->getBitWidth(), 0), RHSKnownOne(IT->getBitWidth(), 0);
+  computeKnownBits(LHS, LHSKnownZero, LHSKnownOne, DL, 0, AC, CxtI, DT);
+  computeKnownBits(RHS, RHSKnownZero, RHSKnownOne, DL, 0, AC, CxtI, DT);
+  return (LHSKnownZero | RHSKnownZero).isAllOnesValue();
+}
+
 static void ComputeSignBit(Value *V, bool &KnownZero, bool &KnownOne,
                            const DataLayout &DL, unsigned Depth,
                            const Query &Q);
@@ -1429,15 +1444,15 @@ void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
 
       KnownZero = APInt::getAllOnesValue(BitWidth);
       KnownOne = APInt::getAllOnesValue(BitWidth);
-      for (unsigned i = 0, e = P->getNumIncomingValues(); i != e; ++i) {
+      for (Value *IncValue : P->incoming_values()) {
         // Skip direct self references.
-        if (P->getIncomingValue(i) == P) continue;
+        if (IncValue == P) continue;
 
         KnownZero2 = APInt(BitWidth, 0);
         KnownOne2 = APInt(BitWidth, 0);
         // Recurse, but cap the recursion to one level, because we don't
         // want to waste time spinning around in loops.
-        computeKnownBits(P->getIncomingValue(i), KnownZero2, KnownOne2, DL,
+        computeKnownBits(IncValue, KnownZero2, KnownOne2, DL,
                          MaxDepth - 1, Q);
         KnownZero &= KnownZero2;
         KnownOne &= KnownOne2;
@@ -2691,8 +2706,8 @@ static uint64_t GetStringLengthH(Value *V, SmallPtrSetImpl<PHINode*> &PHIs) {
 
     // If it was new, see if all the input strings are the same length.
     uint64_t LenSoFar = ~0ULL;
-    for (unsigned i = 0, e = PN->getNumIncomingValues(); i != e; ++i) {
-      uint64_t Len = GetStringLengthH(PN->getIncomingValue(i), PHIs);
+    for (Value *IncValue : PN->incoming_values()) {
+      uint64_t Len = GetStringLengthH(IncValue, PHIs);
       if (Len == 0) return 0; // Unknown length -> unknown.
 
       if (Len == ~0ULL) continue;
@@ -2826,8 +2841,8 @@ void llvm::GetUnderlyingObjects(Value *V, SmallVectorImpl<Value *> &Objects,
       // underlying objects.
       if (!LI || !LI->isLoopHeader(PN->getParent()) ||
           isSameUnderlyingObjectInLoop(PN, LI))
-        for (unsigned i = 0, e = PN->getNumIncomingValues(); i != e; ++i)
-          Worklist.push_back(PN->getIncomingValue(i));
+        for (Value *IncValue : PN->incoming_values())
+          Worklist.push_back(IncValue);
       continue;
     }
 
@@ -2849,33 +2864,61 @@ bool llvm::onlyUsedByLifetimeMarkers(const Value *V) {
 }
 
 static bool isDereferenceableFromAttribute(const Value *BV, APInt Offset,
-                                           Type *Ty, const DataLayout &DL) {
+                                           Type *Ty, const DataLayout &DL,
+                                           const Instruction *CtxI,
+                                           const DominatorTree *DT,
+                                           const TargetLibraryInfo *TLI) {
   assert(Offset.isNonNegative() && "offset can't be negative");
   assert(Ty->isSized() && "must be sized");
   
   APInt DerefBytes(Offset.getBitWidth(), 0);
+  bool CheckForNonNull = false;
   if (const Argument *A = dyn_cast<Argument>(BV)) {
     DerefBytes = A->getDereferenceableBytes();
+    if (!DerefBytes.getBoolValue()) {
+      DerefBytes = A->getDereferenceableOrNullBytes();
+      CheckForNonNull = true;
+    }
   } else if (auto CS = ImmutableCallSite(BV)) {
     DerefBytes = CS.getDereferenceableBytes(0);
+    if (!DerefBytes.getBoolValue()) {
+      DerefBytes = CS.getDereferenceableOrNullBytes(0);
+      CheckForNonNull = true;
+    }
+  } else if (const LoadInst *LI = dyn_cast<LoadInst>(BV)) {
+    if (MDNode *MD = LI->getMetadata(LLVMContext::MD_dereferenceable)) {
+      ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
+      DerefBytes = CI->getLimitedValue();
+    }
+    if (!DerefBytes.getBoolValue()) {
+      if (MDNode *MD = 
+              LI->getMetadata(LLVMContext::MD_dereferenceable_or_null)) {
+        ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(0));
+        DerefBytes = CI->getLimitedValue();
+      }
+      CheckForNonNull = true;
+    }
   }
   
   if (DerefBytes.getBoolValue())
     if (DerefBytes.uge(Offset + DL.getTypeStoreSize(Ty)))
-      return true;
-  
+      if (!CheckForNonNull || isKnownNonNullAt(BV, CtxI, DT, TLI))
+        return true;
+
   return false;
 }
 
-static bool isDereferenceableFromAttribute(const Value *V, 
-                                           const DataLayout &DL) {
+static bool isDereferenceableFromAttribute(const Value *V, const DataLayout &DL,
+                                           const Instruction *CtxI,
+                                           const DominatorTree *DT,
+                                           const TargetLibraryInfo *TLI) {
   Type *VTy = V->getType();
   Type *Ty = VTy->getPointerElementType();
   if (!Ty->isSized())
     return false;
   
   APInt Offset(DL.getTypeStoreSizeInBits(VTy), 0);
-  return isDereferenceableFromAttribute(V, Offset, Ty, DL);
+  return isDereferenceableFromAttribute(V, Offset, Ty, DL, CtxI, DT, TLI);
 }
 
 /// Return true if Value is always a dereferenceable pointer.
@@ -2883,6 +2926,9 @@ static bool isDereferenceableFromAttribute(const Value *V,
 /// Test if V is always a pointer to allocated and suitably aligned memory for
 /// a simple load or store.
 static bool isDereferenceablePointer(const Value *V, const DataLayout &DL,
+                                     const Instruction *CtxI,
+                                     const DominatorTree *DT,
+                                     const TargetLibraryInfo *TLI,
                                      SmallPtrSetImpl<const Value *> &Visited) {
   // Note that it is not safe to speculate into a malloc'd region because
   // malloc may return null.
@@ -2903,7 +2949,8 @@ static bool isDereferenceablePointer(const Value *V, const DataLayout &DL,
     if (STy->isSized() && DTy->isSized() &&
         (DL.getTypeStoreSize(STy) >= DL.getTypeStoreSize(DTy)) &&
         (DL.getABITypeAlignment(STy) >= DL.getABITypeAlignment(DTy)))
-      return isDereferenceablePointer(BC->getOperand(0), DL, Visited);
+      return isDereferenceablePointer(BC->getOperand(0), DL, CtxI,
+                                      DT, TLI, Visited);
   }
 
   // Global variables which can't collapse to null are ok.
@@ -2915,7 +2962,7 @@ static bool isDereferenceablePointer(const Value *V, const DataLayout &DL,
     if (A->hasByValAttr())
       return true;
     
-  if (isDereferenceableFromAttribute(V, DL))
+  if (isDereferenceableFromAttribute(V, DL, CtxI, DT, TLI))
     return true;
 
   // For GEPs, determine if the indexing lands within the allocated object.
@@ -2923,7 +2970,8 @@ static bool isDereferenceablePointer(const Value *V, const DataLayout &DL,
     // Conservatively require that the base pointer be fully dereferenceable.
     if (!Visited.insert(GEP->getOperand(0)).second)
       return false;
-    if (!isDereferenceablePointer(GEP->getOperand(0), DL, Visited))
+    if (!isDereferenceablePointer(GEP->getOperand(0), DL, CtxI,
+                                  DT, TLI, Visited))
       return false;
     // Check the indices.
     gep_type_iterator GTI = gep_type_begin(GEP);
@@ -2957,17 +3005,22 @@ static bool isDereferenceablePointer(const Value *V, const DataLayout &DL,
   if (const IntrinsicInst *I = dyn_cast<IntrinsicInst>(V))
     if (I->getIntrinsicID() == Intrinsic::experimental_gc_relocate) {
       GCRelocateOperands RelocateInst(I);
-      return isDereferenceablePointer(RelocateInst.derivedPtr(), DL, Visited);
+      return isDereferenceablePointer(RelocateInst.getDerivedPtr(), DL, CtxI,
+                                      DT, TLI, Visited);
     }
 
   if (const AddrSpaceCastInst *ASC = dyn_cast<AddrSpaceCastInst>(V))
-    return isDereferenceablePointer(ASC->getOperand(0), DL, Visited);
+    return isDereferenceablePointer(ASC->getOperand(0), DL, CtxI,
+                                    DT, TLI, Visited);
 
   // If we don't know, assume the worst.
   return false;
 }
 
-bool llvm::isDereferenceablePointer(const Value *V, const DataLayout &DL) {
+bool llvm::isDereferenceablePointer(const Value *V, const DataLayout &DL,
+                                    const Instruction *CtxI,
+                                    const DominatorTree *DT,
+                                    const TargetLibraryInfo *TLI) {
   // When dereferenceability information is provided by a dereferenceable
   // attribute, we know exactly how many bytes are dereferenceable. If we can
   // determine the exact offset to the attributed variable, we can use that
@@ -2979,15 +3032,19 @@ bool llvm::isDereferenceablePointer(const Value *V, const DataLayout &DL) {
     const Value *BV = V->stripAndAccumulateInBoundsConstantOffsets(DL, Offset);
     
     if (Offset.isNonNegative())
-      if (isDereferenceableFromAttribute(BV, Offset, Ty, DL))
+      if (isDereferenceableFromAttribute(BV, Offset, Ty, DL,
+                                         CtxI, DT, TLI))
         return true;
   }
 
   SmallPtrSet<const Value *, 32> Visited;
-  return ::isDereferenceablePointer(V, DL, Visited);
+  return ::isDereferenceablePointer(V, DL, CtxI, DT, TLI, Visited);
 }
 
-bool llvm::isSafeToSpeculativelyExecute(const Value *V) {
+bool llvm::isSafeToSpeculativelyExecute(const Value *V,
+                                        const Instruction *CtxI,
+                                        const DominatorTree *DT,
+                                        const TargetLibraryInfo *TLI) {
   const Operator *Inst = dyn_cast<Operator>(V);
   if (!Inst)
     return false;
@@ -3034,7 +3091,7 @@ bool llvm::isSafeToSpeculativelyExecute(const Value *V) {
         LI->getParent()->getParent()->hasFnAttribute(Attribute::SanitizeThread))
       return false;
     const DataLayout &DL = LI->getModule()->getDataLayout();
-    return isDereferenceablePointer(LI->getPointerOperand(), DL);
+    return isDereferenceablePointer(LI->getPointerOperand(), DL, CtxI, DT, TLI);
   }
   case Instruction::Call: {
     if (const IntrinsicInst *II = dyn_cast<IntrinsicInst>(Inst)) {
@@ -3125,6 +3182,60 @@ bool llvm::isKnownNonNull(const Value *V, const TargetLibraryInfo *TLI) {
   return false;
 }
 
+static bool isKnownNonNullFromDominatingCondition(const Value *V,
+                                                  const Instruction *CtxI,
+                                                  const DominatorTree *DT) {
+  unsigned NumUsesExplored = 0;
+  for (auto U : V->users()) {
+    // Avoid massive lists
+    if (NumUsesExplored >= DomConditionsMaxUses)
+      break;
+    NumUsesExplored++;
+    // Consider only compare instructions uniquely controlling a branch
+    const ICmpInst *Cmp = dyn_cast<ICmpInst>(U);
+    if (!Cmp)
+      continue;
+
+    if (DomConditionsSingleCmpUse && !Cmp->hasOneUse())
+      continue;
+
+    for (auto *CmpU : Cmp->users()) {
+      const BranchInst *BI = dyn_cast<BranchInst>(CmpU);
+      if (!BI)
+        continue;
+      
+      assert(BI->isConditional() && "uses a comparison!");
+
+      BasicBlock *NonNullSuccessor = nullptr;
+      CmpInst::Predicate Pred;
+
+      if (match(const_cast<ICmpInst*>(Cmp),
+                m_c_ICmp(Pred, m_Specific(V), m_Zero()))) {
+        if (Pred == ICmpInst::ICMP_EQ)
+          NonNullSuccessor = BI->getSuccessor(1);
+        else if (Pred == ICmpInst::ICMP_NE)
+          NonNullSuccessor = BI->getSuccessor(0);
+      }
+
+      if (NonNullSuccessor) {
+        BasicBlockEdge Edge(BI->getParent(), NonNullSuccessor);
+        if (Edge.isSingleEdge() && DT->dominates(Edge, CtxI->getParent()))
+          return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+bool llvm::isKnownNonNullAt(const Value *V, const Instruction *CtxI,
+                   const DominatorTree *DT, const TargetLibraryInfo *TLI) {
+  if (isKnownNonNull(V, TLI))
+    return true;
+
+  return CtxI ? ::isKnownNonNullFromDominatingCondition(V, CtxI, DT) : false;
+}
+
 OverflowResult llvm::computeOverflowForUnsignedMul(Value *LHS, Value *RHS,
                                                    const DataLayout &DL,
                                                    AssumptionCache *AC,
@@ -3202,4 +3313,134 @@ OverflowResult llvm::computeOverflowForUnsignedAdd(Value *LHS, Value *RHS,
   }
 
   return OverflowResult::MayOverflow;
+}
+
+static SelectPatternFlavor matchSelectPattern(ICmpInst::Predicate Pred,
+                                              Value *CmpLHS, Value *CmpRHS,
+                                              Value *TrueVal, Value *FalseVal,
+                                              Value *&LHS, Value *&RHS) {
+  LHS = CmpLHS;
+  RHS = CmpRHS;
+
+  // (icmp X, Y) ? X : Y
+  if (TrueVal == CmpLHS && FalseVal == CmpRHS) {
+    switch (Pred) {
+    default: return SPF_UNKNOWN; // Equality.
+    case ICmpInst::ICMP_UGT:
+    case ICmpInst::ICMP_UGE: return SPF_UMAX;
+    case ICmpInst::ICMP_SGT:
+    case ICmpInst::ICMP_SGE: return SPF_SMAX;
+    case ICmpInst::ICMP_ULT:
+    case ICmpInst::ICMP_ULE: return SPF_UMIN;
+    case ICmpInst::ICMP_SLT:
+    case ICmpInst::ICMP_SLE: return SPF_SMIN;
+    }
+  }
+
+  // (icmp X, Y) ? Y : X
+  if (TrueVal == CmpRHS && FalseVal == CmpLHS) {
+    switch (Pred) {
+    default: return SPF_UNKNOWN; // Equality.
+    case ICmpInst::ICMP_UGT:
+    case ICmpInst::ICMP_UGE: return SPF_UMIN;
+    case ICmpInst::ICMP_SGT:
+    case ICmpInst::ICMP_SGE: return SPF_SMIN;
+    case ICmpInst::ICMP_ULT:
+    case ICmpInst::ICMP_ULE: return SPF_UMAX;
+    case ICmpInst::ICMP_SLT:
+    case ICmpInst::ICMP_SLE: return SPF_SMAX;
+    }
+  }
+
+  if (ConstantInt *C1 = dyn_cast<ConstantInt>(CmpRHS)) {
+    if ((CmpLHS == TrueVal && match(FalseVal, m_Neg(m_Specific(CmpLHS)))) ||
+        (CmpLHS == FalseVal && match(TrueVal, m_Neg(m_Specific(CmpLHS))))) {
+
+      // ABS(X) ==> (X >s 0) ? X : -X and (X >s -1) ? X : -X
+      // NABS(X) ==> (X >s 0) ? -X : X and (X >s -1) ? -X : X
+      if (Pred == ICmpInst::ICMP_SGT && (C1->isZero() || C1->isMinusOne())) {
+        return (CmpLHS == TrueVal) ? SPF_ABS : SPF_NABS;
+      }
+
+      // ABS(X) ==> (X <s 0) ? -X : X and (X <s 1) ? -X : X
+      // NABS(X) ==> (X <s 0) ? X : -X and (X <s 1) ? X : -X
+      if (Pred == ICmpInst::ICMP_SLT && (C1->isZero() || C1->isOne())) {
+        return (CmpLHS == FalseVal) ? SPF_ABS : SPF_NABS;
+      }
+    }
+    
+    // Y >s C ? ~Y : ~C == ~Y <s ~C ? ~Y : ~C = SMIN(~Y, ~C)
+    if (const auto *C2 = dyn_cast<ConstantInt>(FalseVal)) {
+      if (C1->getType() == C2->getType() && ~C1->getValue() == C2->getValue() &&
+          (match(TrueVal, m_Not(m_Specific(CmpLHS))) ||
+           match(CmpLHS, m_Not(m_Specific(TrueVal))))) {
+        LHS = TrueVal;
+        RHS = FalseVal;
+        return SPF_SMIN;
+      }
+    }
+  }
+
+  // TODO: (X > 4) ? X : 5   -->  (X >= 5) ? X : 5  -->  MAX(X, 5)
+
+  return SPF_UNKNOWN;
+}
+
+static Constant *lookThroughCast(ICmpInst *CmpI, Value *V1, Value *V2,
+                                 Instruction::CastOps *CastOp) {
+  CastInst *CI = dyn_cast<CastInst>(V1);
+  Constant *C = dyn_cast<Constant>(V2);
+  if (!CI || !C)
+    return nullptr;
+  *CastOp = CI->getOpcode();
+
+  if (isa<SExtInst>(CI) && CmpI->isSigned()) {
+    Constant *T = ConstantExpr::getTrunc(C, CI->getSrcTy());
+    // This is only valid if the truncated value can be sign-extended
+    // back to the original value.
+    if (ConstantExpr::getSExt(T, C->getType()) == C)
+      return T;
+    return nullptr;
+  }
+  if (isa<ZExtInst>(CI) && CmpI->isUnsigned())
+    return ConstantExpr::getTrunc(C, CI->getSrcTy());
+
+  if (isa<TruncInst>(CI))
+    return ConstantExpr::getIntegerCast(C, CI->getSrcTy(), CmpI->isSigned());
+
+  return nullptr;
+}
+
+SelectPatternFlavor llvm::matchSelectPattern(Value *V,
+                                             Value *&LHS, Value *&RHS,
+                                             Instruction::CastOps *CastOp) {
+  SelectInst *SI = dyn_cast<SelectInst>(V);
+  if (!SI) return SPF_UNKNOWN;
+
+  ICmpInst *CmpI = dyn_cast<ICmpInst>(SI->getCondition());
+  if (!CmpI) return SPF_UNKNOWN;
+
+  ICmpInst::Predicate Pred = CmpI->getPredicate();
+  Value *CmpLHS = CmpI->getOperand(0);
+  Value *CmpRHS = CmpI->getOperand(1);
+  Value *TrueVal = SI->getTrueValue();
+  Value *FalseVal = SI->getFalseValue();
+
+  // Bail out early.
+  if (CmpI->isEquality())
+    return SPF_UNKNOWN;
+
+  // Deal with type mismatches.
+  if (CastOp && CmpLHS->getType() != TrueVal->getType()) {
+    if (Constant *C = lookThroughCast(CmpI, TrueVal, FalseVal, CastOp))
+      return ::matchSelectPattern(Pred, CmpLHS, CmpRHS,
+                                  cast<CastInst>(TrueVal)->getOperand(0), C,
+                                  LHS, RHS);
+    if (Constant *C = lookThroughCast(CmpI, FalseVal, TrueVal, CastOp))
+      return ::matchSelectPattern(Pred, CmpLHS, CmpRHS,
+                                  C, cast<CastInst>(FalseVal)->getOperand(0),
+                                  LHS, RHS);
+  }
+  return ::matchSelectPattern(Pred, CmpLHS, CmpRHS, TrueVal, FalseVal,
+                              LHS, RHS);
 }

@@ -112,16 +112,16 @@ Init *BitRecTy::convertValue(IntInit *II) {
   return BitInit::get(Val != 0);
 }
 
-Init *BitRecTy::convertValue(TypedInit *VI) {
-  RecTy *Ty = VI->getType();
+Init *BitRecTy::convertValue(TypedInit *TI) {
+  RecTy *Ty = TI->getType();
   if (isa<BitRecTy>(Ty))
-    return VI;  // Accept variable if it is already of bit type!
+    return TI;  // Accept variable if it is already of bit type!
   if (auto *BitsTy = dyn_cast<BitsRecTy>(Ty))
     // Accept only bits<1> expression.
-    return BitsTy->getNumBits() == 1 ? VI : nullptr;
+    return BitsTy->getNumBits() == 1 ? TI : nullptr;
   // Ternary !if can be converted to bit, but only if both sides are
   // convertible to a bit.
-  if (TernOpInit *TOI = dyn_cast<TernOpInit>(VI)) {
+  if (TernOpInit *TOI = dyn_cast<TernOpInit>(TI)) {
     if (TOI->getOpcode() != TernOpInit::TernaryOp::IF)
       return nullptr;
     if (!TOI->getMHS()->convertInitializerTo(BitRecTy::get()) ||
@@ -163,9 +163,9 @@ Init *BitsRecTy::convertValue(UnsetInit *UI) {
   return BitsInit::get(NewBits);
 }
 
-Init *BitsRecTy::convertValue(BitInit *UI) {
+Init *BitsRecTy::convertValue(BitInit *BI) {
   if (Size != 1) return nullptr;  // Can only convert single bit.
-  return BitsInit::get(UI);
+  return BitsInit::get(BI);
 }
 
 /// canFitInBitfield - Return true if the number of bits is large enough to hold
@@ -200,15 +200,15 @@ Init *BitsRecTy::convertValue(BitsInit *BI) {
   return nullptr;
 }
 
-Init *BitsRecTy::convertValue(TypedInit *VI) {
-  if (Size == 1 && isa<BitRecTy>(VI->getType()))
-    return BitsInit::get(VI);
+Init *BitsRecTy::convertValue(TypedInit *TI) {
+  if (Size == 1 && isa<BitRecTy>(TI->getType()))
+    return BitsInit::get(TI);
 
-  if (VI->getType()->typeIsConvertibleTo(this)) {
+  if (TI->getType()->typeIsConvertibleTo(this)) {
     SmallVector<Init *, 16> NewBits(Size);
 
     for (unsigned i = 0; i != Size; ++i)
-      NewBits[i] = VarBitInit::get(VI, i);
+      NewBits[i] = VarBitInit::get(TI, i);
     return BitsInit::get(NewBits);
   }
 
@@ -230,7 +230,7 @@ Init *IntRecTy::convertValue(BitsInit *BI) {
   int64_t Result = 0;
   for (unsigned i = 0, e = BI->getNumBits(); i != e; ++i)
     if (BitInit *Bit = dyn_cast<BitInit>(BI->getBit(i)))
-      Result |= Bit->getValue() << i;
+      Result |= static_cast<int64_t>(Bit->getValue()) << i;
     else
       return nullptr;
   return IntInit::get(Result);
@@ -247,16 +247,16 @@ bool IntRecTy::baseClassOf(const RecTy *RHS) const{
   return kind==BitRecTyKind || kind==BitsRecTyKind || kind==IntRecTyKind;
 }
 
-Init *StringRecTy::convertValue(UnOpInit *BO) {
-  if (BO->getOpcode() == UnOpInit::CAST) {
-    Init *L = BO->getOperand()->convertInitializerTo(this);
+Init *StringRecTy::convertValue(UnOpInit *UO) {
+  if (UO->getOpcode() == UnOpInit::CAST) {
+    Init *L = UO->getOperand()->convertInitializerTo(this);
     if (!L) return nullptr;
-    if (L != BO->getOperand())
+    if (L != UO->getOperand())
       return UnOpInit::get(UnOpInit::CAST, L, StringRecTy::get());
-    return BO;
+    return UO;
   }
 
-  return convertValue((TypedInit*)BO);
+  return convertValue((TypedInit*)UO);
 }
 
 Init *StringRecTy::convertValue(BinOpInit *BO) {
@@ -320,13 +320,13 @@ Init *DagRecTy::convertValue(TypedInit *TI) {
   return nullptr;
 }
 
-Init *DagRecTy::convertValue(UnOpInit *BO) {
-  if (BO->getOpcode() == UnOpInit::CAST) {
-    Init *L = BO->getOperand()->convertInitializerTo(this);
+Init *DagRecTy::convertValue(UnOpInit *UO) {
+  if (UO->getOpcode() == UnOpInit::CAST) {
+    Init *L = UO->getOperand()->convertInitializerTo(this);
     if (!L) return nullptr;
-    if (L != BO->getOperand())
-      return UnOpInit::get(UnOpInit::CAST, L, new DagRecTy);
-    return BO;
+    if (L != UO->getOperand())
+      return UnOpInit::get(UnOpInit::CAST, L, DagRecTy::get());
+    return UO;
   }
   return nullptr;
 }
@@ -337,7 +337,7 @@ Init *DagRecTy::convertValue(BinOpInit *BO) {
     Init *R = BO->getRHS()->convertInitializerTo(this);
     if (!L || !R) return nullptr;
     if (L != BO->getLHS() || R != BO->getRHS())
-      return BinOpInit::get(BinOpInit::CONCAT, L, R, new DagRecTy);
+      return BinOpInit::get(BinOpInit::CONCAT, L, R, DagRecTy::get());
     return BO;
   }
   return nullptr;
@@ -778,36 +778,25 @@ Init *UnOpInit::Fold(Record *CurRec, MultiClass *CurMultiClass) const {
   }
   case HEAD: {
     if (ListInit *LHSl = dyn_cast<ListInit>(LHS)) {
-      assert(LHSl->getSize() != 0 && "Empty list in car");
+      assert(!LHSl->empty() && "Empty list in head");
       return LHSl->getElement(0);
     }
     break;
   }
   case TAIL: {
     if (ListInit *LHSl = dyn_cast<ListInit>(LHS)) {
-      assert(LHSl->getSize() != 0 && "Empty list in cdr");
+      assert(!LHSl->empty() && "Empty list in tail");
       // Note the +1.  We can't just pass the result of getValues()
       // directly.
-      ArrayRef<Init *>::iterator begin = LHSl->getValues().begin()+1;
-      ArrayRef<Init *>::iterator end   = LHSl->getValues().end();
-      ListInit *Result =
-        ListInit::get(ArrayRef<Init *>(begin, end - begin),
-                      LHSl->getType());
-      return Result;
+      return ListInit::get(LHSl->getValues().slice(1), LHSl->getType());
     }
     break;
   }
   case EMPTY: {
-    if (ListInit *LHSl = dyn_cast<ListInit>(LHS)) {
-      if (LHSl->getSize() == 0)
-        return IntInit::get(1);
-      return IntInit::get(0);
-    }
-    if (StringInit *LHSs = dyn_cast<StringInit>(LHS)) {
-      if (LHSs->getValue().empty())
-        return IntInit::get(1);
-      return IntInit::get(0);
-    }
+    if (ListInit *LHSl = dyn_cast<ListInit>(LHS))
+      return IntInit::get(LHSl->empty());
+    if (StringInit *LHSs = dyn_cast<StringInit>(LHS))
+      return IntInit::get(LHSs->getValue().empty());
 
     break;
   }
@@ -1105,43 +1094,39 @@ Init *TernOpInit::Fold(Record *CurRec, MultiClass *CurMultiClass) const {
     VarInit *RHSv = dyn_cast<VarInit>(RHS);
     StringInit *RHSs = dyn_cast<StringInit>(RHS);
 
-    if ((LHSd && MHSd && RHSd) ||
-        (LHSv && MHSv && RHSv) ||
-        (LHSs && MHSs && RHSs)) {
-      if (RHSd) {
-        Record *Val = RHSd->getDef();
-        if (LHSd->getAsString() == RHSd->getAsString())
-          Val = MHSd->getDef();
-        return DefInit::get(Val);
-      }
-      if (RHSv) {
-        std::string Val = RHSv->getName();
-        if (LHSv->getAsString() == RHSv->getAsString())
-          Val = MHSv->getName();
-        return VarInit::get(Val, getType());
-      }
-      if (RHSs) {
-        std::string Val = RHSs->getValue();
+    if (LHSd && MHSd && RHSd) {
+      Record *Val = RHSd->getDef();
+      if (LHSd->getAsString() == RHSd->getAsString())
+        Val = MHSd->getDef();
+      return DefInit::get(Val);
+    }
+    if (LHSv && MHSv && RHSv) {
+      std::string Val = RHSv->getName();
+      if (LHSv->getAsString() == RHSv->getAsString())
+        Val = MHSv->getName();
+      return VarInit::get(Val, getType());
+    }
+    if (LHSs && MHSs && RHSs) {
+      std::string Val = RHSs->getValue();
 
-        std::string::size_type found;
-        std::string::size_type idx = 0;
-        do {
-          found = Val.find(LHSs->getValue(), idx);
-          if (found != std::string::npos)
-            Val.replace(found, LHSs->getValue().size(), MHSs->getValue());
-          idx = found +  MHSs->getValue().size();
-        } while (found != std::string::npos);
-
-        return StringInit::get(Val);
+      std::string::size_type found;
+      std::string::size_type idx = 0;
+      while (true) {
+        found = Val.find(LHSs->getValue(), idx);
+        if (found == std::string::npos)
+          break;
+        Val.replace(found, LHSs->getValue().size(), MHSs->getValue());
+        idx = found + MHSs->getValue().size();
       }
+
+      return StringInit::get(Val);
     }
     break;
   }
 
   case FOREACH: {
-    Init *Result = ForeachHelper(LHS, MHS, RHS, getType(),
-                                 CurRec, CurMultiClass);
-    if (Result)
+    if (Init *Result = ForeachHelper(LHS, MHS, RHS, getType(),
+                                     CurRec, CurMultiClass))
       return Result;
     break;
   }
@@ -1903,13 +1888,11 @@ void RecordKeeper::dump() const { errs() << *this; }
 
 raw_ostream &llvm::operator<<(raw_ostream &OS, const RecordKeeper &RK) {
   OS << "------------- Classes -----------------\n";
-  const auto &Classes = RK.getClasses();
-  for (const auto &C : Classes)
+  for (const auto &C : RK.getClasses())
     OS << "class " << *C.second;
 
   OS << "------------- Defs -----------------\n";
-  const auto &Defs = RK.getDefs();
-  for (const auto &D : Defs)
+  for (const auto &D : RK.getDefs())
     OS << "def " << *D.second;
   return OS;
 }

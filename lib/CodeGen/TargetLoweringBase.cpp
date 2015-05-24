@@ -420,6 +420,14 @@ static void InitLibcallNames(const char **Names, const Triple &TT) {
     // These are generally not available.
     Names[RTLIB::STACKPROTECTOR_CHECK_FAIL] = nullptr;
   }
+
+  // For f16/f32 conversions, Darwin uses the standard naming scheme, instead
+  // of the gnueabi-style __gnu_*_ieee.
+  // FIXME: What about other targets?
+  if (TT.isOSDarwin()) {
+    Names[RTLIB::FPEXT_F16_F32] = "__extendhfsf2";
+    Names[RTLIB::FPROUND_F32_F16] = "__truncsfhf2";
+  }
 }
 
 /// InitLibcallCallingConvs - Set default libcall CallingConvs.
@@ -803,6 +811,10 @@ void TargetLoweringBase::initActions() {
     setOperationAction(ISD::FMINNUM, VT, Expand);
     setOperationAction(ISD::FMAXNUM, VT, Expand);
     setOperationAction(ISD::FMAD, VT, Expand);
+    setOperationAction(ISD::SMIN, VT, Expand);
+    setOperationAction(ISD::SMAX, VT, Expand);
+    setOperationAction(ISD::UMIN, VT, Expand);
+    setOperationAction(ISD::UMAX, VT, Expand);
 
     // Overflow operations default to expand
     setOperationAction(ISD::SADDO, VT, Expand);

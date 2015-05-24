@@ -88,6 +88,9 @@ elseif( uppercase_LLVM_ABI_BREAKING_CHECKS STREQUAL "FORCE_ON" )
   set( LLVM_ENABLE_ABI_BREAKING_CHECKS 1 )
 elseif( uppercase_LLVM_ABI_BREAKING_CHECKS STREQUAL "FORCE_OFF" )
   # We don't need to do anything special to turn off ABI breaking checks.
+elseif( NOT DEFINED LLVM_ABI_BREAKING_CHECKS )
+  # Treat LLVM_ABI_BREAKING_CHECKS like "FORCE_OFF" when it has not been
+  # defined.
 else()
   message(FATAL_ERROR "Unknown value for LLVM_ABI_BREAKING_CHECKS: \"${LLVM_ABI_BREAKING_CHECKS}\"!")
 endif()
@@ -342,6 +345,11 @@ if( MSVC )
     append("${flag}" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
   endforeach(flag)
 
+  # Disable sized deallocation if the flag is supported. MSVC fails to compile
+  # the operator new overload in User otherwise.
+  check_c_compiler_flag("/WX /Zc:sizedDealloc-" SUPPORTS_SIZED_DEALLOC)
+  append_if(SUPPORTS_SIZED_DEALLOC "/Zc:sizedDealloc-" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+
 elseif( LLVM_COMPILER_IS_GCC_COMPATIBLE )
   if (LLVM_ENABLE_WARNINGS)
     append("-Wall -W -Wno-unused-parameter -Wwrite-strings" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
@@ -459,7 +467,7 @@ if(LLVM_USE_SANITIZER)
       endif()
     elseif (LLVM_USE_SANITIZER STREQUAL "Undefined")
       append_common_sanitizer_flags()
-      append("-fsanitize=undefined -fno-sanitize=vptr,function -fno-sanitize-recover"
+      append("-fsanitize=undefined -fno-sanitize=vptr,function -fno-sanitize-recover=all"
               CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
     elseif (LLVM_USE_SANITIZER STREQUAL "Thread")
       append_common_sanitizer_flags()
@@ -467,7 +475,7 @@ if(LLVM_USE_SANITIZER)
     elseif (LLVM_USE_SANITIZER STREQUAL "Address;Undefined" OR
             LLVM_USE_SANITIZER STREQUAL "Undefined;Address")
       append_common_sanitizer_flags()
-      append("-fsanitize=address,undefined -fno-sanitize=vptr,function -fno-sanitize-recover"
+      append("-fsanitize=address,undefined -fno-sanitize=vptr,function -fno-sanitize-recover=all"
               CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
     else()
       message(WARNING "Unsupported value of LLVM_USE_SANITIZER: ${LLVM_USE_SANITIZER}")
@@ -476,7 +484,7 @@ if(LLVM_USE_SANITIZER)
     message(WARNING "LLVM_USE_SANITIZER is not supported on this platform.")
   endif()
   if (LLVM_USE_SANITIZE_COVERAGE)
-    append("-fsanitize-coverage=4 -mllvm -sanitizer-coverage-8bit-counters=1" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+    append("-fsanitize-coverage=edge,indirect-calls,8bit-counters,trace-cmp" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
   endif()
 endif()
 

@@ -235,7 +235,12 @@ public:
   bool isRTCheckNeeded() { return IsRTCheckNeeded; }
 
   bool isDependencyCheckNeeded() { return !CheckDeps.empty(); }
-  void resetDepChecks() { CheckDeps.clear(); }
+
+  /// We decided that no dependence analysis would be used.  Reset the state.
+  void resetDepChecks(MemoryDepChecker &DepChecker) {
+    CheckDeps.clear();
+    DepChecker.clearInterestingDependences();
+  }
 
   MemAccessInfoSet &getDependenciesToCheck() { return CheckDeps; }
 
@@ -344,6 +349,7 @@ bool AccessAnalysis::canCheckPtrAtRT(
 
         DEBUG(dbgs() << "LAA: Found a runtime check ptr:" << *Ptr << '\n');
       } else {
+        DEBUG(dbgs() << "LAA: Can't find bounds for ptr:" << *Ptr << '\n');
         CanDoRT = false;
       }
     }
@@ -1160,7 +1166,7 @@ void LoopAccessInfo::analyzeLoop(const ValueToValueMap &Strides) {
       NeedRTCheck = true;
 
       // Clear the dependency checks. We assume they are not needed.
-      Accesses.resetDepChecks();
+      Accesses.resetDepChecks(DepChecker);
 
       PtrRtCheck.reset();
       PtrRtCheck.Need = true;
@@ -1329,10 +1335,6 @@ void LoopAccessInfo::print(raw_ostream &OS, unsigned Depth) const {
       OS.indent(Depth) << "Memory dependences are safe\n";
   }
 
-  OS.indent(Depth) << "Store to invariant address was "
-                   << (StoreToLoopInvariantAddress ? "" : "not ")
-                   << "found in loop.\n";
-
   if (Report)
     OS.indent(Depth) << "Report: " << Report->str() << "\n";
 
@@ -1348,6 +1350,10 @@ void LoopAccessInfo::print(raw_ostream &OS, unsigned Depth) const {
   // List the pair of accesses need run-time checks to prove independence.
   PtrRtCheck.print(OS, Depth);
   OS << "\n";
+
+  OS.indent(Depth) << "Store to invariant address was "
+                   << (StoreToLoopInvariantAddress ? "" : "not ")
+                   << "found in loop.\n";
 }
 
 const LoopAccessInfo &

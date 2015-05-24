@@ -177,8 +177,12 @@ protected:
 public:
   LoadInst(Value *Ptr, const Twine &NameStr, Instruction *InsertBefore);
   LoadInst(Value *Ptr, const Twine &NameStr, BasicBlock *InsertAtEnd);
-  LoadInst(Value *Ptr, const Twine &NameStr, bool isVolatile = false,
+  LoadInst(Type *Ty, Value *Ptr, const Twine &NameStr, bool isVolatile = false,
            Instruction *InsertBefore = nullptr);
+  LoadInst(Value *Ptr, const Twine &NameStr, bool isVolatile = false,
+           Instruction *InsertBefore = nullptr)
+      : LoadInst(cast<PointerType>(Ptr->getType())->getElementType(), Ptr,
+                 NameStr, isVolatile, InsertBefore) {}
   LoadInst(Value *Ptr, const Twine &NameStr, bool isVolatile,
            BasicBlock *InsertAtEnd);
   LoadInst(Value *Ptr, const Twine &NameStr, bool isVolatile, unsigned Align,
@@ -205,9 +209,13 @@ public:
 
   LoadInst(Value *Ptr, const char *NameStr, Instruction *InsertBefore);
   LoadInst(Value *Ptr, const char *NameStr, BasicBlock *InsertAtEnd);
+  LoadInst(Type *Ty, Value *Ptr, const char *NameStr = nullptr,
+           bool isVolatile = false, Instruction *InsertBefore = nullptr);
   explicit LoadInst(Value *Ptr, const char *NameStr = nullptr,
                     bool isVolatile = false,
-                    Instruction *InsertBefore = nullptr);
+                    Instruction *InsertBefore = nullptr)
+      : LoadInst(cast<PointerType>(Ptr->getType())->getElementType(), Ptr,
+                 NameStr, isVolatile, InsertBefore) {}
   LoadInst(Value *Ptr, const char *NameStr, bool isVolatile,
            BasicBlock *InsertAtEnd);
 
@@ -801,6 +809,8 @@ inline Type *checkGEPType(Type *Ty) {
 /// access elements of arrays and structs
 ///
 class GetElementPtrInst : public Instruction {
+  Type *SourceElementType;
+
   GetElementPtrInst(const GetElementPtrInst &GEPI);
   void init(Value *Ptr, ArrayRef<Value *> IdxList, const Twine &NameStr);
 
@@ -823,6 +833,13 @@ public:
                                    const Twine &NameStr = "",
                                    Instruction *InsertBefore = nullptr) {
     unsigned Values = 1 + unsigned(IdxList.size());
+    if (!PointeeType)
+      PointeeType =
+          cast<PointerType>(Ptr->getType()->getScalarType())->getElementType();
+    else
+      assert(
+          PointeeType ==
+          cast<PointerType>(Ptr->getType()->getScalarType())->getElementType());
     return new (Values) GetElementPtrInst(PointeeType, Ptr, IdxList, Values,
                                           NameStr, InsertBefore);
   }
@@ -831,6 +848,13 @@ public:
                                    const Twine &NameStr,
                                    BasicBlock *InsertAtEnd) {
     unsigned Values = 1 + unsigned(IdxList.size());
+    if (!PointeeType)
+      PointeeType =
+          cast<PointerType>(Ptr->getType()->getScalarType())->getElementType();
+    else
+      assert(
+          PointeeType ==
+          cast<PointerType>(Ptr->getType()->getScalarType())->getElementType());
     return new (Values) GetElementPtrInst(PointeeType, Ptr, IdxList, Values,
                                           NameStr, InsertAtEnd);
   }
@@ -876,10 +900,9 @@ public:
     return cast<SequentialType>(Instruction::getType());
   }
 
-  Type *getSourceElementType() const {
-    return cast<SequentialType>(getPointerOperandType()->getScalarType())
-        ->getElementType();
-  }
+  Type *getSourceElementType() const { return SourceElementType; }
+
+  void setSourceElementType(Type *Ty) { SourceElementType = Ty; }
 
   Type *getResultElementType() const {
     return cast<PointerType>(getType()->getScalarType())->getElementType();
@@ -1002,23 +1025,21 @@ GetElementPtrInst::GetElementPtrInst(Type *PointeeType, Value *Ptr,
                                      ArrayRef<Value *> IdxList, unsigned Values,
                                      const Twine &NameStr,
                                      Instruction *InsertBefore)
-    : Instruction(PointeeType ? getGEPReturnType(PointeeType, Ptr, IdxList)
-                              : getGEPReturnType(Ptr, IdxList),
-                  GetElementPtr,
+    : Instruction(getGEPReturnType(PointeeType, Ptr, IdxList), GetElementPtr,
                   OperandTraits<GetElementPtrInst>::op_end(this) - Values,
-                  Values, InsertBefore) {
+                  Values, InsertBefore),
+      SourceElementType(PointeeType) {
   init(Ptr, IdxList, NameStr);
-  assert(!PointeeType || PointeeType == getSourceElementType());
 }
 GetElementPtrInst::GetElementPtrInst(Type *PointeeType, Value *Ptr,
                                      ArrayRef<Value *> IdxList, unsigned Values,
                                      const Twine &NameStr,
                                      BasicBlock *InsertAtEnd)
-    : Instruction(getGEPReturnType(Ptr, IdxList), GetElementPtr,
+    : Instruction(getGEPReturnType(PointeeType, Ptr, IdxList), GetElementPtr,
                   OperandTraits<GetElementPtrInst>::op_end(this) - Values,
-                  Values, InsertAtEnd) {
+                  Values, InsertAtEnd),
+      SourceElementType(PointeeType) {
   init(Ptr, IdxList, NameStr);
-  assert(!PointeeType || PointeeType == getSourceElementType());
 }
 
 
@@ -1478,6 +1499,12 @@ public:
     return AttributeList.getDereferenceableBytes(i);
   }
 
+  /// \brief Extract the number of dereferenceable_or_null bytes for a call or
+  /// parameter (0=unknown).
+  uint64_t getDereferenceableOrNullBytes(unsigned i) const {
+    return AttributeList.getDereferenceableOrNullBytes(i);
+  }
+  
   /// \brief Return true if the call should not be treated as a call to a
   /// builtin.
   bool isNoBuiltin() const {
@@ -2258,6 +2285,8 @@ public:
   }
 
   op_range incoming_values() { return operands(); }
+
+  const_op_range incoming_values() const { return operands(); }
 
   /// getNumIncomingValues - Return the number of incoming edges
   ///
@@ -3069,15 +3098,30 @@ class InvokeInst : public TerminatorInst {
   FunctionType *FTy;
   InvokeInst(const InvokeInst &BI);
   void init(Value *Func, BasicBlock *IfNormal, BasicBlock *IfException,
-            ArrayRef<Value *> Args, const Twine &NameStr);
+            ArrayRef<Value *> Args, const Twine &NameStr) {
+    init(cast<FunctionType>(
+             cast<PointerType>(Func->getType())->getElementType()),
+         Func, IfNormal, IfException, Args, NameStr);
+  }
+  void init(FunctionType *FTy, Value *Func, BasicBlock *IfNormal,
+            BasicBlock *IfException, ArrayRef<Value *> Args,
+            const Twine &NameStr);
 
   /// Construct an InvokeInst given a range of arguments.
   ///
   /// \brief Construct an InvokeInst from a range of arguments
   inline InvokeInst(Value *Func, BasicBlock *IfNormal, BasicBlock *IfException,
                     ArrayRef<Value *> Args, unsigned Values,
-                    const Twine &NameStr, Instruction *InsertBefore);
+                    const Twine &NameStr, Instruction *InsertBefore)
+      : InvokeInst(cast<FunctionType>(
+                       cast<PointerType>(Func->getType())->getElementType()),
+                   Func, IfNormal, IfException, Args, Values, NameStr,
+                   InsertBefore) {}
 
+  inline InvokeInst(FunctionType *Ty, Value *Func, BasicBlock *IfNormal,
+                    BasicBlock *IfException, ArrayRef<Value *> Args,
+                    unsigned Values, const Twine &NameStr,
+                    Instruction *InsertBefore);
   /// Construct an InvokeInst given a range of arguments.
   ///
   /// \brief Construct an InvokeInst from a range of arguments
@@ -3091,9 +3135,17 @@ public:
                             BasicBlock *IfNormal, BasicBlock *IfException,
                             ArrayRef<Value *> Args, const Twine &NameStr = "",
                             Instruction *InsertBefore = nullptr) {
+    return Create(cast<FunctionType>(
+                      cast<PointerType>(Func->getType())->getElementType()),
+                  Func, IfNormal, IfException, Args, NameStr, InsertBefore);
+  }
+  static InvokeInst *Create(FunctionType *Ty, Value *Func, BasicBlock *IfNormal,
+                            BasicBlock *IfException, ArrayRef<Value *> Args,
+                            const Twine &NameStr = "",
+                            Instruction *InsertBefore = nullptr) {
     unsigned Values = unsigned(Args.size()) + 3;
-    return new(Values) InvokeInst(Func, IfNormal, IfException, Args,
-                                  Values, NameStr, InsertBefore);
+    return new (Values) InvokeInst(Ty, Func, IfNormal, IfException, Args,
+                                   Values, NameStr, InsertBefore);
   }
   static InvokeInst *Create(Value *Func,
                             BasicBlock *IfNormal, BasicBlock *IfException,
@@ -3186,6 +3238,12 @@ public:
   /// parameter (0=unknown).
   uint64_t getDereferenceableBytes(unsigned i) const {
     return AttributeList.getDereferenceableBytes(i);
+  }
+  
+  /// \brief Extract the number of dereferenceable_or_null bytes for a call or
+  /// parameter (0=unknown).
+  uint64_t getDereferenceableOrNullBytes(unsigned i) const {
+    return AttributeList.getDereferenceableOrNullBytes(i);
   }
 
   /// \brief Return true if the call should not be treated as a call to a
@@ -3330,16 +3388,14 @@ template <>
 struct OperandTraits<InvokeInst> : public VariadicOperandTraits<InvokeInst, 3> {
 };
 
-InvokeInst::InvokeInst(Value *Func,
-                       BasicBlock *IfNormal, BasicBlock *IfException,
-                       ArrayRef<Value *> Args, unsigned Values,
-                       const Twine &NameStr, Instruction *InsertBefore)
-  : TerminatorInst(cast<FunctionType>(cast<PointerType>(Func->getType())
-                                      ->getElementType())->getReturnType(),
-                   Instruction::Invoke,
-                   OperandTraits<InvokeInst>::op_end(this) - Values,
-                   Values, InsertBefore) {
-  init(Func, IfNormal, IfException, Args, NameStr);
+InvokeInst::InvokeInst(FunctionType *Ty, Value *Func, BasicBlock *IfNormal,
+                       BasicBlock *IfException, ArrayRef<Value *> Args,
+                       unsigned Values, const Twine &NameStr,
+                       Instruction *InsertBefore)
+    : TerminatorInst(Ty->getReturnType(), Instruction::Invoke,
+                     OperandTraits<InvokeInst>::op_end(this) - Values, Values,
+                     InsertBefore) {
+  init(Ty, Func, IfNormal, IfException, Args, NameStr);
 }
 InvokeInst::InvokeInst(Value *Func,
                        BasicBlock *IfNormal, BasicBlock *IfException,

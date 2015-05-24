@@ -25,6 +25,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/CommandLine.h"
@@ -491,6 +492,7 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
 
   setTargetDAGCombine(ISD::SELECT);
   setTargetDAGCombine(ISD::VSELECT);
+  setTargetDAGCombine(ISD::SELECT_CC);
 
   setTargetDAGCombine(ISD::INTRINSIC_VOID);
   setTargetDAGCombine(ISD::INTRINSIC_W_CHAIN);
@@ -678,6 +680,12 @@ void AArch64TargetLowering::addTypeForNEON(EVT VT, EVT PromotedBitwiseVT) {
   setOperationAction(ISD::FP_TO_SINT, VT.getSimpleVT(), Custom);
   setOperationAction(ISD::FP_TO_UINT, VT.getSimpleVT(), Custom);
 
+  // [SU][MIN|MAX] are available for all NEON types apart from i64.
+  if (!VT.isFloatingPoint() &&
+      VT.getSimpleVT() != MVT::v2i64 && VT.getSimpleVT() != MVT::v1i64)
+    for (unsigned Opcode : {ISD::SMIN, ISD::SMAX, ISD::UMIN, ISD::UMAX})
+      setOperationAction(Opcode, VT.getSimpleVT(), Legal);
+
   if (Subtarget->isLittleEndian()) {
     for (unsigned im = (unsigned)ISD::PRE_INC;
          im != (unsigned)ISD::LAST_INDEXED_MODE; ++im) {
@@ -777,9 +785,8 @@ AArch64TargetLowering::createFastISel(FunctionLoweringInfo &funcInfo,
 }
 
 const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
-  switch (Opcode) {
-  default:
-    return nullptr;
+  switch ((AArch64ISD::NodeType)Opcode) {
+  case AArch64ISD::FIRST_NUMBER:      break;
   case AArch64ISD::CALL:              return "AArch64ISD::CALL";
   case AArch64ISD::ADRP:              return "AArch64ISD::ADRP";
   case AArch64ISD::ADDlow:            return "AArch64ISD::ADDlow";
@@ -864,6 +871,7 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case AArch64ISD::TBZ:               return "AArch64ISD::TBZ";
   case AArch64ISD::TBNZ:              return "AArch64ISD::TBNZ";
   case AArch64ISD::TC_RETURN:         return "AArch64ISD::TC_RETURN";
+  case AArch64ISD::PREFETCH:          return "AArch64ISD::PREFETCH";
   case AArch64ISD::SITOF:             return "AArch64ISD::SITOF";
   case AArch64ISD::UITOF:             return "AArch64ISD::UITOF";
   case AArch64ISD::NVCAST:            return "AArch64ISD::NVCAST";
@@ -899,6 +907,7 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case AArch64ISD::SMULL:             return "AArch64ISD::SMULL";
   case AArch64ISD::UMULL:             return "AArch64ISD::UMULL";
   }
+  return nullptr;
 }
 
 MachineBasicBlock *
@@ -2872,8 +2881,10 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   // If we're doing a tall call, use a TC_RETURN here rather than an
   // actual call instruction.
-  if (IsTailCall)
+  if (IsTailCall) {
+    MF.getFrameInfo()->setHasTailCall();
     return DAG.getNode(AArch64ISD::TC_RETURN, DL, NodeTys, Ops);
+  }
 
   // Returns a chain and a flag for retval copy to use.
   Chain = DAG.getNode(AArch64ISD::CALL, DL, NodeTys, Ops);
@@ -3564,7 +3575,8 @@ SDValue AArch64TargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
 /// operations would *not* be semantically equivalent.
 static bool selectCCOpsAreFMaxCompatible(SDValue Cmp, SDValue Result) {
   if (Cmp == Result)
-    return true;
+    return (Cmp.getValueType() == MVT::f32 ||
+            Cmp.getValueType() == MVT::f64);
 
   ConstantFPSDNode *CCmp = dyn_cast<ConstantFPSDNode>(Cmp);
   ConstantFPSDNode *CResult = dyn_cast<ConstantFPSDNode>(Result);
@@ -3698,46 +3710,6 @@ SDValue AArch64TargetLowering::LowerSELECT_CC(ISD::CondCode CC, SDValue LHS,
   assert(LHS.getValueType() == MVT::f32 || LHS.getValueType() == MVT::f64);
   assert(LHS.getValueType() == RHS.getValueType());
   EVT VT = TVal.getValueType();
-
-  // Try to match this select into a max/min operation, which have dedicated
-  // opcode in the instruction set.
-  // FIXME: This is not correct in the presence of NaNs, so we only enable this
-  // in no-NaNs mode.
-  if (getTargetMachine().Options.NoNaNsFPMath) {
-    SDValue MinMaxLHS = TVal, MinMaxRHS = FVal;
-    if (selectCCOpsAreFMaxCompatible(LHS, MinMaxRHS) &&
-        selectCCOpsAreFMaxCompatible(RHS, MinMaxLHS)) {
-      CC = ISD::getSetCCSwappedOperands(CC);
-      std::swap(MinMaxLHS, MinMaxRHS);
-    }
-
-    if (selectCCOpsAreFMaxCompatible(LHS, MinMaxLHS) &&
-        selectCCOpsAreFMaxCompatible(RHS, MinMaxRHS)) {
-      switch (CC) {
-      default:
-        break;
-      case ISD::SETGT:
-      case ISD::SETGE:
-      case ISD::SETUGT:
-      case ISD::SETUGE:
-      case ISD::SETOGT:
-      case ISD::SETOGE:
-        return DAG.getNode(AArch64ISD::FMAX, dl, VT, MinMaxLHS, MinMaxRHS);
-        break;
-      case ISD::SETLT:
-      case ISD::SETLE:
-      case ISD::SETULT:
-      case ISD::SETULE:
-      case ISD::SETOLT:
-      case ISD::SETOLE:
-        return DAG.getNode(AArch64ISD::FMIN, dl, VT, MinMaxLHS, MinMaxRHS);
-        break;
-      }
-    }
-  }
-
-  // If that fails, we'll need to perform an FCMP + CSEL sequence.  Go ahead
-  // and do the comparison.
   SDValue Cmp = emitComparison(LHS, RHS, CC, dl, DAG);
 
   // Unfortunately, the mapping of LLVM FP CC's onto AArch64 CC's isn't totally
@@ -8732,6 +8704,75 @@ static SDValue performSelectCombine(SDNode *N,
   return DAG.getSelect(DL, ResVT, Mask, N->getOperand(1), N->getOperand(2));
 }
 
+/// performSelectCCCombine - Target-specific DAG combining for ISD::SELECT_CC
+/// to match FMIN/FMAX patterns.
+static SDValue performSelectCCCombine(SDNode *N, SelectionDAG &DAG) {
+  // Try to use FMIN/FMAX instructions for FP selects like "x < y ? x : y".
+  // Unless the NoNaNsFPMath option is set, be careful about NaNs:
+  // vmax/vmin return NaN if either operand is a NaN;
+  // only do the transformation when it matches that behavior.
+
+  SDValue CondLHS = N->getOperand(0);
+  SDValue CondRHS = N->getOperand(1);
+  SDValue LHS = N->getOperand(2);
+  SDValue RHS = N->getOperand(3);
+  ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(4))->get();
+
+  unsigned Opcode;
+  bool IsReversed;
+  if (selectCCOpsAreFMaxCompatible(CondLHS, LHS) &&
+      selectCCOpsAreFMaxCompatible(CondRHS, RHS)) {
+    IsReversed = false; // x CC y ? x : y
+  } else if (selectCCOpsAreFMaxCompatible(CondRHS, LHS) &&
+             selectCCOpsAreFMaxCompatible(CondLHS, RHS)) {
+    IsReversed = true ; // x CC y ? y : x
+  } else {
+    return SDValue();
+  }
+
+  bool IsUnordered = false, IsOrEqual;
+  switch (CC) {
+  default:
+    return SDValue();
+  case ISD::SETULT:
+  case ISD::SETULE:
+    IsUnordered = true;
+  case ISD::SETOLT:
+  case ISD::SETOLE:
+  case ISD::SETLT:
+  case ISD::SETLE:
+    IsOrEqual = (CC == ISD::SETLE || CC == ISD::SETOLE || CC == ISD::SETULE);
+    Opcode = IsReversed ? AArch64ISD::FMAX : AArch64ISD::FMIN;
+    break;
+
+  case ISD::SETUGT:
+  case ISD::SETUGE:
+    IsUnordered = true;
+  case ISD::SETOGT:
+  case ISD::SETOGE:
+  case ISD::SETGT:
+  case ISD::SETGE:
+    IsOrEqual = (CC == ISD::SETGE || CC == ISD::SETOGE || CC == ISD::SETUGE);
+    Opcode = IsReversed ? AArch64ISD::FMIN : AArch64ISD::FMAX;
+    break;
+  }
+
+  // If LHS is NaN, an ordered comparison will be false and the result will be
+  // the RHS, but FMIN(NaN, RHS) = FMAX(NaN, RHS) = NaN. Avoid this by checking
+  // that LHS != NaN. Likewise, for unordered comparisons, check for RHS != NaN.
+  if (!DAG.isKnownNeverNaN(IsUnordered ? RHS : LHS))
+    return SDValue();
+
+  // For xxx-or-equal comparisons, "+0 <= -0" and "-0 >= +0" will both be true,
+  // but FMIN will return -0, and FMAX will return +0. So FMIN/FMAX can only be
+  // used for unsafe math or if one of the operands is known to be nonzero.
+  if (IsOrEqual && !DAG.getTarget().Options.UnsafeFPMath &&
+      !(DAG.isKnownNeverZero(LHS) || DAG.isKnownNeverZero(RHS)))
+    return SDValue();
+
+  return DAG.getNode(Opcode, SDLoc(N), N->getValueType(0), LHS, RHS);
+}
+
 SDValue AArch64TargetLowering::PerformDAGCombine(SDNode *N,
                                                  DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
@@ -8764,6 +8805,8 @@ SDValue AArch64TargetLowering::PerformDAGCombine(SDNode *N,
     return performSelectCombine(N, DCI);
   case ISD::VSELECT:
     return performVSelectCombine(N, DCI.DAG);
+  case ISD::SELECT_CC:
+    return performSelectCCCombine(N, DCI.DAG);
   case ISD::STORE:
     return performSTORECombine(N, DCI, DAG, Subtarget);
   case AArch64ISD::BRCOND:
@@ -9059,7 +9102,7 @@ Value *AArch64TargetLowering::emitStoreConditional(IRBuilder<> &Builder,
     Value *Lo = Builder.CreateTrunc(Val, Int64Ty, "lo");
     Value *Hi = Builder.CreateTrunc(Builder.CreateLShr(Val, 64), Int64Ty, "hi");
     Addr = Builder.CreateBitCast(Addr, Type::getInt8PtrTy(M->getContext()));
-    return Builder.CreateCall3(Stxr, Lo, Hi, Addr);
+    return Builder.CreateCall(Stxr, {Lo, Hi, Addr});
   }
 
   Intrinsic::ID Int =
@@ -9067,10 +9110,10 @@ Value *AArch64TargetLowering::emitStoreConditional(IRBuilder<> &Builder,
   Type *Tys[] = { Addr->getType() };
   Function *Stxr = Intrinsic::getDeclaration(M, Int, Tys);
 
-  return Builder.CreateCall2(
-      Stxr, Builder.CreateZExtOrBitCast(
-                Val, Stxr->getFunctionType()->getParamType(0)),
-      Addr);
+  return Builder.CreateCall(Stxr,
+                            {Builder.CreateZExtOrBitCast(
+                                 Val, Stxr->getFunctionType()->getParamType(0)),
+                             Addr});
 }
 
 bool AArch64TargetLowering::functionArgumentNeedsConsecutiveRegisters(

@@ -348,13 +348,13 @@ void InstrProfiling::emitInitialization() {
   // Add the basic block and the necessary calls.
   IRBuilder<> IRB(BasicBlock::Create(M->getContext(), "", F));
   if (RegisterF)
-    IRB.CreateCall(RegisterF);
+    IRB.CreateCall(RegisterF, {});
   if (!InstrProfileOutput.empty()) {
     auto *Int8PtrTy = Type::getInt8PtrTy(M->getContext());
     auto *SetNameTy = FunctionType::get(VoidTy, Int8PtrTy, false);
     auto *SetNameF =
         Function::Create(SetNameTy, GlobalValue::ExternalLinkage,
-                         "__llvm_profile_set_filename_env_override", M);
+                         "__llvm_profile_override_default_filename", M);
 
     // Create variable for profile name
     Constant *ProfileNameConst =

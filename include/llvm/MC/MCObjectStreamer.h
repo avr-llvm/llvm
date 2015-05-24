@@ -80,7 +80,7 @@ protected:
   /// fragment is not a data fragment.
   MCDataFragment *getOrCreateDataFragment();
 
-  bool changeSectionImpl(const MCSection *Section, const MCExpr *Subsection);
+  bool changeSectionImpl(MCSection *Section, const MCExpr *Subsection);
 
   /// If any labels have been emitted but not assigned fragments, ensure that
   /// they get assigned, either to F if possible or to a new data fragment.
@@ -103,8 +103,7 @@ public:
   void EmitULEB128Value(const MCExpr *Value) override;
   void EmitSLEB128Value(const MCExpr *Value) override;
   void EmitWeakReference(MCSymbol *Alias, const MCSymbol *Symbol) override;
-  void ChangeSection(const MCSection *Section,
-                     const MCExpr *Subsection) override;
+  void ChangeSection(MCSection *Section, const MCExpr *Subsection) override;
   void EmitInstruction(const MCInst &Inst, const MCSubtargetInfo& STI) override;
 
   /// \brief Emit an instruction to a special fragment, because this instruction
@@ -136,8 +135,19 @@ public:
   void EmitZeros(uint64_t NumBytes) override;
   void FinishImpl() override;
 
-  bool mayHaveInstructions() const override {
-    return getCurrentSectionData()->hasInstructions();
+  /// Emit the absolute difference between two symbols if possible.
+  ///
+  /// Emit the absolute difference between \c Hi and \c Lo, as long as we can
+  /// compute it.  Currently, that requires that both symbols are in the same
+  /// data fragment.  Otherwise, do nothing and return \c false.
+  ///
+  /// \pre Offset of \c Hi is greater than the offset \c Lo.
+  /// \return true on success.
+  bool emitAbsoluteSymbolDiff(const MCSymbol *Hi, const MCSymbol *Lo,
+                              unsigned Size) override;
+
+  bool mayHaveInstructions(MCSection &Sec) const override {
+    return Assembler->getOrCreateSectionData(Sec).hasInstructions();
   }
 };
 

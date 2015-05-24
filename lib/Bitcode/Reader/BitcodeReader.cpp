@@ -240,9 +240,9 @@ public:
 
   bool isDematerializable(const GlobalValue *GV) const override;
   std::error_code materialize(GlobalValue *GV) override;
-  std::error_code MaterializeModule(Module *M) override;
+  std::error_code materializeModule(Module *M) override;
   std::vector<StructType *> getIdentifiedStructTypes() const override;
-  void Dematerialize(GlobalValue *GV) override;
+  void dematerialize(GlobalValue *GV) override;
 
   /// @brief Main interface to parsing a bitcode buffer.
   /// @returns true if an error occurred.
@@ -399,6 +399,12 @@ static std::error_code Error(DiagnosticHandlerFunction DiagnosticHandler,
 static std::error_code Error(DiagnosticHandlerFunction DiagnosticHandler,
                              std::error_code EC) {
   return Error(DiagnosticHandler, EC, EC.message());
+}
+
+static std::error_code Error(DiagnosticHandlerFunction DiagnosticHandler,
+                             const Twine &Message) {
+  return Error(DiagnosticHandler,
+               make_error_code(BitcodeError::CorruptedBitcode), Message);
 }
 
 std::error_code BitcodeReader::Error(BitcodeError E, const Twine &Message) {
@@ -1396,8 +1402,11 @@ std::error_code BitcodeReader::ParseTypeTableBody() {
         return Error("Invalid record");
       SmallVector<Type*, 8> ArgTys;
       for (unsigned i = 2, e = Record.size(); i != e; ++i) {
-        if (Type *T = getTypeByID(Record[i]))
+        if (Type *T = getTypeByID(Record[i])) {
+          if (!FunctionType::isValidArgumentType(T))
+            return Error("Invalid function argument type");
           ArgTys.push_back(T);
+        }
         else
           break;
       }
@@ -1835,7 +1844,7 @@ std::error_code BitcodeReader::ParseMetadata() {
       break;
     }
     case bitc::METADATA_COMPILE_UNIT: {
-      if (Record.size() != 14)
+      if (Record.size() < 14 || Record.size() > 15)
         return Error("Invalid record");
 
       MDValueList.AssignValue(
@@ -1846,7 +1855,8 @@ std::error_code BitcodeReader::ParseMetadata() {
                            getMDString(Record[7]), Record[8],
                            getMDOrNull(Record[9]), getMDOrNull(Record[10]),
                            getMDOrNull(Record[11]), getMDOrNull(Record[12]),
-                           getMDOrNull(Record[13]))),
+                           getMDOrNull(Record[13]),
+                           Record.size() == 14 ? 0 : Record[14])),
           NextMDValueNo++);
       break;
     }
@@ -3290,6 +3300,20 @@ std::error_code BitcodeReader::ParseMetadataAttachment(Function &F) {
   }
 }
 
+static std::error_code TypeCheckLoadStoreInst(DiagnosticHandlerFunction DH,
+                                              Type *ValType, Type *PtrType) {
+  if (!isa<PointerType>(PtrType))
+    return Error(DH, "Load/Store operand is not a pointer type");
+  Type *ElemType = cast<PointerType>(PtrType)->getElementType();
+
+  if (ValType && ValType != ElemType)
+    return Error(DH, "Explicit load/store type does not match pointee type of "
+                     "pointer operand");
+  if (!PointerType::isLoadableOrStorableType(ElemType))
+    return Error(DH, "Cannot load/store from pointer");
+  return std::error_code();
+}
+
 /// ParseFunctionBody - Lazily parse the specified function body block.
 std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
   if (Stream.EnterSubBlock(bitc::FUNCTION_BLOCK_ID))
@@ -3523,10 +3547,12 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
       if (getValueTypePair(Record, OpNum, NextValueNo, BasePtr))
         return Error("Invalid record");
 
-      if (Ty &&
-          Ty !=
-              cast<SequentialType>(BasePtr->getType()->getScalarType())
-                  ->getElementType())
+      if (!Ty)
+        Ty = cast<SequentialType>(BasePtr->getType()->getScalarType())
+                 ->getElementType();
+      else if (Ty !=
+               cast<SequentialType>(BasePtr->getType()->getScalarType())
+                   ->getElementType())
         return Error(
             "Explicit gep type does not match pointee type of pointer operand");
 
@@ -3553,10 +3579,13 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
       if (getValueTypePair(Record, OpNum, NextValueNo, Agg))
         return Error("Invalid record");
 
+      unsigned RecSize = Record.size();
+      if (OpNum == RecSize)
+        return Error("EXTRACTVAL: Invalid instruction with 0 indices");
+
       SmallVector<unsigned, 4> EXTRACTVALIdx;
       Type *CurTy = Agg->getType();
-      for (unsigned RecSize = Record.size();
-           OpNum != RecSize; ++OpNum) {
+      for (; OpNum != RecSize; ++OpNum) {
         bool IsArray = CurTy->isArrayTy();
         bool IsStruct = CurTy->isStructTy();
         uint64_t Index = Record[OpNum];
@@ -3592,18 +3621,19 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
       if (getValueTypePair(Record, OpNum, NextValueNo, Val))
         return Error("Invalid record");
 
+      unsigned RecSize = Record.size();
+      if (OpNum == RecSize)
+        return Error("INSERTVAL: Invalid instruction with 0 indices");
+
       SmallVector<unsigned, 4> INSERTVALIdx;
       Type *CurTy = Agg->getType();
-      for (unsigned RecSize = Record.size();
-           OpNum != RecSize; ++OpNum) {
+      for (; OpNum != RecSize; ++OpNum) {
         bool IsArray = CurTy->isArrayTy();
         bool IsStruct = CurTy->isStructTy();
         uint64_t Index = Record[OpNum];
 
         if (!IsStruct && !IsArray)
           return Error("INSERTVAL: Invalid type");
-        if (!CurTy->isStructTy() && !CurTy->isArrayTy())
-          return Error("Invalid type");
         if ((unsigned)Index != Index)
           return Error("Invalid value");
         if (IsStruct && Index >= CurTy->subtypes().size())
@@ -3617,6 +3647,9 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
         else
           CurTy = CurTy->subtypes()[0];
       }
+
+      if (CurTy != Val->getType())
+        return Error("Inserted value type doesn't match aggregate type");
 
       I = InsertValueInst::Create(Agg, Val, INSERTVALIdx);
       InstructionList.push_back(I);
@@ -4065,13 +4098,11 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
       Type *Ty = nullptr;
       if (OpNum + 3 == Record.size())
         Ty = getTypeByID(Record[OpNum++]);
-      if (!isa<PointerType>(Op->getType()))
-        return Error("Load operand is not a pointer type");
+      if (std::error_code EC =
+              TypeCheckLoadStoreInst(DiagnosticHandler, Ty, Op->getType()))
+        return EC;
       if (!Ty)
         Ty = cast<PointerType>(Op->getType())->getElementType();
-      else if (Ty != cast<PointerType>(Op->getType())->getElementType())
-        return Error("Explicit load type does not match pointee type of "
-                     "pointer operand");
 
       unsigned Align;
       if (std::error_code EC = parseAlignmentValue(Record[OpNum], Align))
@@ -4092,6 +4123,11 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
       Type *Ty = nullptr;
       if (OpNum + 5 == Record.size())
         Ty = getTypeByID(Record[OpNum++]);
+      if (std::error_code EC =
+              TypeCheckLoadStoreInst(DiagnosticHandler, Ty, Op->getType()))
+        return EC;
+      if (!Ty)
+        Ty = cast<PointerType>(Op->getType())->getElementType();
 
       AtomicOrdering Ordering = GetDecodedOrdering(Record[OpNum+2]);
       if (Ordering == NotAtomic || Ordering == Release ||
@@ -4105,10 +4141,6 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
       if (std::error_code EC = parseAlignmentValue(Record[OpNum], Align))
         return EC;
       I = new LoadInst(Op, "", Record[OpNum+1], Align, Ordering, SynchScope);
-
-      (void)Ty;
-      assert((!Ty || Ty == I->getType()) &&
-             "Explicit type doesn't match pointee type of the first operand");
 
       InstructionList.push_back(I);
       break;
@@ -4125,6 +4157,10 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
                           Val)) ||
           OpNum + 2 != Record.size())
         return Error("Invalid record");
+
+      if (std::error_code EC = TypeCheckLoadStoreInst(
+              DiagnosticHandler, Val->getType(), Ptr->getType()))
+        return EC;
       unsigned Align;
       if (std::error_code EC = parseAlignmentValue(Record[OpNum], Align))
         return EC;
@@ -4146,6 +4182,9 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
           OpNum + 4 != Record.size())
         return Error("Invalid record");
 
+      if (std::error_code EC = TypeCheckLoadStoreInst(
+              DiagnosticHandler, Val->getType(), Ptr->getType()))
+        return EC;
       AtomicOrdering Ordering = GetDecodedOrdering(Record[OpNum+2]);
       if (Ordering == NotAtomic || Ordering == Acquire ||
           Ordering == AcquireRelease)
@@ -4181,6 +4220,9 @@ std::error_code BitcodeReader::ParseFunctionBody(Function *F) {
         return Error("Invalid record");
       SynchronizationScope SynchScope = GetDecodedSynchScope(Record[OpNum+2]);
 
+      if (std::error_code EC = TypeCheckLoadStoreInst(
+              DiagnosticHandler, Cmp->getType(), Ptr->getType()))
+        return EC;
       AtomicOrdering FailureOrdering;
       if (Record.size() < 7)
         FailureOrdering =
@@ -4445,7 +4487,7 @@ bool BitcodeReader::isDematerializable(const GlobalValue *GV) const {
   return DeferredFunctionInfo.count(const_cast<Function*>(F));
 }
 
-void BitcodeReader::Dematerialize(GlobalValue *GV) {
+void BitcodeReader::dematerialize(GlobalValue *GV) {
   Function *F = dyn_cast<Function>(GV);
   // If this function isn't dematerializable, this is a noop.
   if (!F || !isDematerializable(F))
@@ -4458,7 +4500,7 @@ void BitcodeReader::Dematerialize(GlobalValue *GV) {
   F->setIsMaterializable(true);
 }
 
-std::error_code BitcodeReader::MaterializeModule(Module *M) {
+std::error_code BitcodeReader::materializeModule(Module *M) {
   assert(M == TheModule &&
          "Can only Materialize the Module this BitcodeReader is attached to.");
 

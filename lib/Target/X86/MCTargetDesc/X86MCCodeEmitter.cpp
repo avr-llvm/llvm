@@ -149,7 +149,7 @@ public:
                         SmallVectorImpl<MCFixup> &Fixups,
                         const MCSubtargetInfo &STI) const;
 
-  void EncodeInstruction(const MCInst &MI, raw_ostream &OS,
+  void encodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups,
                          const MCSubtargetInfo &STI) const override;
 
@@ -355,7 +355,7 @@ EmitImmediate(const MCOperand &DispOp, SMLoc Loc, unsigned Size,
                                    Ctx);
 
   // Emit a symbolic constant as a fixup and 4 zeros.
-  Fixups.push_back(MCFixup::Create(CurByte, Expr, FixupKind, Loc));
+  Fixups.push_back(MCFixup::create(CurByte, Expr, FixupKind, Loc));
   EmitConstant(0, Size, CurByte, OS);
 }
 
@@ -1152,7 +1152,7 @@ void X86MCCodeEmitter::EmitOpcodePrefix(uint64_t TSFlags, unsigned &CurByte,
 }
 
 void X86MCCodeEmitter::
-EncodeInstruction(const MCInst &MI, raw_ostream &OS,
+encodeInstruction(const MCInst &MI, raw_ostream &OS,
                   SmallVectorImpl<MCFixup> &Fixups,
                   const MCSubtargetInfo &STI) const {
   unsigned Opcode = MI.getOpcode();
@@ -1475,7 +1475,7 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
           RegNum |= Val;
         }
       }
-      EmitImmediate(MCOperand::CreateImm(RegNum), MI.getLoc(), 1, FK_Data_1,
+      EmitImmediate(MCOperand::createImm(RegNum), MI.getLoc(), 1, FK_Data_1,
                     CurByte, OS, Fixups);
     } else {
       EmitImmediate(MI.getOperand(CurOp++), MI.getLoc(),

@@ -949,6 +949,7 @@ static void WriteDICompileUnit(const DICompileUnit *N,
   Record.push_back(VE.getMetadataOrNullID(N->getSubprograms().get()));
   Record.push_back(VE.getMetadataOrNullID(N->getGlobalVariables().get()));
   Record.push_back(VE.getMetadataOrNullID(N->getImportedEntities().get()));
+  Record.push_back(N->getDWOId());
 
   Stream.EmitRecord(bitc::METADATA_COMPILE_UNIT, Record, Abbrev);
   Record.clear();
@@ -2135,6 +2136,8 @@ static void WriteFunction(const Function &F, ValueEnumerator &VE,
       Vals.push_back(VE.getMetadataOrNullID(DL->getInlinedAt()));
       Stream.EmitRecord(bitc::FUNC_CODE_DEBUG_LOC, Vals);
       Vals.clear();
+
+      LastDL = DL;
     }
 
   // Emit names for all the instructions etc.

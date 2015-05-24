@@ -35,12 +35,14 @@ public:
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
   /// the function.
-  void emitPrologue(MachineFunction &MF) const override;
+  void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
 
-  void adjustForSegmentedStacks(MachineFunction &MF) const override;
+  void adjustForSegmentedStacks(MachineFunction &MF,
+                                MachineBasicBlock &PrologueMBB) const override;
 
-  void adjustForHiPEPrologue(MachineFunction &MF) const override;
+  void adjustForHiPEPrologue(MachineFunction &MF,
+                             MachineBasicBlock &PrologueMBB) const override;
 
   void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
                                      RegScavenger *RS = nullptr) const override;
@@ -76,6 +78,26 @@ public:
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                  MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator MI) const override;
+
+  /// Check the instruction before/after the passed instruction. If
+  /// it is an ADD/SUB/LEA instruction it is deleted argument and the
+  /// stack adjustment is returned as a positive value for ADD/LEA and
+  /// a negative for SUB.
+  static int mergeSPUpdates(MachineBasicBlock &MBB,
+                            MachineBasicBlock::iterator &MBBI,
+                            unsigned StackPtr, bool doMergeWithPrevious);
+
+  /// Emit a series of instructions to increment / decrement the stack
+  /// pointer by a constant value.
+  static void emitSPUpdate(MachineBasicBlock &MBB,
+                           MachineBasicBlock::iterator &MBBI, unsigned StackPtr,
+                           int64_t NumBytes, bool Is64BitTarget,
+                           bool Is64BitStackPtr, bool UseLEA,
+                           const TargetInstrInfo &TII,
+                           const TargetRegisterInfo &TRI);
+
+  /// Check that LEA can be use on SP in a prologue sequence for \p MF.
+  bool useLEAForSPInProlog(const MachineFunction &MF) const;
 
 private:
   /// convertArgMovsToPushes - This method tries to convert a call sequence

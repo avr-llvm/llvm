@@ -21,6 +21,7 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/ConstantFolder.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
@@ -447,19 +448,40 @@ public:
 
   /// \brief Create a call to the experimental.gc.statepoint intrinsic to
   /// start a new statepoint sequence.
-  CallInst *CreateGCStatepoint(Value *ActualCallee,
-                               ArrayRef<Value *> CallArgs,
-                               ArrayRef<Value *> DeoptArgs,
-                               ArrayRef<Value *> GCArgs,
-                               const Twine &Name = "");
+  CallInst *CreateGCStatepointCall(uint64_t ID, uint32_t NumPatchBytes,
+                                   Value *ActualCallee,
+                                   ArrayRef<Value *> CallArgs,
+                                   ArrayRef<Value *> DeoptArgs,
+                                   ArrayRef<Value *> GCArgs,
+                                   const Twine &Name = "");
+
+  // \brief Conveninence function for the common case when CallArgs are filled
+  // in using makeArrayRef(CS.arg_begin(), CS.arg_end()); Use needs to be
+  // .get()'ed to get the Value pointer.
+  CallInst *CreateGCStatepointCall(uint64_t ID, uint32_t NumPatchBytes,
+                                   Value *ActualCallee, ArrayRef<Use> CallArgs,
+                                   ArrayRef<Value *> DeoptArgs,
+                                   ArrayRef<Value *> GCArgs,
+                                   const Twine &Name = "");
+
+  /// brief Create an invoke to the experimental.gc.statepoint intrinsic to
+  /// start a new statepoint sequence.
+  InvokeInst *
+  CreateGCStatepointInvoke(uint64_t ID, uint32_t NumPatchBytes,
+                           Value *ActualInvokee, BasicBlock *NormalDest,
+                           BasicBlock *UnwindDest, ArrayRef<Value *> InvokeArgs,
+                           ArrayRef<Value *> DeoptArgs,
+                           ArrayRef<Value *> GCArgs, const Twine &Name = "");
 
   // Conveninence function for the common case when CallArgs are filled in using
-  // makeArrayRef(CS.arg_begin(), .arg_end()); Use needs to be .get()'ed to get
-  // the Value *.
-  CallInst *CreateGCStatepoint(Value *ActualCallee, ArrayRef<Use> CallArgs,
-                               ArrayRef<Value *> DeoptArgs,
-                               ArrayRef<Value *> GCArgs,
-                               const Twine &Name = "");
+  // makeArrayRef(CS.arg_begin(), CS.arg_end()); Use needs to be .get()'ed to
+  // get the Value *.
+  InvokeInst *
+  CreateGCStatepointInvoke(uint64_t ID, uint32_t NumPatchBytes,
+                           Value *ActualInvokee, BasicBlock *NormalDest,
+                           BasicBlock *UnwindDest, ArrayRef<Use> InvokeArgs,
+                           ArrayRef<Value *> DeoptArgs,
+                           ArrayRef<Value *> GCArgs, const Twine &Name = "");
 
   /// \brief Create a call to the experimental.gc.result intrinsic to extract
   /// the result from a call wrapped in a statepoint.
@@ -478,7 +500,7 @@ public:
 private:
   /// \brief Create a call to a masked intrinsic with given Id.
   /// Masked intrinsic has only one overloaded type - data type.
-  CallInst *CreateMaskedIntrinsic(unsigned Id, ArrayRef<Value *> Ops,
+  CallInst *CreateMaskedIntrinsic(Intrinsic::ID Id, ArrayRef<Value *> Ops,
                                   Type *DataTy, const Twine &Name = "");
 
   Value *getCastedInt8PtrValue(Value *Ptr);
@@ -971,6 +993,9 @@ public:
   LoadInst *CreateLoad(Value *Ptr, const Twine &Name = "") {
     return Insert(new LoadInst(Ptr), Name);
   }
+  LoadInst *CreateLoad(Type *Ty, Value *Ptr, const Twine &Name = "") {
+    return Insert(new LoadInst(Ty, Ptr), Name);
+  }
   LoadInst *CreateLoad(Value *Ptr, bool isVolatile, const Twine &Name = "") {
     return Insert(new LoadInst(Ptr, nullptr, isVolatile), Name);
   }
@@ -1440,42 +1465,19 @@ public:
     return Insert(PHINode::Create(Ty, NumReservedValues), Name);
   }
 
-  CallInst *CreateCall(Value *Callee, const Twine &Name = "") {
-    return Insert(CallInst::Create(Callee), Name);
-  }
-  CallInst *CreateCall(Value *Callee, Value *Arg, const Twine &Name = "") {
-    return Insert(CallInst::Create(Callee, Arg), Name);
-  }
-  CallInst *CreateCall2(Value *Callee, Value *Arg1, Value *Arg2,
-                        const Twine &Name = "") {
-    return CreateCall2(cast<FunctionType>(cast<PointerType>(Callee->getType())
-                                              ->getElementType()),
-                       Callee, Arg1, Arg2, Name);
-  }
-  CallInst *CreateCall2(FunctionType *Ty, Value *Callee, Value *Arg1,
-                        Value *Arg2, const Twine &Name = "") {
-    Value *Args[] = { Arg1, Arg2 };
-    return Insert(CallInst::Create(Ty, Callee, Args), Name);
-  }
-  CallInst *CreateCall3(Value *Callee, Value *Arg1, Value *Arg2, Value *Arg3,
-                        const Twine &Name = "") {
-    Value *Args[] = { Arg1, Arg2, Arg3 };
-    return Insert(CallInst::Create(Callee, Args), Name);
-  }
-  CallInst *CreateCall4(Value *Callee, Value *Arg1, Value *Arg2, Value *Arg3,
-                        Value *Arg4, const Twine &Name = "") {
-    Value *Args[] = { Arg1, Arg2, Arg3, Arg4 };
-    return Insert(CallInst::Create(Callee, Args), Name);
-  }
-  CallInst *CreateCall5(Value *Callee, Value *Arg1, Value *Arg2, Value *Arg3,
-                        Value *Arg4, Value *Arg5, const Twine &Name = "") {
-    Value *Args[] = { Arg1, Arg2, Arg3, Arg4, Arg5 };
-    return Insert(CallInst::Create(Callee, Args), Name);
-  }
-
   CallInst *CreateCall(Value *Callee, ArrayRef<Value *> Args,
                        const Twine &Name = "") {
     return Insert(CallInst::Create(Callee, Args), Name);
+  }
+
+  CallInst *CreateCall(llvm::FunctionType *FTy, Value *Callee,
+                       ArrayRef<Value *> Args, const Twine &Name = "") {
+    return Insert(CallInst::Create(FTy, Callee, Args), Name);
+  }
+
+  CallInst *CreateCall(Function *Callee, ArrayRef<Value *> Args,
+                       const Twine &Name = "") {
+    return CreateCall(Callee->getFunctionType(), Callee, Args, Name);
   }
 
   Value *CreateSelect(Value *C, Value *True, Value *False,

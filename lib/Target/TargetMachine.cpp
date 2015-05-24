@@ -66,15 +66,11 @@ void TargetMachine::resetTargetOptions(const Function &F) const {
       Options.X = (F.getFnAttribute(Y).getValueAsString() == "true");          \
   } while (0)
 
-  RESET_OPTION(NoFramePointerElim, "no-frame-pointer-elim");
   RESET_OPTION(LessPreciseFPMADOption, "less-precise-fpmad");
   RESET_OPTION(UnsafeFPMath, "unsafe-fp-math");
   RESET_OPTION(NoInfsFPMath, "no-infs-fp-math");
   RESET_OPTION(NoNaNsFPMath, "no-nans-fp-math");
-  RESET_OPTION(UseSoftFloat, "use-soft-float");
   RESET_OPTION(DisableTailCalls, "disable-tail-calls");
-
-  Options.MCOptions.SanitizeAddress = F.hasFnAttribute(Attribute::SanitizeAddress);
 }
 
 /// getRelocationModel - Returns the code generation relocation model. The
@@ -189,8 +185,8 @@ void TargetMachine::getNameWithPrefix(SmallVectorImpl<char> &Name,
 }
 
 MCSymbol *TargetMachine::getSymbol(const GlobalValue *GV, Mangler &Mang) const {
-  SmallString<60> NameStr;
+  SmallString<128> NameStr;
   getNameWithPrefix(NameStr, GV, Mang);
   const TargetLoweringObjectFile *TLOF = getObjFileLowering();
-  return TLOF->getContext().GetOrCreateSymbol(NameStr);
+  return TLOF->getContext().getOrCreateSymbol(NameStr);
 }

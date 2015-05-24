@@ -9,6 +9,7 @@ add_llvm_library(LLVMCodeGen
   CallingConvLower.cpp
   CodeGen.cpp
   CodeGenPrepare.cpp
+  CoreCLRGC.cpp
   CriticalAntiDepBreaker.cpp
   DFAPacketizer.cpp
   DeadMachineInstructionElim.cpp
@@ -93,6 +94,7 @@ add_llvm_library(LLVMCodeGen
   ScheduleDAGInstrs.cpp
   ScheduleDAGPrinter.cpp
   ScoreboardHazardRecognizer.cpp
+  ShrinkWrap.cpp
   ShadowStackGC.cpp
   ShadowStackGCLowering.cpp
   SjLjEHPrepare.cpp

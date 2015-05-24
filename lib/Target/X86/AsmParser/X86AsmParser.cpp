@@ -1191,7 +1191,7 @@ bool X86AsmParser::ParseIntelExpression(IntelExprStateMachine &SM, SMLoc &End) {
         StringRef IDVal = getTok().getString();
         if (IDVal == "f" || IDVal == "b") {
           MCSymbol *Sym =
-              getContext().GetDirectionalLocalSymbol(IntVal, IDVal == "b");
+              getContext().getDirectionalLocalSymbol(IntVal, IDVal == "b");
           MCSymbolRefExpr::VariantKind Variant = MCSymbolRefExpr::VK_None;
           const MCExpr *Val =
 	    MCSymbolRefExpr::Create(Sym, Variant, getContext());
@@ -1351,7 +1351,7 @@ bool X86AsmParser::ParseIntelIdentifier(const MCExpr *&Val,
   }
 
   // Create the symbol reference.
-  MCSymbol *Sym = getContext().GetOrCreateSymbol(Identifier);
+  MCSymbol *Sym = getContext().getOrCreateSymbol(Identifier);
   MCSymbolRefExpr::VariantKind Variant = MCSymbolRefExpr::VK_None;
   Val = MCSymbolRefExpr::Create(Sym, Variant, getParser().getContext());
   return false;
@@ -1414,7 +1414,8 @@ std::unique_ptr<X86Operand>
 X86AsmParser::ParseRoundingModeOp(SMLoc Start, SMLoc End) {
   MCAsmParser &Parser = getParser();
   const AsmToken &Tok = Parser.getTok();
-  consumeToken(); // Eat "{"
+  // Eat "{" and mark the current place.
+  const SMLoc consumedToken = consumeToken();
   if (Tok.getIdentifier().startswith("r")){
     int rndMode = StringSwitch<int>(Tok.getIdentifier())
       .Case("rn", X86::STATIC_ROUNDING::TO_NEAREST_INT)
@@ -1435,6 +1436,13 @@ X86AsmParser::ParseRoundingModeOp(SMLoc Start, SMLoc End) {
     const MCExpr *RndModeOp =
       MCConstantExpr::Create(rndMode, Parser.getContext());
     return X86Operand::CreateImm(RndModeOp, Start, End);
+  }
+  if(Tok.getIdentifier().equals("sae")){
+    Parser.Lex();  // Eat the sae
+    if (!getLexer().is(AsmToken::RCurly))
+      return ErrorOperand(Tok.getLoc(), "Expected } at this point");
+    Parser.Lex();  // Eat "}"
+    return X86Operand::CreateToken("{sae}", consumedToken);
   }
   return ErrorOperand(Tok.getLoc(), "unknown token in expression");
 }
@@ -2325,8 +2333,8 @@ static bool convertToSExti8(MCInst &Inst, unsigned Opcode, unsigned Reg,
   MCInst TmpInst;
   TmpInst.setOpcode(Opcode);
   if (!isCmp)
-    TmpInst.addOperand(MCOperand::CreateReg(Reg));
-  TmpInst.addOperand(MCOperand::CreateReg(Reg));
+    TmpInst.addOperand(MCOperand::createReg(Reg));
+  TmpInst.addOperand(MCOperand::createReg(Reg));
   TmpInst.addOperand(Inst.getOperand(0));
   Inst = TmpInst;
   return true;

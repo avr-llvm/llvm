@@ -20,14 +20,14 @@
 
 namespace llvm {
   class MachineFunction;
+  class Module;
   class StringRef;
 
-  // Possible float ABI settings. Used with FloatABIType in TargetOptions.h.
   namespace FloatABI {
     enum ABIType {
-      Default, // Target-specific (either soft or hard depending on triple,etc).
-      Soft, // Soft float.
-      Hard  // Hard float.
+      Default, // Target-specific (either soft or hard depending on triple, etc).
+      Soft,    // Soft float.
+      Hard     // Hard float.
     };
   }
 
@@ -61,9 +61,10 @@ namespace llvm {
   public:
     TargetOptions()
         : PrintMachineCode(false), NoFramePointerElim(false),
+          NoFramePointerElimOverride(false),
           LessPreciseFPMADOption(false), UnsafeFPMath(false),
           NoInfsFPMath(false), NoNaNsFPMath(false),
-          HonorSignDependentRoundingFPMathOption(false), UseSoftFloat(false),
+          HonorSignDependentRoundingFPMathOption(false),
           NoZerosInBSS(false),
           GuaranteedTailCallOpt(false),
           DisableTailCalls(false), StackAlignmentOverride(0),
@@ -84,6 +85,9 @@ namespace llvm {
     /// specified on the command line.  If the target supports the frame pointer
     /// elimination optimization, this option should disable it.
     unsigned NoFramePointerElim : 1;
+
+    /// This flag is true when "disable-fp-elim" appeared on the command line.
+    unsigned NoFramePointerElimOverride : 1;
 
     /// DisableFramePointerElim - This returns true if frame pointer elimination
     /// optimization should be disabled for the given machine function.
@@ -126,12 +130,6 @@ namespace llvm {
     /// assume that the rounding mode may dynamically change.
     unsigned HonorSignDependentRoundingFPMathOption : 1;
     bool HonorSignDependentRoundingFPMath() const;
-
-    /// UseSoftFloat - This flag is enabled when the -soft-float flag is
-    /// specified on the command line.  When this flag is on, the code generator
-    /// will generate libcalls to the software floating point library instead of
-    /// target FP instructions.
-    unsigned UseSoftFloat : 1;
 
     /// NoZerosInBSS - By default some codegens place zero-initialized data to
     /// .bss section. This flag disables such behaviour (necessary, e.g. for
@@ -229,6 +227,15 @@ namespace llvm {
     MCTargetOptions MCOptions;
   };
 
+/// \brief Set function attributes of functions in Module M based on CPU,
+/// Features, and Options.
+/// If AlwaysRecordAttrs is true, it will always record the function attributes
+/// in Options regardless of whether those attributes were specified on the
+/// tool's command line.
+void setFunctionAttributes(StringRef CPU, StringRef Features,
+                           const TargetOptions &Options, Module &M,
+                           bool AlwaysRecordAttrs);
+
 // Comparison operators:
 
 
@@ -240,7 +247,6 @@ inline bool operator==(const TargetOptions &LHS,
     ARE_EQUAL(NoInfsFPMath) &&
     ARE_EQUAL(NoNaNsFPMath) &&
     ARE_EQUAL(HonorSignDependentRoundingFPMathOption) &&
-    ARE_EQUAL(UseSoftFloat) &&
     ARE_EQUAL(NoZerosInBSS) &&
     ARE_EQUAL(GuaranteedTailCallOpt) &&
     ARE_EQUAL(DisableTailCalls) &&

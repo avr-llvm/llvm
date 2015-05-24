@@ -177,7 +177,7 @@ std::string ARM_MC::ParseARMTriple(StringRef TT, StringRef CPU) {
     if (NoCPU)
       // v7em: FeatureNoARM, FeatureDB, FeatureHWDiv, FeatureDSPThumb2,
       //       FeatureT2XtPk, FeatureMClass
-      ARMArchFeature = "+v7,+noarm,+db,+hwdiv,+t2dsp,t2xtpk,+mclass";
+      ARMArchFeature = "+v7,+noarm,+db,+hwdiv,+t2dsp,+t2xtpk,+mclass";
     else
       // Use CPU to figure out the exact features.
       ARMArchFeature = "+v7";
@@ -305,7 +305,7 @@ static MCCodeGenInfo *createARMMCCodeGenInfo(StringRef TT, Reloc::Model RM,
     // Default relocation model on Darwin is PIC, not DynamicNoPIC.
     RM = TheTriple.isOSDarwin() ? Reloc::PIC_ : Reloc::DynamicNoPIC;
   }
-  X->InitMCCodeGenInfo(RM, CM, OL);
+  X->initMCCodeGenInfo(RM, CM, OL);
   return X;
 }
 

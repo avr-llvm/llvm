@@ -1134,14 +1134,15 @@ def SLTi  : MMRel, SetCC_I<"slti", setlt, simm16, immSExt16, GPR32Opnd>,
 def SLTiu : MMRel, SetCC_I<"sltiu", setult, simm16, immSExt16, GPR32Opnd>,
             SLTI_FM<0xb>;
 let AdditionalPredicates = [NotInMicroMips] in {
-def ANDi  : MMRel, ArithLogicI<"andi", uimm16, GPR32Opnd, II_ANDI, immZExt16,
-                               and>, ADDI_FM<0xc>;
+def ANDi  : MMRel, StdMMR6Rel,
+            ArithLogicI<"andi", uimm16, GPR32Opnd, II_ANDI, immZExt16, and>,
+            ADDI_FM<0xc>;
 }
-def ORi   : MMRel, ArithLogicI<"ori", uimm16, GPR32Opnd, II_ORI, immZExt16,
-                               or>,
+def ORi   : MMRel, StdMMR6Rel,
+            ArithLogicI<"ori", uimm16, GPR32Opnd, II_ORI, immZExt16, or>,
             ADDI_FM<0xd>;
-def XORi  : MMRel, ArithLogicI<"xori", uimm16, GPR32Opnd, II_XORI, immZExt16,
-                               xor>,
+def XORi  : MMRel, StdMMR6Rel,
+            ArithLogicI<"xori", uimm16, GPR32Opnd, II_XORI, immZExt16, xor>,
             ADDI_FM<0xe>;
 def LUi   : MMRel, LoadUpper<"lui", GPR32Opnd, uimm16>, LUI_FM;
 let AdditionalPredicates = [NotInMicroMips] in {
@@ -1159,14 +1160,14 @@ def SUB   : MMRel, ArithLogicR<"sub", GPR32Opnd>, ADD_FM<0, 0x22>;
 def SLT   : MMRel, SetCC_R<"slt", setlt, GPR32Opnd>, ADD_FM<0, 0x2a>;
 def SLTu  : MMRel, SetCC_R<"sltu", setult, GPR32Opnd>, ADD_FM<0, 0x2b>;
 let AdditionalPredicates = [NotInMicroMips] in {
-def AND   : MMRel, ArithLogicR<"and", GPR32Opnd, 1, II_AND, and>,
+def AND   : MMRel, StdMMR6Rel, ArithLogicR<"and", GPR32Opnd, 1, II_AND, and>,
             ADD_FM<0, 0x24>;
-def OR    : MMRel, ArithLogicR<"or", GPR32Opnd, 1, II_OR, or>,
+def OR    : MMRel, StdMMR6Rel, ArithLogicR<"or", GPR32Opnd, 1, II_OR, or>,
             ADD_FM<0, 0x25>;
-def XOR   : MMRel, ArithLogicR<"xor", GPR32Opnd, 1, II_XOR, xor>,
+def XOR   : MMRel, StdMMR6Rel, ArithLogicR<"xor", GPR32Opnd, 1, II_XOR, xor>,
             ADD_FM<0, 0x26>;
 }
-def NOR   : MMRel, LogicNOR<"nor", GPR32Opnd>, ADD_FM<0, 0x27>;
+def NOR   : MMRel, StdMMR6Rel, LogicNOR<"nor", GPR32Opnd>, ADD_FM<0, 0x27>;
 
 /// Shift Instructions
 let AdditionalPredicates = [NotInMicroMips] in {

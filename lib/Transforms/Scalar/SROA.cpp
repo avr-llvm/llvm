@@ -1088,7 +1088,8 @@ class AllocaPromoter : public LoadAndStorePromoter {
   SmallVector<DbgValueInst *, 4> DVIs;
 
 public:
-  AllocaPromoter(const SmallVectorImpl<Instruction *> &Insts, SSAUpdater &S,
+  AllocaPromoter(ArrayRef<const Instruction *> Insts,
+                 SSAUpdater &S,
                  AllocaInst &AI, DIBuilder &DIB)
       : LoadAndStorePromoter(Insts, S), AI(AI), DIB(DIB) {}
 

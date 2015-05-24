@@ -388,7 +388,7 @@ void EHStreamer::emitExceptionTable() {
   }
 
   // Type infos.
-  const MCSection *LSDASection = Asm->getObjFileLowering().getLSDASection();
+  MCSection *LSDASection = Asm->getObjFileLowering().getLSDASection();
   unsigned TTypeEncoding;
   unsigned TypeFormatSize;
 
@@ -439,7 +439,7 @@ void EHStreamer::emitExceptionTable() {
 
   // Emit the LSDA.
   MCSymbol *GCCETSym =
-    Asm->OutContext.GetOrCreateSymbol(Twine("GCC_except_table")+
+    Asm->OutContext.getOrCreateSymbol(Twine("GCC_except_table")+
                                       Twine(Asm->getFunctionNumber()));
   Asm->OutStreamer->EmitLabel(GCCETSym);
   Asm->OutStreamer->EmitLabel(Asm->getCurExceptionSym());

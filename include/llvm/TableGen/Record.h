@@ -26,7 +26,6 @@
 #include <map>
 
 namespace llvm {
-class raw_ostream;
 
 // RecTy subclasses.
 class BitRecTy;
@@ -108,14 +107,14 @@ public:   // These methods should only be called from subclasses of Init
   virtual Init *convertValue(   IntInit *II) { return nullptr; }
   virtual Init *convertValue(StringInit *SI) { return nullptr; }
   virtual Init *convertValue(  ListInit *LI) { return nullptr; }
-  virtual Init *convertValue( UnOpInit *UI) {
-    return convertValue((TypedInit*)UI);
+  virtual Init *convertValue( UnOpInit *UO) {
+    return convertValue((TypedInit*)UO);
   }
-  virtual Init *convertValue( BinOpInit *UI) {
-    return convertValue((TypedInit*)UI);
+  virtual Init *convertValue( BinOpInit *BO) {
+    return convertValue((TypedInit*)BO);
   }
-  virtual Init *convertValue( TernOpInit *UI) {
-    return convertValue((TypedInit*)UI);
+  virtual Init *convertValue( TernOpInit *TO) {
+    return convertValue((TypedInit*)TO);
   }
   virtual Init *convertValue(VarBitInit *VB) { return nullptr; }
   virtual Init *convertValue(   DefInit *DI) { return nullptr; }
@@ -150,21 +149,13 @@ public:
 
   static BitRecTy *get() { return &Shared; }
 
+  using RecTy::convertValue;
   Init *convertValue( UnsetInit *UI) override { return (Init*)UI; }
   Init *convertValue(   BitInit *BI) override { return (Init*)BI; }
   Init *convertValue(  BitsInit *BI) override;
   Init *convertValue(   IntInit *II) override;
-  Init *convertValue(StringInit *SI) override { return nullptr; }
-  Init *convertValue(  ListInit *LI) override { return nullptr; }
   Init *convertValue(VarBitInit *VB) override { return (Init*)VB; }
-  Init *convertValue(   DefInit *DI) override { return nullptr; }
-  Init *convertValue(   DagInit *DI) override { return nullptr; }
-  Init *convertValue(  UnOpInit *UI) override { return RecTy::convertValue(UI);}
-  Init *convertValue( BinOpInit *UI) override { return RecTy::convertValue(UI);}
-  Init *convertValue(TernOpInit *UI) override { return RecTy::convertValue(UI);}
   Init *convertValue( TypedInit *TI) override;
-  Init *convertValue(   VarInit *VI) override { return RecTy::convertValue(VI);}
-  Init *convertValue( FieldInit *FI) override { return RecTy::convertValue(FI);}
 
   std::string getAsString() const override { return "bit"; }
 
@@ -189,21 +180,12 @@ public:
 
   unsigned getNumBits() const { return Size; }
 
+  using RecTy::convertValue;
   Init *convertValue( UnsetInit *UI) override;
   Init *convertValue(   BitInit *UI) override;
   Init *convertValue(  BitsInit *BI) override;
   Init *convertValue(   IntInit *II) override;
-  Init *convertValue(StringInit *SI) override { return nullptr; }
-  Init *convertValue(  ListInit *LI) override { return nullptr; }
-  Init *convertValue(VarBitInit *VB) override { return nullptr; }
-  Init *convertValue(   DefInit *DI) override { return nullptr; }
-  Init *convertValue(   DagInit *DI) override { return nullptr; }
-  Init *convertValue(  UnOpInit *UI) override { return RecTy::convertValue(UI);}
-  Init *convertValue( BinOpInit *UI) override { return RecTy::convertValue(UI);}
-  Init *convertValue(TernOpInit *UI) override { return RecTy::convertValue(UI);}
   Init *convertValue( TypedInit *TI) override;
-  Init *convertValue(   VarInit *VI) override { return RecTy::convertValue(VI);}
-  Init *convertValue( FieldInit *FI) override { return RecTy::convertValue(FI);}
 
   std::string getAsString() const override;
 
@@ -226,21 +208,12 @@ public:
 
   static IntRecTy *get() { return &Shared; }
 
+  using RecTy::convertValue;
   Init *convertValue( UnsetInit *UI) override { return (Init*)UI; }
   Init *convertValue(   BitInit *BI) override;
   Init *convertValue(  BitsInit *BI) override;
   Init *convertValue(   IntInit *II) override { return (Init*)II; }
-  Init *convertValue(StringInit *SI) override { return nullptr; }
-  Init *convertValue(  ListInit *LI) override { return nullptr; }
-  Init *convertValue(VarBitInit *VB) override { return nullptr; }
-  Init *convertValue(   DefInit *DI) override { return nullptr; }
-  Init *convertValue(   DagInit *DI) override { return nullptr; }
-  Init *convertValue( UnOpInit *UI)  override { return RecTy::convertValue(UI);}
-  Init *convertValue( BinOpInit *UI) override { return RecTy::convertValue(UI);}
-  Init *convertValue(TernOpInit *UI) override { return RecTy::convertValue(UI);}
   Init *convertValue( TypedInit *TI) override;
-  Init *convertValue(   VarInit *VI) override { return RecTy::convertValue(VI);}
-  Init *convertValue( FieldInit *FI) override { return RecTy::convertValue(FI);}
 
   std::string getAsString() const override { return "int"; }
 
@@ -264,22 +237,12 @@ public:
 
   static StringRecTy *get() { return &Shared; }
 
+  using RecTy::convertValue;
   Init *convertValue( UnsetInit *UI) override { return (Init*)UI; }
-  Init *convertValue(   BitInit *BI) override { return nullptr; }
-  Init *convertValue(  BitsInit *BI) override { return nullptr; }
-  Init *convertValue(   IntInit *II) override { return nullptr; }
   Init *convertValue(StringInit *SI) override { return (Init*)SI; }
-  Init *convertValue(  ListInit *LI) override { return nullptr; }
-  Init *convertValue(  UnOpInit *BO) override;
+  Init *convertValue(  UnOpInit *UO) override;
   Init *convertValue( BinOpInit *BO) override;
-  Init *convertValue(TernOpInit *BO) override { return RecTy::convertValue(BO);}
-
-  Init *convertValue(VarBitInit *VB) override { return nullptr; }
-  Init *convertValue(   DefInit *DI) override { return nullptr; }
-  Init *convertValue(   DagInit *DI) override { return nullptr; }
   Init *convertValue( TypedInit *TI) override;
-  Init *convertValue(   VarInit *VI) override { return RecTy::convertValue(VI);}
-  Init *convertValue( FieldInit *FI) override { return RecTy::convertValue(FI);}
 
   std::string getAsString() const override { return "string"; }
 
@@ -304,21 +267,10 @@ public:
   static ListRecTy *get(RecTy *T) { return T->getListTy(); }
   RecTy *getElementType() const { return Ty; }
 
+  using RecTy::convertValue;
   Init *convertValue( UnsetInit *UI) override { return (Init*)UI; }
-  Init *convertValue(   BitInit *BI) override { return nullptr; }
-  Init *convertValue(  BitsInit *BI) override { return nullptr; }
-  Init *convertValue(   IntInit *II) override { return nullptr; }
-  Init *convertValue(StringInit *SI) override { return nullptr; }
   Init *convertValue(  ListInit *LI) override;
-  Init *convertValue(VarBitInit *VB) override { return nullptr; }
-  Init *convertValue(   DefInit *DI) override { return nullptr; }
-  Init *convertValue(   DagInit *DI) override { return nullptr; }
-  Init *convertValue(  UnOpInit *UI) override { return RecTy::convertValue(UI);}
-  Init *convertValue( BinOpInit *UI) override { return RecTy::convertValue(UI);}
-  Init *convertValue(TernOpInit *UI) override { return RecTy::convertValue(UI);}
   Init *convertValue( TypedInit *TI) override;
-  Init *convertValue(   VarInit *VI) override { return RecTy::convertValue(VI);}
-  Init *convertValue( FieldInit *FI) override { return RecTy::convertValue(FI);}
 
   std::string getAsString() const override;
 
@@ -342,21 +294,12 @@ public:
 
   static DagRecTy *get() { return &Shared; }
 
+  using RecTy::convertValue;
   Init *convertValue( UnsetInit *UI) override { return (Init*)UI; }
-  Init *convertValue(   BitInit *BI) override { return nullptr; }
-  Init *convertValue(  BitsInit *BI) override { return nullptr; }
-  Init *convertValue(   IntInit *II) override { return nullptr; }
-  Init *convertValue(StringInit *SI) override { return nullptr; }
-  Init *convertValue(  ListInit *LI) override { return nullptr; }
-  Init *convertValue(VarBitInit *VB) override { return nullptr; }
-  Init *convertValue(   DefInit *DI) override { return nullptr; }
-  Init *convertValue(  UnOpInit *BO) override;
+  Init *convertValue(  UnOpInit *UO) override;
   Init *convertValue( BinOpInit *BO) override;
-  Init *convertValue(TernOpInit *BO) override { return RecTy::convertValue(BO);}
-  Init *convertValue(   DagInit *CI) override { return (Init*)CI; }
+  Init *convertValue(   DagInit *DI) override { return (Init*)DI; }
   Init *convertValue( TypedInit *TI) override;
-  Init *convertValue(   VarInit *VI) override { return RecTy::convertValue(VI);}
-  Init *convertValue( FieldInit *FI) override { return RecTy::convertValue(FI);}
 
   std::string getAsString() const override { return "dag"; }
 
@@ -382,21 +325,10 @@ public:
 
   Record *getRecord() const { return Rec; }
 
+  using RecTy::convertValue;
   Init *convertValue( UnsetInit *UI) override { return (Init*)UI; }
-  Init *convertValue(   BitInit *BI) override { return nullptr; }
-  Init *convertValue(  BitsInit *BI) override { return nullptr; }
-  Init *convertValue(   IntInit *II) override { return nullptr; }
-  Init *convertValue(StringInit *SI) override { return nullptr; }
-  Init *convertValue(  ListInit *LI) override { return nullptr; }
-  Init *convertValue(VarBitInit *VB) override { return nullptr; }
-  Init *convertValue(  UnOpInit *UI) override { return RecTy::convertValue(UI);}
-  Init *convertValue( BinOpInit *UI) override { return RecTy::convertValue(UI);}
-  Init *convertValue(TernOpInit *UI) override { return RecTy::convertValue(UI);}
   Init *convertValue(   DefInit *DI) override;
-  Init *convertValue(   DagInit *DI) override { return nullptr; }
-  Init *convertValue( TypedInit *VI) override;
-  Init *convertValue(   VarInit *VI) override { return RecTy::convertValue(VI);}
-  Init *convertValue( FieldInit *FI) override { return RecTy::convertValue(FI);}
+  Init *convertValue( TypedInit *TI) override;
 
   std::string getAsString() const override;
 
@@ -843,7 +775,6 @@ public:
   inline const_iterator begin() const { return Values.begin(); }
   inline const_iterator end  () const { return Values.end();   }
 
-  inline size_t         size () const { return Values.size();  }
   inline bool           empty() const { return Values.empty(); }
 
   /// resolveListElementReference - This method is used to implement

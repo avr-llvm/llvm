@@ -39,6 +39,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetOptions.h"
+
 using namespace llvm;
 
 // FIXME: Remove this once soft-float is supported.
@@ -402,11 +403,18 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM,
     // will selectively turn on ones that can be effectively codegen'd.
     for (MVT VT : MVT::vector_valuetypes()) {
       // add/sub are legal for all supported vector VT's.
-      setOperationAction(ISD::ADD , VT, Legal);
-      setOperationAction(ISD::SUB , VT, Legal);
-
+      // This check is temporary until support for quadword add/sub is added
+      if (VT.SimpleTy != MVT::v1i128) {
+        setOperationAction(ISD::ADD , VT, Legal);
+        setOperationAction(ISD::SUB , VT, Legal);
+      }
+      else {
+        setOperationAction(ISD::ADD , VT, Expand);
+        setOperationAction(ISD::SUB , VT, Expand);
+      }
+      
       // Vector instructions introduced in P8
-      if (Subtarget.hasP8Altivec()) {
+      if (Subtarget.hasP8Altivec() && (VT.SimpleTy != MVT::v1i128)) {
         setOperationAction(ISD::CTPOP, VT, Legal);
         setOperationAction(ISD::CTLZ, VT, Legal);
       }
@@ -574,6 +582,9 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM,
 
       setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v2f64, Legal);
 
+      if (Subtarget.hasP8Vector())
+        addRegisterClass(MVT::f32, &PPC::VSSRCRegClass);
+
       addRegisterClass(MVT::f64, &PPC::VSFRCRegClass);
 
       addRegisterClass(MVT::v4f32, &PPC::VSRCRegClass);
@@ -620,8 +631,10 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM,
       addRegisterClass(MVT::v2i64, &PPC::VSRCRegClass);
     }
 
-    if (Subtarget.hasP8Altivec()) 
+    if (Subtarget.hasP8Altivec()) {
       addRegisterClass(MVT::v2i64, &PPC::VRRCRegClass);
+      addRegisterClass(MVT::v1i128, &PPC::VRRCRegClass);
+    }
   }
 
   if (Subtarget.hasQPX()) {
@@ -960,8 +973,8 @@ unsigned PPCTargetLowering::getByValTypeAlignment(Type *Ty) const {
 }
 
 const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
-  switch (Opcode) {
-  default: return nullptr;
+  switch ((PPCISD::NodeType)Opcode) {
+  case PPCISD::FIRST_NUMBER:    break;
   case PPCISD::FSEL:            return "PPCISD::FSEL";
   case PPCISD::FCFID:           return "PPCISD::FCFID";
   case PPCISD::FCFIDU:          return "PPCISD::FCFIDU";
@@ -986,6 +999,7 @@ const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PPCISD::SRL:             return "PPCISD::SRL";
   case PPCISD::SRA:             return "PPCISD::SRA";
   case PPCISD::SHL:             return "PPCISD::SHL";
+  case PPCISD::SRA_ADDZE:       return "PPCISD::SRA_ADDZE";
   case PPCISD::CALL:            return "PPCISD::CALL";
   case PPCISD::CALL_NOP:        return "PPCISD::CALL_NOP";
   case PPCISD::MTCTR:           return "PPCISD::MTCTR";
@@ -999,12 +1013,16 @@ const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PPCISD::MFVSR:           return "PPCISD::MFVSR";
   case PPCISD::MTVSRA:          return "PPCISD::MTVSRA";
   case PPCISD::MTVSRZ:          return "PPCISD::MTVSRZ";
+  case PPCISD::ANDIo_1_EQ_BIT:  return "PPCISD::ANDIo_1_EQ_BIT";
+  case PPCISD::ANDIo_1_GT_BIT:  return "PPCISD::ANDIo_1_GT_BIT";
   case PPCISD::VCMP:            return "PPCISD::VCMP";
   case PPCISD::VCMPo:           return "PPCISD::VCMPo";
   case PPCISD::LBRX:            return "PPCISD::LBRX";
   case PPCISD::STBRX:           return "PPCISD::STBRX";
   case PPCISD::LFIWAX:          return "PPCISD::LFIWAX";
   case PPCISD::LFIWZX:          return "PPCISD::LFIWZX";
+  case PPCISD::LXVD2X:          return "PPCISD::LXVD2X";
+  case PPCISD::STXVD2X:         return "PPCISD::STXVD2X";
   case PPCISD::COND_BRANCH:     return "PPCISD::COND_BRANCH";
   case PPCISD::BDNZ:            return "PPCISD::BDNZ";
   case PPCISD::BDZ:             return "PPCISD::BDZ";
@@ -1014,6 +1032,7 @@ const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PPCISD::CR6SET:          return "PPCISD::CR6SET";
   case PPCISD::CR6UNSET:        return "PPCISD::CR6UNSET";
   case PPCISD::PPC32_GOT:       return "PPCISD::PPC32_GOT";
+  case PPCISD::PPC32_PICGOT:    return "PPCISD::PPC32_PICGOT";
   case PPCISD::ADDIS_GOT_TPREL_HA: return "PPCISD::ADDIS_GOT_TPREL_HA";
   case PPCISD::LD_GOT_TPREL_L:  return "PPCISD::LD_GOT_TPREL_L";
   case PPCISD::ADD_TLS:         return "PPCISD::ADD_TLS";
@@ -1029,6 +1048,10 @@ const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PPCISD::ADDI_DTPREL_L:   return "PPCISD::ADDI_DTPREL_L";
   case PPCISD::VADD_SPLAT:      return "PPCISD::VADD_SPLAT";
   case PPCISD::SC:              return "PPCISD::SC";
+  case PPCISD::CLRBHRB:         return "PPCISD::CLRBHRB";
+  case PPCISD::MFBHRBE:         return "PPCISD::MFBHRBE";
+  case PPCISD::RFEBB:           return "PPCISD::RFEBB";
+  case PPCISD::XXSWAPD:         return "PPCISD::XXSWAPD";
   case PPCISD::QVFPERM:         return "PPCISD::QVFPERM";
   case PPCISD::QVGPCI:          return "PPCISD::QVGPCI";
   case PPCISD::QVALIGNI:        return "PPCISD::QVALIGNI";
@@ -1036,6 +1059,7 @@ const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PPCISD::QBFLT:           return "PPCISD::QBFLT";
   case PPCISD::QVLFSb:          return "PPCISD::QVLFSb";
   }
+  return nullptr;
 }
 
 EVT PPCTargetLowering::getSetCCResultType(LLVMContext &C, EVT VT) const {
@@ -1080,7 +1104,7 @@ static bool isConstantOrUndef(int Op, int Val) {
 /// VPKUHUM instruction.
 /// The ShuffleKind distinguishes between big-endian operations with
 /// two different inputs (0), either-endian operations with two identical
-/// inputs (1), and little-endian operantion with two different inputs (2).
+/// inputs (1), and little-endian operations with two different inputs (2).
 /// For the latter, the input operands are swapped (see PPCInstrAltivec.td).
 bool PPC::isVPKUHUMShuffleMask(ShuffleVectorSDNode *N, unsigned ShuffleKind,
                                SelectionDAG &DAG) {
@@ -1111,7 +1135,7 @@ bool PPC::isVPKUHUMShuffleMask(ShuffleVectorSDNode *N, unsigned ShuffleKind,
 /// VPKUWUM instruction.
 /// The ShuffleKind distinguishes between big-endian operations with
 /// two different inputs (0), either-endian operations with two identical
-/// inputs (1), and little-endian operantion with two different inputs (2).
+/// inputs (1), and little-endian operations with two different inputs (2).
 /// For the latter, the input operands are swapped (see PPCInstrAltivec.td).
 bool PPC::isVPKUWUMShuffleMask(ShuffleVectorSDNode *N, unsigned ShuffleKind,
                                SelectionDAG &DAG) {
@@ -1137,6 +1161,56 @@ bool PPC::isVPKUWUMShuffleMask(ShuffleVectorSDNode *N, unsigned ShuffleKind,
           !isConstantOrUndef(N->getMaskElt(i+1),  i*2+j+1) ||
           !isConstantOrUndef(N->getMaskElt(i+8),  i*2+j)   ||
           !isConstantOrUndef(N->getMaskElt(i+9),  i*2+j+1))
+        return false;
+  }
+  return true;
+}
+
+/// isVPKUDUMShuffleMask - Return true if this is the shuffle mask for a
+/// VPKUDUM instruction, AND the VPKUDUM instruction exists for the
+/// current subtarget.
+///
+/// The ShuffleKind distinguishes between big-endian operations with
+/// two different inputs (0), either-endian operations with two identical
+/// inputs (1), and little-endian operations with two different inputs (2).
+/// For the latter, the input operands are swapped (see PPCInstrAltivec.td).
+bool PPC::isVPKUDUMShuffleMask(ShuffleVectorSDNode *N, unsigned ShuffleKind,
+                               SelectionDAG &DAG) {
+  const PPCSubtarget& Subtarget =
+    static_cast<const PPCSubtarget&>(DAG.getSubtarget());
+  if (!Subtarget.hasP8Vector())
+    return false;
+
+  bool IsLE = DAG.getTarget().getDataLayout()->isLittleEndian();
+  if (ShuffleKind == 0) {
+    if (IsLE)
+      return false;
+    for (unsigned i = 0; i != 16; i += 4)
+      if (!isConstantOrUndef(N->getMaskElt(i  ),  i*2+4) ||
+          !isConstantOrUndef(N->getMaskElt(i+1),  i*2+5) ||
+          !isConstantOrUndef(N->getMaskElt(i+2),  i*2+6) ||
+          !isConstantOrUndef(N->getMaskElt(i+3),  i*2+7))
+        return false;
+  } else if (ShuffleKind == 2) {
+    if (!IsLE)
+      return false;
+    for (unsigned i = 0; i != 16; i += 4)
+      if (!isConstantOrUndef(N->getMaskElt(i  ),  i*2) ||
+          !isConstantOrUndef(N->getMaskElt(i+1),  i*2+1) ||
+          !isConstantOrUndef(N->getMaskElt(i+2),  i*2+2) ||
+          !isConstantOrUndef(N->getMaskElt(i+3),  i*2+3))
+        return false;
+  } else if (ShuffleKind == 1) {
+    unsigned j = IsLE ? 0 : 4;
+    for (unsigned i = 0; i != 8; i += 4)
+      if (!isConstantOrUndef(N->getMaskElt(i  ),  i*2+j)   ||
+          !isConstantOrUndef(N->getMaskElt(i+1),  i*2+j+1) ||
+          !isConstantOrUndef(N->getMaskElt(i+2),  i*2+j+2) ||
+          !isConstantOrUndef(N->getMaskElt(i+3),  i*2+j+3) ||
+          !isConstantOrUndef(N->getMaskElt(i+8),  i*2+j)   ||
+          !isConstantOrUndef(N->getMaskElt(i+9),  i*2+j+1) ||
+          !isConstantOrUndef(N->getMaskElt(i+10), i*2+j+2) ||
+          !isConstantOrUndef(N->getMaskElt(i+11), i*2+j+3))
         return false;
   }
   return true;
@@ -2473,7 +2547,8 @@ static unsigned CalculateStackSlotAlignment(EVT ArgVT, EVT OrigVT,
   // Altivec parameters are padded to a 16 byte boundary.
   if (ArgVT == MVT::v4f32 || ArgVT == MVT::v4i32 ||
       ArgVT == MVT::v8i16 || ArgVT == MVT::v16i8 ||
-      ArgVT == MVT::v2f64 || ArgVT == MVT::v2i64)
+      ArgVT == MVT::v2f64 || ArgVT == MVT::v2i64 ||
+      ArgVT == MVT::v1i128)
     Align = 16;
   // QPX vector types stored in double-precision are padded to a 32 byte
   // boundary.
@@ -2552,7 +2627,8 @@ static bool CalculateStackSlotUsed(EVT ArgVT, EVT OrigVT,
       }
     if (ArgVT == MVT::v4f32 || ArgVT == MVT::v4i32 ||
         ArgVT == MVT::v8i16 || ArgVT == MVT::v16i8 ||
-        ArgVT == MVT::v2f64 || ArgVT == MVT::v2i64)
+        ArgVT == MVT::v2f64 || ArgVT == MVT::v2i64 ||
+        ArgVT == MVT::v1i128)
       if (AvailableVRs > 0) {
         --AvailableVRs;
         return false;
@@ -2668,7 +2744,10 @@ PPCTargetLowering::LowerFormalArguments_32SVR4(
           RC = &PPC::GPRCRegClass;
           break;
         case MVT::f32:
-          RC = &PPC::F4RCRegClass;
+          if (Subtarget.hasP8Vector())
+            RC = &PPC::VSSRCRegClass;
+          else
+            RC = &PPC::F4RCRegClass;
           break;
         case MVT::f64:
           if (Subtarget.hasVSX())
@@ -3082,7 +3161,10 @@ PPCTargetLowering::LowerFormalArguments_64SVR4(
         unsigned VReg;
 
         if (ObjectVT == MVT::f32)
-          VReg = MF.addLiveIn(FPR[FPR_idx], &PPC::F4RCRegClass);
+          VReg = MF.addLiveIn(FPR[FPR_idx],
+                              Subtarget.hasP8Vector()
+                                  ? &PPC::VSSRCRegClass
+                                  : &PPC::F4RCRegClass);
         else
           VReg = MF.addLiveIn(FPR[FPR_idx], Subtarget.hasVSX()
                                                 ? &PPC::VSFRCRegClass
@@ -3131,6 +3213,7 @@ PPCTargetLowering::LowerFormalArguments_64SVR4(
     case MVT::v16i8:
     case MVT::v2f64:
     case MVT::v2i64:
+    case MVT::v1i128:
       if (!Subtarget.hasQPX()) {
       // These can be scalar arguments or elements of a vector array type
       // passed directly.  The latter are used to implement ELFv2 homogenous
@@ -4185,6 +4268,7 @@ PPCTargetLowering::FinishCall(CallingConv::ID CallConv, SDLoc dl,
             isa<ConstantSDNode>(Callee)) &&
     "Expecting an global address, external symbol, absolute value or register");
 
+    DAG.getMachineFunction().getFrameInfo()->setHasTailCall();
     return DAG.getNode(PPCISD::TC_RETURN, dl, MVT::Other, Ops);
   }
 
@@ -4605,6 +4689,7 @@ PPCTargetLowering::LowerCall_64SVR4(SDValue Chain, SDValue Callee,
         case MVT::v16i8:
         case MVT::v2f64:
         case MVT::v2i64:
+        case MVT::v1i128:
           if (++NumVRsUsed <= NumVRs)
             continue;
           break;
@@ -4967,6 +5052,7 @@ PPCTargetLowering::LowerCall_64SVR4(SDValue Chain, SDValue Callee,
     case MVT::v16i8:
     case MVT::v2f64:
     case MVT::v2i64:
+    case MVT::v1i128:
       if (!Subtarget.hasQPX()) {
       // These can be scalar arguments or elements of a vector array type
       // passed directly.  The latter are used to implement ELFv2 homogenous
@@ -6960,6 +7046,7 @@ SDValue PPCTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
         PPC::isSplatShuffleMask(SVOp, 4) ||
         PPC::isVPKUWUMShuffleMask(SVOp, 1, DAG) ||
         PPC::isVPKUHUMShuffleMask(SVOp, 1, DAG) ||
+        PPC::isVPKUDUMShuffleMask(SVOp, 1, DAG) ||
         PPC::isVSLDOIShuffleMask(SVOp, 1, DAG) != -1 ||
         PPC::isVMRGLShuffleMask(SVOp, 1, 1, DAG) ||
         PPC::isVMRGLShuffleMask(SVOp, 2, 1, DAG) ||
@@ -6977,6 +7064,7 @@ SDValue PPCTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
   unsigned int ShuffleKind = isLittleEndian ? 2 : 0;
   if (PPC::isVPKUWUMShuffleMask(SVOp, ShuffleKind, DAG) ||
       PPC::isVPKUHUMShuffleMask(SVOp, ShuffleKind, DAG) ||
+      PPC::isVPKUDUMShuffleMask(SVOp, ShuffleKind, DAG) ||
       PPC::isVSLDOIShuffleMask(SVOp, ShuffleKind, DAG) != -1 ||
       PPC::isVMRGLShuffleMask(SVOp, 1, ShuffleKind, DAG) ||
       PPC::isVMRGLShuffleMask(SVOp, 2, ShuffleKind, DAG) ||
@@ -7802,7 +7890,7 @@ void PPCTargetLowering::ReplaceNodeResults(SDNode *N,
 static Instruction* callIntrinsic(IRBuilder<> &Builder, Intrinsic::ID Id) {
   Module *M = Builder.GetInsertBlock()->getParent()->getParent();
   Function *Func = Intrinsic::getDeclaration(M, Id);
-  return Builder.CreateCall(Func);
+  return Builder.CreateCall(Func, {});
 }
 
 // The mappings for emitLeading/TrailingFence is taken from
@@ -7812,10 +7900,9 @@ Instruction* PPCTargetLowering::emitLeadingFence(IRBuilder<> &Builder,
                                          bool IsLoad) const {
   if (Ord == SequentiallyConsistent)
     return callIntrinsic(Builder, Intrinsic::ppc_sync);
-  else if (isAtLeastRelease(Ord))
+  if (isAtLeastRelease(Ord))
     return callIntrinsic(Builder, Intrinsic::ppc_lwsync);
-  else
-    return nullptr;
+  return nullptr;
 }
 
 Instruction* PPCTargetLowering::emitTrailingFence(IRBuilder<> &Builder,
@@ -7827,8 +7914,7 @@ Instruction* PPCTargetLowering::emitTrailingFence(IRBuilder<> &Builder,
   // See http://www.cl.cam.ac.uk/~pes20/cpp/cpp0xmappings.html and
   // http://www.rdrop.com/users/paulmck/scalability/paper/N2745r.2011.03.04a.html
   // and http://www.cl.cam.ac.uk/~pes20/cppppc/ for justification.
-  else
-    return nullptr;
+  return nullptr;
 }
 
 MachineBasicBlock *
@@ -8368,6 +8454,7 @@ PPCTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
              MI->getOpcode() == PPC::SELECT_CC_QBRC ||
              MI->getOpcode() == PPC::SELECT_CC_VRRC ||
              MI->getOpcode() == PPC::SELECT_CC_VSFRC ||
+             MI->getOpcode() == PPC::SELECT_CC_VSSRC ||
              MI->getOpcode() == PPC::SELECT_CC_VSRC ||
              MI->getOpcode() == PPC::SELECT_I4 ||
              MI->getOpcode() == PPC::SELECT_I8 ||
@@ -8378,6 +8465,7 @@ PPCTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
              MI->getOpcode() == PPC::SELECT_QBRC ||
              MI->getOpcode() == PPC::SELECT_VRRC ||
              MI->getOpcode() == PPC::SELECT_VSFRC ||
+             MI->getOpcode() == PPC::SELECT_VSSRC ||
              MI->getOpcode() == PPC::SELECT_VSRC) {
     // The incoming instruction knows the destination vreg to set, the
     // condition code register to branch on, the true/false values to
@@ -8414,6 +8502,7 @@ PPCTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
         MI->getOpcode() == PPC::SELECT_QBRC ||
         MI->getOpcode() == PPC::SELECT_VRRC ||
         MI->getOpcode() == PPC::SELECT_VSFRC ||
+        MI->getOpcode() == PPC::SELECT_VSSRC ||
         MI->getOpcode() == PPC::SELECT_VSRC) {
       BuildMI(BB, dl, TII->get(PPC::BC))
         .addReg(MI->getOperand(1).getReg()).addMBB(sinkMBB);
@@ -10633,7 +10722,10 @@ PPCTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
              Constraint == "wf") {
     return std::make_pair(0U, &PPC::VSRCRegClass);
   } else if (Constraint == "ws") {
-    return std::make_pair(0U, &PPC::VSFRCRegClass);
+    if (VT == MVT::f32)
+      return std::make_pair(0U, &PPC::VSSRCRegClass);
+    else
+      return std::make_pair(0U, &PPC::VSFRCRegClass);
   }
 
   std::pair<unsigned, const TargetRegisterClass *> R =

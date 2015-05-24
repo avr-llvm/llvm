@@ -11,6 +11,7 @@
 #include "SystemZAsmPrinter.h"
 #include "llvm/IR/Mangler.h"
 #include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCStreamer.h"
 
 using namespace llvm;
@@ -79,14 +80,14 @@ SystemZMCInstLower::getExpr(const MachineOperand &MO,
 MCOperand SystemZMCInstLower::lowerOperand(const MachineOperand &MO) const {
   switch (MO.getType()) {
   case MachineOperand::MO_Register:
-    return MCOperand::CreateReg(MO.getReg());
+    return MCOperand::createReg(MO.getReg());
 
   case MachineOperand::MO_Immediate:
-    return MCOperand::CreateImm(MO.getImm());
+    return MCOperand::createImm(MO.getImm());
 
   default: {
     MCSymbolRefExpr::VariantKind Kind = getVariantKind(MO.getTargetFlags());
-    return MCOperand::CreateExpr(getExpr(MO, Kind));
+    return MCOperand::createExpr(getExpr(MO, Kind));
   }
   }
 }

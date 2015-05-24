@@ -230,8 +230,8 @@ namespace {
       MachineInstr *MI;
       unsigned MaxDisp : 31;
       bool isCond : 1;
-      int UncondBr;
-      ImmBranch(MachineInstr *mi, unsigned maxdisp, bool cond, int ubr)
+      unsigned UncondBr;
+      ImmBranch(MachineInstr *mi, unsigned maxdisp, bool cond, unsigned ubr)
         : MI(mi), MaxDisp(maxdisp), isCond(cond), UncondBr(ubr) {}
     };
 
@@ -301,6 +301,8 @@ namespace {
     bool optimizeThumb2Instructions();
     bool optimizeThumb2Branches();
     bool reorderThumb2JumpTables();
+    unsigned removeDeadDefinitions(MachineInstr *MI, unsigned BaseReg,
+                                   unsigned IdxReg);
     bool optimizeThumb2JumpTables();
     MachineBasicBlock *adjustJTTargetBlockForward(MachineBasicBlock *BB,
                                                   MachineBasicBlock *JTBB);
@@ -654,7 +656,7 @@ initializeFunctionInfo(const std::vector<MachineInstr*> &CPEMIs) {
       if (I->isDebugValue())
         continue;
 
-      int Opc = I->getOpcode();
+      unsigned Opc = I->getOpcode();
       if (I->isBranch()) {
         bool isCond = false;
         unsigned Bits = 0;
@@ -1842,6 +1844,79 @@ bool ARMConstantIslands::optimizeThumb2Branches() {
   return MadeChange;
 }
 
+/// If we've formed a TBB or TBH instruction, the base register is now
+/// redundant. In most cases, the instructions defining it will now be dead and
+/// can be tidied up. This function removes them if so, and returns the number
+/// of bytes saved.
+unsigned ARMConstantIslands::removeDeadDefinitions(MachineInstr *MI,
+                                                   unsigned BaseReg,
+                                                   unsigned IdxReg) {
+  unsigned BytesRemoved = 0;
+  MachineBasicBlock *MBB = MI->getParent();
+
+  // Scan backwards to find the instruction that defines the base
+  // register. Due to post-RA scheduling, we can't count on it
+  // immediately preceding the branch instruction.
+  MachineBasicBlock::iterator PrevI = MI;
+  MachineBasicBlock::iterator B = MBB->begin();
+  while (PrevI != B && !PrevI->definesRegister(BaseReg))
+    --PrevI;
+
+  // If for some reason we didn't find it, we can't do anything, so
+  // just skip this one.
+  if (!PrevI->definesRegister(BaseReg) || PrevI->hasUnmodeledSideEffects() ||
+      PrevI->mayStore())
+    return BytesRemoved;
+
+  MachineInstr *AddrMI = PrevI;
+  unsigned NewBaseReg = BytesRemoved;
+
+  // Examine the instruction that calculates the jumptable entry address.  Make
+  // sure it only defines the base register and kills any uses other than the
+  // index register. We also need precisely one use to trace backwards to
+  // (hopefully) the LEA.
+  for (unsigned k = 0, eee = AddrMI->getNumOperands(); k != eee; ++k) {
+    const MachineOperand &MO = AddrMI->getOperand(k);
+    if (!MO.isReg() || !MO.getReg())
+      continue;
+    if (MO.isDef() && MO.getReg() != BaseReg)
+      return BytesRemoved;
+
+    if (MO.isUse() && MO.getReg() != IdxReg) {
+      if (!MO.isKill() || (NewBaseReg != 0 && NewBaseReg != MO.getReg()))
+        return BytesRemoved;
+      NewBaseReg = MO.getReg();
+    }
+  }
+
+  // Want to continue searching for AddrMI, but there are 2 problems: AddrMI is
+  // going away soon, and even decrementing once may be invalid.
+  if (PrevI != B)
+    PrevI = std::prev(PrevI);
+
+  DEBUG(dbgs() << "remove addr: " << *AddrMI);
+  BytesRemoved += TII->GetInstSizeInBytes(AddrMI);
+  AddrMI->eraseFromParent();
+
+  // Now scan back again to find the tLEApcrel or t2LEApcrelJT instruction
+  // that gave us the initial base register definition.
+  for (; PrevI != B && !PrevI->definesRegister(NewBaseReg); --PrevI)
+    ;
+
+  // The instruction should be a tLEApcrel or t2LEApcrelJT; we want
+  // to delete it as well.
+  MachineInstr *LeaMI = PrevI;
+  if ((LeaMI->getOpcode() != ARM::tLEApcrelJT &&
+       LeaMI->getOpcode() != ARM::t2LEApcrelJT) ||
+      LeaMI->getOperand(0).getReg() != NewBaseReg)
+    return BytesRemoved;
+
+  DEBUG(dbgs() << "remove lea: " << *LeaMI);
+  BytesRemoved += TII->GetInstSizeInBytes(LeaMI);
+  LeaMI->eraseFromParent();
+  return BytesRemoved;
+}
+
 /// optimizeThumb2JumpTables - Use tbb / tbh instructions to generate smaller
 /// jumptables when it's possible.
 bool ARMConstantIslands::optimizeThumb2JumpTables() {
@@ -1857,7 +1932,7 @@ bool ARMConstantIslands::optimizeThumb2JumpTables() {
     MachineInstr *MI = T2JumpTables[i];
     const MCInstrDesc &MCID = MI->getDesc();
     unsigned NumOps = MCID.getNumOperands();
-    unsigned JTOpIdx = NumOps - (MI->isPredicable() ? 3 : 2);
+    unsigned JTOpIdx = NumOps - (MI->isPredicable() ? 2 : 1);
     MachineOperand JTOP = MI->getOperand(JTOpIdx);
     unsigned JTI = JTOP.getIndex();
     assert(JTI < JT.size());
@@ -1889,78 +1964,22 @@ bool ARMConstantIslands::optimizeThumb2JumpTables() {
       unsigned IdxReg = MI->getOperand(1).getReg();
       bool IdxRegKill = MI->getOperand(1).isKill();
 
-      // Scan backwards to find the instruction that defines the base
-      // register. Due to post-RA scheduling, we can't count on it
-      // immediately preceding the branch instruction.
-      MachineBasicBlock::iterator PrevI = MI;
-      MachineBasicBlock::iterator B = MBB->begin();
-      while (PrevI != B && !PrevI->definesRegister(BaseReg))
-        --PrevI;
-
-      // If for some reason we didn't find it, we can't do anything, so
-      // just skip this one.
-      if (!PrevI->definesRegister(BaseReg))
-        continue;
-
-      MachineInstr *AddrMI = PrevI;
-      bool OptOk = true;
-      // Examine the instruction that calculates the jumptable entry address.
-      // Make sure it only defines the base register and kills any uses
-      // other than the index register.
-      for (unsigned k = 0, eee = AddrMI->getNumOperands(); k != eee; ++k) {
-        const MachineOperand &MO = AddrMI->getOperand(k);
-        if (!MO.isReg() || !MO.getReg())
-          continue;
-        if (MO.isDef() && MO.getReg() != BaseReg) {
-          OptOk = false;
-          break;
-        }
-        if (MO.isUse() && !MO.isKill() && MO.getReg() != IdxReg) {
-          OptOk = false;
-          break;
-        }
-      }
-      if (!OptOk)
-        continue;
-
-      // Now scan back again to find the tLEApcrel or t2LEApcrelJT instruction
-      // that gave us the initial base register definition.
-      for (--PrevI; PrevI != B && !PrevI->definesRegister(BaseReg); --PrevI)
-        ;
-
-      // The instruction should be a tLEApcrel or t2LEApcrelJT; we want
-      // to delete it as well.
-      MachineInstr *LeaMI = PrevI;
-      if ((LeaMI->getOpcode() != ARM::tLEApcrelJT &&
-           LeaMI->getOpcode() != ARM::t2LEApcrelJT) ||
-          LeaMI->getOperand(0).getReg() != BaseReg)
-        OptOk = false;
-
-      if (!OptOk)
-        continue;
-
-      DEBUG(dbgs() << "Shrink JT: " << *MI << "     addr: " << *AddrMI
-                   << "      lea: " << *LeaMI);
+      DEBUG(dbgs() << "Shrink JT: " << *MI);
       unsigned Opc = ByteOk ? ARM::t2TBB_JT : ARM::t2TBH_JT;
       MachineBasicBlock::iterator MI_JT = MI;
       MachineInstr *NewJTMI =
         BuildMI(*MBB, MI_JT, MI->getDebugLoc(), TII->get(Opc))
         .addReg(IdxReg, getKillRegState(IdxRegKill))
-        .addJumpTableIndex(JTI, JTOP.getTargetFlags())
-        .addImm(MI->getOperand(JTOpIdx+1).getImm());
+        .addJumpTableIndex(JTI, JTOP.getTargetFlags());
       DEBUG(dbgs() << "BB#" << MBB->getNumber() << ": " << *NewJTMI);
       // FIXME: Insert an "ALIGN" instruction to ensure the next instruction
       // is 2-byte aligned. For now, asm printer will fix it up.
       unsigned NewSize = TII->GetInstSizeInBytes(NewJTMI);
-      unsigned OrigSize = TII->GetInstSizeInBytes(AddrMI);
-      OrigSize += TII->GetInstSizeInBytes(LeaMI);
-      OrigSize += TII->GetInstSizeInBytes(MI);
-
-      AddrMI->eraseFromParent();
-      LeaMI->eraseFromParent();
+      unsigned OrigSize = TII->GetInstSizeInBytes(MI);
+      unsigned DeadSize = removeDeadDefinitions(MI, BaseReg, IdxReg);
       MI->eraseFromParent();
 
-      int delta = OrigSize - NewSize;
+      int delta = OrigSize - NewSize + DeadSize;
       BBInfo[MBB->getNumber()].Size -= delta;
       adjustBBOffsetsAfter(MBB);
 
@@ -1985,7 +2004,7 @@ bool ARMConstantIslands::reorderThumb2JumpTables() {
     MachineInstr *MI = T2JumpTables[i];
     const MCInstrDesc &MCID = MI->getDesc();
     unsigned NumOps = MCID.getNumOperands();
-    unsigned JTOpIdx = NumOps - (MI->isPredicable() ? 3 : 2);
+    unsigned JTOpIdx = NumOps - (MI->isPredicable() ? 2 : 1);
     MachineOperand JTOP = MI->getOperand(JTOpIdx);
     unsigned JTI = JTOP.getIndex();
     assert(JTI < JT.size());

@@ -27,7 +27,7 @@ namespace llvm {
 
   namespace ARMISD {
     // ARM Specific DAG Nodes
-    enum NodeType {
+    enum NodeType : unsigned {
       // Start the numbering where the builtin ops and target ops leave off.
       FIRST_NUMBER = ISD::BUILTIN_OP_END,
 
@@ -231,6 +231,7 @@ namespace llvm {
                                const ARMSubtarget &STI);
 
     unsigned getJumpTableEncoding() const override;
+    bool useSoftFloat() const override;
 
     SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 

@@ -630,12 +630,13 @@ bool AsmParser::Run(bool NoInitialTextSection, bool NoFinalize) {
   // If we are generating dwarf for assembly source files save the initial text
   // section and generate a .file directive.
   if (getContext().getGenDwarfForAssembly()) {
-    MCSymbol *SectionStartSym = getContext().CreateTempSymbol();
+    MCSymbol *SectionStartSym = getContext().createTempSymbol();
     getStreamer().EmitLabel(SectionStartSym);
-    auto InsertResult = getContext().addGenDwarfSection(
-        getStreamer().getCurrentSection().first);
-    assert(InsertResult.second && ".text section should not have debug info yet");
-    InsertResult.first->second.first = SectionStartSym;
+    MCSection *Sec = getStreamer().getCurrentSection().first;
+    bool InsertResult = getContext().addGenDwarfSection(Sec);
+    assert(InsertResult && ".text section should not have debug info yet");
+    (void)InsertResult;
+    Sec->setBeginSymbol(SectionStartSym);
     getContext().setGenDwarfFileNumber(getStreamer().EmitDwarfFileDirective(
         0, StringRef(), getContext().getMainFileName()));
   }
@@ -798,7 +799,7 @@ bool AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
         if (Lexer.getMAI().getDollarIsPC()) {
           // This is a '$' reference, which references the current PC.  Emit a
           // temporary label to the streamer and refer to it.
-          MCSymbol *Sym = Ctx.CreateTempSymbol();
+          MCSymbol *Sym = Ctx.createTempSymbol();
           Out.EmitLabel(Sym);
           Res = MCSymbolRefExpr::Create(Sym, MCSymbolRefExpr::VK_None,
                                         getContext());
@@ -855,7 +856,7 @@ bool AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
       }
     }
 
-    MCSymbol *Sym = getContext().GetOrCreateSymbol(SymbolName);
+    MCSymbol *Sym = getContext().getOrCreateSymbol(SymbolName);
 
     // If this is an absolute variable reference, substitute it now to preserve
     // semantics in the face of reassignment.
@@ -893,7 +894,7 @@ bool AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
       }
       if (IDVal == "f" || IDVal == "b") {
         MCSymbol *Sym =
-            Ctx.GetDirectionalLocalSymbol(IntVal, IDVal == "b");
+            Ctx.getDirectionalLocalSymbol(IntVal, IDVal == "b");
         Res = MCSymbolRefExpr::Create(Sym, Variant, getContext());
         if (IDVal == "b" && Sym->isUndefined())
           return Error(Loc, "invalid reference to undefined symbol");
@@ -914,7 +915,7 @@ bool AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
   case AsmToken::Dot: {
     // This is a '.' reference, which references the current PC.  Emit a
     // temporary label to the streamer and refer to it.
-    MCSymbol *Sym = Ctx.CreateTempSymbol();
+    MCSymbol *Sym = Ctx.createTempSymbol();
     Out.EmitLabel(Sym);
     Res = MCSymbolRefExpr::Create(Sym, MCSymbolRefExpr::VK_None, getContext());
     EndLoc = Lexer.getTok().getEndLoc();
@@ -1309,9 +1310,9 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
                                                IDVal.size(), RewrittenLabel));
         IDVal = RewrittenLabel;
       }
-      Sym = getContext().GetOrCreateSymbol(IDVal);
+      Sym = getContext().getOrCreateSymbol(IDVal);
     } else
-      Sym = Ctx.CreateDirectionalLocalSymbol(LocalLabelVal);
+      Sym = Ctx.createDirectionalLocalSymbol(LocalLabelVal);
 
     Sym->redefineIfPossible();
 
@@ -2217,7 +2218,7 @@ bool AsmParser::parseAssignment(StringRef Name, bool allow_redef,
 
   // Validate that the LHS is allowed to be a variable (either it has not been
   // used as a symbol, or it is an absolute symbol).
-  MCSymbol *Sym = getContext().LookupSymbol(Name);
+  MCSymbol *Sym = getContext().lookupSymbol(Name);
   if (Sym) {
     // Diagnose assignment to a label.
     //
@@ -2246,7 +2247,7 @@ bool AsmParser::parseAssignment(StringRef Name, bool allow_redef,
     }
     return false;
   } else
-    Sym = getContext().GetOrCreateSymbol(Name);
+    Sym = getContext().getOrCreateSymbol(Name);
 
   Sym->setRedefinable(allow_redef);
 
@@ -3186,7 +3187,7 @@ bool AsmParser::parseDirectiveCFIPersonalityOrLsda(bool IsPersonality) {
   if (parseIdentifier(Name))
     return TokError("expected identifier in directive");
 
-  MCSymbol *Sym = getContext().GetOrCreateSymbol(Name);
+  MCSymbol *Sym = getContext().getOrCreateSymbol(Name);
 
   if (IsPersonality)
     getStreamer().EmitCFIPersonality(Sym, Encoding);
@@ -3700,7 +3701,7 @@ bool AsmParser::parseDirectiveSymbolAttribute(MCSymbolAttr Attr) {
       if (parseIdentifier(Name))
         return Error(Loc, "expected identifier in directive");
 
-      MCSymbol *Sym = getContext().GetOrCreateSymbol(Name);
+      MCSymbol *Sym = getContext().getOrCreateSymbol(Name);
 
       // Assembler local symbols don't make any sense here. Complain loudly.
       if (Sym->isTemporary())
@@ -3733,7 +3734,7 @@ bool AsmParser::parseDirectiveComm(bool IsLocal) {
     return TokError("expected identifier in directive");
 
   // Handle the identifier as the key symbol.
-  MCSymbol *Sym = getContext().GetOrCreateSymbol(Name);
+  MCSymbol *Sym = getContext().getOrCreateSymbol(Name);
 
   if (getLexer().isNot(AsmToken::Comma))
     return TokError("unexpected token in directive");
@@ -4030,7 +4031,7 @@ bool AsmParser::parseDirectiveIfdef(SMLoc DirectiveLoc, bool expect_defined) {
 
     Lex();
 
-    MCSymbol *Sym = getContext().LookupSymbol(Name);
+    MCSymbol *Sym = getContext().lookupSymbol(Name);
 
     if (expect_defined)
       TheCondState.CondMet = (Sym && !Sym->isUndefined());

@@ -59,8 +59,7 @@ public:
     return "ARM Assembly / Object Emitter";
   }
 
-  void printOperand(const MachineInstr *MI, int OpNum, raw_ostream &O,
-                    const char *Modifier = nullptr);
+  void printOperand(const MachineInstr *MI, int OpNum, raw_ostream &O);
 
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
                        unsigned AsmVariant, const char *ExtraCode,
@@ -117,7 +116,7 @@ public:
 
 private:
   MCOperand GetSymbolRef(const MachineOperand &MO, const MCSymbol *Symbol);
-  MCSymbol *GetARMJTIPICJumpTableLabel2(unsigned uid, unsigned uid2) const;
+  MCSymbol *GetARMJTIPICJumpTableLabel(unsigned uid) const;
 
   MCSymbol *GetARMSJLJEHLabel() const;
 

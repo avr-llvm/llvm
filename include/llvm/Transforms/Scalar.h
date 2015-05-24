@@ -423,6 +423,13 @@ createSeparateConstOffsetFromGEPPass(const TargetMachine *TM = nullptr,
 
 //===----------------------------------------------------------------------===//
 //
+// SpeculativeExecution - Aggressively hoist instructions to enable
+// speculative execution on targets where branches are expensive.
+//
+FunctionPass *createSpeculativeExecutionPass();
+
+//===----------------------------------------------------------------------===//
+//
 // LoadCombine - Combine loads into bigger loads.
 //
 BasicBlockPass *createLoadCombinePass();
@@ -442,7 +449,7 @@ FunctionPass *createStraightLineStrengthReducePass();
 // RewriteStatepointsForGC which can be run at an arbitrary point in the pass
 // order following this pass.
 //
-ModulePass *createPlaceSafepointsPass();
+FunctionPass *createPlaceSafepointsPass();
 
 //===----------------------------------------------------------------------===//
 //
@@ -462,6 +469,12 @@ FunctionPass *createFloat2IntPass();
 // NaryReassociate - Simplify n-ary operations by reassociation.
 //
 FunctionPass *createNaryReassociatePass();
+
+//===----------------------------------------------------------------------===//
+//
+// LoopDistribute - Distribute loops.
+//
+FunctionPass *createLoopDistributePass();
 
 } // End llvm namespace
 
