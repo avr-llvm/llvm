@@ -26,7 +26,7 @@ void AVRTargetObjectFile::Initialize(MCContext &ctx, const TargetMachine &TM)
                                ELF::SHF_ALLOC);
 }
 
-const MCSection *
+MCSection *
 AVRTargetObjectFile::SelectSectionForGlobal(const GlobalValue *GV,
                                             SectionKind Kind, Mangler &Mang,
                                             const TargetMachine &TM) const

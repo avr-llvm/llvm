@@ -22,6 +22,7 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/raw_ostream.h"
@@ -54,7 +55,7 @@ void AVRMCCodeEmitter::EmitInstruction(uint64_t Val, unsigned Size,
 /// EncodeInstruction - Emit the instruction.
 /// Size the instruction with Desc.getSize().
 void AVRMCCodeEmitter::
-EncodeInstruction(const MCInst &MI, raw_ostream &OS,
+encodeInstruction(const MCInst &MI, raw_ostream &OS,
                   SmallVectorImpl<MCFixup> &Fixups,
                   const MCSubtargetInfo &STI) const
 {
@@ -156,7 +157,7 @@ AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
 
     const MCExpr *Expr = MO.getExpr();
     
-    Fixups.push_back(MCFixup::Create(0, Expr, MCFixupKind(Kind), MI.getLoc()));
+    Fixups.push_back(MCFixup::create(0, Expr, MCFixupKind(Kind), MI.getLoc()));
     
     // All of the information is in the fixup.
     return 0;
@@ -240,7 +241,7 @@ AVRMCCodeEmitter::getCallTargetEncoding(const MCInst &MI, unsigned OpNo,
   
   if (MO.isExpr())
   {
-    Fixups.push_back(MCFixup::Create(0, MO.getExpr(), MCFixupKind(AVR::fixup_call), MI.getLoc()));
+    Fixups.push_back(MCFixup::create(0, MO.getExpr(), MCFixupKind(AVR::fixup_call), MI.getLoc()));
     
     return 0;
   } 
@@ -282,7 +283,7 @@ getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
       }
     }
     
-    Fixups.push_back(MCFixup::Create(0, AVRExpr, MCFixupKind(FixupKind)));
+    Fixups.push_back(MCFixup::create(0, AVRExpr, MCFixupKind(FixupKind)));
     return 0;
   }
 

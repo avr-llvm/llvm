@@ -41,7 +41,7 @@ inline unsigned adjustFixupRelCondbr(unsigned size,
 
   // We now check if Value can fit in the specified size.
   if (!isIntN(size, Value) && Ctx != nullptr)
-    Ctx->FatalError(Fixup.getLoc(), "out of range conditional branch target");
+    Ctx->reportFatalError(Fixup.getLoc(), "out of range conditional branch target");
     
   Value >>= 1;
   
@@ -57,7 +57,7 @@ inline unsigned adjustFixupCall(const MCFixup &Fixup,
                                 MCContext *Ctx = nullptr)
 {
   if(!isIntN(22, Value) && Ctx != nullptr)
-    Ctx->FatalError(Fixup.getLoc(), "out of range call target");
+    Ctx->reportFatalError(Fixup.getLoc(), "out of range call target");
 
   return Value >> 1;
 }

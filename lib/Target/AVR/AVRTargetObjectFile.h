@@ -20,12 +20,12 @@ class AVRTargetObjectFile : public TargetLoweringObjectFileELF
 public:
   void Initialize(MCContext &ctx, const TargetMachine &TM) override;
 
-  const MCSection *SelectSectionForGlobal(const GlobalValue *GV,
+  MCSection *SelectSectionForGlobal(const GlobalValue *GV,
                                           SectionKind Kind,
                                           Mangler &Mang,
                                           const TargetMachine &TM) const override;
 private:
-  const MCSection *ProgmemDataSection;
+  MCSection *ProgmemDataSection;
 };
 
 } // end namespace llvm

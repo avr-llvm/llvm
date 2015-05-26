@@ -24,7 +24,7 @@ class AVRFrameLowering : public TargetFrameLowering
 public:
   explicit AVRFrameLowering();
 public: // TargetFrameLowering
-  void emitPrologue(MachineFunction &MF) const override;
+  void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
   bool hasFP(const MachineFunction &MF) const override;
   bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,

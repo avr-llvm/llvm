@@ -59,7 +59,7 @@ public: // MCTargetExpr
   void visitUsedExpr(MCStreamer& streamer) const override;
   
   void AddValueSymbols(MCAssembler *) const;
-  const MCSection *FindAssociatedSection() const
+  MCSection *FindAssociatedSection() const override
   {
     return getSubExpr()->FindAssociatedSection();
   }

@@ -54,7 +54,7 @@ LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const
     llvm_unreachable("Unknown target flag on symbol operand");
   }
 
-  return MCOperand::CreateExpr(Expr);
+  return MCOperand::createExpr(Expr);
 }
 
 void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
@@ -74,10 +74,10 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
     case MachineOperand::MO_Register:
       // Ignore all implicit register operands.
       if (MO.isImplicit()) continue;
-      MCOp = MCOperand::CreateReg(MO.getReg());
+      MCOp = MCOperand::createReg(MO.getReg());
       break;
     case MachineOperand::MO_Immediate:
-      MCOp = MCOperand::CreateImm(MO.getImm());
+      MCOp = MCOperand::createImm(MO.getImm());
       break;
     case MachineOperand::MO_GlobalAddress:
       // TODO: Cleanup 3.4
@@ -91,7 +91,7 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
                Printer.GetExternalSymbolSymbol(MO.getSymbolName()));
       break;
     case MachineOperand::MO_MachineBasicBlock:
-      MCOp = MCOperand::CreateExpr(MCSymbolRefExpr::Create(
+      MCOp = MCOperand::createExpr(MCSymbolRefExpr::Create(
         MO.getMBB()->getSymbol(), Ctx));
       break;
     case MachineOperand::MO_RegisterMask:

@@ -50,9 +50,8 @@ bool AVRFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const
           && isUInt<6>(MFI->getMaxCallFrameSize()));
 }
 
-void AVRFrameLowering::emitPrologue(MachineFunction &MF) const
+void AVRFrameLowering::emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const
 {
-  MachineBasicBlock &MBB = MF.front();
   MachineBasicBlock::iterator MBBI = MBB.begin();
   CallingConv::ID CallConv = MF.getFunction()->getCallingConv();
   DebugLoc dl = (MBBI != MBB.end()) ? MBBI->getDebugLoc() : DebugLoc();
@@ -402,7 +401,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
   }
 
   DebugLoc dl = MI->getDebugLoc();
-  int Opcode = MI->getOpcode();
+  unsigned int Opcode = MI->getOpcode();
   int Amount = MI->getOperand(0).getImm();
 
   // Adjcallstackup does not need to allocate stack space for the call, instead
