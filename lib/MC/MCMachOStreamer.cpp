@@ -287,7 +287,7 @@ bool MCMachOStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
     // important for matching the string table that 'as' generates.
     IndirectSymbolData ISD;
     ISD.Symbol = Symbol;
-    ISD.SectionData = getCurrentSectionData();
+    ISD.Section = getCurrentSectionData();
     getAssembler().getIndirectSymbols().push_back(ISD);
     return true;
   }
@@ -403,7 +403,7 @@ void MCMachOStreamer::EmitLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
 
 void MCMachOStreamer::EmitZerofill(MCSection *Section, MCSymbol *Symbol,
                                    uint64_t Size, unsigned ByteAlignment) {
-  MCSectionData &SectData = getAssembler().getOrCreateSectionData(*Section);
+  getAssembler().registerSection(*Section);
 
   // The symbol may not be present, which only creates the section.
   if (!Symbol)
@@ -418,9 +418,9 @@ void MCMachOStreamer::EmitZerofill(MCSection *Section, MCSymbol *Symbol,
 
   // Emit an align fragment if necessary.
   if (ByteAlignment != 1)
-    new MCAlignFragment(ByteAlignment, 0, 0, ByteAlignment, &SectData);
+    new MCAlignFragment(ByteAlignment, 0, 0, ByteAlignment, Section);
 
-  MCFragment *F = new MCFillFragment(0, 0, Size, &SectData);
+  MCFragment *F = new MCFillFragment(0, 0, Size, Section);
   SD.setFragment(F);
 
   AssignSection(Symbol, Section);

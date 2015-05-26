@@ -1266,6 +1266,9 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
     setOperationAction(ISD::XOR,                MVT::i1,    Legal);
     setOperationAction(ISD::OR,                 MVT::i1,    Legal);
     setOperationAction(ISD::AND,                MVT::i1,    Legal);
+    setOperationAction(ISD::SUB,                MVT::i1,    Custom);
+    setOperationAction(ISD::ADD,                MVT::i1,    Custom);
+    setOperationAction(ISD::MUL,                MVT::i1,    Custom);
     setOperationAction(ISD::LOAD,               MVT::v16f32, Legal);
     setOperationAction(ISD::LOAD,               MVT::v8f64, Legal);
     setOperationAction(ISD::LOAD,               MVT::v8i64, Legal);
@@ -1479,6 +1482,10 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
     setOperationAction(ISD::SIGN_EXTEND,        MVT::v64i8, Custom);
     setOperationAction(ISD::INSERT_VECTOR_ELT,  MVT::v32i1, Custom);
     setOperationAction(ISD::INSERT_VECTOR_ELT,  MVT::v64i1, Custom);
+    setOperationAction(ISD::VSELECT,            MVT::v32i16, Legal);
+    setOperationAction(ISD::VSELECT,            MVT::v64i8, Legal);
+    setOperationAction(ISD::TRUNCATE,           MVT::v32i1, Custom);
+    setOperationAction(ISD::TRUNCATE,           MVT::v64i1, Custom);
 
     for (int i = MVT::v32i8; i != MVT::v8i64; ++i) {
       const MVT VT = (MVT::SimpleValueType)i;
@@ -16176,6 +16183,9 @@ static SDValue Lower256IntArith(SDValue Op, SelectionDAG &DAG) {
 }
 
 static SDValue LowerADD(SDValue Op, SelectionDAG &DAG) {
+  if (Op.getValueType() == MVT::i1)
+    return DAG.getNode(ISD::XOR, SDLoc(Op), Op.getValueType(),
+                       Op.getOperand(0), Op.getOperand(1));
   assert(Op.getSimpleValueType().is256BitVector() &&
          Op.getSimpleValueType().isInteger() &&
          "Only handle AVX 256-bit vector integer operation");
@@ -16183,6 +16193,9 @@ static SDValue LowerADD(SDValue Op, SelectionDAG &DAG) {
 }
 
 static SDValue LowerSUB(SDValue Op, SelectionDAG &DAG) {
+  if (Op.getValueType() == MVT::i1)
+    return DAG.getNode(ISD::XOR, SDLoc(Op), Op.getValueType(),
+                       Op.getOperand(0), Op.getOperand(1));
   assert(Op.getSimpleValueType().is256BitVector() &&
          Op.getSimpleValueType().isInteger() &&
          "Only handle AVX 256-bit vector integer operation");
@@ -16193,6 +16206,9 @@ static SDValue LowerMUL(SDValue Op, const X86Subtarget *Subtarget,
                         SelectionDAG &DAG) {
   SDLoc dl(Op);
   MVT VT = Op.getSimpleValueType();
+
+  if (VT == MVT::i1)
+    return DAG.getNode(ISD::AND, dl, VT, Op.getOperand(0), Op.getOperand(1));
 
   // Decompose 256-bit ops into smaller 128-bit ops.
   if (VT.is256BitVector() && !Subtarget->hasInt256())
@@ -16533,6 +16549,10 @@ static SDValue LowerScalarImmediateShift(SDValue Op, SelectionDAG &DAG,
         MVT ShiftVT = MVT::getVectorVT(MVT::i16, NumElts / 2);
 
         if (Op.getOpcode() == ISD::SHL) {
+          // Simple i8 add case
+          if (ShiftAmt == 1)
+            return DAG.getNode(ISD::ADD, dl, VT, R, R);
+
           // Make a large shift.
           SDValue SHL = getTargetVShiftByConstNode(X86ISD::VSHLI, dl, ShiftVT,
                                                    R, ShiftAmt, DAG);
@@ -16877,13 +16897,31 @@ static SDValue LowerShift(SDValue Op, const X86Subtarget* Subtarget,
   // the extra overheads to get from v16i8 to v8i32 make the existing SSE
   // solution better.
   if (Subtarget->hasInt256() && VT == MVT::v8i16) {
-    MVT NewVT = VT == MVT::v8i16 ? MVT::v8i32 : MVT::v16i16;
+    MVT ExtVT = MVT::v8i32;
     unsigned ExtOpc =
         Op.getOpcode() == ISD::SRA ? ISD::SIGN_EXTEND : ISD::ZERO_EXTEND;
-    R = DAG.getNode(ExtOpc, dl, NewVT, R);
-    Amt = DAG.getNode(ISD::ANY_EXTEND, dl, NewVT, Amt);
+    R = DAG.getNode(ExtOpc, dl, ExtVT, R);
+    Amt = DAG.getNode(ISD::ANY_EXTEND, dl, ExtVT, Amt);
     return DAG.getNode(ISD::TRUNCATE, dl, VT,
-                       DAG.getNode(Op.getOpcode(), dl, NewVT, R, Amt));
+                       DAG.getNode(Op.getOpcode(), dl, ExtVT, R, Amt));
+  }
+
+  if (Subtarget->hasInt256() && VT == MVT::v16i16) {
+    MVT ExtVT = MVT::v8i32;
+    SDValue Z = getZeroVector(VT, Subtarget, DAG, dl);
+    SDValue ALo = DAG.getNode(X86ISD::UNPCKL, dl, VT, Amt, Z);
+    SDValue AHi = DAG.getNode(X86ISD::UNPCKH, dl, VT, Amt, Z);
+    SDValue RLo = DAG.getNode(X86ISD::UNPCKL, dl, VT, R, R);
+    SDValue RHi = DAG.getNode(X86ISD::UNPCKH, dl, VT, R, R);
+    ALo = DAG.getNode(ISD::BITCAST, dl, ExtVT, ALo);
+    AHi = DAG.getNode(ISD::BITCAST, dl, ExtVT, AHi);
+    RLo = DAG.getNode(ISD::BITCAST, dl, ExtVT, RLo);
+    RHi = DAG.getNode(ISD::BITCAST, dl, ExtVT, RHi);
+    SDValue Lo = DAG.getNode(Op.getOpcode(), dl, ExtVT, RLo, ALo);
+    SDValue Hi = DAG.getNode(Op.getOpcode(), dl, ExtVT, RHi, AHi);
+    Lo = DAG.getNode(ISD::SRL, dl, ExtVT, Lo, DAG.getConstant(16, dl, ExtVT));
+    Hi = DAG.getNode(ISD::SRL, dl, ExtVT, Hi, DAG.getConstant(16, dl, ExtVT));
+    return DAG.getNode(X86ISD::PACKUS, dl, VT, Lo, Hi);
   }
 
   // Decompose 256-bit shifts into smaller 128-bit shifts.
@@ -20855,7 +20893,7 @@ static SDValue XFormVExtractWithShuffleIntoLoad(SDNode *N, SelectionDAG &DAG,
     if (!InVec.hasOneUse())
       return SDValue();
     EVT BCVT = InVec.getOperand(0).getValueType();
-    if (!BCVT.isVector() || 
+    if (!BCVT.isVector() ||
         BCVT.getVectorNumElements() != OriginalVT.getVectorNumElements())
       return SDValue();
     InVec = InVec.getOperand(0);
@@ -20987,7 +21025,7 @@ static SDValue PerformEXTRACT_VECTOR_ELTCombine(SDNode *N, SelectionDAG &DAG,
   }
 
   EVT VT = N->getValueType(0);
-  
+
   if (VT == MVT::i1 && dyn_cast<ConstantSDNode>(N->getOperand(1)) &&
       InputVector.getOpcode() == ISD::BITCAST &&
       dyn_cast<ConstantSDNode>(InputVector.getOperand(0))) {
@@ -21684,7 +21722,7 @@ static SDValue PerformSELECTCombine(SDNode *N, SelectionDAG &DAG,
   // know will be matched by LowerVECTOR_SHUFFLEtoBlend.
   if ((N->getOpcode() == ISD::VSELECT ||
        N->getOpcode() == X86ISD::SHRUNKBLEND) &&
-      !DCI.isBeforeLegalize()) {
+      !DCI.isBeforeLegalize() && !VT.is512BitVector()) {
     SDValue Shuffle = transformVSELECTtoBlendVECTOR_SHUFFLE(N, DAG, Subtarget);
     if (Shuffle.getNode())
       return Shuffle;

@@ -219,8 +219,8 @@ void X86MachObjectWriter::RecordX86_64Relocation(
     // understand x86_64 relocation entries, and expects to find values that
     // have already been fixed up.
     if (Symbol->isInSection()) {
-      const MCSectionMachO &Section = static_cast<const MCSectionMachO&>(
-        Fragment->getParent()->getSection());
+      const MCSectionMachO &Section =
+          static_cast<const MCSectionMachO &>(*Fragment->getParent());
       if (Section.hasAttribute(MachO::S_ATTR_DEBUG))
         RelSymbol = nullptr;
     }
@@ -362,7 +362,8 @@ bool X86MachObjectWriter::RecordScatteredRelocation(MachObjectWriter *Writer,
                        false);
 
   uint32_t Value = Writer->getSymbolAddress(*A, Layout);
-  uint64_t SecAddr = Writer->getSectionAddress(A_SD->getFragment()->getParent());
+  uint64_t SecAddr =
+      Writer->getSectionAddress(A_SD->getFragment()->getParent());
   FixedValue += SecAddr;
   uint32_t Value2 = 0;
 
@@ -554,9 +555,9 @@ void X86MachObjectWriter::RecordX86Relocation(MachObjectWriter *Writer,
         FixedValue -= Layout.getSymbolOffset(*A);
     } else {
       // The index is the section ordinal (1-based).
-      const MCSectionData &SymSD = Asm.getSectionData(A->getSection());
-      Index = SymSD.getOrdinal() + 1;
-      FixedValue += Writer->getSectionAddress(&SymSD);
+      const MCSection &Sec = A->getSection();
+      Index = Sec.getOrdinal() + 1;
+      FixedValue += Writer->getSectionAddress(&Sec);
     }
     if (IsPCRel)
       FixedValue -= Writer->getSectionAddress(Fragment->getParent());

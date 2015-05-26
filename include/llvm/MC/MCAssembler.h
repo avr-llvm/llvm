@@ -12,6 +12,7 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/ilist.h"
@@ -21,6 +22,7 @@
 #include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCLinkerOptimizationHint.h"
+#include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/Casting.h"
@@ -38,7 +40,6 @@ class MCExpr;
 class MCFragment;
 class MCObjectWriter;
 class MCSection;
-class MCSectionData;
 class MCSubtargetInfo;
 class MCValue;
 class MCAsmBackend;
@@ -65,8 +66,8 @@ public:
 private:
   FragmentType Kind;
 
-  /// Parent - The data for the section this fragment is in.
-  MCSectionData *Parent;
+  /// The data for the section this fragment is in.
+  MCSection *Parent;
 
   /// Atom - The atom this fragment is in, as represented by it's defining
   /// symbol.
@@ -87,7 +88,7 @@ private:
   /// @}
 
 protected:
-  MCFragment(FragmentType Kind, MCSectionData *Parent = nullptr);
+  MCFragment(FragmentType Kind, MCSection *Parent = nullptr);
 
 public:
   // Only for sentinel.
@@ -96,8 +97,8 @@ public:
 
   FragmentType getKind() const { return Kind; }
 
-  MCSectionData *getParent() const { return Parent; }
-  void setParent(MCSectionData *Value) { Parent = Value; }
+  MCSection *getParent() const { return Parent; }
+  void setParent(MCSection *Value) { Parent = Value; }
 
   const MCSymbol *getAtom() const { return Atom; }
   void setAtom(const MCSymbol *Value) { Atom = Value; }
@@ -136,8 +137,8 @@ class MCEncodedFragment : public MCFragment {
   uint8_t BundlePadding;
 
 public:
-  MCEncodedFragment(MCFragment::FragmentType FType, MCSectionData *SD = nullptr)
-      : MCFragment(FType, SD), BundlePadding(0) {}
+  MCEncodedFragment(MCFragment::FragmentType FType, MCSection *Sec = nullptr)
+      : MCFragment(FType, Sec), BundlePadding(0) {}
   ~MCEncodedFragment() override;
 
   virtual SmallVectorImpl<char> &getContents() = 0;
@@ -168,8 +169,8 @@ class MCEncodedFragmentWithFixups : public MCEncodedFragment {
 
 public:
   MCEncodedFragmentWithFixups(MCFragment::FragmentType FType,
-                              MCSectionData *SD = nullptr)
-      : MCEncodedFragment(FType, SD) {}
+                              MCSection *Sec = nullptr)
+      : MCEncodedFragment(FType, Sec) {}
 
   ~MCEncodedFragmentWithFixups() override;
 
@@ -207,8 +208,8 @@ class MCDataFragment : public MCEncodedFragmentWithFixups {
   SmallVector<MCFixup, 4> Fixups;
 
 public:
-  MCDataFragment(MCSectionData *SD = nullptr)
-      : MCEncodedFragmentWithFixups(FT_Data, SD), HasInstructions(false),
+  MCDataFragment(MCSection *Sec = nullptr)
+      : MCEncodedFragmentWithFixups(FT_Data, Sec), HasInstructions(false),
         AlignToBundleEnd(false) {}
 
   SmallVectorImpl<char> &getContents() override { return Contents; }
@@ -249,8 +250,9 @@ class MCCompactEncodedInstFragment : public MCEncodedFragment {
   SmallVector<char, 4> Contents;
 
 public:
-  MCCompactEncodedInstFragment(MCSectionData *SD = nullptr)
-      : MCEncodedFragment(FT_CompactEncodedInst, SD), AlignToBundleEnd(false) {}
+  MCCompactEncodedInstFragment(MCSection *Sec = nullptr)
+      : MCEncodedFragment(FT_CompactEncodedInst, Sec), AlignToBundleEnd(false) {
+  }
 
   bool hasInstructions() const override { return true; }
 
@@ -287,8 +289,8 @@ class MCRelaxableFragment : public MCEncodedFragmentWithFixups {
 
 public:
   MCRelaxableFragment(const MCInst &Inst, const MCSubtargetInfo &STI,
-                      MCSectionData *SD = nullptr)
-      : MCEncodedFragmentWithFixups(FT_Relaxable, SD), Inst(Inst), STI(STI) {}
+                      MCSection *Sec = nullptr)
+      : MCEncodedFragmentWithFixups(FT_Relaxable, Sec), Inst(Inst), STI(STI) {}
 
   SmallVectorImpl<char> &getContents() override { return Contents; }
   const SmallVectorImpl<char> &getContents() const override { return Contents; }
@@ -338,8 +340,8 @@ class MCAlignFragment : public MCFragment {
 
 public:
   MCAlignFragment(unsigned Alignment, int64_t Value, unsigned ValueSize,
-                  unsigned MaxBytesToEmit, MCSectionData *SD = nullptr)
-      : MCFragment(FT_Align, SD), Alignment(Alignment), Value(Value),
+                  unsigned MaxBytesToEmit, MCSection *Sec = nullptr)
+      : MCFragment(FT_Align, Sec), Alignment(Alignment), Value(Value),
         ValueSize(ValueSize), MaxBytesToEmit(MaxBytesToEmit), EmitNops(false) {}
 
   /// \name Accessors
@@ -378,8 +380,8 @@ class MCFillFragment : public MCFragment {
 
 public:
   MCFillFragment(int64_t Value, unsigned ValueSize, uint64_t Size,
-                 MCSectionData *SD = nullptr)
-      : MCFragment(FT_Fill, SD), Value(Value), ValueSize(ValueSize),
+                 MCSection *Sec = nullptr)
+      : MCFragment(FT_Fill, Sec), Value(Value), ValueSize(ValueSize),
         Size(Size) {
     assert((!ValueSize || (Size % ValueSize) == 0) &&
            "Fill size must be a multiple of the value size!");
@@ -411,8 +413,8 @@ class MCOrgFragment : public MCFragment {
   int8_t Value;
 
 public:
-  MCOrgFragment(const MCExpr &Offset, int8_t Value, MCSectionData *SD = nullptr)
-      : MCFragment(FT_Org, SD), Offset(&Offset), Value(Value) {}
+  MCOrgFragment(const MCExpr &Offset, int8_t Value, MCSection *Sec = nullptr)
+      : MCFragment(FT_Org, Sec), Offset(&Offset), Value(Value) {}
 
   /// \name Accessors
   /// @{
@@ -440,9 +442,8 @@ class MCLEBFragment : public MCFragment {
   SmallString<8> Contents;
 
 public:
-  MCLEBFragment(const MCExpr &Value_, bool IsSigned_,
-                MCSectionData *SD = nullptr)
-      : MCFragment(FT_LEB, SD), Value(&Value_), IsSigned(IsSigned_) {
+  MCLEBFragment(const MCExpr &Value_, bool IsSigned_, MCSection *Sec = nullptr)
+      : MCFragment(FT_LEB, Sec), Value(&Value_), IsSigned(IsSigned_) {
     Contents.push_back(0);
   }
 
@@ -478,8 +479,8 @@ class MCDwarfLineAddrFragment : public MCFragment {
 
 public:
   MCDwarfLineAddrFragment(int64_t LineDelta, const MCExpr &AddrDelta,
-                          MCSectionData *SD = nullptr)
-      : MCFragment(FT_Dwarf, SD), LineDelta(LineDelta), AddrDelta(&AddrDelta) {
+                          MCSection *Sec = nullptr)
+      : MCFragment(FT_Dwarf, Sec), LineDelta(LineDelta), AddrDelta(&AddrDelta) {
     Contents.push_back(0);
   }
 
@@ -510,8 +511,8 @@ class MCDwarfCallFrameFragment : public MCFragment {
   SmallString<8> Contents;
 
 public:
-  MCDwarfCallFrameFragment(const MCExpr &AddrDelta, MCSectionData *SD = nullptr)
-      : MCFragment(FT_DwarfFrame, SD), AddrDelta(&AddrDelta) {
+  MCDwarfCallFrameFragment(const MCExpr &AddrDelta, MCSection *Sec = nullptr)
+      : MCFragment(FT_DwarfFrame, Sec), AddrDelta(&AddrDelta) {
     Contents.push_back(0);
   }
 
@@ -530,129 +531,10 @@ public:
   }
 };
 
-// FIXME: Should this be a separate class, or just merged into MCSection? Since
-// we anticipate the fast path being through an MCAssembler, the only reason to
-// keep it out is for API abstraction.
-class MCSectionData : public ilist_node<MCSectionData> {
-  friend class MCAsmLayout;
-
-  MCSectionData(const MCSectionData &) = delete;
-  void operator=(const MCSectionData &) = delete;
-
-public:
-  typedef iplist<MCFragment> FragmentListType;
-
-  typedef FragmentListType::const_iterator const_iterator;
-  typedef FragmentListType::iterator iterator;
-
-  typedef FragmentListType::const_reverse_iterator const_reverse_iterator;
-  typedef FragmentListType::reverse_iterator reverse_iterator;
-
-  /// \brief Express the state of bundle locked groups while emitting code.
-  enum BundleLockStateType {
-    NotBundleLocked,
-    BundleLocked,
-    BundleLockedAlignToEnd
-  };
-
-private:
-  FragmentListType Fragments;
-  MCSection *Section;
-
-  /// Ordinal - The section index in the assemblers section list.
-  unsigned Ordinal;
-
-  /// LayoutOrder - The index of this section in the layout order.
-  unsigned LayoutOrder;
-
-  /// \brief Keeping track of bundle-locked state.
-  BundleLockStateType BundleLockState;
-
-  /// \brief Current nesting depth of bundle_lock directives.
-  unsigned BundleLockNestingDepth;
-
-  /// \brief We've seen a bundle_lock directive but not its first instruction
-  /// yet.
-  bool BundleGroupBeforeFirstInst;
-
-  /// \name Assembler Backend Data
-  /// @{
-  //
-  // FIXME: This could all be kept private to the assembler implementation.
-
-  /// HasInstructions - Whether this section has had instructions emitted into
-  /// it.
-  unsigned HasInstructions : 1;
-
-  /// Mapping from subsection number to insertion point for subsection numbers
-  /// below that number.
-  SmallVector<std::pair<unsigned, MCFragment *>, 1> SubsectionFragmentMap;
-
-  /// @}
-
-public:
-  // Only for use as sentinel.
-  MCSectionData();
-  MCSectionData(MCSection &Section, MCAssembler *A = nullptr);
-
-  MCSection &getSection() const { return *Section; }
-
-  bool hasInstructions() const { return HasInstructions; }
-  void setHasInstructions(bool Value) { HasInstructions = Value; }
-
-  unsigned getOrdinal() const { return Ordinal; }
-  void setOrdinal(unsigned Value) { Ordinal = Value; }
-
-  unsigned getLayoutOrder() const { return LayoutOrder; }
-  void setLayoutOrder(unsigned Value) { LayoutOrder = Value; }
-
-  /// \name Fragment Access
-  /// @{
-
-  const FragmentListType &getFragmentList() const { return Fragments; }
-  FragmentListType &getFragmentList() { return Fragments; }
-
-  iterator begin() { return Fragments.begin(); }
-  const_iterator begin() const { return Fragments.begin(); }
-
-  iterator end() { return Fragments.end(); }
-  const_iterator end() const { return Fragments.end(); }
-
-  reverse_iterator rbegin() { return Fragments.rbegin(); }
-  const_reverse_iterator rbegin() const { return Fragments.rbegin(); }
-
-  reverse_iterator rend() { return Fragments.rend(); }
-  const_reverse_iterator rend() const { return Fragments.rend(); }
-
-  size_t size() const { return Fragments.size(); }
-
-  bool empty() const { return Fragments.empty(); }
-
-  iterator getSubsectionInsertionPoint(unsigned Subsection);
-
-  bool isBundleLocked() const { return BundleLockState != NotBundleLocked; }
-
-  BundleLockStateType getBundleLockState() const { return BundleLockState; }
-
-  void setBundleLockState(BundleLockStateType NewState);
-
-  bool isBundleGroupBeforeFirstInst() const {
-    return BundleGroupBeforeFirstInst;
-  }
-
-  void setBundleGroupBeforeFirstInst(bool IsFirst) {
-    BundleGroupBeforeFirstInst = IsFirst;
-  }
-
-  void dump();
-
-  /// @}
-};
-
 // FIXME: This really doesn't belong here. See comments below.
 struct IndirectSymbolData {
   MCSymbol *Symbol;
-  MCSectionData *SectionData;
+  MCSection *Section;
 };
 
 // FIXME: Ditto this. Purely so the Streamer and the ObjectWriter can talk
@@ -669,11 +551,11 @@ class MCAssembler {
   friend class MCAsmLayout;
 
 public:
-  typedef iplist<MCSectionData> SectionDataListType;
+  typedef SetVector<MCSection *> SectionListType;
   typedef std::vector<const MCSymbol *> SymbolDataListType;
 
-  typedef SectionDataListType::const_iterator const_iterator;
-  typedef SectionDataListType::iterator iterator;
+  typedef pointee_iterator<SectionListType::const_iterator> const_iterator;
+  typedef pointee_iterator<SectionListType::iterator> iterator;
 
   typedef pointee_iterator<SymbolDataListType::const_iterator>
   const_symbol_iterator;
@@ -717,16 +599,11 @@ private:
 
   raw_ostream &OS;
 
-  iplist<MCSectionData> Sections;
+  SectionListType Sections;
 
   SymbolDataListType Symbols;
 
   DenseSet<const MCSymbol *> LocalsUsedInReloc;
-
-  /// The map of sections to their associated assembler backend data.
-  //
-  // FIXME: Avoid this indirection?
-  DenseMap<const MCSection *, MCSectionData *> SectionMap;
 
   std::vector<IndirectSymbolData> IndirectSymbols;
 
@@ -801,7 +678,7 @@ private:
 
   /// \brief Perform one layout iteration of the given section and return true
   /// if any offsets were adjusted.
-  bool layoutSectionOnce(MCAsmLayout &Layout, MCSectionData &SD);
+  bool layoutSectionOnce(MCAsmLayout &Layout, MCSection &Sec);
 
   bool relaxInstruction(MCAsmLayout &Layout, MCRelaxableFragment &IF);
 
@@ -837,7 +714,7 @@ public:
   bool isSymbolLinkerVisible(const MCSymbol &SD) const;
 
   /// Emit the section contents using the given object writer.
-  void writeSectionData(const MCSectionData *Section,
+  void writeSectionData(const MCSection *Section,
                         const MCAsmLayout &Layout) const;
 
   /// Check whether a given symbol has been flagged with .thumb_func.
@@ -910,9 +787,6 @@ public:
 
   /// \name Section List Access
   /// @{
-
-  const SectionDataListType &getSectionList() const { return Sections; }
-  SectionDataListType &getSectionList() { return Sections; }
 
   iterator begin() { return Sections.begin(); }
   const_iterator begin() const { return Sections.begin(); }
@@ -1009,23 +883,7 @@ public:
   /// \name Backend Data Access
   /// @{
 
-  MCSectionData &getSectionData(const MCSection &Section) const {
-    MCSectionData *Entry = SectionMap.lookup(&Section);
-    assert(Entry && "Missing section data!");
-    return *Entry;
-  }
-
-  MCSectionData &getOrCreateSectionData(MCSection &Section,
-                                        bool *Created = nullptr) {
-    MCSectionData *&Entry = SectionMap[&Section];
-
-    if (Created)
-      *Created = !Entry;
-    if (!Entry)
-      Entry = new MCSectionData(Section, this);
-
-    return *Entry;
-  }
+  bool registerSection(MCSection &Section) { return Sections.insert(&Section); }
 
   bool hasSymbolData(const MCSymbol &Symbol) const { return Symbol.hasData(); }
 

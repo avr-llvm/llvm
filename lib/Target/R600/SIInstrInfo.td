@@ -1034,11 +1034,15 @@ class VOPProfile <list<ValueType> _ArgVT> {
   field string Asm64 = getAsm64<NumSrcArgs, HasModifiers>.ret;
 }
 
-// FIXME: I think these F16 profiles will need to use f16 types in order
+// FIXME: I think these F16/I16 profiles will need to use f16/i16 types in order
 //        for the instruction patterns to work.
 def VOP_F16_F16 : VOPProfile <[f32, f32, untyped, untyped]>;
 def VOP_F16_I16 : VOPProfile <[f32, i32, untyped, untyped]>;
 def VOP_I16_F16 : VOPProfile <[i32, f32, untyped, untyped]>;
+
+def VOP_F16_F16_F16 : VOPProfile <[f32, f32, f32, untyped]>;
+def VOP_F16_F16_I16 : VOPProfile <[f32, f32, i32, untyped]>;
+def VOP_I16_I16_I16 : VOPProfile <[i32, i32, i32, untyped]>;
 
 def VOP_F32_F32 : VOPProfile <[f32, f32, untyped, untyped]>;
 def VOP_F32_F64 : VOPProfile <[f32, f64, untyped, untyped]>;
@@ -1533,12 +1537,16 @@ let isCodeGenOnly = 0 in {
   def _si : VOP2Common <VOP_MADK.Outs, VOP_MADK.Ins,
                         !strconcat(opName, VOP_MADK.Asm), []>,
             SIMCInstr <opName#"_e32", SISubtarget.SI>,
-            VOP2_MADKe <op.SI>;
+            VOP2_MADKe <op.SI> {
+            let AssemblerPredicates = [isSICI];
+            }
 
   def _vi : VOP2Common <VOP_MADK.Outs, VOP_MADK.Ins,
                         !strconcat(opName, VOP_MADK.Asm), []>,
             SIMCInstr <opName#"_e32", SISubtarget.VI>,
-            VOP2_MADKe <op.VI>;
+            VOP2_MADKe <op.VI> {
+            let AssemblerPredicates = [isVI];
+            }
 } // End isCodeGenOnly = 0
 }
 
@@ -1770,17 +1778,13 @@ class VINTRP_Real_vi <bits <2> op, string opName, dag outs, dag ins,
   VINTRPe_vi <op>,
   SIMCInstr<opName, SISubtarget.VI>;
 
-multiclass VINTRP_m <bits <2> op, string opName, dag outs, dag ins, string asm,
-                     list<dag> pattern = [],
-                     string disableEncoding = "", string constraints = ""> {
-  let DisableEncoding = disableEncoding,
-      Constraints = constraints in {
-    def "" : VINTRP_Pseudo <opName, outs, ins, pattern>;
+multiclass VINTRP_m <bits <2> op, dag outs, dag ins, string asm,
+                     list<dag> pattern = []> {
+  def "" : VINTRP_Pseudo <NAME, outs, ins, pattern>;
 
-    def _si : VINTRP_Real_si <op, opName, outs, ins, asm>;
+  def _si : VINTRP_Real_si <op, NAME, outs, ins, asm>;
 
-    def _vi : VINTRP_Real_vi <op, opName, outs, ins, asm>;
-  }
+  def _vi : VINTRP_Real_vi <op, NAME, outs, ins, asm>;
 }
 
 //===----------------------------------------------------------------------===//

@@ -188,6 +188,8 @@ protected:
   MCSection *XDataSection;
 
 public:
+  virtual ~MCObjectFileInfo() { };
+
   void InitMCObjectFileInfo(StringRef TT, Reloc::Model RM, CodeModel::Model CM,
                             MCContext &ctx);
 
@@ -351,6 +353,8 @@ private:
   /// InitEHFrameSection - Initialize EHFrameSection on demand.
   ///
   void InitEHFrameSection();
+
+  virtual unsigned SelectMipsTTypeEncoding() const;
 
 public:
   const Triple &getTargetTriple() const { return TT; }

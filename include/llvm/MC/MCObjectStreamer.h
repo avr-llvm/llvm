@@ -12,12 +12,12 @@
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/MC/MCAssembler.h"
+#include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCStreamer.h"
 
 namespace llvm {
 class MCAssembler;
 class MCCodeEmitter;
-class MCSectionData;
 class MCSubtargetInfo;
 class MCExpr;
 class MCFragment;
@@ -35,7 +35,7 @@ class raw_pwrite_stream;
 /// implementation.
 class MCObjectStreamer : public MCStreamer {
   MCAssembler *Assembler;
-  MCSectionData *CurSectionData;
+  MCSection *CurSectionData;
   MCSectionData::iterator CurInsertionPoint;
   bool EmitEHFrame;
   bool EmitDebugFrame;
@@ -64,9 +64,7 @@ public:
   void EmitCFISections(bool EH, bool Debug) override;
 
 protected:
-  MCSectionData *getCurrentSectionData() const {
-    return CurSectionData;
-  }
+  MCSection *getCurrentSectionData() const { return CurSectionData; }
 
   MCFragment *getCurrentFragment() const;
 
@@ -146,9 +144,7 @@ public:
   bool emitAbsoluteSymbolDiff(const MCSymbol *Hi, const MCSymbol *Lo,
                               unsigned Size) override;
 
-  bool mayHaveInstructions(MCSection &Sec) const override {
-    return Assembler->getOrCreateSectionData(Sec).hasInstructions();
-  }
+  bool mayHaveInstructions(MCSection &Sec) const override;
 };
 
 } // end namespace llvm
