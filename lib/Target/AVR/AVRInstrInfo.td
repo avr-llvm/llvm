@@ -684,8 +684,8 @@ isTerminator = 1 in
 
     def JMPk : F32BRk<0b110,
                       (outs),
-                      (ins call_target:$target),
-                      "jmp\t$target",
+                      (ins call_target:$k),
+                      "jmp\t$k",
                       []>,
                Requires<[HasJMPCALL]>;
 }
@@ -730,9 +730,9 @@ let isCall = 1 in
     let Uses = [SP] in
     def CALLk : F32BRk<0b111,
                        (outs),
-                       (ins call_target:$dst),
-                       "call\t$dst",
-                       [(AVRcall imm:$dst)]>,
+                       (ins call_target:$k),
+                       "call\t$k",
+                       [(AVRcall imm:$k)]>,
                 Requires<[HasJMPCALL]>;
 }
 

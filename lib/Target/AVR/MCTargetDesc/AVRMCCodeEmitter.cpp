@@ -39,17 +39,30 @@ MCCodeEmitter *llvm::createAVRMCCodeEmitter(const MCInstrInfo &MCII,
   return new AVRMCCodeEmitter(MCII, Ctx, false);
 }
 
-void AVRMCCodeEmitter::EmitByte(unsigned char C, raw_ostream &OS) const {
+void AVRMCCodeEmitter::emitByte(unsigned char C, raw_ostream &OS) const {
   OS << (char)C;
 }
 
-void AVRMCCodeEmitter::EmitInstruction(uint64_t Val, unsigned Size,
+void AVRMCCodeEmitter::emitWord(uint16_t word, raw_ostream &OS) const {
+  emitByte((word & 0x00ff)>>0, OS);
+  emitByte((word & 0xff00)>>8, OS);
+}
+
+void AVRMCCodeEmitter::emitWords(uint16_t* words, size_t count, raw_ostream &OS) const {
+  for(int64_t i=count-1; i>=0; --i) {
+    uint16_t word = words[i];
+
+    emitWord(word, OS);
+  }
+}
+
+void AVRMCCodeEmitter::emitInstruction(uint64_t Val, unsigned Size,
                                         const MCSubtargetInfo &STI,
                                         raw_ostream &OS) const {
-  for (unsigned i = 0; i < Size; ++i) {
-    unsigned Shift = !IsLittleEndian ? i * 8 : (Size - 1 - i) * 8;
-    EmitByte((Val >> Shift) & 0xff, OS);
-  }
+  uint16_t* words = (uint16_t*) &Val;
+  size_t wordCount = Size/2;
+
+  emitWords(words, wordCount, OS);
 }
 
 /// EncodeInstruction - Emit the instruction.
@@ -68,7 +81,7 @@ encodeInstruction(const MCInst &MI, raw_ostream &OS,
   if (!Size)
     llvm_unreachable("Desc.getSize() returns 0");
 
-  EmitInstruction(Binary, Size, STI, OS);
+  emitInstruction(Binary, Size, STI, OS);
 }
 
 /// getMemriEncoding - Return binary encoding of a pointer register plus displacement operand.
