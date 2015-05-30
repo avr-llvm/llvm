@@ -43,9 +43,19 @@ public:
 
   ~AVRMCCodeEmitter() {}
 
-  void EmitByte(unsigned char C, raw_ostream &OS) const;
+  void emitByte(unsigned char C, raw_ostream &OS) const;
 
-  void EmitInstruction(uint64_t Val, unsigned Size, const MCSubtargetInfo &STI,
+  /**
+   * Writes a single word to a stream.
+   */
+  void emitWord(uint16_t word, raw_ostream &OS) const;
+
+  /**
+   * Writes a number of words to the stream.
+   */
+  void emitWords(uint16_t *words, size_t count, raw_ostream &OS) const;
+
+  void emitInstruction(uint64_t Val, unsigned Size, const MCSubtargetInfo &STI,
                        raw_ostream &OS) const;
 
   void encodeInstruction(const MCInst &MI, raw_ostream &OS,
