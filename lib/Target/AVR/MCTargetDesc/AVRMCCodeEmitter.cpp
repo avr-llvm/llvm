@@ -237,7 +237,6 @@ AVRMCCodeEmitter::getCallTargetEncoding(const MCInst &MI, unsigned OpNo,
                                         SmallVectorImpl<MCFixup> &Fixups,
                                         const MCSubtargetInfo &STI) const {
   auto MO = MI.getOperand(OpNo);
-  assert(MO.isImm());
   
   if (MO.isExpr())
   {
