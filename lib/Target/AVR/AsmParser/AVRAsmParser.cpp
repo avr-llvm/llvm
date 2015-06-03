@@ -294,18 +294,16 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
 int AVRAsmParser::tryParseRegister(StringRef Mnemonic) {
   const AsmToken &Tok = Parser.getTok();
   int RegNum = -1;
-
   if (Tok.is(AsmToken::Identifier)) {
-  
-    std::string lowerCase = Tok.getString().lower();
+      // check for register pair syntax
     if (Parser.getLexer().peekTok().is(AsmToken::Colon)) {
-      Parser.Lex(); Parser.Lex();
+      Parser.Lex(); Parser.Lex(); // eat high (odd) register and colon
       if (Parser.getTok().is(AsmToken::Identifier)) {
-        lowerCase = Parser.getTok().getString().lower();
+        // convert lower (even) register to DREG
+        RegNum = toDREG(MatchRegisterName(Parser.getTok().getString().lower()));
       }
-      RegNum = toDREG(MatchRegisterName(lowerCase));
     } else {
-      RegNum = MatchRegisterName(lowerCase);
+      RegNum = MatchRegisterName(Tok.getString().lower());
     }
   }
   return RegNum;
@@ -430,7 +428,7 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
     }
     case AsmToken::Plus:
     case AsmToken::Minus: {
-      auto nextTok = Parser.getLexer().peekTok(true);
+      auto nextTok = Parser.getLexer().peekTok();
 
       // we are parsing an integer immediate
       if(nextTok.getKind() == AsmToken::Integer) {
@@ -478,34 +476,19 @@ ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
   Operands.push_back(AVROperand::CreateToken(Mnemonic, NameLoc));
 
   // Read the remaining operands.
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    // Read the first operand.
+  bool first = true;
+  while (getLexer().isNot(AsmToken::EndOfStatement)) {
+    if(!first && getLexer().is(AsmToken::Comma))
+      Parser.Lex();  // Eat the comma.
+
+    // Parse and remember the operand.
     if (ParseOperand(Operands, Name)) {
       SMLoc Loc = getLexer().getLoc();
       Parser.eatToEndOfStatement();
       return Error(Loc, "unexpected token in argument list");
     }
-
-    while (getLexer().isNot(AsmToken::EndOfStatement)) {
-
-      if(getLexer().is(AsmToken::Comma))
-        Parser.Lex();  // Eat the comma.
-
-      // Parse and remember the operand.
-      if (ParseOperand(Operands, Name)) {
-        SMLoc Loc = getLexer().getLoc();
-        Parser.eatToEndOfStatement();
-        return Error(Loc, "unexpected token in argument list");
-      }
-    }
+    first = false;
   }
-
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    SMLoc Loc = getLexer().getLoc();
-    Parser.eatToEndOfStatement();
-    return Error(Loc, "unexpected token in argument list");
-  }
-
   Parser.Lex(); // Consume the EndOfStatement
   return false;
 }
@@ -525,7 +508,7 @@ AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp, unsigned Exp
   if (Op.isReg() && isSubclass(MatchClassKind(ExpectedKind), MCK_DREGS)) {
     unsigned correspondingDREG = toDREG(Op.getReg());
     if (correspondingDREG) {
-      Op.Reg.RegNum = toDREG(Op.getReg());
+      Op.Reg.RegNum = correspondingDREG;
       return Match_Success;
     }
   }
