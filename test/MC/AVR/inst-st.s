@@ -63,7 +63,7 @@ foo:
 
 ; Predecrement
 
-; CHECK: st -x, r10                  ; encoding: [0xae,0x92]
+; CHECK: st -x, r10                   ; encoding: [0xae,0x92]
 ; CHECK: st -x,  r17                  ; encoding: [0x1e,0x93]
 
 ; CHECK: st -y,  r30                  ; encoding: [0xea,0x93]

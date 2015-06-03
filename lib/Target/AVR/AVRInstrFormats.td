@@ -292,8 +292,8 @@ class FMOVWRdRr<dag outs, dag ins, string asmstr, list<dag> pattern>
   bits<5> r;
 
   let Inst{15-8} = 0b00000001;
-  let Inst{7-4} = d{3-0};
-  let Inst{3-0} = r{3-0};
+  let Inst{7-4} = d{4-1};
+  let Inst{3-0} = r{4-1};
 }
 
 //===----------------------------------------------------------------------===//
