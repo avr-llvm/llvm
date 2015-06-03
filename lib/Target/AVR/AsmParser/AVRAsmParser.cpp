@@ -86,10 +86,6 @@ class AVRAsmParser : public MCTargetAsmParser {
   bool tryParseRegisterOperand(OperandVector &Operands,
                                StringRef Mnemonic);
 
-  //! \brief Matches a register name to a register number.
-  //! \return The register number, or -1 if the register is invalid.
-  int matchRegisterName(StringRef Symbol);
-  
 public:
   AVRAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,
                 const MCInstrInfo &MII, const MCTargetOptions &Options)
@@ -102,7 +98,16 @@ public:
   MCAsmLexer &getLexer() const { return Parser.getLexer(); }
 
 };
-}
+} // end of anonymous namespace
+
+/// @name Auto-generated Match Functions
+/// {
+
+//! \brief Matches a register name to a register number.
+//! \return The register number, or -1 if the register is invalid.
+static unsigned MatchRegisterName(StringRef Name);
+
+/// }
 
 namespace {
 
@@ -272,59 +277,6 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   return true;
 }
 
-int AVRAsmParser::matchRegisterName(StringRef Name) {
-   
-   // Note that the register name is in lower-case.
-   
-   int CC;
-    CC = StringSwitch<unsigned>(Name)
-      .Case("r0",  AVR::R0)
-      .Case("r1",  AVR::R1)
-      .Case("r2",  AVR::R2)
-      .Case("r3",  AVR::R3)
-      .Case("r4",  AVR::R4)
-      .Case("r5",  AVR::R5)
-      .Case("r6",  AVR::R6)
-      .Case("r7",  AVR::R7)
-      .Case("r8",  AVR::R8)
-      .Case("r9",  AVR::R9)
-      .Case("r10", AVR::R10)
-      .Case("r11", AVR::R11)
-      .Case("r12", AVR::R12)
-      .Case("r13", AVR::R13)
-      .Case("r14", AVR::R14)
-      .Case("r15", AVR::R15)
-      .Case("r16", AVR::R16)
-      .Case("r17", AVR::R17)
-      .Case("r18", AVR::R18)
-      .Case("r19", AVR::R19)
-      .Case("r20", AVR::R20)
-      .Case("r21", AVR::R21)
-      .Case("r22", AVR::R22)
-      .Case("r23", AVR::R23)
-      .Case("r24", AVR::R24)
-      .Case("r25", AVR::R25)
-      .Case("r26", AVR::R26)
-      .Case("r27", AVR::R27)
-      .Case("r28", AVR::R28)
-      .Case("r29", AVR::R29)
-      .Case("r30", AVR::R30)
-      .Case("r31", AVR::R31)
-      .Case("spl", AVR::SPL)
-      .Case("sph", AVR::SPH)
-      .Case("sp",  AVR::SP)
-      .Case("x",   AVR::R27R26)
-      .Case("y",   AVR::R29R28)
-      .Case("z",   AVR::R31R30)
-      
-      .Default(-1);
-
-  if (CC != -1)
-    return CC;
-
-  return -1;
-}
-
 int AVRAsmParser::tryParseRegister(StringRef Mnemonic) {
   const AsmToken &Tok = Parser.getTok();
   int RegNum = -1;
@@ -332,7 +284,7 @@ int AVRAsmParser::tryParseRegister(StringRef Mnemonic) {
   if (Tok.is(AsmToken::Identifier)) {
   
     std::string lowerCase = Tok.getString().lower();
-    RegNum = matchRegisterName(lowerCase);
+    RegNum = MatchRegisterName(lowerCase);
   } else { // not a register
       RegNum = -1;
   }
