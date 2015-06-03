@@ -28,28 +28,6 @@ using namespace llvm;
 #define PRINT_ALIAS_INSTR
 #include "AVRGenAsmWriter.inc"
 
-//:FIXME: this should be done somewhere else
-// check out the new feature about alternative reg names
-/// Convert a register name to its pointer name.
-static char getPtrRegName(const char *RegName)
-{
-  if (strcmp(RegName, "r30") == 0)
-  {
-    return 'Z';
-  }
-  if (strcmp(RegName, "r28") == 0)
-  {
-    return 'Y';
-  }
-  if (strcmp(RegName, "r26") == 0)
-  {
-    return 'X';
-  }
-
-  llvm_unreachable("Invalid register name");
-  return '\0';
-}
-
 void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
                                StringRef Annot, const MCSubtargetInfo &STI)
 {
@@ -67,12 +45,12 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
     printOperand(MI, 0, O);
     O << ", ";
     if (Opcode == AVR::LDRdPtrPd) O << '-';
-    printOperand(MI, 1, O, "ptr");
+    printOperand(MI, 1, O);
     if (Opcode == AVR::LDRdPtrPi) O << '+';
     return;
   case AVR::STPtrRr:
     O << "\tst\t";
-    printOperand(MI, 0, O, "ptr");
+    printOperand(MI, 0, O);
     O << ", ";
     printOperand(MI, 1, O);
     return;
@@ -80,7 +58,7 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
   case AVR::STPtrPdRr:
     O << "\tst\t";
     if (Opcode == AVR::STPtrPdRr) O << '-';
-    printOperand(MI, 1, O, "ptr");
+    printOperand(MI, 1, O);
     if (Opcode == AVR::STPtrPiRr) O << '+';
     O << ", ";
     printOperand(MI, 2, O);
@@ -94,21 +72,13 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
 }
 
 void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
-                                  raw_ostream &O, const char *Modifier)
+                                  raw_ostream &O)
 {
   const MCOperand &Op = MI->getOperand(OpNo);
 
   if (Op.isReg())
   {
-    // Print ptr registers as X, Y and Z.
-    if (Modifier && strcmp(Modifier, "ptr") == 0)
-    {
-      O << getPtrRegName(getRegisterName(Op.getReg()));
-    }
-    else
-    {
-      O << getRegisterName(Op.getReg());
-    }
+    O << getRegisterName(Op.getReg());
     return;
   }
 
