@@ -89,6 +89,10 @@ class AVRAsmParser : public MCTargetAsmParser {
 
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op, unsigned Kind);
 
+  //! \brief Given a lower (even) register returns the corresponding DREG
+  inline unsigned toDREG(unsigned lowerReg) {
+    return MRI->getMatchingSuperReg(lowerReg, AVR::sub_lo, &AVRMCRegisterClasses[AVR::DREGSRegClassID]);
+  }
 public:
   AVRAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,
                 const MCInstrInfo &MII, const MCTargetOptions &Options)
@@ -294,11 +298,16 @@ int AVRAsmParser::tryParseRegister(StringRef Mnemonic) {
   if (Tok.is(AsmToken::Identifier)) {
   
     std::string lowerCase = Tok.getString().lower();
-    RegNum = MatchRegisterName(lowerCase);
-  } else { // not a register
-      RegNum = -1;
+    if (Parser.getLexer().peekTok().is(AsmToken::Colon)) {
+      Parser.Lex(); Parser.Lex();
+      if (Parser.getTok().is(AsmToken::Identifier)) {
+        lowerCase = Parser.getTok().getString().lower();
+      }
+      RegNum = toDREG(MatchRegisterName(lowerCase));
+    } else {
+      RegNum = MatchRegisterName(lowerCase);
+    }
   }
-  
   return RegNum;
 }
 
@@ -509,12 +518,16 @@ extern "C" void LLVMInitializeAVRAsmParser() {
 #define GET_MATCHER_IMPLEMENTATION
 #include "AVRGenAsmMatcher.inc"
 
+// Uses enums defined in AVRGenAsmMatcher.inc
 unsigned
-AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp, unsigned Kind) {
+AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp, unsigned ExpectedKind) {
   AVROperand & Op = static_cast<AVROperand&>(AsmOp);
-  if (Op.isReg() && isSubclass(MatchClassKind(Kind), MCK_DREGS)) {
-    Op.Reg.RegNum = MRI->getMatchingSuperReg(Op.getReg(), AVR::sub_lo, &AVRMCRegisterClasses[AVR::DREGSRegClassID]);
-    return Match_Success;
+  if (Op.isReg() && isSubclass(MatchClassKind(ExpectedKind), MCK_DREGS)) {
+    unsigned correspondingDREG = toDREG(Op.getReg());
+    if (correspondingDREG) {
+      Op.Reg.RegNum = toDREG(Op.getReg());
+      return Match_Success;
+    }
   }
   return Match_InvalidOperand;
 }
