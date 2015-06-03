@@ -13,14 +13,14 @@ entry:
 ; CHECK: push r29
 ; CHECK: in r28, 61
 ; CHECK-NEXT: in r29, 62
-; CHECK-NEXT: sbiw r28, [[SIZE:[0-9]+]]
+; CHECK-NEXT: sbiw y, [[SIZE:[0-9]+]]
 ; CHECK-NEXT: in r0, 63
 ; CHECK-NEXT: cli
 ; CHECK-NEXT: out 62, r29
 ; CHECK-NEXT: out 63, r0
 ; CHECK-NEXT: out 61, r28
 ; epilogue code:
-; CHECK: adiw r28, [[SIZE]]
+; CHECK: adiw y, [[SIZE]]
 ; CHECK-NEXT: in r0, 63
 ; CHECK-NEXT: cli
 ; CHECK-NEXT: out 62, r29
