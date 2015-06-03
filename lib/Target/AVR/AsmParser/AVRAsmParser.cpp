@@ -124,19 +124,23 @@ class AVROperand : public MCParsedAsmOperand {
 public:
   AVROperand(KindTy K) : MCParsedAsmOperand(), Kind(K) {}
 
+  struct Token {
+    const char *Data;
+    unsigned Length;
+  };
+
+  struct Register {
+    unsigned RegNum;
+  };
+
+  struct Immediate {
+    const MCExpr *Val;
+  };
+
   union {
-    struct {
-      const char *Data;
-      unsigned Length;
-    } Tok;
-
-    struct {
-      unsigned RegNum;
-    } Reg;
-
-    struct {
-      const MCExpr *Val;
-    } Imm;
+    Token     Tok;
+    Register  Reg;
+    Immediate Imm;
   };
 
   SMLoc StartLoc, EndLoc;
