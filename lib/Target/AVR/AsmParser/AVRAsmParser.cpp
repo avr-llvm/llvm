@@ -36,6 +36,7 @@ namespace {
 class AVRAsmParser : public MCTargetAsmParser {
   MCSubtargetInfo &STI;
   MCAsmParser &Parser;
+  const MCRegisterInfo * MRI;
 
 
 #define GET_ASSEMBLER_HEADER
@@ -86,10 +87,15 @@ class AVRAsmParser : public MCTargetAsmParser {
   bool tryParseRegisterOperand(OperandVector &Operands,
                                StringRef Mnemonic);
 
+  unsigned validateTargetOperandClass(MCParsedAsmOperand &Op, unsigned Kind);
+
 public:
   AVRAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,
                 const MCInstrInfo &MII, const MCTargetOptions &Options)
     : MCTargetAsmParser(), STI(sti), Parser(parser) {
+    MCAsmParserExtension::Initialize(Parser);
+    MRI = getContext().getRegisterInfo();
+
     // Initialize the set of available features.
     setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
   }
@@ -502,4 +508,14 @@ extern "C" void LLVMInitializeAVRAsmParser() {
 #define GET_REGISTER_MATCHER
 #define GET_MATCHER_IMPLEMENTATION
 #include "AVRGenAsmMatcher.inc"
+
+unsigned
+AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp, unsigned Kind) {
+  AVROperand & Op = static_cast<AVROperand&>(AsmOp);
+  if (Op.isReg() && isSubclass(MatchClassKind(Kind), MCK_DREGS)) {
+    Op.Reg.RegNum = MRI->getMatchingSuperReg(Op.getReg(), AVR::sub_lo, &AVRMCRegisterClasses[AVR::DREGSRegClassID]);
+    return Match_Success;
+  }
+  return Match_InvalidOperand;
+}
 
