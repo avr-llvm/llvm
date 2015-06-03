@@ -474,7 +474,7 @@ def AVRAsmWriter : AsmWriter
 //===----------------------------------------------------------------------===//
 
 def AVRAsmParser : AsmParser {
-    let ShouldEmitMatchRegisterName = 1;
+  let ShouldEmitMatchRegisterName = 1;
 }
 
 def AVRAsmParserVariant : AsmParserVariant {
