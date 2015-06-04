@@ -36,6 +36,7 @@ namespace {
 class AVRAsmParser : public MCTargetAsmParser {
   MCSubtargetInfo &STI;
   MCAsmParser &Parser;
+  const MCRegisterInfo * MRI;
 
 
 #define GET_ASSEMBLER_HEADER
@@ -86,14 +87,19 @@ class AVRAsmParser : public MCTargetAsmParser {
   bool tryParseRegisterOperand(OperandVector &Operands,
                                StringRef Mnemonic);
 
-  //! \brief Matches a register name to a register number.
-  //! \return The register number, or -1 if the register is invalid.
-  int matchRegisterName(StringRef Symbol);
-  
+  unsigned validateTargetOperandClass(MCParsedAsmOperand &Op, unsigned Kind);
+
+  //! \brief Given a lower (even) register returns the corresponding DREG
+  inline unsigned toDREG(unsigned lowerReg) {
+    return MRI->getMatchingSuperReg(lowerReg, AVR::sub_lo, &AVRMCRegisterClasses[AVR::DREGSRegClassID]);
+  }
 public:
   AVRAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,
                 const MCInstrInfo &MII, const MCTargetOptions &Options)
     : MCTargetAsmParser(), STI(sti), Parser(parser) {
+    MCAsmParserExtension::Initialize(Parser);
+    MRI = getContext().getRegisterInfo();
+
     // Initialize the set of available features.
     setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
   }
@@ -102,7 +108,16 @@ public:
   MCAsmLexer &getLexer() const { return Parser.getLexer(); }
 
 };
-}
+} // end of anonymous namespace
+
+/// @name Auto-generated Match Functions
+/// {
+
+//! \brief Matches a register name to a register number.
+//! \return The register number, or -1 if the register is invalid.
+static unsigned MatchRegisterName(StringRef Name);
+
+/// }
 
 namespace {
 
@@ -119,19 +134,23 @@ class AVROperand : public MCParsedAsmOperand {
 public:
   AVROperand(KindTy K) : MCParsedAsmOperand(), Kind(K) {}
 
+  struct Token {
+    const char *Data;
+    unsigned Length;
+  };
+
+  struct Register {
+    unsigned RegNum;
+  };
+
+  struct Immediate {
+    const MCExpr *Val;
+  };
+
   union {
-    struct {
-      const char *Data;
-      unsigned Length;
-    } Tok;
-
-    struct {
-      unsigned RegNum;
-    } Reg;
-
-    struct {
-      const MCExpr *Val;
-    } Imm;
+    Token     Tok;
+    Register  Reg;
+    Immediate Imm;
   };
 
   SMLoc StartLoc, EndLoc;
@@ -272,71 +291,21 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   return true;
 }
 
-int AVRAsmParser::matchRegisterName(StringRef Name) {
-   
-   // Note that the register name is in lower-case.
-   
-   int CC;
-    CC = StringSwitch<unsigned>(Name)
-      .Case("r0",  AVR::R0)
-      .Case("r1",  AVR::R1)
-      .Case("r2",  AVR::R2)
-      .Case("r3",  AVR::R3)
-      .Case("r4",  AVR::R4)
-      .Case("r5",  AVR::R5)
-      .Case("r6",  AVR::R6)
-      .Case("r7",  AVR::R7)
-      .Case("r8",  AVR::R8)
-      .Case("r9",  AVR::R9)
-      .Case("r10", AVR::R10)
-      .Case("r11", AVR::R11)
-      .Case("r12", AVR::R12)
-      .Case("r13", AVR::R13)
-      .Case("r14", AVR::R14)
-      .Case("r15", AVR::R15)
-      .Case("r16", AVR::R16)
-      .Case("r17", AVR::R17)
-      .Case("r18", AVR::R18)
-      .Case("r19", AVR::R19)
-      .Case("r20", AVR::R20)
-      .Case("r21", AVR::R21)
-      .Case("r22", AVR::R22)
-      .Case("r23", AVR::R23)
-      .Case("r24", AVR::R24)
-      .Case("r25", AVR::R25)
-      .Case("r26", AVR::R26)
-      .Case("r27", AVR::R27)
-      .Case("r28", AVR::R28)
-      .Case("r29", AVR::R29)
-      .Case("r30", AVR::R30)
-      .Case("r31", AVR::R31)
-      .Case("spl", AVR::SPL)
-      .Case("sph", AVR::SPH)
-      .Case("sp",  AVR::SP)
-      .Case("x",   AVR::R27R26)
-      .Case("y",   AVR::R29R28)
-      .Case("z",   AVR::R31R30)
-      
-      .Default(-1);
-
-  if (CC != -1)
-    return CC;
-
-  return -1;
-}
-
 int AVRAsmParser::tryParseRegister(StringRef Mnemonic) {
   const AsmToken &Tok = Parser.getTok();
   int RegNum = -1;
-
   if (Tok.is(AsmToken::Identifier)) {
-  
-    std::string lowerCase = Tok.getString().lower();
-    RegNum = matchRegisterName(lowerCase);
-  } else { // not a register
-      RegNum = -1;
+      // check for register pair syntax
+    if (Parser.getLexer().peekTok().is(AsmToken::Colon)) {
+      Parser.Lex(); Parser.Lex(); // eat high (odd) register and colon
+      if (Parser.getTok().is(AsmToken::Identifier)) {
+        // convert lower (even) register to DREG
+        RegNum = toDREG(MatchRegisterName(Parser.getTok().getString().lower()));
+      }
+    } else {
+      RegNum = MatchRegisterName(Tok.getString().lower());
+    }
   }
-  
   return RegNum;
 }
 
@@ -459,7 +428,7 @@ bool AVRAsmParser::ParseOperand(OperandVector &Operands,
     }
     case AsmToken::Plus:
     case AsmToken::Minus: {
-      auto nextTok = Parser.getLexer().peekTok(true);
+      auto nextTok = Parser.getLexer().peekTok();
 
       // we are parsing an integer immediate
       if(nextTok.getKind() == AsmToken::Integer) {
@@ -507,34 +476,19 @@ ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
   Operands.push_back(AVROperand::CreateToken(Mnemonic, NameLoc));
 
   // Read the remaining operands.
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    // Read the first operand.
+  bool first = true;
+  while (getLexer().isNot(AsmToken::EndOfStatement)) {
+    if(!first && getLexer().is(AsmToken::Comma))
+      Parser.Lex();  // Eat the comma.
+
+    // Parse and remember the operand.
     if (ParseOperand(Operands, Name)) {
       SMLoc Loc = getLexer().getLoc();
       Parser.eatToEndOfStatement();
       return Error(Loc, "unexpected token in argument list");
     }
-
-    while (getLexer().isNot(AsmToken::EndOfStatement)) {
-
-      if(getLexer().is(AsmToken::Comma))
-        Parser.Lex();  // Eat the comma.
-
-      // Parse and remember the operand.
-      if (ParseOperand(Operands, Name)) {
-        SMLoc Loc = getLexer().getLoc();
-        Parser.eatToEndOfStatement();
-        return Error(Loc, "unexpected token in argument list");
-      }
-    }
+    first = false;
   }
-
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    SMLoc Loc = getLexer().getLoc();
-    Parser.eatToEndOfStatement();
-    return Error(Loc, "unexpected token in argument list");
-  }
-
   Parser.Lex(); // Consume the EndOfStatement
   return false;
 }
@@ -546,4 +500,18 @@ extern "C" void LLVMInitializeAVRAsmParser() {
 #define GET_REGISTER_MATCHER
 #define GET_MATCHER_IMPLEMENTATION
 #include "AVRGenAsmMatcher.inc"
+
+// Uses enums defined in AVRGenAsmMatcher.inc
+unsigned
+AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp, unsigned ExpectedKind) {
+  AVROperand & Op = static_cast<AVROperand&>(AsmOp);
+  if (Op.isReg() && isSubclass(MatchClassKind(ExpectedKind), MCK_DREGS)) {
+    unsigned correspondingDREG = toDREG(Op.getReg());
+    if (correspondingDREG) {
+      Op.Reg.RegNum = correspondingDREG;
+      return Match_Success;
+    }
+  }
+  return Match_InvalidOperand;
+}
 

@@ -31,7 +31,7 @@ define i16 @sub16_reg_reg(i16 %a, i16 %b) {
 
 define i16 @sub16_reg_imm(i16 %a) {
 ; CHECK-LABEL: sub16_reg_imm:
-; CHECK: sbiw r24, 63
+; CHECK: sbiw r25:r24, 63
     %result = sub i16 %a, 63
     ret i16 %result
 }

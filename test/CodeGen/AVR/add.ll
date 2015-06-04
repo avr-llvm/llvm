@@ -32,7 +32,7 @@ define i16 @add16_reg_reg(i16 %a, i16 %b) {
 
 define i16 @add16_reg_imm(i16 %a) {
 ; CHECK-LABEL: add16_reg_imm:
-; CHECK: adiw r24, 63
+; CHECK: adiw r25:r24, 63
     %result = add i16 %a, 63
     ret i16 %result
 }
