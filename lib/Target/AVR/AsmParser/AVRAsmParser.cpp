@@ -55,38 +55,21 @@ class AVRAsmParser : public MCTargetAsmParser {
   
   bool ParseDirective(AsmToken directiveID) override { return true; }
 
-  //! \brief Parses identifiers as AsmToken::Token's when needed.
-  //!
-  //! Some instructions have hard coded values as operands.
-  //! For example, the `lpm Rd, Z` instruction, where the second
-  //! operand is always explicitly Z.
-  //!
-  //! The parser naively parses `Z` and all other identifiers as immediates.
-  //! The problem with this is that the instruction matcher expects `Z` to
-  //! be of kind AsmToken::Token.
-  //!
-  //! This function fixes this by maintaining a table of operand values
-
-  //! (such as `Z`) and mnemonics (such as `lpm`) and parsing all operands
-  //! that fit the criteria as AsmToken::Token values.
-  //!
-  //! \return `false` if we found a token that fit the criteria and
-  //!         parsed it, `true` otherwise.
-  bool ParseCustomOperand(OperandVector &Operands, StringRef Mnemonic);
 
   //! \brief Parses an assembly operand.
   //! \param Operands A list to add the successfully parsed operand to.
   //! \param Mnemonic The mnemonic of the instruction.
   //! \return `false` if parsing succeeds, `true` otherwise.
-  bool ParseOperand(OperandVector &Operands, StringRef Mnemonic);
+  bool parseOperand(OperandVector &Operands, StringRef Mnemonic);
 
   //! \brief Attempts to parse a register.
   //! \return The register number, or `-1` if the token is not a register.
-  int tryParseRegister(StringRef Mnemonic);
+  int parseRegister();
+  bool tryParseRegisterOperand(OperandVector &Operands);
+  bool tryParseExpression(OperandVector & Operands);
+  void appendToken(OperandVector & Operands);
 
-  bool tryParseRegisterOperand(OperandVector &Operands,
-                               StringRef Mnemonic);
-
+  //! \brief Handles target specific special cases. See definition for notes.
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op, unsigned Kind);
 
   //! \brief Given a lower (even) register returns the corresponding DREG
@@ -234,7 +217,7 @@ public:
     
     switch(Kind) {
       case k_Token:
-        OS << "Token(\"" << Tok.Data << "\")";
+        OS << "Token(\"" << std::string(Tok.Data, Tok.Length) << "\")";
         break;
       case k_Register:
         OS << "Register(Num = " << Reg.RegNum << ")";
@@ -291,7 +274,7 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   return true;
 }
 
-int AVRAsmParser::tryParseRegister(StringRef Mnemonic) {
+int AVRAsmParser::parseRegister() {
   const AsmToken &Tok = Parser.getTok();
   int RegNum = -1;
   if (Tok.is(AsmToken::Identifier)) {
@@ -310,146 +293,75 @@ int AVRAsmParser::tryParseRegister(StringRef Mnemonic) {
 }
 
 bool AVRAsmParser::
-  tryParseRegisterOperand(OperandVector &Operands,
-                          StringRef Mnemonic){
+tryParseRegisterOperand(OperandVector &Operands){
 
-  SMLoc S = Parser.getTok().getLoc();
-  int RegNo = -1;
-
-  RegNo = tryParseRegister(Mnemonic);
-  
+  int RegNo = parseRegister();
   if (RegNo == -1)
     return true;
 
-  Operands.push_back(AVROperand::CreateReg(RegNo, S,
-                     Parser.getTok().getLoc()));
-  
+  AsmToken const& T = Parser.getTok();
+  Operands.push_back(AVROperand::CreateReg(RegNo, T.getLoc(), T.getEndLoc()));
   Parser.Lex(); // Eat register token.
+
+  // If the next token is a sign, add it.
+  AsmToken const& Sign = Parser.getTok();
+  if (Sign.getKind() == AsmToken::Plus || Sign.getKind() == AsmToken::Minus) {
+    appendToken(Operands);
+  }
   return false;
 }
 
-/// \brief Maps operand names to tokens.
-/// \note See ParseCustomOperand for details.
-struct CustomOperandMapping {
-  StringRef mnemonic;
-  StringRef token;
-};
+bool
+AVRAsmParser::tryParseExpression(OperandVector & Operands) {
+  SMLoc S = Parser.getTok().getLoc();
+  MCExpr const* Expression;
+  if (getParser().parseExpression(Expression))
+    return true;
 
-bool AVRAsmParser::ParseCustomOperand(OperandVector &Operands,
-                                      StringRef Mnemonic)
-{
-  // A list of (containing mnemonic, identifier) to
-  // process as tokens.
-  const CustomOperandMapping mappings[] = {
-    CustomOperandMapping { "lpm",  "Z" },
-    CustomOperandMapping { "lpmw", "Z" },
-    CustomOperandMapping { "elpm", "Z" },
-    CustomOperandMapping { "spm",  "Z" },
-
-    CustomOperandMapping { "xch", "Z" },
-    CustomOperandMapping { "las", "Z" },
-    CustomOperandMapping { "lac", "Z" },
-    CustomOperandMapping { "lat", "Z" }
-  };
-
-
-  // we only operate on identifiers
-  assert(getLexer().is(AsmToken::Identifier));
-
-  auto ident = getLexer().getTok().getIdentifier();
-
-  for(auto &mapping : mappings) {
-
-    // check if we found a match
-    if( (mapping.mnemonic.compare_lower(Mnemonic) == 0) && (mapping.token.compare_lower(ident) == 0) ) {
-      // add the token as an operand of type Token.
-      SMLoc S = Parser.getTok().getLoc();
-      Operands.push_back(AVROperand::CreateToken(mapping.token, S));
-
-      Parser.Lex();
-
-      return false;
-    }
-  }
-
-  return true;
+  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+  Operands.push_back(AVROperand::CreateImm(Expression, S, E));
+  return false;
 }
 
+void
+AVRAsmParser::appendToken(OperandVector & Operands) {
+  AsmToken const& T(Parser.getTok());
+  Operands.push_back(AVROperand::CreateToken(T.getString(), T.getLoc()));
+  Parser.Lex();
+}
 
-bool AVRAsmParser::ParseOperand(OperandVector &Operands,
+bool AVRAsmParser::parseOperand(OperandVector &Operands,
                                 StringRef Mnemonic) {
-  DEBUG(dbgs() << "ParseOperand\n");
-
-  SMLoc S = Parser.getTok().getLoc();
-  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-  const MCExpr *EVal;
+  DEBUG(dbgs() << "parseOperand\n");
 
   switch (getLexer().getKind()) {
     default:
-      Error(S, "unexpected token in operand");
-      return true;
+      return Error(Parser.getTok().getLoc(), "unexpected token in operand");
+
     case AsmToken::Identifier:
+      if(!tryParseRegisterOperand(Operands)) {
+        return false;
+      }
+      return tryParseExpression(Operands);
+
     case AsmToken::LParen:
     case AsmToken::Integer:
-    case AsmToken::String: {
+    //case AsmToken::String:
+      return tryParseExpression(Operands);
 
-      // check if the operand is an identifier
-      if(getLexer().is(AsmToken::Identifier)) {
-
-        // check if we need to parse this operand as
-        // as token.
-        if(!ParseCustomOperand(Operands, Mnemonic)) {
-          return false;
-        }
-      }
-
-      // try parse the operand as a register
-      if(!tryParseRegisterOperand(Operands, Mnemonic)) {
-        return false;
-      
-      } else { // the operand not a register
-
-        if (getParser().parseExpression(EVal))
-          return true;
-
-        SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-        Operands.push_back(AVROperand::CreateImm(EVal, S, E));
-        return false;
-      }
-    }
     // Parse the syntax .[+][-]offset
     // for PC-relative call.
-    case AsmToken::Dot: {
+    case AsmToken::Dot:
       Parser.Lex(); // eat `.`
-      if(!Parser.parseExpression(EVal, E)) {
-        Operands.push_back(AVROperand::CreateImm(EVal, S, E));
-        return false;
-      }
-    }
+      return tryParseExpression(Operands);
     case AsmToken::Plus:
     case AsmToken::Minus: {
-      auto nextTok = Parser.getLexer().peekTok();
-
-      // we are parsing an integer immediate
-      if(nextTok.getKind() == AsmToken::Integer) {
-
-        // try and parse the expression
-        if(!Parser.parseExpression(EVal, E)) {
-          Operands.push_back(AVROperand::CreateImm(EVal, S, E));
-          return false;
-
-        } else { // could not parse expression
-          return true;
-        }
-
-      } else { // we should parse the '+' or '-' as a token
-
-        Operands.push_back(AVROperand::CreateToken(getLexer().getTok().getString(), S));
-        Parser.Lex();
-        return false;
+      if (Parser.getLexer().peekTok().getKind() == AsmToken::Integer) {
+        return tryParseExpression(Operands);
       }
+      appendToken(Operands);
+      return false;
     }
-
   } // switch(getLexer().getKind())
   
   // could not parse operand
@@ -460,29 +372,23 @@ bool AVRAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
                                   SMLoc &EndLoc) {
 
   StartLoc = Parser.getTok().getLoc();
-  RegNo = tryParseRegister("");
+  RegNo = parseRegister();
   EndLoc = Parser.getTok().getLoc();
   return (RegNo == (unsigned)-1);
 }
 
 bool AVRAsmParser::
-ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
+ParseInstruction(ParseInstructionInfo &Info, StringRef Mnemonic, SMLoc NameLoc,
                  OperandVector &Operands) {
 
-  // Create the leading tokens for the mnemonic, split by '.' characters.
-  size_t Start = 0, Next = Name.find('.');
-  StringRef Mnemonic = Name.slice(Start, Next);
-
   Operands.push_back(AVROperand::CreateToken(Mnemonic, NameLoc));
-
-  // Read the remaining operands.
   bool first = true;
   while (getLexer().isNot(AsmToken::EndOfStatement)) {
     if(!first && getLexer().is(AsmToken::Comma))
       Parser.Lex();  // Eat the comma.
 
     // Parse and remember the operand.
-    if (ParseOperand(Operands, Name)) {
+    if (parseOperand(Operands, Mnemonic)) {
       SMLoc Loc = getLexer().getLoc();
       Parser.eatToEndOfStatement();
       return Error(Loc, "unexpected token in argument list");
@@ -505,10 +411,23 @@ extern "C" void LLVMInitializeAVRAsmParser() {
 unsigned
 AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp, unsigned ExpectedKind) {
   AVROperand & Op = static_cast<AVROperand&>(AsmOp);
-  if (Op.isReg() && isSubclass(MatchClassKind(ExpectedKind), MCK_DREGS)) {
-    unsigned correspondingDREG = toDREG(Op.getReg());
-    if (correspondingDREG) {
-      Op.Reg.RegNum = correspondingDREG;
+  if (Op.isReg()) {
+    MatchClassKind Expected(static_cast<MatchClassKind>(ExpectedKind));
+
+    // If the instructions uses a register pair but we got a single, lower
+    // register we perform a "class cast".
+    if (isSubclass(Expected, MCK_DREGS)) {
+      unsigned correspondingDREG = toDREG(Op.getReg());
+      if (correspondingDREG) {
+        Op.Reg.RegNum = correspondingDREG;
+        return Match_Success;
+      }
+    }
+
+    // Some instructions have hard coded values as operands.
+    // For example, the `lpm Rd, Z` instruction, where the second
+    // operand is always explicitly Z.
+    if (isSubclass(Expected, MCK_Z) && Op.getReg() == AVR::R31R30) {
       return Match_Success;
     }
   }
