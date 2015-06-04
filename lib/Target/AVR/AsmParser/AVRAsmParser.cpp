@@ -64,10 +64,9 @@ class AVRAsmParser : public MCTargetAsmParser {
 
   //! \brief Attempts to parse a register.
   //! \return The register number, or `-1` if the token is not a register.
-  int tryParseRegister();
-
-  bool tryParseRegisterOperand(OperandVector &Operands,
-                               StringRef Mnemonic);
+  int parseRegister();
+  bool tryParseRegisterOperand(OperandVector &Operands);
+  bool tryParseExpression(OperandVector & Operands);
 
   //! \brief Handles target specific special cases. See definition for notes.
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op, unsigned Kind);
@@ -217,7 +216,7 @@ public:
     
     switch(Kind) {
       case k_Token:
-        OS << "Token(\"" << Tok.Data << "\")";
+        OS << "Token(\"" << std::string(Tok.Data, Tok.Length) << "\")";
         break;
       case k_Register:
         OS << "Register(Num = " << Reg.RegNum << ")";
@@ -274,7 +273,7 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   return true;
 }
 
-int AVRAsmParser::tryParseRegister() {
+int AVRAsmParser::parseRegister() {
   const AsmToken &Tok = Parser.getTok();
   int RegNum = -1;
   if (Tok.is(AsmToken::Identifier)) {
@@ -293,17 +292,28 @@ int AVRAsmParser::tryParseRegister() {
 }
 
 bool AVRAsmParser::
-  tryParseRegisterOperand(OperandVector &Operands,
-                          StringRef Mnemonic){
+tryParseRegisterOperand(OperandVector &Operands){
 
-  int RegNo = tryParseRegister();
+  int RegNo = parseRegister();
   if (RegNo == -1)
     return true;
 
-  AsmToken const& Tok = Parser.getTok();
-  Operands.push_back(AVROperand::CreateReg(RegNo, Tok.getLoc(), Tok.getEndLoc()));
+  AsmToken const& T = Parser.getTok();
+  Operands.push_back(AVROperand::CreateReg(RegNo, T.getLoc(), T.getEndLoc()));
   Parser.Lex(); // Eat register token.
 
+  return false;
+}
+
+bool
+AVRAsmParser::tryParseExpression(OperandVector & Operands) {
+  SMLoc S = Parser.getTok().getLoc();
+  MCExpr const* Expression;
+  if (getParser().parseExpression(Expression))
+    return true;
+
+  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+  Operands.push_back(AVROperand::CreateImm(Expression, S, E));
   return false;
 }
 
@@ -311,65 +321,36 @@ bool AVRAsmParser::parseOperand(OperandVector &Operands,
                                 StringRef Mnemonic) {
   DEBUG(dbgs() << "parseOperand\n");
 
-  SMLoc S = Parser.getTok().getLoc();
-  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-  const MCExpr *EVal;
-
   switch (getLexer().getKind()) {
     default:
-      Error(S, "unexpected token in operand");
-      return true;
+      return Error(Parser.getTok().getLoc(), "unexpected token in operand");
+
     case AsmToken::Identifier:
+      if(!tryParseRegisterOperand(Operands)) {
+        return false;
+      }
+      return tryParseExpression(Operands);
+
     case AsmToken::LParen:
     case AsmToken::Integer:
-    case AsmToken::String: {
-      // try parse the operand as a register
-      if(!tryParseRegisterOperand(Operands, Mnemonic)) {
-        return false;
-      
-      } else { // the operand not a register
+    //case AsmToken::String:
+      return tryParseExpression(Operands);
 
-        if (getParser().parseExpression(EVal))
-          return true;
-
-        SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-        Operands.push_back(AVROperand::CreateImm(EVal, S, E));
-        return false;
-      }
-    }
     // Parse the syntax .[+][-]offset
     // for PC-relative call.
-    case AsmToken::Dot: {
+    case AsmToken::Dot:
       Parser.Lex(); // eat `.`
-      if(!Parser.parseExpression(EVal, E)) {
-        Operands.push_back(AVROperand::CreateImm(EVal, S, E));
-        return false;
-      }
-    }
+      return tryParseExpression(Operands);
     case AsmToken::Plus:
     case AsmToken::Minus: {
-      auto nextTok = Parser.getLexer().peekTok();
-
-      // we are parsing an integer immediate
-      if(nextTok.getKind() == AsmToken::Integer) {
-
-        // try and parse the expression
-        if(!Parser.parseExpression(EVal, E)) {
-          Operands.push_back(AVROperand::CreateImm(EVal, S, E));
-          return false;
-
-        } else { // could not parse expression
-          return true;
-        }
-
-      } else { // we should parse the '+' or '-' as a token
-
-        Operands.push_back(AVROperand::CreateToken(getLexer().getTok().getString(), S));
-        Parser.Lex();
-        return false;
+      if (Parser.getLexer().peekTok().getKind() == AsmToken::Integer) {
+        return tryParseExpression(Operands);
       }
+      AsmToken const& T(Parser.getTok());
+      Operands.push_back(AVROperand::CreateToken(T.getString(), T.getLoc()));
+      Parser.Lex();
+      return false;
     }
-
   } // switch(getLexer().getKind())
   
   // could not parse operand
@@ -380,7 +361,7 @@ bool AVRAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
                                   SMLoc &EndLoc) {
 
   StartLoc = Parser.getTok().getLoc();
-  RegNo = tryParseRegister();
+  RegNo = parseRegister();
   EndLoc = Parser.getTok().getLoc();
   return (RegNo == (unsigned)-1);
 }
