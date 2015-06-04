@@ -67,6 +67,7 @@ class AVRAsmParser : public MCTargetAsmParser {
   int parseRegister();
   bool tryParseRegisterOperand(OperandVector &Operands);
   bool tryParseExpression(OperandVector & Operands);
+  void appendToken(OperandVector & Operands);
 
   //! \brief Handles target specific special cases. See definition for notes.
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op, unsigned Kind);
@@ -302,6 +303,11 @@ tryParseRegisterOperand(OperandVector &Operands){
   Operands.push_back(AVROperand::CreateReg(RegNo, T.getLoc(), T.getEndLoc()));
   Parser.Lex(); // Eat register token.
 
+  // If the next token is a sign, add it.
+  AsmToken const& Sign = Parser.getTok();
+  if (Sign.getKind() == AsmToken::Plus || Sign.getKind() == AsmToken::Minus) {
+    appendToken(Operands);
+  }
   return false;
 }
 
@@ -315,6 +321,13 @@ AVRAsmParser::tryParseExpression(OperandVector & Operands) {
   SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
   Operands.push_back(AVROperand::CreateImm(Expression, S, E));
   return false;
+}
+
+void
+AVRAsmParser::appendToken(OperandVector & Operands) {
+  AsmToken const& T(Parser.getTok());
+  Operands.push_back(AVROperand::CreateToken(T.getString(), T.getLoc()));
+  Parser.Lex();
 }
 
 bool AVRAsmParser::parseOperand(OperandVector &Operands,
@@ -346,9 +359,7 @@ bool AVRAsmParser::parseOperand(OperandVector &Operands,
       if (Parser.getLexer().peekTok().getKind() == AsmToken::Integer) {
         return tryParseExpression(Operands);
       }
-      AsmToken const& T(Parser.getTok());
-      Operands.push_back(AVROperand::CreateToken(T.getString(), T.getLoc()));
-      Parser.Lex();
+      appendToken(Operands);
       return false;
     }
   } // switch(getLexer().getKind())
