@@ -592,8 +592,10 @@ void AVRTargetLowering::ReplaceNodeResults(SDNode *N,
 /// isLegalAddressingMode - Return true if the addressing mode represented
 /// by AM is legal for this target, for a load/store of the specified type.
 bool AVRTargetLowering::isLegalAddressingMode(const AddrMode &AM,
-                                              Type *Ty) const
+                                              Type *Ty,
+                                              unsigned AS) const
 {
+  // FIXME: should we be using AS over Ty->getPointerAddressSpace()?
   int64_t Offs = AM.BaseOffs;
 
   // Allow absolute addresses.

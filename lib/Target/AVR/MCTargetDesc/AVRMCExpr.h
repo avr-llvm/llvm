@@ -28,15 +28,15 @@ public:
   /// @name Construction
   /// @{
 
-  static const AVRMCExpr *Create(VariantKind Kind, const MCExpr *Expr,
+  static const AVRMCExpr *create(VariantKind Kind, const MCExpr *Expr,
                                  MCContext &Ctx);
-  static const AVRMCExpr *CreateUpper8(const MCExpr *Expr, MCContext &Ctx)
+  static const AVRMCExpr *createUpper8(const MCExpr *Expr, MCContext &Ctx)
   {
-    return Create(VK_AVR_HI8, Expr, Ctx);
+    return create(VK_AVR_HI8, Expr, Ctx);
   }
-  static const AVRMCExpr *CreateLower8(const MCExpr *Expr, MCContext &Ctx)
+  static const AVRMCExpr *createLower8(const MCExpr *Expr, MCContext &Ctx)
   {
-    return Create(VK_AVR_LO8, Expr, Ctx);
+    return create(VK_AVR_LO8, Expr, Ctx);
   }
 
   /// @}
@@ -51,17 +51,16 @@ public:
 
   /// @}
 public: // MCTargetExpr
-  void PrintImpl(raw_ostream &OS) const;
-  bool EvaluateAsRelocatableImpl(MCValue &Res,
+  void printImpl(raw_ostream &OS) const override;
+  bool evaluateAsRelocatableImpl(MCValue &Res,
                                  const MCAsmLayout *Layout,
                                  const MCFixup *Fixup) const override;
   
   void visitUsedExpr(MCStreamer& streamer) const override;
   
-  void AddValueSymbols(MCAssembler *) const;
-  MCSection *FindAssociatedSection() const override
+  MCSection *findAssociatedSection() const override
   {
-    return getSubExpr()->FindAssociatedSection();
+    return getSubExpr()->findAssociatedSection();
   }
 
   // There are no TLS AVRMCExprs at the moment.

@@ -29,7 +29,7 @@ namespace {
     unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
                           bool IsPCRel) const override;
     
-    bool needsRelocateWithSymbol(const MCSymbolData &SD,
+    bool needsRelocateWithSymbol(const MCSymbol &Sym,
                                  unsigned Type) const override;
   };
 }
@@ -168,7 +168,7 @@ unsigned AVRELFObjectWriter::GetRelocType(const MCValue &Target,
 }
 
 bool
-AVRELFObjectWriter::needsRelocateWithSymbol(const MCSymbolData &SD,
+AVRELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
                                             unsigned Type) const {
   switch (Type) {
   default:

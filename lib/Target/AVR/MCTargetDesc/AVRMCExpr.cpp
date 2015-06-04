@@ -15,12 +15,12 @@
 using namespace llvm;
 
 const AVRMCExpr *
-AVRMCExpr::Create(VariantKind Kind, const MCExpr *Expr, MCContext &Ctx)
+AVRMCExpr::create(VariantKind Kind, const MCExpr *Expr, MCContext &Ctx)
 {
   return new (Ctx) AVRMCExpr(Kind, Expr);
 }
 
-void AVRMCExpr::PrintImpl(raw_ostream &OS) const
+void AVRMCExpr::printImpl(raw_ostream &OS) const
 {
   switch (Kind)
   {
@@ -38,42 +38,14 @@ void AVRMCExpr::PrintImpl(raw_ostream &OS) const
 }
 
 bool
-AVRMCExpr::EvaluateAsRelocatableImpl(MCValue &Res,
+AVRMCExpr::evaluateAsRelocatableImpl(MCValue &Res,
                                      const MCAsmLayout *Layout,
                                      const MCFixup *Fixup) const
 {
-  return Expr->EvaluateAsRelocatable(Res, Layout, Fixup);
+  return Expr->evaluateAsRelocatable(Res, Layout, Fixup);
 }
 
 void AVRMCExpr::visitUsedExpr(MCStreamer &Streamer) const {
   Streamer.visitUsedExpr(*getSubExpr());
 }
 
-static void addValueSymbols_(const MCExpr *Value, MCAssembler *Asm)
-{
-  switch (Value->getKind())
-  {
-  case MCExpr::Target:
-    llvm_unreachable("Can't handle nested target expr!");
-  case MCExpr::Constant:
-    break;
-  case MCExpr::Binary:
-    {
-      const MCBinaryExpr *BE = cast<MCBinaryExpr>(Value);
-      addValueSymbols_(BE->getLHS(), Asm);
-      addValueSymbols_(BE->getRHS(), Asm);
-      break;
-    }
-  case MCExpr::SymbolRef:
-    Asm->getOrCreateSymbolData(cast<MCSymbolRefExpr>(Value)->getSymbol());
-    break;
-  case MCExpr::Unary:
-    addValueSymbols_(cast<MCUnaryExpr>(Value)->getSubExpr(), Asm);
-    break;
-  }
-}
-
-void AVRMCExpr::AddValueSymbols(MCAssembler *Asm) const
-{
-  addValueSymbols_(getSubExpr(), Asm);
-}

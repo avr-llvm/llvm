@@ -91,7 +91,8 @@ public:
    *        by AM is legal for this target, for a load/store
    *        of the specified type.
    */
-  bool isLegalAddressingMode(const AddrMode &AM, Type *Ty) const override;
+  bool isLegalAddressingMode(const AddrMode &AM, Type *Ty,
+                             unsigned AS) const override;
 
   /*!
    * \brief Returns true by value, base pointer and

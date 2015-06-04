@@ -28,26 +28,26 @@ LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const
   // FIXME: We would like an efficient form for this, so we don't have to do a
   // lot of extra uniquing.
   unsigned char TF = MO.getTargetFlags();
-  const MCExpr *Expr = MCSymbolRefExpr::Create(Sym, Ctx);
+  const MCExpr *Expr = MCSymbolRefExpr::create(Sym, Ctx);
 
   if (TF & AVRII::MO_NEG)
   {
-    Expr = MCUnaryExpr::CreateMinus(Expr, Ctx);
+    Expr = MCUnaryExpr::createMinus(Expr, Ctx);
   }
 
   if (!MO.isJTI() && MO.getOffset())
   {
-    Expr = MCBinaryExpr::CreateAdd(Expr, MCConstantExpr::Create(MO.getOffset(),
+    Expr = MCBinaryExpr::createAdd(Expr, MCConstantExpr::create(MO.getOffset(),
                                                                 Ctx), Ctx);
   }
 
   if (TF & AVRII::MO_LO)
   {
-    Expr = AVRMCExpr::CreateLower8(Expr, Ctx);
+    Expr = AVRMCExpr::createLower8(Expr, Ctx);
   }
   else if (TF & AVRII::MO_HI)
   {
-    Expr = AVRMCExpr::CreateUpper8(Expr, Ctx);
+    Expr = AVRMCExpr::createUpper8(Expr, Ctx);
   }
   else if (TF != 0)
   {
@@ -91,7 +91,7 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
                Printer.GetExternalSymbolSymbol(MO.getSymbolName()));
       break;
     case MachineOperand::MO_MachineBasicBlock:
-      MCOp = MCOperand::createExpr(MCSymbolRefExpr::Create(
+      MCOp = MCOperand::createExpr(MCSymbolRefExpr::create(
         MO.getMBB()->getSymbol(), Ctx));
       break;
     case MachineOperand::MO_RegisterMask:
