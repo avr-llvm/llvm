@@ -1,4 +1,4 @@
-//===- HexagonMCInstrInfo.cpp - Hexagon sub-class of MCInst ---------------===//
+//===- HexagonMCInstrInfo.cpp - Utility functions on Hexagon MCInsts ------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -27,8 +27,26 @@ class MCOperand;
 namespace HexagonII {
 enum class MemAccessSize;
 }
+class DuplexCandidate {
+public:
+  unsigned packetIndexI, packetIndexJ, iClass;
+  DuplexCandidate(unsigned i, unsigned j, unsigned iClass)
+      : packetIndexI(i), packetIndexJ(j), iClass(iClass) {}
+};
 namespace HexagonMCInstrInfo {
-void AppendImplicitOperands(MCInst &MCI);
+size_t const innerLoopOffset = 0;
+int64_t const innerLoopMask = 1 << innerLoopOffset;
+
+size_t const outerLoopOffset = 1;
+int64_t const outerLoopMask = 1 << outerLoopOffset;
+
+size_t const bundleInstructionsOffset = 1;
+
+// Returns the number of instructions in the bundle
+size_t bundleSize(MCInst const &MCI);
+
+// Returns a iterator range of instructions in this bundle
+iterator_range<MCInst::const_iterator> bundleInstructions(MCInst const &MCI);
 
 // Return memory access size
 HexagonII::MemAccessSize getAccessSize(MCInstrInfo const &MCII,
@@ -42,13 +60,18 @@ unsigned short getCExtOpNum(MCInstrInfo const &MCII, MCInst const &MCI);
 
 MCInstrDesc const &getDesc(MCInstrInfo const &MCII, MCInst const &MCI);
 
+// Return the index of the extendable operand
+unsigned short getExtendableOp(MCInstrInfo const &MCII, MCInst const &MCI);
+
+// Return a reference to the extendable operand
+MCOperand const &getExtendableOperand(MCInstrInfo const &MCII,
+                                      MCInst const &MCI);
+
 // Return the implicit alignment of the extendable operand
 unsigned getExtentAlignment(MCInstrInfo const &MCII, MCInst const &MCI);
 
 // Return the number of logical bits of the extendable operand
 unsigned getExtentBits(MCInstrInfo const &MCII, MCInst const &MCI);
-
-std::bitset<16> GetImplicitBits(MCInst const &MCI);
 
 // Return the max value that a constant extendable operand can have
 // without being extended.
@@ -61,14 +84,31 @@ int getMinValue(MCInstrInfo const &MCII, MCInst const &MCI);
 // Return instruction name
 char const *getName(MCInstrInfo const &MCII, MCInst const &MCI);
 
+// Return the operand index for the new value.
+unsigned short getNewValueOp(MCInstrInfo const &MCII, MCInst const &MCI);
+
 // Return the operand that consumes or produces a new value.
-MCOperand const &getNewValue(MCInstrInfo const &MCII, MCInst const &MCI);
+MCOperand const &getNewValueOperand(MCInstrInfo const &MCII, MCInst const &MCI);
+
+int getSubTarget(MCInstrInfo const &MCII, MCInst const &MCI);
 
 // Return the Hexagon ISA class for the insn.
 unsigned getType(MCInstrInfo const &MCII, MCInst const &MCI);
 
+/// Return the slots used by the insn.
+unsigned getUnits(MCInstrInfo const &MCII, MCSubtargetInfo const &STI,
+                  MCInst const &MCI);
+
+bool hasImmExt(MCInst const &MCI);
+
 // Return whether the instruction is a legal new-value producer.
 bool hasNewValue(MCInstrInfo const &MCII, MCInst const &MCI);
+
+// Return the instruction at Index
+MCInst const &instruction(MCInst const &MCB, size_t Index);
+
+// Returns whether this MCInst is a wellformed bundle
+bool isBundle(MCInst const &MCI);
 
 // Return whether the insn is an actual insn.
 bool isCanon(MCInstrInfo const &MCII, MCInst const &MCI);
@@ -82,6 +122,15 @@ bool isExtendable(MCInstrInfo const &MCII, MCInst const &MCI);
 // Return whether the instruction must be always extended.
 bool isExtended(MCInstrInfo const &MCII, MCInst const &MCI);
 
+/// Return whether it is a floating-point insn.
+bool isFloat(MCInstrInfo const &MCII, MCInst const &MCI);
+
+// Returns whether this instruction is an immediate extender
+bool isImmext(MCInst const &MCI);
+
+// Returns whether this bundle is an endloop0
+bool isInnerLoop(MCInst const &MCI);
+
 // Return whether the insn is a new-value consumer.
 bool isNewValue(MCInstrInfo const &MCII, MCInst const &MCI);
 
@@ -89,9 +138,14 @@ bool isNewValue(MCInstrInfo const &MCII, MCInst const &MCI);
 bool isOperandExtended(MCInstrInfo const &MCII, MCInst const &MCI,
                        unsigned short OperandNum);
 
-bool isPacketBegin(MCInst const &MCI);
+// Returns whether this bundle is an endloop1
+bool isOuterLoop(MCInst const &MCI);
 
-bool isPacketEnd(MCInst const &MCI);
+// Return whether this instruction is predicated
+bool isPredicated(MCInstrInfo const &MCII, MCInst const &MCI);
+
+// Return whether the predicate sense is true
+bool isPredicatedTrue(MCInstrInfo const &MCII, MCInst const &MCI);
 
 // Return whether the insn is a prefix.
 bool isPrefix(MCInstrInfo const &MCII, MCInst const &MCI);
@@ -99,23 +153,22 @@ bool isPrefix(MCInstrInfo const &MCII, MCInst const &MCI);
 // Return whether the insn is solo, i.e., cannot be in a packet.
 bool isSolo(MCInstrInfo const &MCII, MCInst const &MCI);
 
-static const size_t packetBeginIndex = 0;
-static const size_t packetEndIndex = 1;
+/// Return whether the insn can be packaged only with A and X-type insns.
+bool isSoloAX(MCInstrInfo const &MCII, MCInst const &MCI);
 
-void resetPacket(MCInst &MCI);
+/// Return whether the insn can be packaged only with an A-type insn in slot #1.
+bool isSoloAin1(MCInstrInfo const &MCII, MCInst const &MCI);
 
-inline void SanityCheckImplicitOperands(MCInst const &MCI) {
-  assert(MCI.getNumOperands() >= 2 && "At least the two implicit operands");
-  assert(MCI.getOperand(MCI.getNumOperands() - 1).isInst() &&
-         "Implicit bits and flags");
-  assert(MCI.getOperand(MCI.getNumOperands() - 2).isImm() && "Parent pointer");
-}
+// Pad the bundle with nops to satisfy endloop requirements
+void padEndloop(MCInst &MCI);
 
-void SetImplicitBits(MCInst &MCI, std::bitset<16> Bits);
+bool prefersSlot3(MCInstrInfo const &MCII, MCInst const &MCI);
 
-void setPacketBegin(MCInst &MCI, bool Y);
+// Marks a bundle as endloop0
+void setInnerLoop(MCInst &MCI);
 
-void setPacketEnd(MCInst &MCI, bool Y);
+// Marks a bundle as endloop1
+void setOuterLoop(MCInst &MCI);
 }
 }
 

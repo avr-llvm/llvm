@@ -331,6 +331,11 @@ public:
         operands_begin() + getDesc().getNumDefs(), operands_end());
   }
 
+  /// Returns the number of the operand iterator \p I points to.
+  unsigned getOperandNo(const_mop_iterator I) const {
+    return I - operands_begin();
+  }
+
   /// Access to memory operands of the instruction
   mmo_iterator memoperands_begin() const { return MemRefs; }
   mmo_iterator memoperands_end() const { return MemRefs + NumMemRefs; }
@@ -481,6 +486,13 @@ public:
   /// to it, duplicating it would cause multiple definition errors.
   bool isNotDuplicable(QueryType Type = AnyInBundle) const {
     return hasProperty(MCID::NotDuplicable, Type);
+  }
+
+  /// Return true if this instruction is convergent.
+  /// Convergent instructions can only be moved to locations that are
+  /// control-equivalent to their initial position.
+  bool isConvergent(QueryType Type = AnyInBundle) const {
+    return hasProperty(MCID::Convergent, Type);
   }
 
   /// Returns true if the specified instruction has a delay slot

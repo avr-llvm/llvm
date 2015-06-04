@@ -705,26 +705,30 @@ void ELFDumper<ELFT>::printRelocation(const Elf_Shdr *Sec,
                                       typename ELFO::Elf_Rela Rel) {
   SmallString<32> RelocName;
   Obj->getRelocationTypeName(Rel.getType(Obj->isMips64EL()), RelocName);
-  StringRef SymbolName;
+  StringRef TargetName;
   std::pair<const Elf_Shdr *, const Elf_Sym *> Sym =
       Obj->getRelocationSymbol(Sec, &Rel);
-  if (Sym.first)
-    SymbolName = errorOrDefault(Obj->getSymbolName(Sym.first, Sym.second));
+  if (Sym.second && Sym.second->getType() == ELF::STT_SECTION) {
+    const Elf_Shdr *Sec = Obj->getSection(Sym.second);
+    ErrorOr<StringRef> SecName = Obj->getSectionName(Sec);
+    if (SecName)
+      TargetName = SecName.get();
+  } else if (Sym.first) {
+    TargetName = errorOrDefault(Obj->getSymbolName(Sym.first, Sym.second));
+  }
 
   if (opts::ExpandRelocs) {
     DictScope Group(W, "Relocation");
     W.printHex("Offset", Rel.r_offset);
     W.printNumber("Type", RelocName, (int)Rel.getType(Obj->isMips64EL()));
-    W.printNumber("Symbol", SymbolName.size() > 0 ? SymbolName : "-",
+    W.printNumber("Symbol", TargetName.size() > 0 ? TargetName : "-",
                   Rel.getSymbol(Obj->isMips64EL()));
     W.printHex("Addend", Rel.r_addend);
   } else {
     raw_ostream& OS = W.startLine();
-    OS << W.hex(Rel.r_offset)
-       << " " << RelocName
-       << " " << (SymbolName.size() > 0 ? SymbolName : "-")
-       << " " << W.hex(Rel.r_addend)
-       << "\n";
+    OS << W.hex(Rel.r_offset) << " " << RelocName << " "
+       << (TargetName.size() > 0 ? TargetName : "-") << " "
+       << W.hex(Rel.r_addend) << "\n";
   }
 }
 
@@ -991,11 +995,10 @@ void ELFDumper<ELFT>::printUnwindInfo() {
 }
 
 namespace {
-template <>
-void ELFDumper<ELFType<support::little, 2, false> >::printUnwindInfo() {
+template <> void ELFDumper<ELFType<support::little, false>>::printUnwindInfo() {
   const unsigned Machine = Obj->getHeader()->e_machine;
   if (Machine == EM_ARM) {
-    ARM::EHABI::PrinterContext<ELFType<support::little, 2, false> > Ctx(W, Obj);
+    ARM::EHABI::PrinterContext<ELFType<support::little, false>> Ctx(W, Obj);
     return Ctx.PrintUnwindInformation();
   }
   W.startLine() << "UnwindInfo not implemented.\n";
@@ -1075,8 +1078,7 @@ void ELFDumper<ELFT>::printAttributes() {
 }
 
 namespace {
-template <>
-void ELFDumper<ELFType<support::little, 2, false> >::printAttributes() {
+template <> void ELFDumper<ELFType<support::little, false>>::printAttributes() {
   if (Obj->getHeader()->e_machine != EM_ARM) {
     W.startLine() << "Attributes not implemented.\n";
     return;

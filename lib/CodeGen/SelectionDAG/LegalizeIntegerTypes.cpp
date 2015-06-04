@@ -602,10 +602,13 @@ SDValue DAGTypeLegalizer::PromoteIntRes_SETCC(SDNode *N) {
 }
 
 SDValue DAGTypeLegalizer::PromoteIntRes_SHL(SDNode *N) {
-  SDValue Res = GetPromotedInteger(N->getOperand(0));
-  SDValue Amt = N->getOperand(1);
-  Amt = Amt.getValueType().isVector() ? ZExtPromotedInteger(Amt) : Amt;
-  return DAG.getNode(ISD::SHL, SDLoc(N), Res.getValueType(), Res, Amt);
+  SDValue LHS = N->getOperand(0);
+  SDValue RHS = N->getOperand(1);
+  if (getTypeAction(LHS.getValueType()) == TargetLowering::TypePromoteInteger)
+    LHS = GetPromotedInteger(LHS);
+  if (getTypeAction(RHS.getValueType()) == TargetLowering::TypePromoteInteger)
+    RHS = ZExtPromotedInteger(RHS);
+  return DAG.getNode(ISD::SHL, SDLoc(N), LHS.getValueType(), LHS, RHS);
 }
 
 SDValue DAGTypeLegalizer::PromoteIntRes_SIGN_EXTEND_INREG(SDNode *N) {
@@ -625,19 +628,25 @@ SDValue DAGTypeLegalizer::PromoteIntRes_SimpleIntBinOp(SDNode *N) {
 }
 
 SDValue DAGTypeLegalizer::PromoteIntRes_SRA(SDNode *N) {
+  SDValue LHS = N->getOperand(0);
+  SDValue RHS = N->getOperand(1);
   // The input value must be properly sign extended.
-  SDValue Res = SExtPromotedInteger(N->getOperand(0));
-  SDValue Amt = N->getOperand(1);
-  Amt = Amt.getValueType().isVector() ? ZExtPromotedInteger(Amt) : Amt;
-  return DAG.getNode(ISD::SRA, SDLoc(N), Res.getValueType(), Res, Amt);
+  if (getTypeAction(LHS.getValueType()) == TargetLowering::TypePromoteInteger)
+    LHS = SExtPromotedInteger(LHS);
+  if (getTypeAction(RHS.getValueType()) == TargetLowering::TypePromoteInteger)
+    RHS = ZExtPromotedInteger(RHS);
+  return DAG.getNode(ISD::SRA, SDLoc(N), LHS.getValueType(), LHS, RHS);
 }
 
 SDValue DAGTypeLegalizer::PromoteIntRes_SRL(SDNode *N) {
+  SDValue LHS = N->getOperand(0);
+  SDValue RHS = N->getOperand(1);
   // The input value must be properly zero extended.
-  SDValue Res = ZExtPromotedInteger(N->getOperand(0));
-  SDValue Amt = N->getOperand(1);
-  Amt = Amt.getValueType().isVector() ? ZExtPromotedInteger(Amt) : Amt;
-  return DAG.getNode(ISD::SRL, SDLoc(N), Res.getValueType(), Res, Amt);
+  if (getTypeAction(LHS.getValueType()) == TargetLowering::TypePromoteInteger)
+    LHS = ZExtPromotedInteger(LHS);
+  if (getTypeAction(RHS.getValueType()) == TargetLowering::TypePromoteInteger)
+    RHS = ZExtPromotedInteger(RHS);
+  return DAG.getNode(ISD::SRL, SDLoc(N), LHS.getValueType(), LHS, RHS);
 }
 
 SDValue DAGTypeLegalizer::PromoteIntRes_TRUNCATE(SDNode *N) {
@@ -2134,6 +2143,13 @@ void DAGTypeLegalizer::ExpandIntRes_SDIV(SDNode *N,
                                          SDValue &Lo, SDValue &Hi) {
   EVT VT = N->getValueType(0);
   SDLoc dl(N);
+  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
+
+  if (TLI.getOperationAction(ISD::SDIVREM, VT) == TargetLowering::Custom) {
+    SDValue Res = DAG.getNode(ISD::SDIVREM, dl, DAG.getVTList(VT, VT), Ops);
+    SplitInteger(Res.getValue(0), Lo, Hi);
+    return;
+  }
 
   RTLIB::Libcall LC = RTLIB::UNKNOWN_LIBCALL;
   if (VT == MVT::i16)
@@ -2146,7 +2162,6 @@ void DAGTypeLegalizer::ExpandIntRes_SDIV(SDNode *N,
     LC = RTLIB::SDIV_I128;
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unsupported SDIV!");
 
-  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
   SplitInteger(TLI.makeLibCall(DAG, LC, VT, Ops, 2, true, dl).first, Lo, Hi);
 }
 
@@ -2313,6 +2328,13 @@ void DAGTypeLegalizer::ExpandIntRes_SREM(SDNode *N,
                                          SDValue &Lo, SDValue &Hi) {
   EVT VT = N->getValueType(0);
   SDLoc dl(N);
+  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
+
+  if (TLI.getOperationAction(ISD::SDIVREM, VT) == TargetLowering::Custom) {
+    SDValue Res = DAG.getNode(ISD::SDIVREM, dl, DAG.getVTList(VT, VT), Ops);
+    SplitInteger(Res.getValue(1), Lo, Hi);
+    return;
+  }
 
   RTLIB::Libcall LC = RTLIB::UNKNOWN_LIBCALL;
   if (VT == MVT::i16)
@@ -2325,7 +2347,6 @@ void DAGTypeLegalizer::ExpandIntRes_SREM(SDNode *N,
     LC = RTLIB::SREM_I128;
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unsupported SREM!");
 
-  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
   SplitInteger(TLI.makeLibCall(DAG, LC, VT, Ops, 2, true, dl).first, Lo, Hi);
 }
 
@@ -2454,6 +2475,13 @@ void DAGTypeLegalizer::ExpandIntRes_UDIV(SDNode *N,
                                          SDValue &Lo, SDValue &Hi) {
   EVT VT = N->getValueType(0);
   SDLoc dl(N);
+  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
+
+  if (TLI.getOperationAction(ISD::UDIVREM, VT) == TargetLowering::Custom) {
+    SDValue Res = DAG.getNode(ISD::UDIVREM, dl, DAG.getVTList(VT, VT), Ops);
+    SplitInteger(Res.getValue(0), Lo, Hi);
+    return;
+  }
 
   RTLIB::Libcall LC = RTLIB::UNKNOWN_LIBCALL;
   if (VT == MVT::i16)
@@ -2466,7 +2494,6 @@ void DAGTypeLegalizer::ExpandIntRes_UDIV(SDNode *N,
     LC = RTLIB::UDIV_I128;
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unsupported UDIV!");
 
-  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
   SplitInteger(TLI.makeLibCall(DAG, LC, VT, Ops, 2, false, dl).first, Lo, Hi);
 }
 
@@ -2474,6 +2501,13 @@ void DAGTypeLegalizer::ExpandIntRes_UREM(SDNode *N,
                                          SDValue &Lo, SDValue &Hi) {
   EVT VT = N->getValueType(0);
   SDLoc dl(N);
+  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
+
+  if (TLI.getOperationAction(ISD::UDIVREM, VT) == TargetLowering::Custom) {
+    SDValue Res = DAG.getNode(ISD::UDIVREM, dl, DAG.getVTList(VT, VT), Ops);
+    SplitInteger(Res.getValue(1), Lo, Hi);
+    return;
+  }
 
   RTLIB::Libcall LC = RTLIB::UNKNOWN_LIBCALL;
   if (VT == MVT::i16)
@@ -2486,7 +2520,6 @@ void DAGTypeLegalizer::ExpandIntRes_UREM(SDNode *N,
     LC = RTLIB::UREM_I128;
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unsupported UREM!");
 
-  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
   SplitInteger(TLI.makeLibCall(DAG, LC, VT, Ops, 2, false, dl).first, Lo, Hi);
 }
 

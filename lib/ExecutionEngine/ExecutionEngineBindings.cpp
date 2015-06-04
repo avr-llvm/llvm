@@ -18,6 +18,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Target/TargetOptions.h"
 #include <cstring>
 
 using namespace llvm;
@@ -177,15 +178,19 @@ LLVMBool LLVMCreateMCJITCompilerForModule(
   memcpy(&options, PassedOptions, SizeOfPassedOptions);
   
   TargetOptions targetOptions;
-  targetOptions.NoFramePointerElim = options.NoFramePointerElim;
   targetOptions.EnableFastISel = options.EnableFastISel;
   std::unique_ptr<Module> Mod(unwrap(M));
 
   if (Mod)
     // Set function attribute "no-frame-pointer-elim" based on
     // NoFramePointerElim.
-    setFunctionAttributes(/* CPU */ "", /* Features */ "", targetOptions, *Mod,
-                          /* AlwaysRecordAttrs */ true);
+    for (auto &F : *Mod) {
+      auto Attrs = F.getAttributes();
+      auto Value = options.NoFramePointerElim ? "true" : "false";
+      Attrs = Attrs.addAttribute(F.getContext(), AttributeSet::FunctionIndex,
+                                 "no-frame-pointer-elim", Value);
+      F.setAttributes(Attrs);
+    }
 
   std::string Error;
   EngineBuilder builder(std::move(Mod));
@@ -250,11 +255,8 @@ int LLVMRunFunctionAsMain(LLVMExecutionEngineRef EE, LLVMValueRef F,
                           unsigned ArgC, const char * const *ArgV,
                           const char * const *EnvP) {
   unwrap(EE)->finalizeObject();
-  
-  std::vector<std::string> ArgVec;
-  for (unsigned I = 0; I != ArgC; ++I)
-    ArgVec.push_back(ArgV[I]);
-  
+
+  std::vector<std::string> ArgVec(ArgV, ArgV + ArgC);
   return unwrap(EE)->runFunctionAsMain(unwrap<Function>(F), ArgVec, EnvP);
 }
 

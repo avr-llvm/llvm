@@ -537,6 +537,9 @@ struct AttributeComparator {
     if (L->isNoReturn != R->isNoReturn)
       return R->isNoReturn;
 
+    if (L->isConvergent != R->isConvergent)
+      return R->isConvergent;
+
     // Try to order by readonly/readnone attribute.
     ModRefKind LK = getModRefKind(*L);
     ModRefKind RK = getModRefKind(*R);
@@ -649,7 +652,7 @@ EmitAttributes(const std::vector<CodeGenIntrinsic> &Ints, raw_ostream &OS) {
     ModRefKind modRef = getModRefKind(intrinsic);
 
     if (!intrinsic.canThrow || modRef || intrinsic.isNoReturn ||
-        intrinsic.isNoDuplicate) {
+        intrinsic.isNoDuplicate || intrinsic.isConvergent) {
       OS << "      const Attribute::AttrKind Atts[] = {";
       bool addComma = false;
       if (!intrinsic.canThrow) {
@@ -666,6 +669,12 @@ EmitAttributes(const std::vector<CodeGenIntrinsic> &Ints, raw_ostream &OS) {
         if (addComma)
           OS << ",";
         OS << "Attribute::NoDuplicate";
+        addComma = true;
+      }
+      if (intrinsic.isConvergent) {
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::Convergent";
         addComma = true;
       }
 
@@ -751,7 +760,7 @@ static void EmitTargetBuiltins(const std::map<std::string, std::string> &BIM,
        E = BIM.end(); I != E; ++I) {
     std::string ResultCode =
     "return " + TargetPrefix + "Intrinsic::" + I->second + ";";
-    Results.push_back(StringMatcher::StringPair(I->first, ResultCode));
+    Results.emplace_back(I->first, ResultCode);
   }
 
   StringMatcher("BuiltinName", Results, OS).Emit();

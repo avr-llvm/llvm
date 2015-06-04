@@ -189,6 +189,10 @@ namespace llvm {
       // Vector bitwise select
       VBSL,
 
+      // Pseudo-instruction representing a memory copy using ldm/stm
+      // instructions.
+      MCOPY,
+
       // Vector load N-element structure to all lanes:
       VLD2DUP = ISD::FIRST_TARGET_MEMORY_OPCODE,
       VLD3DUP,
@@ -286,7 +290,8 @@ namespace llvm {
 
     /// isLegalAddressingMode - Return true if the addressing mode represented
     /// by AM is legal for this target, for a load/store of the specified type.
-    bool isLegalAddressingMode(const AddrMode &AM, Type *Ty) const override;
+    bool isLegalAddressingMode(const AddrMode &AM, Type *Ty,
+                               unsigned AS) const override;
     bool isLegalT2ScaledAddressingMode(const AddrMode &AM, EVT VT) const;
 
     /// isLegalICmpImmediate - Return true if the specified immediate is legal
@@ -346,8 +351,31 @@ namespace llvm {
 
     unsigned getInlineAsmMemConstraint(
         const std::string &ConstraintCode) const override {
-      // FIXME: Map different constraints differently.
-      return InlineAsm::Constraint_m;
+      if (ConstraintCode == "Q")
+        return InlineAsm::Constraint_Q;
+      else if (ConstraintCode.size() == 2) {
+        if (ConstraintCode[0] == 'U') {
+          switch(ConstraintCode[1]) {
+          default:
+            break;
+          case 'm':
+            return InlineAsm::Constraint_Um;
+          case 'n':
+            return InlineAsm::Constraint_Un;
+          case 'q':
+            return InlineAsm::Constraint_Uq;
+          case 's':
+            return InlineAsm::Constraint_Us;
+          case 't':
+            return InlineAsm::Constraint_Ut;
+          case 'v':
+            return InlineAsm::Constraint_Uv;
+          case 'y':
+            return InlineAsm::Constraint_Uy;
+          }
+        }
+      }
+      return TargetLowering::getInlineAsmMemConstraint(ConstraintCode);
     }
 
     const ARMSubtarget* getSubtarget() const {

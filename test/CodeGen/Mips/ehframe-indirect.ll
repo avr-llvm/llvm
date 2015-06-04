@@ -33,13 +33,9 @@ declare i32 @__gxx_personality_v0(...)
 declare void @foo()
 
 ; ALL: GCC_except_table{{[0-9]+}}:
-; O32: .byte 155 # @TType Encoding = indirect pcrel sdata4
-; N32: .byte 155 # @TType Encoding = indirect pcrel sdata4
-; N64: .byte 156 # @TType Encoding = indirect pcrel sdata8
+; ALL: .byte 155 # @TType Encoding = indirect pcrel sdata4
 ; ALL: $[[PC_LABEL:tmp[0-9]+]]:
-; O32: .4byte	($_ZTISt9exception.DW.stub)-($[[PC_LABEL]])
-; N32: .4byte	($_ZTISt9exception.DW.stub)-($[[PC_LABEL]])
-; N64: .8byte	($_ZTISt9exception.DW.stub)-($[[PC_LABEL]])
+; ALL: .4byte	($_ZTISt9exception.DW.stub)-($[[PC_LABEL]])
 ; ALL: $_ZTISt9exception.DW.stub:
 ; O32: .4byte _ZTISt9exception
 ; N32: .4byte _ZTISt9exception

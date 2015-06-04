@@ -444,6 +444,7 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
   canThrow = false;
   isNoReturn = false;
   isNoDuplicate = false;
+  isConvergent = false;
 
   if (DefName.size() <= 4 ||
       std::string(DefName.begin(), DefName.begin() + 4) != "int_")
@@ -485,7 +486,7 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
   // Parse the list of return types.
   std::vector<MVT::SimpleValueType> OverloadedVTs;
   ListInit *TypeList = R->getValueAsListInit("RetTypes");
-  for (unsigned i = 0, e = TypeList->getSize(); i != e; ++i) {
+  for (unsigned i = 0, e = TypeList->size(); i != e; ++i) {
     Record *TyEl = TypeList->getElementAsRecord(i);
     assert(TyEl->isSubClassOf("LLVMType") && "Expected a type!");
     MVT::SimpleValueType VT;
@@ -519,7 +520,7 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
 
   // Parse the list of parameter types.
   TypeList = R->getValueAsListInit("ParamTypes");
-  for (unsigned i = 0, e = TypeList->getSize(); i != e; ++i) {
+  for (unsigned i = 0, e = TypeList->size(); i != e; ++i) {
     Record *TyEl = TypeList->getElementAsRecord(i);
     assert(TyEl->isSubClassOf("LLVMType") && "Expected a type!");
     MVT::SimpleValueType VT;
@@ -555,7 +556,7 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
 
   // Parse the intrinsic properties.
   ListInit *PropList = R->getValueAsListInit("Properties");
-  for (unsigned i = 0, e = PropList->getSize(); i != e; ++i) {
+  for (unsigned i = 0, e = PropList->size(); i != e; ++i) {
     Record *Property = PropList->getElementAsRecord(i);
     assert(Property->isSubClassOf("IntrinsicProperty") &&
            "Expected a property!");
@@ -574,6 +575,8 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
       canThrow = true;
     else if (Property->getName() == "IntrNoDuplicate")
       isNoDuplicate = true;
+    else if (Property->getName() == "IntrConvergent")
+      isConvergent = true;
     else if (Property->getName() == "IntrNoReturn")
       isNoReturn = true;
     else if (Property->isSubClassOf("NoCapture")) {

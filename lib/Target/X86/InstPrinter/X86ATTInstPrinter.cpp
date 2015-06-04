@@ -48,7 +48,7 @@ void X86ATTInstPrinter::printInst(const MCInst *MI, raw_ostream &OS,
         EmitAnyX86InstComments(MI, *CommentStream, getRegisterName);
 
   if (TSFlags & X86II::LOCK)
-    OS << "\tlock\n";
+    OS << "\tlock\t";
 
   // Output CALLpcrel32 as "callq" in 64-bit mode.
   // In Intel annotation it's always emitted as "call".
@@ -150,7 +150,7 @@ void X86ATTInstPrinter::printPCRelImm(const MCInst *MI, unsigned OpNo,
     // that address in hex.
     const MCConstantExpr *BranchTarget = dyn_cast<MCConstantExpr>(Op.getExpr());
     int64_t Address;
-    if (BranchTarget && BranchTarget->EvaluateAsAbsolute(Address)) {
+    if (BranchTarget && BranchTarget->evaluateAsAbsolute(Address)) {
       O << formatHex((uint64_t)Address);
     } else {
       // Otherwise, just print the expression.

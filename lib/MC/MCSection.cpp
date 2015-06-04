@@ -20,7 +20,8 @@ using namespace llvm;
 //===----------------------------------------------------------------------===//
 
 MCSection::MCSection(SectionVariant V, SectionKind K, MCSymbol *Begin)
-    : Begin(Begin), HasInstructions(false), Data(*this), Variant(V), Kind(K) {}
+    : Begin(Begin), BundleGroupBeforeFirstInst(false), HasInstructions(false),
+      IsRegistered(false), Variant(V), Kind(K) {}
 
 MCSymbol *MCSection::getEndSymbol(MCContext &Ctx) {
   if (!End)
@@ -52,28 +53,57 @@ void MCSection::setBundleLockState(BundleLockStateType NewState) {
   ++BundleLockNestingDepth;
 }
 
-MCSectionData::iterator MCSection::begin() { return Data.begin(); }
+MCSection::iterator
+MCSection::getSubsectionInsertionPoint(unsigned Subsection) {
+  if (Subsection == 0 && SubsectionFragmentMap.empty())
+    return end();
 
-MCSectionData::iterator MCSection::end() { return Data.end(); }
+  SmallVectorImpl<std::pair<unsigned, MCFragment *>>::iterator MI =
+      std::lower_bound(SubsectionFragmentMap.begin(),
+                       SubsectionFragmentMap.end(),
+                       std::make_pair(Subsection, (MCFragment *)nullptr));
+  bool ExactMatch = false;
+  if (MI != SubsectionFragmentMap.end()) {
+    ExactMatch = MI->first == Subsection;
+    if (ExactMatch)
+      ++MI;
+  }
+  iterator IP;
+  if (MI == SubsectionFragmentMap.end())
+    IP = end();
+  else
+    IP = MI->second;
+  if (!ExactMatch && Subsection != 0) {
+    // The GNU as documentation claims that subsections have an alignment of 4,
+    // although this appears not to be the case.
+    MCFragment *F = new MCDataFragment();
+    SubsectionFragmentMap.insert(MI, std::make_pair(Subsection, F));
+    getFragmentList().insert(IP, F);
+    F->setParent(this);
+  }
 
-MCSectionData::reverse_iterator MCSection::rbegin() { return Data.rbegin(); }
-
-MCSectionData::FragmentListType &MCSection::getFragmentList() {
-  return Data.getFragmentList();
+  return IP;
 }
 
-MCSectionData::iterator MCSectionData::begin() { return Fragments.begin(); }
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
+void MCSection::dump() {
+  raw_ostream &OS = llvm::errs();
 
-MCSectionData::iterator MCSectionData::end() { return Fragments.end(); }
-
-MCSectionData::reverse_iterator MCSectionData::rbegin() {
-  return Fragments.rbegin();
+  OS << "<MCSection";
+  OS << " Fragments:[\n      ";
+  for (auto it = begin(), ie = end(); it != ie; ++it) {
+    if (it != begin())
+      OS << ",\n      ";
+    it->dump();
+  }
+  OS << "]>";
 }
+#endif
 
-MCSectionData::reverse_iterator MCSectionData::rend() {
-  return Fragments.rend();
-}
+MCSection::iterator MCSection::begin() { return Fragments.begin(); }
 
-size_t MCSectionData::size() const { return Fragments.size(); }
+MCSection::iterator MCSection::end() { return Fragments.end(); }
 
-bool MCSectionData::empty() const { return Fragments.empty(); }
+MCSection::reverse_iterator MCSection::rbegin() { return Fragments.rbegin(); }
+
+MCSection::reverse_iterator MCSection::rend() { return Fragments.rend(); }

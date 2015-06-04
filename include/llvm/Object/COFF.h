@@ -314,6 +314,10 @@ public:
     return (getType() & 0xF0) >> COFF::SCT_COMPLEX_TYPE_SHIFT;
   }
 
+  bool isAbsolute() const {
+    return getSectionNumber() == -1;
+  }
+
   bool isExternal() const {
     return getStorageClass() == COFF::IMAGE_SYM_CLASS_EXTERNAL;
   }
@@ -443,6 +447,19 @@ struct coff_aux_clr_token {
   uint8_t              AuxType;
   uint8_t              Reserved;
   support::ulittle32_t SymbolTableIndex;
+};
+
+struct coff_import_header {
+  support::ulittle16_t Sig1;
+  support::ulittle16_t Sig2;
+  support::ulittle16_t Version;
+  support::ulittle16_t Machine;
+  support::ulittle32_t TimeDateStamp;
+  support::ulittle32_t SizeOfData;
+  support::ulittle16_t OrdinalHint;
+  support::ulittle16_t TypeInfo;
+  int getType() const { return TypeInfo & 0x3; }
+  int getNameType() const { return (TypeInfo & 0x7) >> 2; }
 };
 
 struct coff_import_directory_table_entry {
@@ -596,7 +613,7 @@ protected:
                                 StringRef &Res) const override;
   std::error_code getSymbolAddress(DataRefImpl Symb,
                                    uint64_t &Res) const override;
-  std::error_code getSymbolSize(DataRefImpl Symb, uint64_t &Res) const override;
+  uint64_t getSymbolSize(DataRefImpl Symb) const override;
   uint32_t getSymbolFlags(DataRefImpl Symb) const override;
   std::error_code getSymbolType(DataRefImpl Symb,
                                 SymbolRef::Type &Res) const override;
@@ -630,10 +647,6 @@ protected:
   std::error_code
   getRelocationTypeName(DataRefImpl Rel,
                         SmallVectorImpl<char> &Result) const override;
-  std::error_code
-  getRelocationValueString(DataRefImpl Rel,
-                           SmallVectorImpl<char> &Result) const override;
-
 public:
   COFFObjectFile(MemoryBufferRef Object, std::error_code &EC);
   basic_symbol_iterator symbol_begin_impl() const override;

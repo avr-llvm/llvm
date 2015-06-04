@@ -328,7 +328,10 @@ void MCObjectFileInfo::InitELFMCObjectFileInfo(Triple T) {
     // that the eh_frame section can be read-only. DW.ref.personality will be
     // generated for relocation.
     PersonalityEncoding = dwarf::DW_EH_PE_indirect;
-    TTypeEncoding = SelectMipsTTypeEncoding();
+    // FIXME: The N64 ABI probably ought to use DW_EH_PE_sdata8 but we can't
+    //        identify N64 from just a triple.
+    TTypeEncoding = dwarf::DW_EH_PE_indirect | dwarf::DW_EH_PE_pcrel |
+                    dwarf::DW_EH_PE_sdata4;
     // We don't support PC-relative LSDA references in GAS so we use the default
     // DW_EH_PE_absptr for those.
     break;
@@ -717,6 +720,9 @@ void MCObjectFileInfo::InitCOFFMCObjectFileInfo(Triple T) {
       ".xdata", COFF::IMAGE_SCN_CNT_INITIALIZED_DATA | COFF::IMAGE_SCN_MEM_READ,
       SectionKind::getDataRel());
 
+  SXDataSection = Ctx->getCOFFSection(".sxdata", COFF::IMAGE_SCN_LNK_INFO,
+                                      SectionKind::getMetadata());
+
   TLSDataSection = Ctx->getCOFFSection(
       ".tls$", COFF::IMAGE_SCN_CNT_INITIALIZED_DATA | COFF::IMAGE_SCN_MEM_READ |
                    COFF::IMAGE_SCN_MEM_WRITE,
@@ -795,12 +801,4 @@ void MCObjectFileInfo::InitEHFrameSection() {
                           COFF::IMAGE_SCN_MEM_READ |
                           COFF::IMAGE_SCN_MEM_WRITE,
                           SectionKind::getDataRel());
-}
-
-unsigned MCObjectFileInfo::SelectMipsTTypeEncoding() const {
-  // FIXME: The N64 ABI ought to use DW_EH_PE_sdata8 but we can't
-  //        identify N64 from just a triple. We currently fix this by
-  //        overriding this function in MipsTargetObjectFile.
-  return dwarf::DW_EH_PE_indirect | dwarf::DW_EH_PE_pcrel |
-         dwarf::DW_EH_PE_sdata4;
 }

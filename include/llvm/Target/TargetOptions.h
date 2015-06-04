@@ -15,6 +15,7 @@
 #ifndef LLVM_TARGET_TARGETOPTIONS_H
 #define LLVM_TARGET_TARGETOPTIONS_H
 
+#include "llvm/Target/TargetRecip.h"
 #include "llvm/MC/MCTargetOptions.h"
 #include <string>
 
@@ -60,8 +61,7 @@ namespace llvm {
   class TargetOptions {
   public:
     TargetOptions()
-        : PrintMachineCode(false), NoFramePointerElim(false),
-          NoFramePointerElimOverride(false),
+        : PrintMachineCode(false),
           LessPreciseFPMADOption(false), UnsafeFPMath(false),
           NoInfsFPMath(false), NoNaNsFPMath(false),
           HonorSignDependentRoundingFPMathOption(false),
@@ -73,21 +73,14 @@ namespace llvm {
           CompressDebugSections(false), FunctionSections(false),
           DataSections(false), UniqueSectionNames(true), TrapUnreachable(false),
           TrapFuncName(), FloatABIType(FloatABI::Default),
-          AllowFPOpFusion(FPOpFusion::Standard), JTType(JumpTable::Single),
+          AllowFPOpFusion(FPOpFusion::Standard), Reciprocals(TargetRecip()),
+          JTType(JumpTable::Single),
           ThreadModel(ThreadModel::POSIX) {}
 
     /// PrintMachineCode - This flag is enabled when the -print-machineinstrs
     /// option is specified on the command line, and should enable debugging
     /// output from the code generator.
     unsigned PrintMachineCode : 1;
-
-    /// NoFramePointerElim - This flag is enabled when the -disable-fp-elim is
-    /// specified on the command line.  If the target supports the frame pointer
-    /// elimination optimization, this option should disable it.
-    unsigned NoFramePointerElim : 1;
-
-    /// This flag is true when "disable-fp-elim" appeared on the command line.
-    unsigned NoFramePointerElimOverride : 1;
 
     /// DisableFramePointerElim - This returns true if frame pointer elimination
     /// optimization should be disabled for the given machine function.
@@ -215,6 +208,9 @@ namespace llvm {
     /// the value of this option.
     FPOpFusion::FPOpFusionMode AllowFPOpFusion;
 
+    /// This class encapsulates options for reciprocal-estimate code generation.
+    TargetRecip Reciprocals;
+    
     /// JTType - This flag specifies the type of jump-instruction table to
     /// create for functions that have the jumptable attribute.
     JumpTable::JumpTableType JTType;
@@ -226,15 +222,6 @@ namespace llvm {
     /// Machine level options.
     MCTargetOptions MCOptions;
   };
-
-/// \brief Set function attributes of functions in Module M based on CPU,
-/// Features, and Options.
-/// If AlwaysRecordAttrs is true, it will always record the function attributes
-/// in Options regardless of whether those attributes were specified on the
-/// tool's command line.
-void setFunctionAttributes(StringRef CPU, StringRef Features,
-                           const TargetOptions &Options, Module &M,
-                           bool AlwaysRecordAttrs);
 
 // Comparison operators:
 
@@ -258,6 +245,7 @@ inline bool operator==(const TargetOptions &LHS,
     ARE_EQUAL(TrapFuncName) &&
     ARE_EQUAL(FloatABIType) &&
     ARE_EQUAL(AllowFPOpFusion) &&
+    ARE_EQUAL(Reciprocals) &&
     ARE_EQUAL(JTType) &&
     ARE_EQUAL(ThreadModel) &&
     ARE_EQUAL(MCOptions);

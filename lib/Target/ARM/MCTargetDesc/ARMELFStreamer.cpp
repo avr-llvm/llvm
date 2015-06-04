@@ -22,9 +22,7 @@
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCContext.h"
-#include "llvm/MC/MCELF.h"
 #include "llvm/MC/MCELFStreamer.h"
-#include "llvm/MC/MCELFSymbolFlags.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstPrinter.h"
@@ -34,7 +32,7 @@
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCSymbolELF.h"
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/ARMBuildAttributes.h"
 #include "llvm/Support/ARMEHABI.h"
@@ -562,17 +560,16 @@ private:
     MCSymbol *Start = getContext().createTempSymbol();
     EmitLabel(Start);
 
-    MCSymbol *Symbol =
-      getContext().getOrCreateSymbol(Name + "." +
-                                     Twine(MappingSymbolCounter++));
+    auto *Symbol = cast<MCSymbolELF>(getContext().getOrCreateSymbol(
+        Name + "." + Twine(MappingSymbolCounter++)));
 
-    MCSymbolData &SD = getAssembler().getOrCreateSymbolData(*Symbol);
-    MCELF::SetType(SD, ELF::STT_NOTYPE);
-    MCELF::SetBinding(SD, ELF::STB_LOCAL);
-    SD.setExternal(false);
+    getAssembler().registerSymbol(*Symbol);
+    Symbol->setType(ELF::STT_NOTYPE);
+    Symbol->setBinding(ELF::STB_LOCAL);
+    Symbol->setExternal(false);
     AssignSection(Symbol, getCurrentSection().first);
 
-    const MCExpr *Value = MCSymbolRefExpr::Create(Start, getContext());
+    const MCExpr *Value = MCSymbolRefExpr::create(Start, getContext());
     Symbol->setVariableValue(Value);
   }
 
@@ -688,16 +685,16 @@ void ARMTargetELFStreamer::emitArchDefaultAttributes() {
   using namespace ARMBuildAttrs;
 
   setAttributeItem(CPU_name,
-                   ARMTargetParser::getArchDefaultCPUName(Arch),
+                   ARMTargetParser::getCPUAttr(Arch),
                    false);
 
   if (EmittedArch == ARM::AK_INVALID)
     setAttributeItem(CPU_arch,
-                     ARMTargetParser::getArchDefaultCPUArch(Arch),
+                     ARMTargetParser::getArchAttr(Arch),
                      false);
   else
     setAttributeItem(CPU_arch,
-                     ARMTargetParser::getArchDefaultCPUArch(EmittedArch),
+                     ARMTargetParser::getArchAttr(EmittedArch),
                      false);
 
   switch (Arch) {
@@ -972,9 +969,9 @@ void ARMTargetELFStreamer::emitLabel(MCSymbol *Symbol) {
   if (!Streamer.IsThumb)
     return;
 
-  const MCSymbolData &SD = Streamer.getOrCreateSymbolData(Symbol);
-  unsigned Type = MCELF::GetType(SD);
-  if (Type == ELF_STT_Func || Type == ELF_STT_GnuIFunc)
+  Streamer.getAssembler().registerSymbol(*Symbol);
+  unsigned Type = cast<MCSymbolELF>(Symbol)->getType();
+  if (Type == ELF::STT_FUNC || Type == ELF::STT_GNU_IFUNC)
     Streamer.EmitThumbFunc(Symbol);
 }
 
@@ -1024,7 +1021,7 @@ inline void ARMELFStreamer::SwitchToEHSection(const char *Prefix,
   }
 
   // Get .ARM.extab or .ARM.exidx section
-  const MCSymbol *Group = FnSection.getGroup();
+  const MCSymbolELF *Group = FnSection.getGroup();
   if (Group)
     Flags |= ELF::SHF_GROUP;
   MCSectionELF *EHSection =
@@ -1095,7 +1092,7 @@ void ARMELFStreamer::emitFnEnd() {
     EmitPersonalityFixup(GetAEABIUnwindPersonalityName(PersonalityIndex));
 
   const MCSymbolRefExpr *FnStartRef =
-    MCSymbolRefExpr::Create(FnStart,
+    MCSymbolRefExpr::create(FnStart,
                             MCSymbolRefExpr::VK_ARM_PREL31,
                             getContext());
 
@@ -1106,7 +1103,7 @@ void ARMELFStreamer::emitFnEnd() {
   } else if (ExTab) {
     // Emit a reference to the unwind opcodes in the ".ARM.extab" section.
     const MCSymbolRefExpr *ExTabEntryRef =
-      MCSymbolRefExpr::Create(ExTab,
+      MCSymbolRefExpr::create(ExTab,
                               MCSymbolRefExpr::VK_ARM_PREL31,
                               getContext());
     EmitValue(ExTabEntryRef, 4);
@@ -1138,7 +1135,7 @@ void ARMELFStreamer::emitCantUnwind() { CantUnwind = true; }
 void ARMELFStreamer::EmitPersonalityFixup(StringRef Name) {
   const MCSymbol *PersonalitySym = getContext().getOrCreateSymbol(Name);
 
-  const MCSymbolRefExpr *PersonalityRef = MCSymbolRefExpr::Create(
+  const MCSymbolRefExpr *PersonalityRef = MCSymbolRefExpr::create(
       PersonalitySym, MCSymbolRefExpr::VK_ARM_NONE, getContext());
 
   visitUsedExpr(*PersonalityRef);
@@ -1186,7 +1183,7 @@ void ARMELFStreamer::FlushUnwindOpcodes(bool NoHandlerData) {
   // Emit personality
   if (Personality) {
     const MCSymbolRefExpr *PersonalityRef =
-      MCSymbolRefExpr::Create(Personality,
+      MCSymbolRefExpr::create(Personality,
                               MCSymbolRefExpr::VK_ARM_PREL31,
                               getContext());
 

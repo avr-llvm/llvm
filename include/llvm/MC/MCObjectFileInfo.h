@@ -186,10 +186,9 @@ protected:
   MCSection *DrectveSection;
   MCSection *PDataSection;
   MCSection *XDataSection;
+  MCSection *SXDataSection;
 
 public:
-  virtual ~MCObjectFileInfo() { };
-
   void InitMCObjectFileInfo(StringRef TT, Reloc::Model RM, CodeModel::Model CM,
                             MCContext &ctx);
 
@@ -323,6 +322,7 @@ public:
   MCSection *getDrectveSection() const { return DrectveSection; }
   MCSection *getPDataSection() const { return PDataSection; }
   MCSection *getXDataSection() const { return XDataSection; }
+  MCSection *getSXDataSection() const { return SXDataSection; }
 
   MCSection *getEHFrameSection() {
     if (!EHFrameSection)
@@ -353,8 +353,6 @@ private:
   /// InitEHFrameSection - Initialize EHFrameSection on demand.
   ///
   void InitEHFrameSection();
-
-  virtual unsigned SelectMipsTTypeEncoding() const;
 
 public:
   const Triple &getTargetTriple() const { return TT; }
