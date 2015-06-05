@@ -72,9 +72,9 @@ class AVRAsmParser : public MCTargetAsmParser {
   //! Handles target specific special cases. See definition for notes.
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op, unsigned Kind);
 
-  //! Given a lower (even) register returns the corresponding DREG
-  inline unsigned toDREG(unsigned lowerReg) {
-    return MRI->getMatchingSuperReg(lowerReg, AVR::sub_lo, &AVRMCRegisterClasses[AVR::DREGSRegClassID]);
+  //! Given a register returns the corresponding DREG
+  unsigned toDREG(unsigned Reg, unsigned From = AVR::sub_lo) {
+    return MRI->getMatchingSuperReg(Reg, From, &AVRMCRegisterClasses[AVR::DREGSRegClassID]);
   }
 public:
   AVRAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,

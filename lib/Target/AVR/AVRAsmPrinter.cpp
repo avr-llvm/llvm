@@ -37,6 +37,7 @@ namespace
 
 class AVRAsmPrinter : public AsmPrinter
 {
+  MCRegisterInfo MRI;
 public:
   explicit AVRAsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer) :
     AsmPrinter(TM, std::move(Streamer)) {}
@@ -71,7 +72,7 @@ void AVRAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
   switch (MO.getType())
   {
   case MachineOperand::MO_Register:
-    O << AVRInstPrinter::getRegisterName(MO.getReg());
+    O << AVRInstPrinter::getPrettyRegisterName(MO.getReg(), MRI);
     break;
   case MachineOperand::MO_Immediate:
     O << MO.getImm();
@@ -134,7 +135,7 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
                                   AVR::sub_hi : AVR::sub_lo);
       }
 
-      O << AVRInstPrinter::getRegisterName(Reg);
+      O << AVRInstPrinter::getPrettyRegisterName(Reg, MRI);
       return false;
     }
   }

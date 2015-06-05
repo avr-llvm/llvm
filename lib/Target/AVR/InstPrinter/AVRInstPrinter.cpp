@@ -72,7 +72,7 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
 }
 
 const char *
-AVRInstPrinter::getPrettyRegisterName(unsigned RegNo) {
+AVRInstPrinter::getPrettyRegisterName(unsigned RegNo, MCRegisterInfo const& MRI) {
   if (AVRMCRegisterClasses[AVR::PTRREGSRegClassID].contains(RegNo)) {
     switch (RegNo) {
       case AVR::R31R30: return "Z";
@@ -94,7 +94,7 @@ void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   const MCOperand &Op = MI->getOperand(OpNo);
 
   if (Op.isReg()) {
-    O << getPrettyRegisterName(Op.getReg());
+    O << getPrettyRegisterName(Op.getReg(), MRI);
   } else if (Op.isImm()) {
     O << Op.getImm();
   } else {
