@@ -113,7 +113,7 @@ define i16 @static16_inc() {
 ; CHECK-LABEL: static16_inc:
 ; CHECK: lds r24, int.static
 ; CHECK: lds r25, int.static+1
-; CHECK: adiw r25:r24, 1
+; CHECK: adiw r24, 1
 ; CHECK: sts int.static+1, r25
 ; CHECK: sts int.static, r24
   %1 = load i16, i16* @int.static
