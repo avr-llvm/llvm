@@ -136,58 +136,6 @@ loadStorePostEncoder(const MCInst &MI,
   return EncodedValue;
 }
 
-
-/// getMemriEncoding - Return binary encoding of a pointer register plus displacement operand.
-/// If the offset operand requires relocation, record the relocation.
-unsigned
-AVRMCCodeEmitter::getMemriEncoding(const MCInst &MI, unsigned OpNo,
-                                   SmallVectorImpl<MCFixup> &Fixups,
-                                   const MCSubtargetInfo &STI) const {
-                                   
-  // the first operand should be the pointer register.
-  assert(MI.getOperand(OpNo).isReg());
-  
-  // the second operand should be the displacement as an immediate value.
-  assert(MI.getOperand(OpNo+1).isImm());
-  
-  unsigned encoding = 0;
-  
-  uint8_t reg_bit = 0; // register bit.
-  uint8_t disp_bits = MI.getOperand(OpNo+1).getImm(); // displacement bits (6 bits).
-  
-  switch(MI.getOperand(OpNo).getReg())
-  {
-      case AVR::R29R28: // Y pointer register
-      {
-          reg_bit = 1;
-          
-          break;
-      }
-      case AVR::R31R30: // Z pointer register
-      {
-          reg_bit = 0;
-          
-          break;
-      }
-      case AVR::R27R26: // X pointer register (not supported).
-      {
-          llvm_unreachable("cannot encode the X pointer register for this encoding");
-          
-          break;
-      }
-      default: // Some other register we don't support.
-      {
-          llvm_unreachable("register not supported for this operand encoding");
-          
-          break;
-      }
-  }
-  
-  encoding = (disp_bits<<1) | reg_bit;
-
-  return encoding;
-}
-
 unsigned
 AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
                                           const MCInst &MI, unsigned OpNo,

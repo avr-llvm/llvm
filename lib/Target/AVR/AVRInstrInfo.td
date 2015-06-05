@@ -142,16 +142,6 @@ def AVRMemAsmOperand : AsmOperandClass {
   let ParserMethod = "parseMemOperand";
 }
 
-// Address operand for reg+imm
-def memri : Operand<iPTR>
-{
-  let PrintMethod = "printMemriOperand";
-  let EncoderMethod = "getMemriEncoding";
-  let ParserMatchClass = AVRMemAsmOperand;
-  
-  let MIOperandInfo = (ops PTRDISPREGS, i8imm);
-}
-
 // Address operand for SP+imm used by STD{W}SPQRr
 def memspi : Operand<iPTR>
 {

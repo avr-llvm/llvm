@@ -70,13 +70,6 @@ public:
                                 unsigned EncodedValue,
                                 const MCSubtargetInfo &STI) const;
 
-  /*!
-   * \brief Gets the encoding for a `memri` operand.
-   * A `memri` operand is a pointer register plus an immediate displacement.
-   */
-  unsigned getMemriEncoding(const MCInst &MI, unsigned OpNo,
-                            SmallVectorImpl<MCFixup> &Fixups,
-                            const MCSubtargetInfo &STI) const;
   unsigned getRelCondBrTargetEncoding(unsigned size,
                                    const MCInst &MI, unsigned OpNo,
                                    SmallVectorImpl<MCFixup> &Fixups,
