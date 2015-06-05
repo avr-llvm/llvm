@@ -175,7 +175,13 @@ AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
     return 0;
   } 
   else {
-    return MO.getImm() >> 1;
+    // take the size of the current instruction away.
+    // with labels, this is implicitly handled.
+    auto target = MO.getImm();
+
+    //if(target < 0) target -= 2;
+
+    return AVR::fixups::adjustRelativeBranchTarget(target);
   }
 }
 
@@ -245,7 +251,7 @@ AVRMCCodeEmitter::getCallTargetEncoding(const MCInst &MI, unsigned OpNo,
     return 0;
   } 
   else {
-    return MO.getImm() >> 1;
+    return AVR::fixups::adjustBranchTarget(MO.getImm());
   }
 }
 

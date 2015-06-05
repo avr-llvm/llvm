@@ -77,6 +77,17 @@ namespace AVR {
     LastTargetFixupKind,
     NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind
   };
+
+  namespace fixups {
+
+  template<typename T> inline T adjustRelativeBranchTarget(T val) {
+    return val >> 1;
+  }
+
+  template<typename T> inline T adjustBranchTarget(T val) {
+    return val >> 1;
+  }
+  }
 } // namespace AVR
 } // namespace llvm
 
