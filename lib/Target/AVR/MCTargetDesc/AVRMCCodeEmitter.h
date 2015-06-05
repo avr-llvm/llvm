@@ -41,8 +41,6 @@ public:
   AVRMCCodeEmitter(const MCInstrInfo &mcii, MCContext &Ctx_, bool IsLittle)
       : MCII(mcii), Ctx(Ctx_), IsLittleEndian(IsLittle) {}
 
-  ~AVRMCCodeEmitter() {}
-
   void emitByte(unsigned char C, raw_ostream &OS) const;
 
   /**
@@ -61,6 +59,17 @@ public:
   void encodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups,
                          const MCSubtargetInfo &STI) const override;
+
+  /**
+   * Finishes up encoding an LD/ST instruction.
+   *
+   * The purpose of this function is to set an bit in the instruction
+   * which follows no logical pattern. See the implementation for details.
+   */
+  unsigned loadStorePostEncoder(const MCInst &MI,
+                                unsigned EncodedValue,
+                                const MCSubtargetInfo &STI) const;
+
   /*!
    * \brief Gets the encoding for a `memri` operand.
    * A `memri` operand is a pointer register plus an immediate displacement.

@@ -84,6 +84,59 @@ encodeInstruction(const MCInst &MI, raw_ostream &OS,
   emitInstruction(Binary, Size, STI, OS);
 }
 
+// The encoding of the LD/ST family of instructions is inconsistent w.r.t
+// the pointer register and the addressing mode.
+//
+// The permutations of the format are as followed:
+// ld Rd, X    `1001 000d dddd 1100`
+// ld Rd, X+   `1001 000d dddd 1101`
+// ld Rd, -X   `1001 000d dddd 1110`
+//
+// ld Rd, Y    `1000 000d dddd 1000`
+// ld Rd, Y+   `1001 000d dddd 1001`
+// ld Rd, -Y   `1001 000d dddd 1010`
+
+// ld Rd, Z    `1000 000d dddd 0000`
+// ld Rd, Z+   `1001 000d dddd 0001`
+// ld Rd, -Z   `1001 000d dddd 0010`
+//                 ^
+//                 |
+// Note this one inconsistent bit - it is 1 sometimes and 0 at other times.
+// There is no logical pattern. Looking at a truth table, the following
+// formula can be derived to fit the pattern:
+// 
+// inconsistent_bit = is_predec OR is_postinc OR is_reg_x
+//
+// We manually set this bit in the post encoder method.
+unsigned AVRMCCodeEmitter::
+loadStorePostEncoder(const MCInst &MI,
+                     unsigned EncodedValue,
+                     const MCSubtargetInfo &STI) const {
+
+  assert(MI.getOperand(0).isReg() && MI.getOperand(1).isReg() && "the load/store operands must be registers");
+
+  auto opcode = MI.getOpcode();
+
+  // check whether either of the registers are the X pointer register.
+  bool isRegX = (MI.getOperand(0).getReg() == AVR::R27R26) ||
+                (MI.getOperand(1).getReg() == AVR::R27R26);
+
+  bool isPredec = opcode == AVR::LDRdPtrPd ||
+                  opcode == AVR::STPtrPdRr;
+
+  bool isPostinc = opcode == AVR::LDRdPtrPi ||
+                   opcode == AVR::STPtrPiRr;
+
+
+  // check if we need to set the inconsistent bit
+  if(isRegX || isPredec || isPostinc) {
+    EncodedValue |= (1<<12);
+  }
+
+  return EncodedValue;
+}
+
+
 /// getMemriEncoding - Return binary encoding of a pointer register plus displacement operand.
 /// If the offset operand requires relocation, record the relocation.
 unsigned
@@ -189,7 +242,6 @@ AVRMCCodeEmitter::getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
     assert(MI.getOperand(OpNo).isReg());
   
     auto MO = MI.getOperand(OpNo);
-    auto Opcode = MI.getOpcode();
     
     unsigned encoding;
     
@@ -215,18 +267,7 @@ AVRMCCodeEmitter::getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
             break;
         }
     }
-    
-    bool is_predec = Opcode == AVR::LDRdPtrPd ||
-                     Opcode == AVR::STPtrPdRr;
-    
-    bool is_postinc = Opcode == AVR::LDRdPtrPi ||
-                      Opcode == AVR::STPtrPiRr;
-    
-    bool is_reg_x = MO.getReg() == AVR::R27R26;
-    
-    if(is_predec || is_postinc || is_reg_x)
-        encoding |= 0x04; // 0b100
-    
+
     return encoding;
 }
 

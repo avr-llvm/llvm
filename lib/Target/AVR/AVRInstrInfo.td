@@ -195,13 +195,6 @@ def PtrRegAsmOperand : AsmOperandClass
 } 
  
 // A special operand type for the LD/ST instructions.
-//
-// The 12th bit in the instruction follows no pattern. It is 1 in some
-// cases of pointer reg and predec/postinc mode, and 0 in others.
-// We enumerate all cases in the custom encoder method and set this
-// bit appropriately.
-//
-// See FSTLD in AVRInstrFormats.td for more information.
 def LDSTPtrReg : Operand<i16>
 {
     let MIOperandInfo = (ops PTRREGS);
@@ -1025,11 +1018,12 @@ isReMaterializable = 1 in
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
 {
-    def LDRdPtr : FSTLDPtrReg<0b0,
-                              (outs GPR8:$reg),
-                              (ins LDSTPtrReg:$ptrreg),
-                              "ld\t$reg, $ptrreg",
-                              [(set GPR8:$reg, (load i16:$ptrreg))]>,
+    def LDRdPtr : FSTLD<0,
+                        0b00,
+                        (outs GPR8:$reg),
+                        (ins LDSTPtrReg:$ptrreg),
+                        "ld\t$reg, $ptrreg",
+                        [(set GPR8:$reg, (load i16:$ptrreg))]>,
                   Requires<[HasSRAM]>;
 
     let Constraints = "@earlyclobber $reg" in
@@ -1045,11 +1039,12 @@ let mayLoad = 1,
 hasSideEffects = 0,
 Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
 {
-    def LDRdPtrPi : FSTLDPtrPiReg<0b0,
-                                  (outs GPR8:$reg, PTRREGS:$base_wb),
-                                  (ins LDSTPtrReg:$ptrreg),
-                                  "ld\t$reg, $ptrreg+",
-                                  []>,
+    def LDRdPtrPi : FSTLD<0,
+                          0b01,
+                          (outs GPR8:$reg, PTRREGS:$base_wb),
+                          (ins LDSTPtrReg:$ptrreg),
+                          "ld\t$reg, $ptrreg+",
+                          []>,
                     Requires<[HasSRAM]>;
 
     def LDWRdPtrPi : Pseudo<(outs DREGS:$reg, PTRREGS:$base_wb),
@@ -1058,11 +1053,12 @@ Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
                             []>,
                      Requires<[HasSRAM]>;
 
-    def LDRdPtrPd : FSTLDPtrPdReg<0b0,
-                                  (outs GPR8:$reg, PTRREGS:$base_wb),
-                                  (ins LDSTPtrReg:$ptrreg),
-                                  "ld\t$reg, -$ptrreg",
-                                  []>,
+    def LDRdPtrPd : FSTLD<0,
+                          0b10,
+                          (outs GPR8:$reg, PTRREGS:$base_wb),
+                          (ins LDSTPtrReg:$ptrreg),
+                          "ld\t$reg, -$ptrreg",
+                          []>,
                     Requires<[HasSRAM]>;
 
     def LDWRdPtrPd : Pseudo<(outs DREGS:$reg, PTRREGS:$base_wb),
@@ -1076,7 +1072,7 @@ Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
 {
-    def LDDRdPtrQ : FPqRr<0b0,
+    def LDDRdPtrQ : FSTDLDD<0,
                           (outs GPR8:$reg),
                           (ins PTRDISPREGS:$p, i16imm:$q),
                           "ldd\t$reg, $p+$q",
@@ -1127,11 +1123,12 @@ let Constraints = "" in
 {
     // ST P, Rr
     // Stores the value of Rr into the location addressed by pointer P.
-    def STPtrRr : FSTLDPtrReg<0b1,
-                              (outs),
-                              (ins LDSTPtrReg:$ptrreg, GPR8:$reg),
-                              "st\t$ptrreg, $reg",
-                              [(store GPR8:$reg, i16:$ptrreg)]>,
+    def STPtrRr : FSTLD<1,
+                        0b00,
+                        (outs),
+                        (ins LDSTPtrReg:$ptrreg, GPR8:$reg),
+                        "st\t$ptrreg, $reg",
+                        [(store GPR8:$reg, i16:$ptrreg)]>,
                   Requires<[HasSRAM]>;
 
     // STW P, Rr
@@ -1150,12 +1147,13 @@ let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
     // ST P+, Rr
     // Stores the value of Rr into the location addressed by pointer P.
     // Post increments P.
-    def STPtrPiRr : FSTLDPtrPiReg<0b1,
-                                  (outs LDSTPtrReg:$base_wb),
-                                  (ins LDSTPtrReg:$ptrreg, GPR8:$reg, i8imm:$offs),
-                                  "st\t$ptrreg+, $reg",
-                                  [(set i16:$base_wb,
-                                  (post_store GPR8:$reg, i16:$ptrreg, imm:$offs))]>,
+    def STPtrPiRr : FSTLD<1,
+                          0b01,
+                          (outs LDSTPtrReg:$base_wb),
+                          (ins LDSTPtrReg:$ptrreg, GPR8:$reg, i8imm:$offs),
+                          "st\t$ptrreg+, $reg",
+                          [(set i16:$base_wb,
+                           (post_store GPR8:$reg, i16:$ptrreg, imm:$offs))]>,
                     Requires<[HasSRAM]>;
 
     // STW P+, Rr
@@ -1171,12 +1169,13 @@ let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
     // ST -P, Rr
     // Stores the value of Rr into the location addressed by pointer P.
     // Pre decrements P.
-    def STPtrPdRr : FSTLDPtrPdReg<0b1,
-                                  (outs LDSTPtrReg:$base_wb),
-                                  (ins LDSTPtrReg:$ptrreg, GPR8:$reg, i8imm:$offs),
-                                  "st\t-$ptrreg, $reg",
-                                  [(set i16:$base_wb,
-                                  (pre_store GPR8:$reg, i16:$ptrreg, imm:$offs))]>,
+    def STPtrPdRr : FSTLD<1,
+                          0b10,
+                          (outs LDSTPtrReg:$base_wb),
+                          (ins LDSTPtrReg:$ptrreg, GPR8:$reg, i8imm:$offs),
+                          "st\t-$ptrreg, $reg",
+                          [(set i16:$base_wb,
+                           (pre_store GPR8:$reg, i16:$ptrreg, imm:$offs))]>,
                     Requires<[HasSRAM]>;
 
     // STW -P, Rr
@@ -1198,7 +1197,7 @@ let Constraints = "" in
     // STD P+q, Rr
     // Stores the value of Rr into the location addressed by pointer P with a displacement of q.
     // Does not modify P.
-    def STDPtrQRr : FPqRr<0b1,
+    def STDPtrQRr : FSTDLDD<0b1,
                           (outs),
                           (ins PTRDISPREGS:$p, i16imm:$q, GPR8:$src),
                           "std\t$p+$q, $src",

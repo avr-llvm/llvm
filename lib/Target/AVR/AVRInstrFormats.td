@@ -143,88 +143,49 @@ class FRd<bits<4> opcode, bits<7> f, dag outs, dag ins, string asmstr,
 // q = displacement (6 bits)
 // r = register (5 bits)
 // p = pointer register (1 bit) [1 for Y, 0 for Z]
-//===----------------------------------------------------------------------===//
-// Caveat:
-// This format is a dirty, dirty hack. In AVRInstrInfo.td, there is an operand
-// type called `memri`, which describes a pointer register and an immediate.
-// This operand has a custom encoding function in AVRMCCodeEmitter.cpp. Ideally
-// we would expose the ptr register and the immediate as seperate operands,so
-// that we can assign their bits here (and wouldn't need an encoder function).
-// I couldn't find a way to do this without breaking pattern matching. Instead,
-// they are unified into one encoding function, which outputs <qqqqqqp>. The only
-// way I could get tablegen to create the correct instructions was to increase the
-// size of `bits<6> q` to `bits<7> q` and to increase all indices by one (because
-// all bits were off by one place). Thus, we ignore q{0}.
-//===----------------------------------------------------------------------===//
-class FPqRr<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
+//===----------------------------------------------------------------------===//------------------------------------------------------------------===//Z
+class FSTDLDD<bit type, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bit p;
-  bits<7> q;
-  bits<5> r;
+  bits<2> ptr; // the pointer register
+  bits<5> reg; // the GP register
+  bits<6> imm; // the displacement
 
   let Inst{15-14} = 0b10;
-  let Inst{13} = q{6};
-  let Inst{12} = 0b0;
-  
-  let Inst{11-10} = q{5-4};
-  let Inst{9} = t;
-  let Inst{8} = r{4};
-  
-  let Inst{7-4} = r{3-0};
-  
-  let Inst{3} = p;
-  let Inst{2-0} = q{3-1};
+  let Inst{13} = imm{5};
+  let Inst{12} = 0;
+
+  let Inst{11-10} = imm{4-3};
+  let Inst{9} = type;
+  let Inst{8} = reg{4};
+
+  let Inst{7-4} = reg{3-0};
+
+  let Inst{3} = ptr{1};
+  let Inst{2-0} = imm{2-0};
 }
 
 //===---------------------------------------------------------------------===//
 // An ST/LD instruction.
-// <|100p|00tr|rrrr|ppaa|>
+// <|100i|00tr|rrrr|ppaa|>
 // t = type (1 for store, 0 for load)
 // a = regular/postinc/predec (reg = 0b00, postinc = 0b01, predec = 0b10)
-// p = pointer register (and inconsistent bit).
+// p = pointer register
 // r = src/dst register
-//===---------------------------------------------------------------------===//
-// The encoding of this format of instruction is inconsistent w.r.t
-// the pointer register and the addressing mode.
-//
-// The permutations of the format are as followed:
-// ld Rd, X    `1001 000d dddd 1100`
-// ld Rd, X+   `1001 000d dddd 1101`
-// ld Rd, -X   `1001 000d dddd 1110`
-//
-// ld Rd, Y    `1000 000d dddd 1000`
-// ld Rd, Y+   `1001 000d dddd 1001`
-// ld Rd, -Y   `1001 000d dddd 1010`
-
-// ld Rd, Z    `1000 000d dddd 0000`
-// ld Rd, Z+   `1001 000d dddd 0001`
-// ld Rd, -Z   `1001 000d dddd 0010`
-//                 ^
-//                 |
-// Note this one inconsistent bit - it is 1 sometimes and 0 at other times.
-// There is no logical pattern. Looking at a truth table, the following
-// formula can be derived to fit the pattern:
 // 
-// inconsistent_bit = is_predec OR is_postinc OR is_reg_x
-//
-// To solve this issue, in AVRInstrInfo.td, a new operand type is added: LDSTPtrReg.
-// In the LD/ST family of instructions, the pointer register occupies two bits.
-// The LDSTPtrReg operand has a special encoding function which uses the lowest
-// three bits - the bottom two being the pointer register, and the top bit
-// being our inconsistent bit. The custom encoding function uses the aforementioned
-// boolean expression and puts it in the third bit of its result, so we can use it here.
-// Thus, the format of `ppp` is not 3 bits for the pointer register, but `ipp` where
-// `i` is the inconsistent bit.
+// Note that the bit labelled 'i' above does not follow a simple pattern,
+// so there exists a post encoder method to set it manually.
 //===---------------------------------------------------------------------===//
 class FSTLD<bit type, bits<2> mode, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<3> ptrreg;
+  bits<2> ptrreg;
   bits<5> reg;
   
   let Inst{15-13} = 0b100;
-  let Inst{12} = ptrreg{2};
+  // This bit varies depending on the arguments and the mode.
+  // We have a post encoder method to set this bit manually.
+  let Inst{12} = 0;
   
   let Inst{11-10} = 0b00;
   let Inst{9} = type;
@@ -234,25 +195,9 @@ class FSTLD<bit type, bits<2> mode, dag outs, dag ins, string asmstr, list<dag> 
   
   let Inst{3-2} = ptrreg{1-0};
   let Inst{1-0} = mode{1-0};
+
+  let PostEncoderMethod = "loadStorePostEncoder";
 }
-
-// A 'ST Ptr, Rr' or 'LD Rd, Ptr' instruction.
-class FSTLDPtrReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
-  : FSTLD<t, 0b00, outs, ins, asmstr, pattern> { }
-
-//===---------------------------------------------------------------------===//
-// A 'ST Ptr+, Rr' or 'LD Rd, Ptr+' instruction.
-// Store with postincrement.
-//===---------------------------------------------------------------------===//
-class FSTLDPtrPiReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
-  : FSTLD<t, 0b01, outs, ins, asmstr, pattern> { }
-
-//===---------------------------------------------------------------------===//
-// A 'ST -Ptr, Rr' or 'LD Rd, -Ptr' instruction.
-// Store with predecrement.
-//===---------------------------------------------------------------------===//
-class FSTLDPtrPdReg<bit t, dag outs, dag ins, string asmstr, list<dag> pattern>
-  : FSTLD<t, 0b10, outs, ins, asmstr, pattern> { }
 
 //===---------------------------------------------------------------------===//
 // Special format for the LPM/ELPM instructions
