@@ -20,8 +20,7 @@ namespace llvm
 {
 
 /*!
- * \brief This class is derived from MachineFunction and
- *         contains private AVR target-specific information for each MachineFunction.
+ * Contains private AVR-specific information for each MachineFunction.
  */
 class AVRMachineFunctionInfo : public MachineFunctionInfo
 {

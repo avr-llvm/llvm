@@ -22,7 +22,7 @@
 namespace llvm
 {
 /*!
- * \brief Holds information about AVR registers.
+ * Holds information about AVR registers.
  */
 class AVRRegisterInfo : public AVRGenRegisterInfo
 {

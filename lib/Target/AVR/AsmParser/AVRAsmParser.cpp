@@ -56,23 +56,23 @@ class AVRAsmParser : public MCTargetAsmParser {
   bool ParseDirective(AsmToken directiveID) override { return true; }
 
 
-  //! \brief Parses an assembly operand.
+  //! Parses an assembly operand.
   //! \param Operands A list to add the successfully parsed operand to.
   //! \param Mnemonic The mnemonic of the instruction.
   //! \return `false` if parsing succeeds, `true` otherwise.
   bool parseOperand(OperandVector &Operands, StringRef Mnemonic);
 
-  //! \brief Attempts to parse a register.
+  //! Attempts to parse a register.
   //! \return The register number, or `-1` if the token is not a register.
   int parseRegister();
   bool tryParseRegisterOperand(OperandVector &Operands);
   bool tryParseExpression(OperandVector & Operands);
   void appendToken(OperandVector & Operands);
 
-  //! \brief Handles target specific special cases. See definition for notes.
+  //! Handles target specific special cases. See definition for notes.
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op, unsigned Kind);
 
-  //! \brief Given a lower (even) register returns the corresponding DREG
+  //! Given a lower (even) register returns the corresponding DREG
   inline unsigned toDREG(unsigned lowerReg) {
     return MRI->getMatchingSuperReg(lowerReg, AVR::sub_lo, &AVRMCRegisterClasses[AVR::DREGSRegClassID]);
   }
@@ -96,7 +96,7 @@ public:
 /// @name Auto-generated Match Functions
 /// {
 
-//! \brief Matches a register name to a register number.
+//! Matches a register name to a register number.
 //! \return The register number, or -1 if the register is invalid.
 static unsigned MatchRegisterName(StringRef Name);
 
@@ -104,8 +104,9 @@ static unsigned MatchRegisterName(StringRef Name);
 
 namespace {
 
-/// AVROperand - Instances of this class represent a parsed AVR machine
-/// instruction.
+/*!
+ *  Represents a parsed AVR machine instruction.
+ */
 class AVROperand : public MCParsedAsmOperand {
 
   enum KindTy {
@@ -207,9 +208,13 @@ public:
     return Op;
   }
 
-  /// getStartLoc - Get the location of the first token of this operand.
+  /*!
+   * Gets the location of the first token of this operand.
+   */
   SMLoc getStartLoc() const { return StartLoc; }
-  /// getEndLoc - Get the location of the last token of this operand.
+  /*!
+   * Gets the location of the last token of this operand.
+   */
   SMLoc getEndLoc() const { return EndLoc; }
 
   virtual void print(raw_ostream &OS) const {

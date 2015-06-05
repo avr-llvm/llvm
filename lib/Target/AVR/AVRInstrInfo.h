@@ -25,8 +25,9 @@ namespace llvm
 
 namespace AVRCC
 {
-  /*! \brief AVR specific condition code. These correspond to AVR_*_COND in
-   *         `AVRInstrInfo.td`. They must be kept in synch.
+  /*! AVR specific condition code.
+   * These correspond to `AVR_*_COND` in `AVRInstrInfo.td.
+   * They must be kept in synch.
    */
   enum CondCodes
   {
@@ -44,18 +45,18 @@ namespace AVRCC
 
 namespace AVRII
 {
-  /// \brief Specifies a target operand flag.
+  /// Specifies a target operand flag.
   enum TOF
   {
     MO_NO_FLAG,
 
-    /// \brief On a symbol operand, this represents the lo part.
+    /// On a symbol operand, this represents the lo part.
     MO_LO = (1 << 1),
 
-    /// \brief On a symbol operand, this represents the hi part.
+    /// On a symbol operand, this represents the hi part.
     MO_HI = (1 << 2),
 
-    /// \brief On a symbol operand, this represents it has to be negated.
+    /// On a symbol operand, this represents it has to be negated.
     MO_NEG = (1 << 3)
   };
 }
@@ -65,9 +66,9 @@ class AVRInstrInfo : public AVRGenInstrInfo
 public:
   explicit AVRInstrInfo();
   /*!
-   * \brief TargetInstrInfo is a superset of MRegister info.  As
-   *        such, whenever a client has an instance of instruction info, it should
-   *        always be able to get register info as well (through this method).
+   * TargetInstrInfo is a superset of MRegister info.
+   * As such, whenever a client has an instance of instruction info, it should
+   * always be able to get register info as well (through this method).
    */
   const AVRRegisterInfo &getRegisterInfo() const { return RI; }
   const MCInstrDesc &getBrCond(AVRCC::CondCodes CC) const;

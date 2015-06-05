@@ -19,7 +19,7 @@
 namespace llvm
 {
 /*!
- * \brief Prints AVR instructions to a textual stream.
+ * Prints AVR instructions to a textual stream.
  */
 class AVRInstPrinter : public MCInstPrinter
 {
