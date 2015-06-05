@@ -11,8 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AVRSubtarget.h"
 #include "AVR.h"
+#include "AVRSubtarget.h"
+#include "AVRTargetMachine.h"
 #include "llvm/Support/TargetRegistry.h"
 
 #define DEBUG_TYPE "avr-subtarget"
@@ -30,7 +31,7 @@ AVRSubtarget::AVRSubtarget(const std::string &TT, const std::string &CPU,
   InstrInfo(),
   FrameLowering(),
   TLInfo(TM),
-  TSInfo(TM),
+  TSInfo(*TM.getDataLayout()),
   
   // Subtarget features
   m_hasSRAM(false), m_hasJMPCALL(false), m_hasIJMPCALL(false), m_hasEIJMPCALL(false),

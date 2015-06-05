@@ -17,6 +17,6 @@
 
 using namespace llvm;
 
-AVRSelectionDAGInfo::AVRSelectionDAGInfo(const AVRTargetMachine &TM) :
-  TargetSelectionDAGInfo(TM.getDataLayout()) {}
+AVRSelectionDAGInfo::AVRSelectionDAGInfo(const DataLayout &DL) :
+  TargetSelectionDAGInfo(&DL) {}
 

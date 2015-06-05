@@ -24,7 +24,7 @@ class AVRTargetMachine;
 class AVRSelectionDAGInfo : public TargetSelectionDAGInfo
 {
 public:
-  explicit AVRSelectionDAGInfo(const AVRTargetMachine &TM);
+  explicit AVRSelectionDAGInfo(const DataLayout &DL);
 };
 
 } // end namespace llvm
