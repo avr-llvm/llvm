@@ -1,5 +1,4 @@
 ; RUN: llvm-mc -triple avr-none -mattr=sram -show-encoding < %s | FileCheck %s
-; XFAIL: *
 
 
 foo:
@@ -10,7 +9,7 @@ foo:
   ldd r9, Z+12 
   ldd r7, Z+30
 
-; CHECK: ldd r2, y+2                  ; encoding: [0x2a.0x80]
+; CHECK: ldd r2, y+2                  ; encoding: [0x2a,0x80]
 ; CHECK: ldd r0, y+0                  ; encoding: [0x08,0x80]
                      
 ; CHECK: ldd r9, z+12                 ; encoding: [0x94,0x84]

@@ -195,11 +195,23 @@ def PtrRegAsmOperand : AsmOperandClass
 } 
  
 // A special operand type for the LD/ST instructions.
+// It converts the pointer register number into a two-bit field used in the instruction.
 def LDSTPtrReg : Operand<i16>
 {
     let MIOperandInfo = (ops PTRREGS);
     let EncoderMethod = "getLDSTPtrRegEncoding";
     
+    let ParserMatchClass = PtrRegAsmOperand;
+}
+
+// A special operand type for the LDD/STD instructions.
+// It behaves identically to the LD/ST version, except restricts
+// the pointer registers to Y and Z.
+def LDDSTDPtrReg : Operand<i16>
+{
+    let MIOperandInfo = (ops PTRDISPREGS);
+    let EncoderMethod = "getLDSTPtrRegEncoding";
+
     let ParserMatchClass = PtrRegAsmOperand;
 }
 
@@ -1073,10 +1085,10 @@ let canFoldAsLoad = 1,
 isReMaterializable = 1 in
 {
     def LDDRdPtrQ : FSTDLDD<0,
-                          (outs GPR8:$reg),
-                          (ins PTRDISPREGS:$p, i16imm:$q),
-                          "ldd\t$reg, $p+$q",
-                          [(set GPR8:$reg, (load (add addr:$p, imm:$q)))]>,
+                            (outs GPR8:$reg),
+                            (ins LDDSTDPtrReg:$ptr, i16imm:$imm),
+                            "ldd\t$reg, $ptr+$imm",
+                            [(set GPR8:$reg, (load (add addr:$ptr, imm:$imm)))]>,
                     Requires<[HasSRAM]>;
 
     let Constraints = "@earlyclobber $dst" in
@@ -1197,11 +1209,11 @@ let Constraints = "" in
     // STD P+q, Rr
     // Stores the value of Rr into the location addressed by pointer P with a displacement of q.
     // Does not modify P.
-    def STDPtrQRr : FSTDLDD<0b1,
-                          (outs),
-                          (ins PTRDISPREGS:$p, i16imm:$q, GPR8:$src),
-                          "std\t$p+$q, $src",
-                          [(store GPR8:$src, (add addr:$p, imm:$q))]>,
+    def STDPtrQRr : FSTDLDD<1,
+                            (outs),
+                            (ins LDDSTDPtrReg:$ptr, i16imm:$imm, GPR8:$reg),
+                            "std\t$ptr+$imm, $reg",
+                            [(store GPR8:$reg, (add addr:$ptr, imm:$imm))]>,
                     Requires<[HasSRAM]>;
 
     // STDW P+q, Rr

@@ -1,5 +1,4 @@
 ; RUN: llvm-mc -triple avr-none -mattr=sram -show-encoding < %s | FileCheck %s
-; XFAIL: *
 
 
 foo:
