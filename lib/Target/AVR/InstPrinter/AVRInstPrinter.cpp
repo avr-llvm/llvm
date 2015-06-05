@@ -71,25 +71,36 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
   printAnnotation(O, Annot);
 }
 
+const char *
+AVRInstPrinter::getPrettyRegisterName(unsigned RegNo) {
+  if (AVRMCRegisterClasses[AVR::PTRREGSRegClassID].contains(RegNo)) {
+    switch (RegNo) {
+      case AVR::R31R30: return "Z";
+      case AVR::R29R28: return "Y";
+      case AVR::R27R26: return "X";
+      default: return 0;
+    }
+  } else if (AVRMCRegisterClasses[AVR::DREGSRegClassID].contains(RegNo)) {
+    return getRegisterName(MRI.getSubReg(RegNo, AVR::sub_lo));
+  } else {
+    return getRegisterName(RegNo);
+  }
+}
+
+
 void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
                                   raw_ostream &O)
 {
   const MCOperand &Op = MI->getOperand(OpNo);
 
-  if (Op.isReg())
-  {
-    O << getRegisterName(Op.getReg());
-    return;
-  }
-
-  if (Op.isImm())
-  {
+  if (Op.isReg()) {
+    O << getPrettyRegisterName(Op.getReg());
+  } else if (Op.isImm()) {
     O << Op.getImm();
-    return;
+  } else {
+    assert(Op.isExpr() && "Unknown operand kind in printOperand");
+    O << *Op.getExpr();
   }
-
-  assert(Op.isExpr() && "Unknown operand kind in printOperand");
-  O << *Op.getExpr();
 }
 
 

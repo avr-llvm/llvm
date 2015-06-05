@@ -34,16 +34,16 @@ let Namespace = "AVR" in
 //===----------------------------------------------------------------------===//
 
 // 8 bit registers
-def R0 : AVRReg<0, "r0">, DwarfRegNum<[0]>;
-def R1 : AVRReg<1, "r1">, DwarfRegNum<[1]>;
-def R2 : AVRReg<2, "r2">, DwarfRegNum<[2]>;
-def R3 : AVRReg<3, "r3">, DwarfRegNum<[3]>;
-def R4 : AVRReg<4, "r4">, DwarfRegNum<[4]>;
-def R5 : AVRReg<5, "r5">, DwarfRegNum<[5]>;
-def R6 : AVRReg<6, "r6">, DwarfRegNum<[6]>;
-def R7 : AVRReg<7, "r7">, DwarfRegNum<[7]>;
-def R8 : AVRReg<8, "r8">, DwarfRegNum<[8]>;
-def R9 : AVRReg<9, "r9">, DwarfRegNum<[9]>;
+def R0  : AVRReg<0,  "r0">,  DwarfRegNum<[0]>;
+def R1  : AVRReg<1,  "r1">,  DwarfRegNum<[1]>;
+def R2  : AVRReg<2,  "r2">,  DwarfRegNum<[2]>;
+def R3  : AVRReg<3,  "r3">,  DwarfRegNum<[3]>;
+def R4  : AVRReg<4,  "r4">,  DwarfRegNum<[4]>;
+def R5  : AVRReg<5,  "r5">,  DwarfRegNum<[5]>;
+def R6  : AVRReg<6,  "r6">,  DwarfRegNum<[6]>;
+def R7  : AVRReg<7,  "r7">,  DwarfRegNum<[7]>;
+def R8  : AVRReg<8,  "r8">,  DwarfRegNum<[8]>;
+def R9  : AVRReg<9,  "r9">,  DwarfRegNum<[9]>;
 def R10 : AVRReg<10, "r10">, DwarfRegNum<[10]>;
 def R11 : AVRReg<11, "r11">, DwarfRegNum<[11]>;
 def R12 : AVRReg<12, "r12">, DwarfRegNum<[12]>;
@@ -73,10 +73,10 @@ let SubRegIndices = [sub_lo, sub_hi],
 CoveredBySubRegs = 1 in
 {
   // 16 bit register pairs
-  def SP     : AVRReg<32, "SP",  [SPL, SPH]>, DwarfRegNum<[32]>;
-  def R31R30 : AVRReg<30, "z", [R30, R31]>, DwarfRegNum<[30]>;
-  def R29R28 : AVRReg<28, "y", [R28, R29]>, DwarfRegNum<[28]>;
-  def R27R26 : AVRReg<26, "x", [R26, R27]>, DwarfRegNum<[26]>;
+  def SP     : AVRReg<32, "sp",      [SPL, SPH]>, DwarfRegNum<[32]>;
+  def R31R30 : AVRReg<30, "z",       [R30, R31]>, DwarfRegNum<[30]>;
+  def R29R28 : AVRReg<28, "y",       [R28, R29]>, DwarfRegNum<[28]>;
+  def R27R26 : AVRReg<26, "x",       [R26, R27]>, DwarfRegNum<[26]>;
   def R25R24 : AVRReg<24, "r25:r24", [R24, R25]>, DwarfRegNum<[24]>;
   def R23R22 : AVRReg<22, "r23:r22", [R22, R23]>, DwarfRegNum<[22]>;
   def R21R20 : AVRReg<20, "r21:r20", [R20, R21]>, DwarfRegNum<[20]>;
@@ -85,11 +85,11 @@ CoveredBySubRegs = 1 in
   def R15R14 : AVRReg<14, "r15:r14", [R14, R15]>, DwarfRegNum<[14]>;
   def R13R12 : AVRReg<12, "r13:r12", [R12, R13]>, DwarfRegNum<[12]>;
   def R11R10 : AVRReg<10, "r11:r10", [R10, R11]>, DwarfRegNum<[10]>;
-  def R9R8 : AVRReg<8, "r9:r8", [R8, R9]>, DwarfRegNum<[8]>;
-  def R7R6 : AVRReg<6, "r7:r6", [R6, R7]>, DwarfRegNum<[6]>;
-  def R5R4 : AVRReg<4, "r5:r4", [R4, R5]>, DwarfRegNum<[4]>;
-  def R3R2 : AVRReg<2, "r3:r2", [R2, R3]>, DwarfRegNum<[2]>;
-  def R1R0 : AVRReg<0, "r1:r0", [R0, R1]>, DwarfRegNum<[0]>;
+  def R9R8   : AVRReg<8,  "r9:r8",   [R8, R9]>,   DwarfRegNum<[8]>;
+  def R7R6   : AVRReg<6,  "r7:r6",   [R6, R7]>,   DwarfRegNum<[6]>;
+  def R5R4   : AVRReg<4,  "r5:r4",   [R4, R5]>,   DwarfRegNum<[4]>;
+  def R3R2   : AVRReg<2,  "r3:r2",   [R2, R3]>,   DwarfRegNum<[2]>;
+  def R1R0   : AVRReg<0,  "r1:r0",   [R0, R1]>,   DwarfRegNum<[0]>;
 }
 
 //===----------------------------------------------------------------------===//
