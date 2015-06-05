@@ -100,8 +100,7 @@ inline unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
 
 MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_pwrite_stream &OS) const {
   return createAVRELFObjectWriter(OS,
-    MCELFObjectTargetWriter::getOSABI(OSType),
-    IsLittle);
+    MCELFObjectTargetWriter::getOSABI(OSType));
 }
 
 /// ApplyFixup - Apply the \p Value for given \p Fixup into the provided
@@ -242,16 +241,10 @@ void AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
   Value = adjustFixupValue(Fixup, Value, &Asm.getContext());
 }
 
-MCAsmBackend *llvm::createAVRAsmBackendEL(const Target &T,
-                                             const MCRegisterInfo &MRI,
-                                             StringRef TT,
-                                             StringRef CPU) {
-  return new AVRAsmBackend(T, Triple(TT).getOS(), true);
+MCAsmBackend *llvm::createAVRAsmBackend(const Target &T,
+                                        const MCRegisterInfo &MRI,
+                                        StringRef TT,
+                                        StringRef CPU) {
+  return new AVRAsmBackend(T, Triple(TT).getOS());
 }
 
-MCAsmBackend *llvm::createAVRAsmBackendEB(const Target &T,
-                                             const MCRegisterInfo &MRI,
-                                             StringRef TT,
-                                             StringRef CPU) {
-  return new AVRAsmBackend(T, Triple(TT).getOS(), false);
-}

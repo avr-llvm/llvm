@@ -27,12 +27,10 @@ class MCObjectWriter;
 
 class AVRAsmBackend : public MCAsmBackend {
 
-  Triple::OSType OSType;
-  bool IsLittle; // Big or little endian
 
 public:
-  AVRAsmBackend(const Target &T, Triple::OSType _OSType, bool _IsLittle)
-      : MCAsmBackend(), OSType(_OSType), IsLittle(_IsLittle) {}
+  AVRAsmBackend(const Target &T, Triple::OSType _OSType)
+      : MCAsmBackend(), OSType(_OSType) {}
 
   MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override;
 
@@ -82,7 +80,9 @@ public:
                          const MCFixup &Fixup, const MCFragment *DF,
                          const MCValue &Target, uint64_t &Value,
                          bool &IsResolved) override;
-
+private:
+  
+  Triple::OSType OSType;
 }; // class AVRAsmBackend
 
 } // namespace

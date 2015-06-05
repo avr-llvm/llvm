@@ -177,8 +177,7 @@ AVRELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
 }
 
 MCObjectWriter *llvm::createAVRELFObjectWriter(raw_pwrite_stream &OS,
-                                                uint8_t OSABI,
-                                                bool IsLittleEndian) {
+                                               uint8_t OSABI) {
   MCELFObjectTargetWriter *MOTW = new AVRELFObjectWriter(OSABI);
-  return createELFObjectWriter(MOTW, OS, IsLittleEndian);
+  return createELFObjectWriter(MOTW, OS, true);
 }

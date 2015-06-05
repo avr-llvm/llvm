@@ -136,5 +136,5 @@ extern "C" void LLVMInitializeAVRTargetMC()
 
   // Register the asm backend (as little endian).
   TargetRegistry::RegisterMCAsmBackend(TheAVRTarget,
-                                       createAVRAsmBackendEL);
+                                       createAVRAsmBackend);
 }
