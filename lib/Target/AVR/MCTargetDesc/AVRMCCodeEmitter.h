@@ -30,16 +30,14 @@ class MCOperand;
 class MCSubtargetInfo;
 class raw_ostream;
 
+/**
+ * Writes AVR machine code to a stream.
+ */
 class AVRMCCodeEmitter : public MCCodeEmitter {
-  AVRMCCodeEmitter(const AVRMCCodeEmitter &) = delete;
-  void operator=(const AVRMCCodeEmitter &) = delete;
-  const MCInstrInfo &MCII;
-  MCContext &Ctx;
-  bool IsLittleEndian;
 
 public:
-  AVRMCCodeEmitter(const MCInstrInfo &mcii, MCContext &Ctx_, bool IsLittle)
-      : MCII(mcii), Ctx(Ctx_), IsLittleEndian(IsLittle) {}
+  AVRMCCodeEmitter(const MCInstrInfo &mcii, MCContext &Ctx_)
+      : MCII(mcii), Ctx(Ctx_) {}
 
   void emitByte(unsigned char C, raw_ostream &OS) const;
 
@@ -76,7 +74,7 @@ public:
                                    const MCSubtargetInfo &STI) const;
   
   /*!
-   * \brief Gets the encoding for a break target.
+   * Gets the encoding for a break target.
    */
   unsigned getRelCondBr7TargetEncoding(const MCInst &MI, unsigned OpNo,
                                     SmallVectorImpl<MCFixup> &Fixups,
@@ -107,8 +105,9 @@ public:
                                  SmallVectorImpl<MCFixup> &Fixups,
                                  const MCSubtargetInfo &STI) const;
 
-  // getBinaryCodeForInstr - TableGen'erated function for getting the
-  // binary encoding for an instruction.
+  /*!
+   *  TableGen'erated function for getting the binary encoding for an instruction.
+   */
   uint64_t getBinaryCodeForInstr(const MCInst &MI,
                                  SmallVectorImpl<MCFixup> &Fixups,
                                  const MCSubtargetInfo &STI) const;
@@ -116,12 +115,23 @@ public:
   unsigned getExprOpValue(const MCExpr *Expr, SmallVectorImpl<MCFixup> &Fixups,
                           const MCSubtargetInfo &STI) const;
   
-  // getMachineOpValue - Return binary encoding of operand. If the machin
-  // operand requires relocation, record the relocation and return zero.
+  /*!
+   * Returns the  binary encoding of operand.
+   *
+   * If the machine operand requires relocation, the relocation is recorded
+   * and zero is returned.
+   */
   unsigned getMachineOpValue(const MCInst &MI, const MCOperand &MO,
                              SmallVectorImpl<MCFixup> &Fixups,
                              const MCSubtargetInfo &STI) const;
 
+private:
+
+  AVRMCCodeEmitter(const AVRMCCodeEmitter &) = delete;
+  void operator=(const AVRMCCodeEmitter &) = delete;
+
+  const MCInstrInfo &MCII;
+  MCContext &Ctx;
 }; // class AVRMCCodeEmitter
 } // namespace llvm.
 

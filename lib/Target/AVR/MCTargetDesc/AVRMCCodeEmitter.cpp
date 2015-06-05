@@ -36,7 +36,7 @@
 MCCodeEmitter *llvm::createAVRMCCodeEmitter(const MCInstrInfo &MCII,
                                          const MCRegisterInfo &MRI,
                                          MCContext &Ctx) {
-  return new AVRMCCodeEmitter(MCII, Ctx, false);
+  return new AVRMCCodeEmitter(MCII, Ctx);
 }
 
 void AVRMCCodeEmitter::emitByte(unsigned char C, raw_ostream &OS) const {
@@ -65,8 +65,6 @@ void AVRMCCodeEmitter::emitInstruction(uint64_t Val, unsigned Size,
   emitWords(words, wordCount, OS);
 }
 
-/// EncodeInstruction - Emit the instruction.
-/// Size the instruction with Desc.getSize().
 void AVRMCCodeEmitter::
 encodeInstruction(const MCInst &MI, raw_ostream &OS,
                   SmallVectorImpl<MCFixup> &Fixups,
