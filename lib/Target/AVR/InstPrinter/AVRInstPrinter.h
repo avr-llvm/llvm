@@ -27,12 +27,16 @@ public:
   AVRInstPrinter(const MCAsmInfo &MAI, const MCInstrInfo &MII,
                  const MCRegisterInfo &MRI) :
     MCInstPrinter(MAI, MII, MRI) {}
+
+  static const char *getRegisterName(unsigned RegNo);
+
 public: // MCInstPrinter
 
   void printInst(const MCInst *MI,
                  raw_ostream &O,
                  StringRef Annot,
                  const MCSubtargetInfo &STI) override;
+
 private:
   void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void print_pcrel_imm(const MCInst *MI, unsigned OpNo, raw_ostream &O);
@@ -44,7 +48,6 @@ private:
   void printCustomAliasOperand(const MCInst *MI, unsigned OpIdx,
                                unsigned PrintMethodIdx,
                                raw_ostream &O);
-  static const char *getRegisterName(unsigned RegNo);
 };
 
 } // end namespace llvm
