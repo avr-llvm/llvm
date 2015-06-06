@@ -10,6 +10,7 @@
 #include "AVR.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 #include "AVRRegisterInfo.h"
+#include "MCTargetDesc/AVRMCExpr.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCContext.h"
@@ -56,23 +57,16 @@ class AVRAsmParser : public MCTargetAsmParser {
   bool ParseDirective(AsmToken directiveID) override { return true; }
 
 
-  //! Parses an assembly operand.
-  //! \param Operands A list to add the successfully parsed operand to.
-  //! \param Mnemonic The mnemonic of the instruction.
-  //! \return `false` if parsing succeeds, `true` otherwise.
   bool parseOperand(OperandVector &Operands, StringRef Mnemonic);
-
-  //! Attempts to parse a register.
-  //! \return The register number, or `-1` if the token is not a register.
-  int parseRegister();
+  int  parseRegister();
   bool tryParseRegisterOperand(OperandVector &Operands);
   bool tryParseExpression(OperandVector & Operands);
   void appendToken(OperandVector & Operands);
 
-  //! Handles target specific special cases. See definition for notes.
+  // Handles target specific special cases. See definition for notes.
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op, unsigned Kind);
 
-  //! Given a register returns the corresponding DREG
+  // Given a register returns the corresponding DREG
   unsigned toDREG(unsigned Reg, unsigned From = AVR::sub_lo) {
     return MRI->getMatchingSuperReg(Reg, From, &AVRMCRegisterClasses[AVR::DREGSRegClassID]);
   }
@@ -91,18 +85,6 @@ public:
   MCAsmLexer &getLexer() const { return Parser.getLexer(); }
 
 };
-} // end of anonymous namespace
-
-/// @name Auto-generated Match Functions
-/// {
-
-//! Matches a register name to a register number.
-//! \return The register number, or -1 if the register is invalid.
-static unsigned MatchRegisterName(StringRef Name);
-
-/// }
-
-namespace {
 
 /*!
  *  Represents a parsed AVR machine instruction.
@@ -116,25 +98,15 @@ class AVROperand : public MCParsedAsmOperand {
   } Kind;
 
 public:
-  AVROperand(KindTy K) : MCParsedAsmOperand(), Kind(K) {}
-
-  struct Token {
-    const char *Data;
-    unsigned Length;
-  };
-
-  struct Register {
-    unsigned RegNum;
-  };
-
-  struct Immediate {
-    const MCExpr *Val;
-  };
+  explicit AVROperand(KindTy K) : MCParsedAsmOperand(), Kind(K) {}
+  explicit AVROperand(StringRef Tok) : MCParsedAsmOperand(), Kind(k_Token), Tok(Tok) {}
+  explicit AVROperand(unsigned  Reg) : MCParsedAsmOperand(), Kind(k_Register), Reg(Reg) {}
+  explicit AVROperand(MCExpr const* Imm) : MCParsedAsmOperand(), Kind(k_Immediate), Imm(Imm) {}
 
   union {
-    Token     Tok;
-    Register  Reg;
-    Immediate Imm;
+    StringRef      Tok;
+    unsigned       Reg;
+    MCExpr const*  Imm;
   };
 
   SMLoc StartLoc, EndLoc;
@@ -161,30 +133,28 @@ public:
     addExpr(Inst,Expr);
   }
 
-  bool isReg() const { return Kind == k_Register; }
-  bool isImm() const { return Kind == k_Immediate; }
+  bool isReg()   const { return Kind == k_Register; }
+  bool isImm()   const { return Kind == k_Immediate; }
   bool isToken() const { return Kind == k_Token; }
-  bool isMem() const { return false; }
+  bool isMem()   const { return false; }
 
   StringRef getToken() const {
     assert(Kind == k_Token && "Invalid access!");
-    return StringRef(Tok.Data, Tok.Length);
+    return Tok;
   }
 
   unsigned getReg() const {
     assert((Kind == k_Register) && "Invalid access!");
-    return Reg.RegNum;
+    return Reg;
   }
 
   const MCExpr *getImm() const {
     assert((Kind == k_Immediate) && "Invalid access!");
-    return Imm.Val;
+    return Imm;
   }
 
   static std::unique_ptr<AVROperand> CreateToken(StringRef Str, SMLoc S) {
-    auto Op = make_unique<AVROperand>(k_Token);
-    Op->Tok.Data = Str.data();
-    Op->Tok.Length = Str.size();
+    auto Op = make_unique<AVROperand>(Str);
     Op->StartLoc = S;
     Op->EndLoc = S;
     return Op;
@@ -193,54 +163,38 @@ public:
   /// Internal constructor for register kinds
   static std::unique_ptr<AVROperand> CreateReg(unsigned RegNum, SMLoc S, 
                                                 SMLoc E) {
-    auto Op = make_unique<AVROperand>(k_Register);
-    Op->Reg.RegNum = RegNum;
+    auto Op = make_unique<AVROperand>(RegNum);
     Op->StartLoc = S;
     Op->EndLoc = E;
     return Op;
   }
 
   static std::unique_ptr<AVROperand> CreateImm(const MCExpr *Val, SMLoc S, SMLoc E) {
-    auto Op = make_unique<AVROperand>(k_Immediate);
-    Op->Imm.Val = Val;
+    auto Op = make_unique<AVROperand>(Val);
     Op->StartLoc = S;
     Op->EndLoc = E;
     return Op;
   }
 
-  /*!
-   * Gets the location of the first token of this operand.
-   */
   SMLoc getStartLoc() const { return StartLoc; }
-  /*!
-   * Gets the location of the last token of this operand.
-   */
-  SMLoc getEndLoc() const { return EndLoc; }
+  SMLoc getEndLoc()   const { return EndLoc;   }
 
   virtual void print(raw_ostream &OS) const {
-    OS << "AVROperand = ";
-    
     switch(Kind) {
-      case k_Token:
-        OS << "Token(\"" << std::string(Tok.Data, Tok.Length) << "\")";
-        break;
-      case k_Register:
-        OS << "Register(Num = " << Reg.RegNum << ")";
-        break;
-      case k_Immediate:
-        OS << "Immediate(Expr = ";
-        
-        Imm.Val->print(OS);
-        
-        OS << ")";
-        
-        break;
+      case k_Token:     OS << "Token: \""   << Tok << "\"";                break;
+      case k_Register:  OS << "Register: "  << Reg;                        break;
+      case k_Immediate: OS << "Immediate: \""; Imm->print(OS); OS << "\""; break;
     }
-    
     OS << "\n";
   }
 };
-}
+
+} // end of anonymous namespace
+
+// Auto-generated Match Functions
+
+// Returns the register number, or 0 if the register is invalid.
+static unsigned MatchRegisterName(StringRef Name);
 
 bool AVRAsmParser::
 MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
@@ -281,7 +235,7 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
 
 int AVRAsmParser::parseRegister() {
   const AsmToken &Tok = Parser.getTok();
-  int RegNum = -1;
+  int RegNum = 0;
   if (Tok.is(AsmToken::Identifier)) {
       // check for register pair syntax
     if (Parser.getLexer().peekTok().is(AsmToken::Colon)) {
@@ -301,8 +255,7 @@ bool AVRAsmParser::
 tryParseRegisterOperand(OperandVector &Operands){
 
   int RegNo = parseRegister();
-  if (RegNo == -1)
-    return true;
+  if (RegNo == 0) return true;
 
   AsmToken const& T = Parser.getTok();
   Operands.push_back(AVROperand::CreateReg(RegNo, T.getLoc(), T.getEndLoc()));
@@ -318,10 +271,31 @@ tryParseRegisterOperand(OperandVector &Operands){
 
 bool
 AVRAsmParser::tryParseExpression(OperandVector & Operands) {
+  AVRMCExpr::VariantKind ModifierKind = AVRMCExpr::VK_AVR_None;
   SMLoc S = Parser.getTok().getLoc();
+
+  // check if we have a target specific modifier (lo8, hi8, &c)
+  if (Parser.getTok().getKind() == AsmToken::Identifier &&
+      Parser.getLexer().peekTok().getKind() == AsmToken::LParen)
+  {
+
+    StringRef ModifierName = Parser.getTok().getString();
+    ModifierKind = AVRMCExpr::getKindByName(ModifierName.str().c_str());
+    if (ModifierKind != AVRMCExpr::VK_AVR_None) {
+      Parser.Lex(); Parser.Lex(); // eat modifier name and parenthesis
+    }
+  }
+
+  // parse (potentially inner) expression
   MCExpr const* Expression;
-  if (getParser().parseExpression(Expression))
-    return true;
+  if (getParser().parseExpression(Expression)) return true;
+
+  // if we have a modifier wrap the inner expression
+  if (ModifierKind != AVRMCExpr::VK_AVR_None) {
+    assert(Parser.getTok().getKind() == AsmToken::RParen);
+    Parser.Lex(); // eat closing parenthesis
+    Expression = AVRMCExpr::create(ModifierKind, Expression, getContext());
+  }
 
   SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
   Operands.push_back(AVROperand::CreateImm(Expression, S, E));
@@ -367,7 +341,7 @@ bool AVRAsmParser::parseOperand(OperandVector &Operands,
       appendToken(Operands);
       return false;
     }
-  } // switch(getLexer().getKind())
+  }
   
   // could not parse operand
   return true;
@@ -419,12 +393,12 @@ AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp, unsigned Exp
   if (Op.isReg()) {
     MatchClassKind Expected(static_cast<MatchClassKind>(ExpectedKind));
 
-    // If the instructions uses a register pair but we got a single, lower
+    // If the instruction uses a register pair but we got a single, lower
     // register we perform a "class cast".
     if (isSubclass(Expected, MCK_DREGS)) {
       unsigned correspondingDREG = toDREG(Op.getReg());
       if (correspondingDREG) {
-        Op.Reg.RegNum = correspondingDREG;
+        Op.Reg = correspondingDREG;
         return Match_Success;
       }
     }

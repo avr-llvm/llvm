@@ -43,11 +43,11 @@ LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const
 
   if (TF & AVRII::MO_LO)
   {
-    Expr = AVRMCExpr::createLower8(Expr, Ctx);
+    Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_LO8, Expr, Ctx);
   }
   else if (TF & AVRII::MO_HI)
   {
-    Expr = AVRMCExpr::createUpper8(Expr, Ctx);
+    Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_HI8,Expr, Ctx);
   }
   else if (TF != 0)
   {
