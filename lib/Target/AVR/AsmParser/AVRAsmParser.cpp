@@ -32,8 +32,8 @@ using namespace llvm;
 
 #define DEBUG_TYPE "avr-asm-parser"
 
-
 namespace {
+
 class AVRAsmParser : public MCTargetAsmParser {
   MCSubtargetInfo &STI;
   MCAsmParser &Parser;
@@ -54,7 +54,7 @@ class AVRAsmParser : public MCTargetAsmParser {
                         SMLoc NameLoc,
                         OperandVector &Operands) override;
   
-  bool ParseDirective(AsmToken directiveID) override { return true; }
+  bool ParseDirective(AsmToken directiveID) override;
 
 
   bool parseOperand(OperandVector &Operands, StringRef Mnemonic);
@@ -62,6 +62,19 @@ class AVRAsmParser : public MCTargetAsmParser {
   bool tryParseRegisterOperand(OperandVector &Operands);
   bool tryParseExpression(OperandVector & Operands);
   void appendToken(OperandVector & Operands);
+
+  bool parseDirectiveCodeSegment();
+  bool parseDirectiveCodeSegmentSize();
+  bool parseDirectiveDefineByte();
+  bool parseDirectiveDefineSymbol();
+  bool parseDirectiveDevice();
+  bool parseDirectiveDataSegment();
+  bool parseDirectiveDefineWord();
+  bool parseDirectiveEEPromSegment();
+  bool parseDirectiveExit();
+  bool parseDirectiveList();
+  bool parseDirectiveListMacro();
+  bool parseDirectiveNoList();
 
   // Handles target specific special cases. See definition for notes.
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op, unsigned Kind);
@@ -86,9 +99,6 @@ public:
 
 };
 
-/*!
- *  Represents a parsed AVR machine instruction.
- */
 class AVROperand : public MCParsedAsmOperand {
 
   enum KindTy {
@@ -160,8 +170,7 @@ public:
     return Op;
   }
 
-  /// Internal constructor for register kinds
-  static std::unique_ptr<AVROperand> CreateReg(unsigned RegNum, SMLoc S, 
+  static std::unique_ptr<AVROperand> CreateReg(unsigned RegNum, SMLoc S,
                                                 SMLoc E) {
     auto Op = make_unique<AVROperand>(RegNum);
     Op->StartLoc = S;
@@ -205,30 +214,26 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   unsigned MatchResult = MatchInstructionImpl(Operands, Inst, ErrorInfo,
                                               MatchingInlineAsm);
   switch (MatchResult) {
-  default: break;
-  case Match_Success: {
+    case Match_Success:
       Inst.setLoc(IDLoc);
       Out.EmitInstruction(Inst, STI);
-      
-    return false;
-  }
-  case Match_MissingFeature:
-    Error(IDLoc, "instruction requires a CPU feature not currently enabled");
-    return true;
-  case Match_InvalidOperand: {
-    SMLoc ErrorLoc = IDLoc;
-    if (ErrorInfo != ~0U) {
-      if (ErrorInfo >= Operands.size())
-        return Error(IDLoc, "too few operands for instruction");
+      return false;
+    case Match_MissingFeature:
+      return Error(IDLoc, "instruction requires a CPU feature not currently enabled");
+    case Match_InvalidOperand: {
+      SMLoc ErrorLoc = IDLoc;
+      if (ErrorInfo != ~0U) {
+        if (ErrorInfo >= Operands.size())
+          return Error(IDLoc, "too few operands for instruction");
 
-      ErrorLoc = ((AVROperand &)*Operands[ErrorInfo]).getStartLoc();
-      if (ErrorLoc == SMLoc()) ErrorLoc = IDLoc;
+        ErrorLoc = ((AVROperand &)*Operands[ErrorInfo]).getStartLoc();
+        if (ErrorLoc == SMLoc()) ErrorLoc = IDLoc;
+      }
+
+      return Error(ErrorLoc, "invalid operand for instruction");
     }
-
-    return Error(ErrorLoc, "invalid operand for instruction");
-  }
-  case Match_MnemonicFail:
-    return Error(IDLoc, "invalid instruction");
+    case Match_MnemonicFail:
+      return Error(IDLoc, "invalid instruction");
   }
   return true;
 }
@@ -377,6 +382,63 @@ ParseInstruction(ParseInstructionInfo &Info, StringRef Mnemonic, SMLoc NameLoc,
   Parser.Lex(); // Consume the EndOfStatement
   return false;
 }
+
+bool
+AVRAsmParser::parseDirectiveCodeSegment() { return true; }
+
+bool
+AVRAsmParser::parseDirectiveCodeSegmentSize() { return true; }
+
+bool
+AVRAsmParser::parseDirectiveDefineByte() { return true; }
+
+bool
+AVRAsmParser::parseDirectiveDefineSymbol() { return true; }
+
+bool
+AVRAsmParser::parseDirectiveDevice() { return true; }
+
+bool
+AVRAsmParser::parseDirectiveDataSegment() { return true; }
+
+bool
+AVRAsmParser::parseDirectiveDefineWord() { return true; }
+
+bool
+AVRAsmParser::parseDirectiveEEPromSegment() { return true; }
+
+bool
+AVRAsmParser::parseDirectiveExit() { return true; }
+
+bool
+AVRAsmParser::parseDirectiveList() { return true; }
+
+bool
+AVRAsmParser::parseDirectiveListMacro() { return true; }
+
+bool
+AVRAsmParser::parseDirectiveNoList() { return true; }
+
+bool
+AVRAsmParser::ParseDirective(llvm::AsmToken DirectiveID) {
+  StringRef ID = DirectiveID.getIdentifier();
+
+  if      (ID == ".cseg")     return parseDirectiveCodeSegment();
+  else if (ID == ".csegsize") return parseDirectiveCodeSegmentSize();
+  else if (ID == ".db")       return parseDirectiveDefineByte();
+  else if (ID == ".def")      return parseDirectiveDefineSymbol();
+  else if (ID == ".device")   return parseDirectiveDevice();
+  else if (ID == ".dseg")     return parseDirectiveDataSegment();
+  else if (ID == ".dw")       return parseDirectiveDefineWord();
+  else if (ID == ".eseg")     return parseDirectiveEEPromSegment();
+  else if (ID == ".exit")     return parseDirectiveExit();
+  else if (ID == ".list")     return parseDirectiveList();
+  else if (ID == ".listmac")  return parseDirectiveListMacro();
+  else if (ID == ".nolist")   return parseDirectiveNoList();
+
+  return true;
+}
+
 
 extern "C" void LLVMInitializeAVRAsmParser() {
   RegisterMCAsmParser<AVRAsmParser> X(TheAVRTarget);
