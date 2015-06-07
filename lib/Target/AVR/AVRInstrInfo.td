@@ -480,7 +480,7 @@ Defs = [R1, R0, SREG] in
 
     // The earlyclobber flag is required because the pseudo expansion needs $rd
     // and $src to have different registers.
-    let Constraints = "@earlyclobber $src" in
+    let Constraints = "@earlyclobber $rd" in
     def MULWRdRr : Pseudo<(outs DREGS:$rd),
                           (ins DREGS:$src, DREGS:$rr),
                           "mulw\t$rd, $src, $rr",
