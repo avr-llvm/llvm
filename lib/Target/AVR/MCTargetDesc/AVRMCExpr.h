@@ -18,38 +18,26 @@ namespace llvm
 class AVRMCExpr : public MCTargetExpr
 {
 public:
-  enum VariantKind
-  {
+  enum VariantKind {
     VK_AVR_None,
-    VK_AVR_HI8,         // hi8 macro in the .s file
-    VK_AVR_LO8          // lo8 macro in the .s file
+
+    VK_AVR_HI8,         // hi8()
+    VK_AVR_LO8,         // lo8()
+    VK_AVR_HLO8,        // hlo8() and hh8()
+    VK_AVR_HHI8,        // hhi8()
+
+    VK_AVR_PM_LO8,      // pm_lo8()
+    VK_AVR_PM_HI8,      // pm_hi8()
+    VK_AVR_PM_HLO8      // pm_hh8()
   };
 public:
-  /// @name Construction
-  /// @{
-
   static const AVRMCExpr *create(VariantKind Kind, const MCExpr *Expr,
                                  MCContext &Ctx);
-  static const AVRMCExpr *createUpper8(const MCExpr *Expr, MCContext &Ctx)
-  {
-    return create(VK_AVR_HI8, Expr, Ctx);
-  }
-  static const AVRMCExpr *createLower8(const MCExpr *Expr, MCContext &Ctx)
-  {
-    return create(VK_AVR_LO8, Expr, Ctx);
-  }
 
-  /// @}
-  /// @name Accessors
-  /// @{
-
-  /// getOpcode - Get the kind of this expression.
   VariantKind getKind() const { return Kind; }
-
-  /// getSubExpr - Get the child of this expression.
+  char const* getName() const;
   const MCExpr *getSubExpr() const { return Expr; }
 
-  /// @}
 public: // MCTargetExpr
   void printImpl(raw_ostream &OS) const override;
   bool evaluateAsRelocatableImpl(MCValue &Res,
@@ -66,11 +54,19 @@ public: // MCTargetExpr
   // There are no TLS AVRMCExprs at the moment.
   void fixELFSymbolsInTLSFixups(MCAssembler &Asm) const {}
 
+  bool evaluateAsConstant(int64_t & Result) const;
+
   static bool classof(const MCExpr *E)
   {
     return E->getKind() == MCExpr::Target;
   }
+
+public:
+  static VariantKind getKindByName(StringRef Name);
+
 private:
+  int64_t evaluateAsInt64(int64_t Value) const;
+
   const VariantKind Kind;
   const MCExpr *Expr;
 private:

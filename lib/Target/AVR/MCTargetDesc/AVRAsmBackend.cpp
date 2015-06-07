@@ -70,30 +70,23 @@ inline unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
 
   // Add/subtract and shift
   switch (Kind) {
-  default:
-    return 0;
-  case FK_Data_2:
-  case FK_GPRel_4:
-  case FK_Data_4:
-  case FK_Data_8:
-    break;
-  case AVR::fixup_7_pcrel:
-  {
-    Value = adjustFixupRelCondbr(7, Fixup, Value, Ctx);
-    break;
+    default: llvm_unreachable("unhandled fixup"); break;
+    case FK_Data_2:
+    case FK_GPRel_4:
+    case FK_Data_4:
+    case FK_Data_8:
+      break;
+    case AVR::fixup_7_pcrel:
+      Value = adjustFixupRelCondbr(7, Fixup, Value, Ctx);
+      break;
+    case AVR::fixup_13_pcrel:
+      Value = adjustFixupRelCondbr(13, Fixup, Value, Ctx);
+      break;
+    case AVR::fixup_call:
+      Value = adjustFixupCall(Fixup, Value, Ctx);
+      break;
   }
-  case AVR::fixup_13_pcrel:
-  {
-    Value = adjustFixupRelCondbr(13, Fixup, Value, Ctx);
-    break;
-  }
-  case AVR::fixup_call:
-  {
-    Value = adjustFixupCall(Fixup, Value, Ctx);
-    break;
-  }
-  }
-
+  
   return Value;
 }
 }

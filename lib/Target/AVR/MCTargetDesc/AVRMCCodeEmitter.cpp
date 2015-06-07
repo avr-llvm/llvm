@@ -147,24 +147,12 @@ AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
     const MCOperand &MO = MI.getOperand(OpNo);
 
     AVR::Fixups Kind = AVR::Fixups(0);
-    
+
     switch(size)
     {
-        case 7:
-        {
-          Kind = AVR::fixup_7_pcrel;
-          break;
-        }
-        case 13:
-        {
-          Kind = AVR::fixup_13_pcrel;
-          break;
-        }
-        default:
-        {
-          llvm_unreachable("unknown size");
-          break;
-        }
+      case 7:  Kind = AVR::fixup_7_pcrel;        break;
+      case 13: Kind = AVR::fixup_13_pcrel;       break;
+      default: llvm_unreachable("unknown size"); break;
     }
 
     const MCExpr *Expr = MO.getExpr();
@@ -189,38 +177,22 @@ unsigned
 AVRMCCodeEmitter::getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
                                         SmallVectorImpl<MCFixup> &Fixups,
                                         const MCSubtargetInfo &STI) const {
-    
-    // the operand should be a pointer register.
-    assert(MI.getOperand(OpNo).isReg());
-  
-    auto MO = MI.getOperand(OpNo);
-    
-    unsigned encoding;
-    
-    switch (MO.getReg()) {
-        case AVR::R27R26: // X pointer register
-        {
-            encoding = 0x03; // 0b11
-            break;
-        }
-        case AVR::R29R28: // Y pointer register
-        {
-            encoding = 0x02; // 0b10
-            break;
-        }
-        case AVR::R31R30: // Z pointer register
-        {
-            encoding = 0x00; // 0b00
-            break;
-        }
-        default:
-        {
-            llvm_unreachable("invalid pointer register");
-            break;
-        }
-    }
 
-    return encoding;
+  // the operand should be a pointer register.
+  assert(MI.getOperand(OpNo).isReg());
+
+  auto MO = MI.getOperand(OpNo);
+
+  unsigned encoding;
+
+  switch (MO.getReg()) {
+    case AVR::R27R26: encoding = 0x03; break; // X 0b11
+    case AVR::R29R28: encoding = 0x02; break; // Y 0b10
+    case AVR::R31R30: encoding = 0x00; break; // Z 0b00
+    default: llvm_unreachable("invalid pointer register"); break;
+  }
+
+  return encoding;
 }
 
 
@@ -266,26 +238,29 @@ getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
     Expr = static_cast<const MCBinaryExpr*>(Expr)->getLHS();
     Kind = Expr->getKind();
   }
-  
+
   if(Kind == MCExpr::Target) {
-    const AVRMCExpr *AVRExpr = cast<AVRMCExpr>(Expr);
+    AVRMCExpr const* AVRExpr = cast<AVRMCExpr>(Expr);
+    int64_t Result;
+    if (AVRExpr->evaluateAsConstant(Result)) {
+      return Result;
+    }
 
     AVR::Fixups FixupKind = AVR::Fixups(0);
     
     switch (AVRExpr->getKind()) {
-      // FIXME: uncomment once the fixup types are implemented
-      
-      case AVRMCExpr::VK_AVR_LO8: {
-        FixupKind = AVR::fixup_8_lo8;
-        break;
-      }
-      case AVRMCExpr::VK_AVR_HI8: {
-        FixupKind = AVR::fixup_8_hi8;
-        break;
-      }
-      default: {
-        llvm_unreachable("Unsupported fixup kind for target expression!");
-      }
+      case AVRMCExpr::VK_AVR_LO8: FixupKind = AVR::fixup_8_lo8; break;
+      case AVRMCExpr::VK_AVR_HI8: FixupKind = AVR::fixup_8_hi8; break;
+
+      case AVRMCExpr::VK_AVR_HLO8:
+      case AVRMCExpr::VK_AVR_HHI8:
+
+      case AVRMCExpr::VK_AVR_PM_HI8:
+      case AVRMCExpr::VK_AVR_PM_LO8:
+      case AVRMCExpr::VK_AVR_PM_HLO8:
+        llvm_unreachable("Not implemented"); break;
+        
+      case AVRMCExpr::VK_AVR_None: llvm_unreachable("Uninitialized expression."); break;
     }
     
     Fixups.push_back(MCFixup::create(0, AVRExpr, MCFixupKind(FixupKind)));
@@ -293,8 +268,6 @@ getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
   }
 
   assert (Kind == MCExpr::SymbolRef);
-
-  // All of the information is in the fixup.
   return 0;
 }
 
@@ -303,9 +276,7 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
                   SmallVectorImpl<MCFixup> &Fixups,
                   const MCSubtargetInfo &STI) const {
   if (MO.isReg()) {
-    unsigned Reg = MO.getReg();
-    unsigned RegNo = Ctx.getRegisterInfo()->getEncodingValue(Reg);
-    return RegNo;
+    return Ctx.getRegisterInfo()->getEncodingValue(MO.getReg());
   } else if (MO.isImm()) {
     return static_cast<unsigned>(MO.getImm());
   } else if (MO.isFPImm()) {
