@@ -465,16 +465,15 @@ Defs = [SREG] in
 
 // Multiplication operations.
 let isCommutable = 1,
-Constraints = "$src = $rd",
 Defs = [R1, R0, SREG] in
 {
     // MUL Rd, Rr
     // Multiplies Rd by Rr and places the result into Rd.
     def MULRdRr : FRdRr<0b1001,
                         0b11,
-                        (outs GPR8:$rd),
-                        (ins GPR8:$src, GPR8:$rr),
-                        "mul\t$rd, $rr",
+                        (outs),
+                        (ins GPR8:$lhs, GPR8:$rhs),
+                        "mul\t$lhs, $rhs",
                         []>,
                   Requires<[SupportsMultiplication]>;
 
@@ -489,6 +488,7 @@ Defs = [R1, R0, SREG] in
                    Requires<[SupportsMultiplication]>;
 
     // This pseudo is used as a marker to insert a "clr r1" after the operation.
+    let Constraints = "$src = $rd" in
     def MULRdRrP : Pseudo<(outs GPR8:$rd),
                           (ins GPR8:$src, GPR8:$rr),
                           "mulp\t$rd, $src, $rr",
@@ -498,37 +498,37 @@ Defs = [R1, R0, SREG] in
 
 
     def MULSRdRr : FMUL2RdRr<0,
-                             (outs GPR8:$rd),
-                             (ins GPR8:$src, GPR8:$rr),
-                             "muls\t$rd, $rr",
+                             (outs),
+                             (ins GPR8:$lhs, GPR8:$rhs),
+                             "muls\t$lhs, $rhs",
                              []>,
                    Requires<[SupportsMultiplication]>;
 
     def MULSURdRr : FMUL2RdRr<1,
-                              (outs GPR8:$rd),
-                              (ins GPR8:$src, GPR8:$rr),
-                              "mulsu\t$rd, $rr",
+                              (outs),
+                              (ins GPR8:$lhs, GPR8:$rhs),
+                              "mulsu\t$lhs, $rhs",
                               []>,
                     Requires<[SupportsMultiplication]>;
 
     def FMUL : FFMULRdRr<0b01,
-                         (outs GPR8:$rd),
-                         (ins GPR8:$src, GPR8:$rr),
-                         "fmul\t$rd, $rr",
+                         (outs),
+                         (ins GPR8:$lhs, GPR8:$rhs),
+                         "fmul\t$lhs, $rhs",
                          []>,
                Requires<[SupportsMultiplication]>;
 
     def FMULS : FFMULRdRr<0b10,
-                          (outs GPR8:$rd),
-                          (ins GPR8:$src, GPR8:$rr),
-                          "fmuls\t$rd, $rr",
+                          (outs),
+                          (ins GPR8:$lhs, GPR8:$rhs),
+                          "fmuls\t$lhs, $rhs",
                           []>,
                 Requires<[SupportsMultiplication]>;
 
     def FMULSU : FFMULRdRr<0b11,
-                           (outs GPR8:$rd),
-                           (ins GPR8:$src, GPR8:$rr),
-                           "fmulsu\t$rd, $rr",
+                           (outs),
+                           (ins GPR8:$lhs, GPR8:$rhs),
+                           "fmulsu\t$lhs, $rhs",
                            []>,
                  Requires<[SupportsMultiplication]>;
 }
