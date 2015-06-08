@@ -475,7 +475,7 @@ Defs = [R1, R0, SREG] in
                         (outs GPR8:$rd),
                         (ins GPR8:$src, GPR8:$rr),
                         "mul\t$rd, $rr",
-                        [(set GPR8:$rd, (mul GPR8:$src, GPR8:$rr))]>,
+                        []>,
                   Requires<[SupportsMultiplication]>;
 
     // The earlyclobber flag is required because the pseudo expansion needs $rd
