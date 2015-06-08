@@ -36,12 +36,12 @@ inline unsigned adjustFixupRelCondbr(unsigned size,
                                      uint64_t Value,
                                      MCContext *Ctx = nullptr)
 {
-  Value = AVR::fixups::adjustRelativeBranchTarget(Value);
-
   // We now check if Value can fit in the specified size.
-  if (!isIntN(size-1, Value) && Ctx != nullptr)
+  // The value is rightshifted by one, giving us one extra bit of precision.
+  if (!isIntN(size+1, Value) && Ctx != nullptr)
     Ctx->reportFatalError(Fixup.getLoc(), "out of range conditional branch target");
     
+  Value = AVR::fixups::adjustRelativeBranchTarget(Value);
   
   return Value;
 }
@@ -54,11 +54,14 @@ inline unsigned adjustFixupCall(const MCFixup &Fixup,
                                 uint64_t Value,
                                 MCContext *Ctx = nullptr)
 {
-  Value = AVR::fixups::adjustBranchTarget(Value);
+  // TODO: set this depending on device
+  const auto CALL_TARGET_SIZE = 22;
 
-  if(!isIntN(22-1, Value) && Ctx != nullptr)
+  // We have one extra bit of precision because the value is rightshifted by one.
+  if(!isIntN(CALL_TARGET_SIZE+1, Value) && Ctx != nullptr)
     Ctx->reportFatalError(Fixup.getLoc(), "out of range call target");
 
+  Value = AVR::fixups::adjustBranchTarget(Value);
   return Value;
 }
 
