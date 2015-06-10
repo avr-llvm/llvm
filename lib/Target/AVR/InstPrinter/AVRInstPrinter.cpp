@@ -22,6 +22,8 @@
 #include "llvm/Support/FormattedStream.h"
 #include <cstring>
 
+#define LLVM_AVR_GCC_COMPAT
+
 using namespace llvm;
 
 // Include the auto-generated portion of the assembly writer.
@@ -73,18 +75,14 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
 
 const char *
 AVRInstPrinter::getPrettyRegisterName(unsigned RegNo, MCRegisterInfo const& MRI) {
-  if (AVRMCRegisterClasses[AVR::PTRREGSRegClassID].contains(RegNo)) {
-    switch (RegNo) {
-      case AVR::R31R30: return "Z";
-      case AVR::R29R28: return "Y";
-      case AVR::R27R26: return "X";
-      default: return 0;
-    }
-  } else if (AVRMCRegisterClasses[AVR::DREGSRegClassID].contains(RegNo)) {
+#ifdef LLVM_AVR_GCC_COMPAT
+  if (AVRMCRegisterClasses[AVR::DREGSRegClassID].contains(RegNo) &&
+      !AVRMCRegisterClasses[AVR::PTRREGSRegClassID].contains(RegNo))
+  {
     return getRegisterName(MRI.getSubReg(RegNo, AVR::sub_lo));
-  } else {
-    return getRegisterName(RegNo);
   }
+#endif
+  return getRegisterName(RegNo);
 }
 
 

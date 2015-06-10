@@ -73,10 +73,10 @@ let SubRegIndices = [sub_lo, sub_hi],
 CoveredBySubRegs = 1 in
 {
   // 16 bit register pairs
-  def SP     : AVRReg<32, "sp",      [SPL, SPH]>, DwarfRegNum<[32]>;
-  def R31R30 : AVRReg<30, "z",       [R30, R31]>, DwarfRegNum<[30]>;
-  def R29R28 : AVRReg<28, "y",       [R28, R29]>, DwarfRegNum<[28]>;
-  def R27R26 : AVRReg<26, "x",       [R26, R27]>, DwarfRegNum<[26]>;
+  def SP     : AVRReg<32, "SP",      [SPL, SPH]>, DwarfRegNum<[32]>;
+  def R31R30 : AVRReg<30, "Z",       [R30, R31]>, DwarfRegNum<[30]>;
+  def R29R28 : AVRReg<28, "Y",       [R28, R29]>, DwarfRegNum<[28]>;
+  def R27R26 : AVRReg<26, "X",       [R26, R27]>, DwarfRegNum<[26]>;
   def R25R24 : AVRReg<24, "r25:r24", [R24, R25]>, DwarfRegNum<[24]>;
   def R23R22 : AVRReg<22, "r23:r22", [R22, R23]>, DwarfRegNum<[22]>;
   def R21R20 : AVRReg<20, "r21:r20", [R20, R21]>, DwarfRegNum<[20]>;
