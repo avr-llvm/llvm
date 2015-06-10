@@ -226,18 +226,18 @@ AVRExpandPseudo::expand<AVR::SUBIWRdK>(Block & MBB, BlockIt MBBI) {
 
   switch (MI.getOperand(2).getType()) {
     case MachineOperand::MO_GlobalAddress: {
-        const GlobalValue *GV = MI.getOperand(2).getGlobal();
-        int64_t Offs = MI.getOperand(2).getOffset();
-        unsigned TF = MI.getOperand(2).getTargetFlags();
-        MIBLO.addGlobalAddress(GV, Offs, TF | AVRII::MO_NEG | AVRII::MO_LO);
-        MIBHI.addGlobalAddress(GV, Offs, TF | AVRII::MO_NEG | AVRII::MO_HI);
-        break;
+      const GlobalValue *GV = MI.getOperand(2).getGlobal();
+      int64_t Offs = MI.getOperand(2).getOffset();
+      unsigned TF = MI.getOperand(2).getTargetFlags();
+      MIBLO.addGlobalAddress(GV, Offs, TF | AVRII::MO_NEG | AVRII::MO_LO);
+      MIBHI.addGlobalAddress(GV, Offs, TF | AVRII::MO_NEG | AVRII::MO_HI);
+      break;
     }
     case MachineOperand::MO_Immediate: {
-        unsigned Imm = MI.getOperand(2).getImm();
-        MIBLO.addImm(Imm & 0xff);
-        MIBHI.addImm((Imm >> 8) & 0xff);
-        break;
+      unsigned Imm = MI.getOperand(2).getImm();
+      MIBLO.addImm(Imm & 0xff);
+      MIBHI.addImm((Imm >> 8) & 0xff);
+      break;
     }
     default: llvm_unreachable("Unknown operand type!");
   }
@@ -606,25 +606,25 @@ AVRExpandPseudo::expand<AVR::LDIWRdK>(Block & MBB, BlockIt MBBI) {
 
   switch (MI.getOperand(1).getType()) {
     case MachineOperand::MO_GlobalAddress: {
-        const GlobalValue *GV = MI.getOperand(1).getGlobal();
-        int64_t Offs = MI.getOperand(1).getOffset();
-        unsigned TF = MI.getOperand(1).getTargetFlags();
-        MIBLO.addGlobalAddress(GV, Offs, TF | AVRII::MO_LO);
-        MIBHI.addGlobalAddress(GV, Offs, TF | AVRII::MO_HI);
-        break;
+      const GlobalValue *GV = MI.getOperand(1).getGlobal();
+      int64_t Offs = MI.getOperand(1).getOffset();
+      unsigned TF = MI.getOperand(1).getTargetFlags();
+      MIBLO.addGlobalAddress(GV, Offs, TF | AVRII::MO_LO);
+      MIBHI.addGlobalAddress(GV, Offs, TF | AVRII::MO_HI);
+      break;
     }
     case MachineOperand::MO_BlockAddress: {
-        const BlockAddress *BA = MI.getOperand(1).getBlockAddress();
-        unsigned TF = MI.getOperand(1).getTargetFlags();
-        MIBLO.addOperand(MachineOperand::CreateBA(BA, TF | AVRII::MO_LO));
-        MIBHI.addOperand(MachineOperand::CreateBA(BA, TF | AVRII::MO_HI));
-        break;
+      const BlockAddress *BA = MI.getOperand(1).getBlockAddress();
+      unsigned TF = MI.getOperand(1).getTargetFlags();
+      MIBLO.addOperand(MachineOperand::CreateBA(BA, TF | AVRII::MO_LO));
+      MIBHI.addOperand(MachineOperand::CreateBA(BA, TF | AVRII::MO_HI));
+      break;
     }
     case MachineOperand::MO_Immediate: {
-        unsigned Imm = MI.getOperand(1).getImm();
-        MIBLO.addImm(Imm & 0xff);
-        MIBHI.addImm((Imm >> 8) & 0xff);
-        break;
+      unsigned Imm = MI.getOperand(1).getImm();
+      MIBLO.addImm(Imm & 0xff);
+      MIBHI.addImm((Imm >> 8) & 0xff);
+      break;
     }
     default: llvm_unreachable("Unknown operand type!");
   }
@@ -680,30 +680,30 @@ bool
 AVRExpandPseudo::expand<AVR::LDWRdPtr>(Block & MBB, BlockIt MBBI) {
   MachineInstr & MI = *MBBI;
   unsigned OpLo, OpHi, DstLoReg, DstHiReg;
-      unsigned DstReg = MI.getOperand(0).getReg();
-      unsigned SrcReg = MI.getOperand(1).getReg();
-      bool DstIsDead = MI.getOperand(0).isDead();
-      bool SrcIsKill = MI.getOperand(1).isKill();
-      OpLo = AVR::LDRdPtr;
-      OpHi = AVR::LDDRdPtrQ;
-      splitRegs(DstReg, DstLoReg, DstHiReg);
+  unsigned DstReg = MI.getOperand(0).getReg();
+  unsigned SrcReg = MI.getOperand(1).getReg();
+  bool DstIsDead = MI.getOperand(0).isDead();
+  bool SrcIsKill = MI.getOperand(1).isKill();
+  OpLo = AVR::LDRdPtr;
+  OpHi = AVR::LDDRdPtrQ;
+  splitRegs(DstReg, DstLoReg, DstHiReg);
 
-      assert(DstReg != SrcReg && "SrcReg and DstReg cannot be the same");
+  assert(DstReg != SrcReg && "SrcReg and DstReg cannot be the same");
 
-      auto MIBLO = buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(SrcReg);
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    . addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    . addReg(SrcReg);
 
-      auto MIBHI = buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(SrcReg, getKillRegState(SrcIsKill))
-          .addImm(1);
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    . addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    . addReg(SrcReg, getKillRegState(SrcIsKill))
+    . addImm(1);
 
-      MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
-      MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
+  MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
+  MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
 
-      MI.eraseFromParent();
-      return true;
+  MI.eraseFromParent();
+  return true;
 }
 
 template <>
@@ -1107,12 +1107,12 @@ AVRExpandPseudo::expand<AVR::LSLWRd>(Block & MBB, BlockIt MBBI) {
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
   auto MIBLO = buildMI(MBB, MBBI, OpLo)
-    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-    .addReg(DstLoReg, getKillRegState(DstIsKill));
+    . addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    . addReg(DstLoReg, getKillRegState(DstIsKill));
 
   auto MIBHI = buildMI(MBB, MBBI, OpHi)
-    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-    .addReg(DstHiReg, getKillRegState(DstIsKill));
+    . addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    . addReg(DstHiReg, getKillRegState(DstIsKill));
 
   UNUSED_VARIABLE(MIBLO);
 
@@ -1494,16 +1494,10 @@ AVRExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(AVR::MULRdRrP);
     EXPAND(AVR::MULWRdRr);
   }
-#undef PSEUDO
-  
+#undef EXPAND
   return false;
 }
 
 } // end of anonymous namespace
 
-/// createAVRExpandPseudoPass - returns an instance of the pseudo instruction
-/// expansion pass.
-FunctionPass *llvm::createAVRExpandPseudoPass()
-{
-  return new AVRExpandPseudo();
-}
+FunctionPass *llvm::createAVRExpandPseudoPass() { return new AVRExpandPseudo(); }
