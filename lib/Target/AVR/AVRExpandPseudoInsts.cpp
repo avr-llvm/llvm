@@ -1278,8 +1278,7 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
       bool DstIsDead = MI.getOperand(0).isDead();
 
       MI.setDesc(TII->get(AVR::MULRdRr));
-      MI.getOperand(0).setReg(AVR::R0);
-      MI.getOperand(3).setIsDead();
+      MI.getOperand(2).setIsDead();
 
       BuildMI(MBB, std::next(MBBI), MI.getDebugLoc(), TII->get(AVR::MOVRdRr))
         .addReg(DstReg, RegState::Define | getDeadRegState(DstIsDead))
@@ -1316,10 +1315,9 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
 
       MIB =
         BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AVR::MULRdRr))
-          .addReg(AVR::R1R0, RegState::Define)
           .addReg(Src1LoReg)
           .addReg(Src2LoReg);
-      MIB->getOperand(4).setIsDead();
+      MIB->getOperand(3).setIsDead();
 
       BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AVR::MOVWRdRr))
         .addReg(DstReg, RegState::Define)
@@ -1327,11 +1325,10 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
 
       MIB =
         BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AVR::MULRdRr))
-          .addReg(AVR::R0, RegState::Define)
           .addReg(Src1LoReg, getKillRegState(Src1IsKill))
           .addReg(Src2HiReg, getKillRegState(Src2IsKill));
-      MIB->getOperand(3).setIsDead();
-      MIB->getOperand(5).setIsDead();
+      MIB->getOperand(2).setIsDead();
+      MIB->getOperand(4).setIsDead();
 
       MIB =
         BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AVR::ADDRdRr))
@@ -1342,11 +1339,10 @@ bool AVRExpandPseudo::expandMI(MachineBasicBlock &MBB,
 
       MIB =
         BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AVR::MULRdRr))
-          .addReg(AVR::R0, RegState::Define)
           .addReg(Src1HiReg, getKillRegState(Src1IsKill))
           .addReg(Src2LoReg, getKillRegState(Src2IsKill));
-      MIB->getOperand(3).setIsDead();
-      MIB->getOperand(5).setIsDead();
+      MIB->getOperand(2).setIsDead();
+      MIB->getOperand(4).setIsDead();
 
       MIB =
         BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AVR::ADDRdRr))
