@@ -249,11 +249,11 @@ getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
     AVR::Fixups FixupKind = AVR::Fixups(0);
     
     switch (AVRExpr->getKind()) {
-      case AVRMCExpr::VK_AVR_LO8: FixupKind = AVR::fixup_8_lo8; break;
-      case AVRMCExpr::VK_AVR_HI8: FixupKind = AVR::fixup_8_hi8; break;
+      case AVRMCExpr::VK_AVR_LO8:  FixupKind = AVR::fixup_lo8_ldi; break;
+      case AVRMCExpr::VK_AVR_HI8:  FixupKind = AVR::fixup_hi8_ldi; break;
 
-      case AVRMCExpr::VK_AVR_HLO8:
-      case AVRMCExpr::VK_AVR_HHI8:
+      case AVRMCExpr::VK_AVR_HLO8: FixupKind = AVR::fixup_hh8_ldi; break;
+      case AVRMCExpr::VK_AVR_HHI8: FixupKind = AVR::fixup_ms8_ldi; break;
 
       case AVRMCExpr::VK_AVR_PM_HI8:
       case AVRMCExpr::VK_AVR_PM_LO8:
