@@ -8,7 +8,7 @@ foo:
   tst r24
   tst r12
 
-; CHECK: and r3,  r3               ; encoding: [0x33,0x20]
-; CHECK: and r14, r14              ; encoding: [0xee,0x20]
-; CHECK: and r24, r24              ; encoding: [0x88,0x23]
-; CHECK: and r12, r12              ; encoding: [0xcc,0x20]
+; CHECK: tst r3               ; encoding: [0x33,0x20]
+; CHECK: tst r14              ; encoding: [0xee,0x20]
+; CHECK: tst r24              ; encoding: [0x88,0x23]
+; CHECK: tst r12              ; encoding: [0xcc,0x20]

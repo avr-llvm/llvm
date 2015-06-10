@@ -646,7 +646,15 @@ Defs = [SREG] in
 // TST Rd
 // Test for zero of minus.
 // This operation is identical to a `Rd AND Rd`.
-def : InstAlias<"tst\t$rd", (ANDRdRr GPR8:$rd, GPR8:$rd), 1>;
+//def : InstAlias<"tst\t$rd", (ANDRdRr GPR8:$rd, GPR8:$rd), 1>;
+
+let Defs = [SREG] in
+def TSTRd : FTST<0b0010,
+                  0b00,
+                  (outs),
+                  (ins GPR8:$rd),
+                  "tst\t$rd",
+                  [(AVRtst GPR8:$rd)]>;
 
 // Jump instructions
 let isBarrier = 1,
