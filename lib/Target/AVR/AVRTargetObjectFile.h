@@ -7,10 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRTARGETOBJECTFILE_H__
-#define __INCLUDE_AVRTARGETOBJECTFILE_H__
+#ifndef LLVM_AVR_TARGET_OBJECT_FILE_H
+# define LLVM_AVR_TARGET_OBJECT_FILE_H
 
-#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
+# include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 
 namespace llvm
 {
@@ -30,4 +30,4 @@ private:
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRTARGETOBJECTFILE_H__
+#endif // LLVM_AVR_TARGET_OBJECT_FILE_H

@@ -11,10 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRMCASMINFO_H__
-#define __INCLUDE_AVRMCASMINFO_H__
+#ifndef LLVM_AVR_ASM_INFO_H
+# define LLVM_AVR_ASM_INFO_H
 
-#include "llvm/MC/MCAsmInfo.h"
+# include "llvm/MC/MCAsmInfo.h"
 
 namespace llvm
 {
@@ -29,4 +29,4 @@ public:
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRMCASMINFO_H__
+#endif // LLVM_AVR_ASM_INFO_H

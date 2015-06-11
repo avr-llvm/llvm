@@ -12,9 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "AVRInstrInfo.h"
-#include "AVR.h"
-#include "AVRMachineFunctionInfo.h"
-#include "AVRTargetMachine.h"
+
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -26,6 +24,10 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
+
+#include "AVR.h"
+#include "AVRMachineFunctionInfo.h"
+#include "AVRTargetMachine.h"
 
 #define GET_INSTRINFO_CTOR_DTOR
 #include "AVRGenInstrInfo.inc"

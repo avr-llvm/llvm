@@ -25,13 +25,13 @@ include "llvm/Target/Target.td"
 //        avr2 (with SRAM) adds the rest of the variants.
 
 
-// A pseudo subtarget feature aggregates features, grouping them. We don't want
-// to create a new member in AVRSubtarget (to store a value) for each group because
-// we do not care if the group is supported, only the subfeatures inside the group.
-// We fix this by simply setting a dummy member for each pseudo feature, which is
+// A feature set aggregates features, grouping them. We don't want to create a
+// new member in AVRSubtarget (to store a value) for each set because we do not
+// care if the set is supported, only the subfeatures inside the set. We fix
+// this by simply setting the same dummy member for all feature sets, which is
 // then ignored.
-class PseudoSubtargetFeature<string name, string desc, list<SubtargetFeature> i>
-  : SubtargetFeature<name, "m_DummyFeature", "true", desc, i> { }
+class FeatureSet<string name, string desc, list<SubtargetFeature> i>
+  : SubtargetFeature<name, "m_FeatureSetDummy", "true", desc, i> { }
 
 // The device has SRAM, and supports the bare minimum of SRAM-relevant instructions.
 // These are:
@@ -113,65 +113,56 @@ def FeatureBREAK          : SubtargetFeature<"break", "m_hasBREAK", "true",
 def FeatureTinyEncoding   : SubtargetFeature<"tinyencoding", "m_hasTinyEncoding", "true",
                                   "The device has Tiny core specific instruction encodings">;
 
+
+//===----------------------------------------------------------------------===//
+// AVR Families
+//===----------------------------------------------------------------------===//
+
 // The device has at least the bare minimum that **every** single AVR device should have.
-def FeatureAVR0           : PseudoSubtargetFeature<"avr0", "The device is an AVR",
-                                  []>;
+def FamilyAVR0           : FeatureSet<"avr0", "The device is an AVR", []>;
 
-// The device is a part of the avr1 family.
-def FeatureAVR1           : PseudoSubtargetFeature<"avr1", "The device is a part of the avr1 family",
-                                  [FeatureAVR0, FeatureLPM]>;
+def FamilyAVR1           : FeatureSet<"avr1", "The device is a part of the avr1 family",
+                                 [FamilyAVR0, FeatureLPM]>;
 
-// The device is a part of the avr2 family.
-def FeatureAVR2           : PseudoSubtargetFeature<"avr2", "The device is a part of the avr2 family",
-                                  [FeatureAVR1, FeatureIJMPCALL, FeatureADDSUBIW, FeatureSRAM]>;
+def FamilyAVR2           : FeatureSet<"avr2", "The device is a part of the avr2 family",
+                                 [FamilyAVR1, FeatureIJMPCALL, FeatureADDSUBIW, FeatureSRAM]>;
 
-// The device is a part of the avr25 family.
-def FeatureAVR25          : PseudoSubtargetFeature<"avr25", "The device is a part of the avr25 family",
-                                  [FeatureAVR2, FeatureMOVW, FeatureLPMX, FeatureSPM, FeatureBREAK]>;
+def FamilyAVR25          : FeatureSet<"avr25", "The device is a part of the avr25 family",
+                                 [FamilyAVR2, FeatureMOVW, FeatureLPMX, FeatureSPM, FeatureBREAK]>;
 
-// The device is a part of the avr3 family.
-def FeatureAVR3           : PseudoSubtargetFeature<"avr3", "The device is a part of the avr3 family",
-                                  [FeatureAVR2, FeatureJMPCALL]>;
+def FamilyAVR3           : FeatureSet<"avr3", "The device is a part of the avr3 family",
+                                 [FamilyAVR2, FeatureJMPCALL]>;
 
-// The device is a part of the avr31 family.
-def FeatureAVR31          : PseudoSubtargetFeature<"avr31", "The device is a part of the avr31 family",
-                                  [FeatureAVR3, FeatureELPM]>;
+def FamilyAVR31          : FeatureSet<"avr31", "The device is a part of the avr31 family",
+                                 [FamilyAVR3, FeatureELPM]>;
 
-// The device is a part of the avr35 family.
-def FeatureAVR35          : PseudoSubtargetFeature<"avr35", "The device is a part of the avr35 family",
-                                  [FeatureAVR3, FeatureMOVW, FeatureLPMX, FeatureSPM, FeatureBREAK]>;
+def FamilyAVR35          : FeatureSet<"avr35", "The device is a part of the avr35 family",
+                                 [FamilyAVR3, FeatureMOVW, FeatureLPMX, FeatureSPM, FeatureBREAK]>;
 
-// The device is a part of the avr4 family.
-def FeatureAVR4           : PseudoSubtargetFeature<"avr4", "The device is a part of the avr4 family",
-                                  [FeatureAVR2, FeatureMultiplication, FeatureMOVW,
-                                   FeatureLPMX, FeatureSPM,  FeatureBREAK]>;
+def FamilyAVR4           : FeatureSet<"avr4", "The device is a part of the avr4 family",
+                                 [FamilyAVR2, FeatureMultiplication, FeatureMOVW,
+                                  FeatureLPMX, FeatureSPM,  FeatureBREAK]>;
 
-// The device is a part of the avr5 family.
-def FeatureAVR5           : PseudoSubtargetFeature<"avr5", "The device is a part of the avr5 family",
-                                  [FeatureAVR3, FeatureMultiplication, FeatureMOVW,
-                                   FeatureLPMX, FeatureSPM, FeatureBREAK]>;
+def FamilyAVR5           : FeatureSet<"avr5", "The device is a part of the avr5 family",
+                                 [FamilyAVR3, FeatureMultiplication, FeatureMOVW,
+                                  FeatureLPMX, FeatureSPM, FeatureBREAK]>;
 
-// The device is part of the avr51 family.
-def FeatureAVR51          : PseudoSubtargetFeature<"avr51", "The device is part of the avr52 family",
-                                  [FeatureAVR5, FeatureELPM, FeatureELPMX]>;
+def FamilyAVR51          : FeatureSet<"avr51", "The device is part of the avr52 family",
+                                 [FamilyAVR5, FeatureELPM, FeatureELPMX]>;
 
-// The device is part of the avr6 family.
-def FeatureAVR6           : PseudoSubtargetFeature<"avr6", "The device is part of the avr6 family",
-                                  [FeatureAVR0, FeatureLPM, FeatureLPMX, FeatureSRAM,
-                                   FeatureJMPCALL, FeatureMultiplication, FeatureELPM,
-                                   FeatureELPMX, FeatureSPM, FeatureBREAK, FeatureEIJMPCALL, FeatureMOVW]>;
+def FamilyAVR6           : FeatureSet<"avr6", "The device is part of the avr6 family",
+                                 [FamilyAVR0, FeatureLPM, FeatureLPMX, FeatureSRAM,
+                                  FeatureJMPCALL, FeatureMultiplication, FeatureELPM,
+                                  FeatureELPMX, FeatureSPM, FeatureBREAK, FeatureEIJMPCALL, FeatureMOVW]>;
 
-// The device is a part of the tiny family.
-def FeatureAVRTiny        : PseudoSubtargetFeature<"avrtiny", "The device is a part of the tiny family",
-                                  [FeatureAVR0, FeatureBREAK, FeatureSRAM, FeatureTinyEncoding]>;
+def FamilyAVRTiny        : FeatureSet<"avrtiny", "The device is a part of the tiny family",
+                                 [FamilyAVR0, FeatureBREAK, FeatureSRAM, FeatureTinyEncoding]>;
 
-// The device is a part of the XMega family.
-def FeatureXMEGA          : PseudoSubtargetFeature<"xmega", "The device is a part of the XMEGA family",
-                                  [FeatureAVR51, FeatureEIJMPCALL, FeatureSPMX, FeatureDES]>;
+def FamilyXMEGA          : FeatureSet<"xmega", "The device is a part of the XMEGA family",
+                                 [FamilyAVR51, FeatureEIJMPCALL, FeatureSPMX, FeatureDES]>;
 
-// The device is part of the XMegaU family.
-def FeatureXMEGAU         : PseudoSubtargetFeature<"xmegau", "The device is part of the XMEGAU family",
-                                  [FeatureXMEGA, FeatureRMW]>;
+def FamilyXMEGAU         : FeatureSet<"xmegau", "The device is part of the XMEGAU family",
+                                  [FamilyXMEGA, FeatureRMW]>;
 
 //===----------------------------------------------------------------------===//
 // AVR microcontrollers supported.
@@ -181,263 +172,263 @@ class Device<string Name, list<SubtargetFeature> Features>
   : Processor<Name, NoItineraries, Features>;
 
 // Generic MCUs
-def : Device<"avr1",  [FeatureAVR1]>;
-def : Device<"avr2",  [FeatureAVR2]>;
-def : Device<"avr25", [FeatureAVR25]>;
-def : Device<"avr3",  [FeatureAVR3]>;
-def : Device<"avr31", [FeatureAVR31]>;
-def : Device<"avr35", [FeatureAVR35]>;
-def : Device<"avr4",  [FeatureAVR4]>;
-def : Device<"avr5",  [FeatureAVR5]>;
-def : Device<"avr51", [FeatureAVR51]>;
-def : Device<"avr6",  [FeatureAVR6]>;
+def : Device<"avr1",  [FamilyAVR1]>;
+def : Device<"avr2",  [FamilyAVR2]>;
+def : Device<"avr25", [FamilyAVR25]>;
+def : Device<"avr3",  [FamilyAVR3]>;
+def : Device<"avr31", [FamilyAVR31]>;
+def : Device<"avr35", [FamilyAVR35]>;
+def : Device<"avr4",  [FamilyAVR4]>;
+def : Device<"avr5",  [FamilyAVR5]>;
+def : Device<"avr51", [FamilyAVR51]>;
+def : Device<"avr6",  [FamilyAVR6]>;
 
 // Specific MCUs
-def : Device<"avrxmega1",          [FeatureXMEGA]>;
-def : Device<"avrxmega2",          [FeatureXMEGA]>;
-def : Device<"avrxmega3",          [FeatureXMEGA]>;
-def : Device<"avrxmega4",          [FeatureXMEGA]>;
-def : Device<"avrxmega5",          [FeatureXMEGA]>;
-def : Device<"avrxmega6",          [FeatureXMEGA]>;
-def : Device<"avrxmega7",          [FeatureXMEGA]>;
-def : Device<"avrtiny",            [FeatureAVRTiny]>;
-def : Device<"at90s1200",          [FeatureAVR0]>;
-def : Device<"attiny11",           [FeatureAVR1]>;
-def : Device<"attiny12",           [FeatureAVR1]>;
-def : Device<"attiny15",           [FeatureAVR1]>;
-def : Device<"attiny28",           [FeatureAVR1]>;
-def : Device<"at90s2313",          [FeatureAVR2]>;
-def : Device<"at90s2323",          [FeatureAVR2]>;
-def : Device<"at90s2333",          [FeatureAVR2]>;
-def : Device<"at90s2343",          [FeatureAVR2]>;
-def : Device<"attiny22",           [FeatureAVR2]>;
-def : Device<"attiny26",           [FeatureAVR2, FeatureLPMX]>;
-def : Device<"at86rf401",          [FeatureAVR2, FeatureMOVW, FeatureLPMX]>;
-def : Device<"at90s4414",          [FeatureAVR2]>;
-def : Device<"at90s4433",          [FeatureAVR2]>;
-def : Device<"at90s4434",          [FeatureAVR2]>;
-def : Device<"at90s8515",          [FeatureAVR2]>;
-def : Device<"at90c8534",          [FeatureAVR2]>;
-def : Device<"at90s8535",          [FeatureAVR2]>;
-def : Device<"ata5272",            [FeatureAVR25]>;
-def : Device<"attiny13",           [FeatureAVR25]>;
-def : Device<"attiny13a",          [FeatureAVR25]>;
-def : Device<"attiny2313",         [FeatureAVR25]>;
-def : Device<"attiny2313a",        [FeatureAVR25]>;
-def : Device<"attiny24",           [FeatureAVR25]>;
-def : Device<"attiny24a",          [FeatureAVR25]>;
-def : Device<"attiny4313",         [FeatureAVR25]>;
-def : Device<"attiny44",           [FeatureAVR25]>;
-def : Device<"attiny44a",          [FeatureAVR25]>;
-def : Device<"attiny84",           [FeatureAVR25]>;
-def : Device<"attiny84a",          [FeatureAVR25]>;
-def : Device<"attiny25",           [FeatureAVR25]>;
-def : Device<"attiny45",           [FeatureAVR25]>;
-def : Device<"attiny85",           [FeatureAVR25]>;
-def : Device<"attiny261",          [FeatureAVR25]>;
-def : Device<"attiny261a",         [FeatureAVR25]>;
-def : Device<"attiny461",          [FeatureAVR25]>;
-def : Device<"attiny461a",         [FeatureAVR25]>;
-def : Device<"attiny861",          [FeatureAVR25]>;
-def : Device<"attiny861a",         [FeatureAVR25]>;
-def : Device<"attiny87",           [FeatureAVR25]>;
-def : Device<"attiny43u",          [FeatureAVR25]>;
-def : Device<"attiny48",           [FeatureAVR25]>;
-def : Device<"attiny88",           [FeatureAVR25]>;
-def : Device<"attiny828",          [FeatureAVR25]>;
-def : Device<"at43usb355",         [FeatureAVR3]>;
-def : Device<"at76c711",           [FeatureAVR3]>;
-def : Device<"atmega103",          [FeatureAVR31]>;
-def : Device<"at43usb320",         [FeatureAVR31]>;
-def : Device<"attiny167",          [FeatureAVR35]>;
-def : Device<"at90usb82",          [FeatureAVR35]>;
-def : Device<"at90usb162",         [FeatureAVR35]>;
-def : Device<"ata5505",            [FeatureAVR35]>;
-def : Device<"atmega8u2",          [FeatureAVR35]>;
-def : Device<"atmega16u2",         [FeatureAVR35]>;
-def : Device<"atmega32u2",         [FeatureAVR35]>;
-def : Device<"attiny1634",         [FeatureAVR35]>;
-def : Device<"atmega8",            [FeatureAVR4]>;
-def : Device<"ata6289",            [FeatureAVR4]>;
-def : Device<"atmega8a",           [FeatureAVR4]>;
-def : Device<"ata6285",            [FeatureAVR4]>;
-def : Device<"ata6286",            [FeatureAVR4]>;
-def : Device<"atmega48",           [FeatureAVR4]>;
-def : Device<"atmega48a",          [FeatureAVR4]>;
-def : Device<"atmega48pa",         [FeatureAVR4]>;
-def : Device<"atmega48p",          [FeatureAVR4]>;
-def : Device<"atmega88",           [FeatureAVR4]>;
-def : Device<"atmega88a",          [FeatureAVR4]>;
-def : Device<"atmega88p",          [FeatureAVR4]>;
-def : Device<"atmega88pa",         [FeatureAVR4]>;
-def : Device<"atmega8515",         [FeatureAVR2, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
-def : Device<"atmega8535",         [FeatureAVR2, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
-def : Device<"atmega8hva",         [FeatureAVR4]>;
-def : Device<"at90pwm1",           [FeatureAVR4]>;
-def : Device<"at90pwm2",           [FeatureAVR4]>;
-def : Device<"at90pwm2b",          [FeatureAVR4]>;
-def : Device<"at90pwm3",           [FeatureAVR4]>;
-def : Device<"at90pwm3b",          [FeatureAVR4]>;
-def : Device<"at90pwm81",          [FeatureAVR4]>;
-def : Device<"ata5790",            [FeatureAVR5]>;
-def : Device<"ata5795",            [FeatureAVR5]>;
-def : Device<"atmega16",           [FeatureAVR5]>;
-def : Device<"atmega16a",          [FeatureAVR5]>;
-def : Device<"atmega161",          [FeatureAVR3, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
-def : Device<"atmega162",          [FeatureAVR5]>;
-def : Device<"atmega163",          [FeatureAVR3, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
-def : Device<"atmega164a",         [FeatureAVR5]>;
-def : Device<"atmega164p",         [FeatureAVR5]>;
-def : Device<"atmega164pa",        [FeatureAVR5]>;
-def : Device<"atmega165",          [FeatureAVR5]>;
-def : Device<"atmega165a",         [FeatureAVR5]>;
-def : Device<"atmega165p",         [FeatureAVR5]>;
-def : Device<"atmega165pa",        [FeatureAVR5]>;
-def : Device<"atmega168",          [FeatureAVR5]>;
-def : Device<"atmega168a",         [FeatureAVR5]>;
-def : Device<"atmega168p",         [FeatureAVR5]>;
-def : Device<"atmega168pa",        [FeatureAVR5]>;
-def : Device<"atmega169",          [FeatureAVR5]>;
-def : Device<"atmega169a",         [FeatureAVR5]>;
-def : Device<"atmega169p",         [FeatureAVR5]>;
-def : Device<"atmega169pa",        [FeatureAVR5]>;
-def : Device<"atmega32",           [FeatureAVR5]>;
-def : Device<"atmega32a",          [FeatureAVR5]>;
-def : Device<"atmega323",          [FeatureAVR5]>;
-def : Device<"atmega324a",         [FeatureAVR5]>;
-def : Device<"atmega324p",         [FeatureAVR5]>;
-def : Device<"atmega324pa",        [FeatureAVR5]>;
-def : Device<"atmega325",          [FeatureAVR5]>;
-def : Device<"atmega325a",         [FeatureAVR5]>;
-def : Device<"atmega325p",         [FeatureAVR5]>;
-def : Device<"atmega325pa",        [FeatureAVR5]>;
-def : Device<"atmega3250",         [FeatureAVR5]>;
-def : Device<"atmega3250a",        [FeatureAVR5]>;
-def : Device<"atmega3250p",        [FeatureAVR5]>;
-def : Device<"atmega3250pa",       [FeatureAVR5]>;
-def : Device<"atmega328",          [FeatureAVR5]>;
-def : Device<"atmega328p",         [FeatureAVR5]>;
-def : Device<"atmega329",          [FeatureAVR5]>;
-def : Device<"atmega329a",         [FeatureAVR5]>;
-def : Device<"atmega329p",         [FeatureAVR5]>;
-def : Device<"atmega329pa",        [FeatureAVR5]>;
-def : Device<"atmega3290",         [FeatureAVR5]>;
-def : Device<"atmega3290a",        [FeatureAVR5]>;
-def : Device<"atmega3290p",        [FeatureAVR5]>;
-def : Device<"atmega3290pa",       [FeatureAVR5]>;
-def : Device<"atmega406",          [FeatureAVR5]>;
-def : Device<"atmega64",           [FeatureAVR5]>;
-def : Device<"atmega64a",          [FeatureAVR5]>;
-def : Device<"atmega640",          [FeatureAVR5]>;
-def : Device<"atmega644",          [FeatureAVR5]>;
-def : Device<"atmega644a",         [FeatureAVR5]>;
-def : Device<"atmega644p",         [FeatureAVR5]>;
-def : Device<"atmega644pa",        [FeatureAVR5]>;
-def : Device<"atmega645",          [FeatureAVR5]>;
-def : Device<"atmega645a",         [FeatureAVR5]>;
-def : Device<"atmega645p",         [FeatureAVR5]>;
-def : Device<"atmega649",          [FeatureAVR5]>;
-def : Device<"atmega649a",         [FeatureAVR5]>;
-def : Device<"atmega649p",         [FeatureAVR5]>;
-def : Device<"atmega6450",         [FeatureAVR5]>;
-def : Device<"atmega6450a",        [FeatureAVR5]>;
-def : Device<"atmega6450p",        [FeatureAVR5]>;
-def : Device<"atmega6490",         [FeatureAVR5]>;
-def : Device<"atmega6490a",        [FeatureAVR5]>;
-def : Device<"atmega6490p",        [FeatureAVR5]>;
-def : Device<"atmega64rfr2",       [FeatureAVR5]>;
-def : Device<"atmega644rfr2",      [FeatureAVR5]>;
-def : Device<"atmega16hva",        [FeatureAVR5]>;
-def : Device<"atmega16hva2",       [FeatureAVR5]>;
-def : Device<"atmega16hvb",        [FeatureAVR5]>;
-def : Device<"atmega16hvbrevb",    [FeatureAVR5]>;
-def : Device<"atmega32hvb",        [FeatureAVR5]>;
-def : Device<"atmega32hvbrevb",    [FeatureAVR5]>;
-def : Device<"atmega64hve",        [FeatureAVR5]>;
-def : Device<"at90can32",          [FeatureAVR5]>;
-def : Device<"at90can64",          [FeatureAVR5]>;
-def : Device<"at90pwm161",         [FeatureAVR5]>;
-def : Device<"at90pwm216",         [FeatureAVR5]>;
-def : Device<"at90pwm316",         [FeatureAVR5]>;
-def : Device<"atmega32c1",         [FeatureAVR5]>;
-def : Device<"atmega64c1",         [FeatureAVR5]>;
-def : Device<"atmega16m1",         [FeatureAVR5]>;
-def : Device<"atmega32m1",         [FeatureAVR5]>;
-def : Device<"atmega64m1",         [FeatureAVR5]>;
-def : Device<"atmega16u4",         [FeatureAVR5]>;
-def : Device<"atmega32u4",         [FeatureAVR5]>;
-def : Device<"atmega32u6",         [FeatureAVR5]>;
-def : Device<"at90usb646",         [FeatureAVR5]>;
-def : Device<"at90usb647",         [FeatureAVR5]>;
-def : Device<"at90scr100",         [FeatureAVR5]>;
-def : Device<"at94k",              [FeatureAVR3, FeatureMultiplication, FeatureMOVW, FeatureLPMX]>;
-def : Device<"m3000",              [FeatureAVR5]>;
-def : Device<"atmega128",          [FeatureAVR51]>;
-def : Device<"atmega128a",         [FeatureAVR51]>;
-def : Device<"atmega1280",         [FeatureAVR51]>;
-def : Device<"atmega1281",         [FeatureAVR51]>;
-def : Device<"atmega1284",         [FeatureAVR51]>;
-def : Device<"atmega1284p",        [FeatureAVR51]>;
-def : Device<"atmega128rfa1",      [FeatureAVR51]>;
-def : Device<"atmega128rfr2",      [FeatureAVR51]>;
-def : Device<"atmega1284rfr2",     [FeatureAVR51]>;
-def : Device<"at90can128",         [FeatureAVR51]>;
-def : Device<"at90usb1286",        [FeatureAVR51]>;
-def : Device<"at90usb1287",        [FeatureAVR51]>;
-def : Device<"atmega2560",         [FeatureAVR6]>;
-def : Device<"atmega2561",         [FeatureAVR6]>;
-def : Device<"atmega256rfr2",      [FeatureAVR6]>;
-def : Device<"atmega2564rfr2",     [FeatureAVR6]>;
-def : Device<"atxmega16a4",        [FeatureXMEGA]>;
-def : Device<"atxmega16a4u",       [FeatureXMEGAU]>;
-def : Device<"atxmega16c4",        [FeatureXMEGAU]>;
-def : Device<"atxmega16d4",        [FeatureXMEGA]>;
-def : Device<"atxmega32a4",        [FeatureXMEGA]>;
-def : Device<"atxmega32a4u",       [FeatureXMEGAU]>;
-def : Device<"atxmega32c4",        [FeatureXMEGAU]>;
-def : Device<"atxmega32d4",        [FeatureXMEGA]>;
-def : Device<"atxmega32e5",        [FeatureXMEGA]>;
-def : Device<"atxmega16e5",        [FeatureXMEGA]>;
-def : Device<"atxmega8e5",         [FeatureXMEGA]>;
-def : Device<"atxmega32x1",        [FeatureXMEGA]>;
-def : Device<"atxmega64a3",        [FeatureXMEGA]>;
-def : Device<"atxmega64a3u",       [FeatureXMEGAU]>;
-def : Device<"atxmega64a4u",       [FeatureXMEGAU]>;
-def : Device<"atxmega64b1",        [FeatureXMEGAU]>;
-def : Device<"atxmega64b3",        [FeatureXMEGAU]>;
-def : Device<"atxmega64c3",        [FeatureXMEGAU]>;
-def : Device<"atxmega64d3",        [FeatureXMEGA]>;
-def : Device<"atxmega64d4",        [FeatureXMEGA]>;
-def : Device<"atxmega64a1",        [FeatureXMEGA]>;
-def : Device<"atxmega64a1u",       [FeatureXMEGAU]>;
-def : Device<"atxmega128a3",       [FeatureXMEGA]>;
-def : Device<"atxmega128a3u",      [FeatureXMEGAU]>;
-def : Device<"atxmega128b1",       [FeatureXMEGAU]>;
-def : Device<"atxmega128b3",       [FeatureXMEGAU]>;
-def : Device<"atxmega128c3",       [FeatureXMEGAU]>;
-def : Device<"atxmega128d3",       [FeatureXMEGA]>;
-def : Device<"atxmega128d4",       [FeatureXMEGA]>;
-def : Device<"atxmega192a3",       [FeatureXMEGA]>;
-def : Device<"atxmega192a3u",      [FeatureXMEGAU]>;
-def : Device<"atxmega192c3",       [FeatureXMEGAU]>;
-def : Device<"atxmega192d3",       [FeatureXMEGA]>;
-def : Device<"atxmega256a3",       [FeatureXMEGA]>;
-def : Device<"atxmega256a3u",      [FeatureXMEGAU]>;
-def : Device<"atxmega256a3b",      [FeatureXMEGA]>;
-def : Device<"atxmega256a3bu",     [FeatureXMEGAU]>;
-def : Device<"atxmega256c3",       [FeatureXMEGAU]>;
-def : Device<"atxmega256d3",       [FeatureXMEGA]>;
-def : Device<"atxmega384c3",       [FeatureXMEGAU]>;
-def : Device<"atxmega384d3",       [FeatureXMEGA]>;
-def : Device<"atxmega128a1",       [FeatureXMEGA]>;
-def : Device<"atxmega128a1u",      [FeatureXMEGAU]>;
-def : Device<"atxmega128a4u",      [FeatureXMEGAU]>;
-def : Device<"attiny4",            [FeatureAVRTiny]>;
-def : Device<"attiny5",            [FeatureAVRTiny]>;
-def : Device<"attiny9",            [FeatureAVRTiny]>;
-def : Device<"attiny10",           [FeatureAVRTiny]>;
-def : Device<"attiny20",           [FeatureAVRTiny]>;
-def : Device<"attiny40",           [FeatureAVRTiny]>;
+def : Device<"avrxmega1",          [FamilyXMEGA]>;
+def : Device<"avrxmega2",          [FamilyXMEGA]>;
+def : Device<"avrxmega3",          [FamilyXMEGA]>;
+def : Device<"avrxmega4",          [FamilyXMEGA]>;
+def : Device<"avrxmega5",          [FamilyXMEGA]>;
+def : Device<"avrxmega6",          [FamilyXMEGA]>;
+def : Device<"avrxmega7",          [FamilyXMEGA]>;
+def : Device<"avrtiny",            [FamilyAVRTiny]>;
+def : Device<"at90s1200",          [FamilyAVR0]>;
+def : Device<"attiny11",           [FamilyAVR1]>;
+def : Device<"attiny12",           [FamilyAVR1]>;
+def : Device<"attiny15",           [FamilyAVR1]>;
+def : Device<"attiny28",           [FamilyAVR1]>;
+def : Device<"at90s2313",          [FamilyAVR2]>;
+def : Device<"at90s2323",          [FamilyAVR2]>;
+def : Device<"at90s2333",          [FamilyAVR2]>;
+def : Device<"at90s2343",          [FamilyAVR2]>;
+def : Device<"attiny22",           [FamilyAVR2]>;
+def : Device<"attiny26",           [FamilyAVR2, FeatureLPMX]>;
+def : Device<"at86rf401",          [FamilyAVR2, FeatureMOVW, FeatureLPMX]>;
+def : Device<"at90s4414",          [FamilyAVR2]>;
+def : Device<"at90s4433",          [FamilyAVR2]>;
+def : Device<"at90s4434",          [FamilyAVR2]>;
+def : Device<"at90s8515",          [FamilyAVR2]>;
+def : Device<"at90c8534",          [FamilyAVR2]>;
+def : Device<"at90s8535",          [FamilyAVR2]>;
+def : Device<"ata5272",            [FamilyAVR25]>;
+def : Device<"attiny13",           [FamilyAVR25]>;
+def : Device<"attiny13a",          [FamilyAVR25]>;
+def : Device<"attiny2313",         [FamilyAVR25]>;
+def : Device<"attiny2313a",        [FamilyAVR25]>;
+def : Device<"attiny24",           [FamilyAVR25]>;
+def : Device<"attiny24a",          [FamilyAVR25]>;
+def : Device<"attiny4313",         [FamilyAVR25]>;
+def : Device<"attiny44",           [FamilyAVR25]>;
+def : Device<"attiny44a",          [FamilyAVR25]>;
+def : Device<"attiny84",           [FamilyAVR25]>;
+def : Device<"attiny84a",          [FamilyAVR25]>;
+def : Device<"attiny25",           [FamilyAVR25]>;
+def : Device<"attiny45",           [FamilyAVR25]>;
+def : Device<"attiny85",           [FamilyAVR25]>;
+def : Device<"attiny261",          [FamilyAVR25]>;
+def : Device<"attiny261a",         [FamilyAVR25]>;
+def : Device<"attiny461",          [FamilyAVR25]>;
+def : Device<"attiny461a",         [FamilyAVR25]>;
+def : Device<"attiny861",          [FamilyAVR25]>;
+def : Device<"attiny861a",         [FamilyAVR25]>;
+def : Device<"attiny87",           [FamilyAVR25]>;
+def : Device<"attiny43u",          [FamilyAVR25]>;
+def : Device<"attiny48",           [FamilyAVR25]>;
+def : Device<"attiny88",           [FamilyAVR25]>;
+def : Device<"attiny828",          [FamilyAVR25]>;
+def : Device<"at43usb355",         [FamilyAVR3]>;
+def : Device<"at76c711",           [FamilyAVR3]>;
+def : Device<"atmega103",          [FamilyAVR31]>;
+def : Device<"at43usb320",         [FamilyAVR31]>;
+def : Device<"attiny167",          [FamilyAVR35]>;
+def : Device<"at90usb82",          [FamilyAVR35]>;
+def : Device<"at90usb162",         [FamilyAVR35]>;
+def : Device<"ata5505",            [FamilyAVR35]>;
+def : Device<"atmega8u2",          [FamilyAVR35]>;
+def : Device<"atmega16u2",         [FamilyAVR35]>;
+def : Device<"atmega32u2",         [FamilyAVR35]>;
+def : Device<"attiny1634",         [FamilyAVR35]>;
+def : Device<"atmega8",            [FamilyAVR4]>;
+def : Device<"ata6289",            [FamilyAVR4]>;
+def : Device<"atmega8a",           [FamilyAVR4]>;
+def : Device<"ata6285",            [FamilyAVR4]>;
+def : Device<"ata6286",            [FamilyAVR4]>;
+def : Device<"atmega48",           [FamilyAVR4]>;
+def : Device<"atmega48a",          [FamilyAVR4]>;
+def : Device<"atmega48pa",         [FamilyAVR4]>;
+def : Device<"atmega48p",          [FamilyAVR4]>;
+def : Device<"atmega88",           [FamilyAVR4]>;
+def : Device<"atmega88a",          [FamilyAVR4]>;
+def : Device<"atmega88p",          [FamilyAVR4]>;
+def : Device<"atmega88pa",         [FamilyAVR4]>;
+def : Device<"atmega8515",         [FamilyAVR2, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
+def : Device<"atmega8535",         [FamilyAVR2, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
+def : Device<"atmega8hva",         [FamilyAVR4]>;
+def : Device<"at90pwm1",           [FamilyAVR4]>;
+def : Device<"at90pwm2",           [FamilyAVR4]>;
+def : Device<"at90pwm2b",          [FamilyAVR4]>;
+def : Device<"at90pwm3",           [FamilyAVR4]>;
+def : Device<"at90pwm3b",          [FamilyAVR4]>;
+def : Device<"at90pwm81",          [FamilyAVR4]>;
+def : Device<"ata5790",            [FamilyAVR5]>;
+def : Device<"ata5795",            [FamilyAVR5]>;
+def : Device<"atmega16",           [FamilyAVR5]>;
+def : Device<"atmega16a",          [FamilyAVR5]>;
+def : Device<"atmega161",          [FamilyAVR3, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
+def : Device<"atmega162",          [FamilyAVR5]>;
+def : Device<"atmega163",          [FamilyAVR3, FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
+def : Device<"atmega164a",         [FamilyAVR5]>;
+def : Device<"atmega164p",         [FamilyAVR5]>;
+def : Device<"atmega164pa",        [FamilyAVR5]>;
+def : Device<"atmega165",          [FamilyAVR5]>;
+def : Device<"atmega165a",         [FamilyAVR5]>;
+def : Device<"atmega165p",         [FamilyAVR5]>;
+def : Device<"atmega165pa",        [FamilyAVR5]>;
+def : Device<"atmega168",          [FamilyAVR5]>;
+def : Device<"atmega168a",         [FamilyAVR5]>;
+def : Device<"atmega168p",         [FamilyAVR5]>;
+def : Device<"atmega168pa",        [FamilyAVR5]>;
+def : Device<"atmega169",          [FamilyAVR5]>;
+def : Device<"atmega169a",         [FamilyAVR5]>;
+def : Device<"atmega169p",         [FamilyAVR5]>;
+def : Device<"atmega169pa",        [FamilyAVR5]>;
+def : Device<"atmega32",           [FamilyAVR5]>;
+def : Device<"atmega32a",          [FamilyAVR5]>;
+def : Device<"atmega323",          [FamilyAVR5]>;
+def : Device<"atmega324a",         [FamilyAVR5]>;
+def : Device<"atmega324p",         [FamilyAVR5]>;
+def : Device<"atmega324pa",        [FamilyAVR5]>;
+def : Device<"atmega325",          [FamilyAVR5]>;
+def : Device<"atmega325a",         [FamilyAVR5]>;
+def : Device<"atmega325p",         [FamilyAVR5]>;
+def : Device<"atmega325pa",        [FamilyAVR5]>;
+def : Device<"atmega3250",         [FamilyAVR5]>;
+def : Device<"atmega3250a",        [FamilyAVR5]>;
+def : Device<"atmega3250p",        [FamilyAVR5]>;
+def : Device<"atmega3250pa",       [FamilyAVR5]>;
+def : Device<"atmega328",          [FamilyAVR5]>;
+def : Device<"atmega328p",         [FamilyAVR5]>;
+def : Device<"atmega329",          [FamilyAVR5]>;
+def : Device<"atmega329a",         [FamilyAVR5]>;
+def : Device<"atmega329p",         [FamilyAVR5]>;
+def : Device<"atmega329pa",        [FamilyAVR5]>;
+def : Device<"atmega3290",         [FamilyAVR5]>;
+def : Device<"atmega3290a",        [FamilyAVR5]>;
+def : Device<"atmega3290p",        [FamilyAVR5]>;
+def : Device<"atmega3290pa",       [FamilyAVR5]>;
+def : Device<"atmega406",          [FamilyAVR5]>;
+def : Device<"atmega64",           [FamilyAVR5]>;
+def : Device<"atmega64a",          [FamilyAVR5]>;
+def : Device<"atmega640",          [FamilyAVR5]>;
+def : Device<"atmega644",          [FamilyAVR5]>;
+def : Device<"atmega644a",         [FamilyAVR5]>;
+def : Device<"atmega644p",         [FamilyAVR5]>;
+def : Device<"atmega644pa",        [FamilyAVR5]>;
+def : Device<"atmega645",          [FamilyAVR5]>;
+def : Device<"atmega645a",         [FamilyAVR5]>;
+def : Device<"atmega645p",         [FamilyAVR5]>;
+def : Device<"atmega649",          [FamilyAVR5]>;
+def : Device<"atmega649a",         [FamilyAVR5]>;
+def : Device<"atmega649p",         [FamilyAVR5]>;
+def : Device<"atmega6450",         [FamilyAVR5]>;
+def : Device<"atmega6450a",        [FamilyAVR5]>;
+def : Device<"atmega6450p",        [FamilyAVR5]>;
+def : Device<"atmega6490",         [FamilyAVR5]>;
+def : Device<"atmega6490a",        [FamilyAVR5]>;
+def : Device<"atmega6490p",        [FamilyAVR5]>;
+def : Device<"atmega64rfr2",       [FamilyAVR5]>;
+def : Device<"atmega644rfr2",      [FamilyAVR5]>;
+def : Device<"atmega16hva",        [FamilyAVR5]>;
+def : Device<"atmega16hva2",       [FamilyAVR5]>;
+def : Device<"atmega16hvb",        [FamilyAVR5]>;
+def : Device<"atmega16hvbrevb",    [FamilyAVR5]>;
+def : Device<"atmega32hvb",        [FamilyAVR5]>;
+def : Device<"atmega32hvbrevb",    [FamilyAVR5]>;
+def : Device<"atmega64hve",        [FamilyAVR5]>;
+def : Device<"at90can32",          [FamilyAVR5]>;
+def : Device<"at90can64",          [FamilyAVR5]>;
+def : Device<"at90pwm161",         [FamilyAVR5]>;
+def : Device<"at90pwm216",         [FamilyAVR5]>;
+def : Device<"at90pwm316",         [FamilyAVR5]>;
+def : Device<"atmega32c1",         [FamilyAVR5]>;
+def : Device<"atmega64c1",         [FamilyAVR5]>;
+def : Device<"atmega16m1",         [FamilyAVR5]>;
+def : Device<"atmega32m1",         [FamilyAVR5]>;
+def : Device<"atmega64m1",         [FamilyAVR5]>;
+def : Device<"atmega16u4",         [FamilyAVR5]>;
+def : Device<"atmega32u4",         [FamilyAVR5]>;
+def : Device<"atmega32u6",         [FamilyAVR5]>;
+def : Device<"at90usb646",         [FamilyAVR5]>;
+def : Device<"at90usb647",         [FamilyAVR5]>;
+def : Device<"at90scr100",         [FamilyAVR5]>;
+def : Device<"at94k",              [FamilyAVR3, FeatureMultiplication, FeatureMOVW, FeatureLPMX]>;
+def : Device<"m3000",              [FamilyAVR5]>;
+def : Device<"atmega128",          [FamilyAVR51]>;
+def : Device<"atmega128a",         [FamilyAVR51]>;
+def : Device<"atmega1280",         [FamilyAVR51]>;
+def : Device<"atmega1281",         [FamilyAVR51]>;
+def : Device<"atmega1284",         [FamilyAVR51]>;
+def : Device<"atmega1284p",        [FamilyAVR51]>;
+def : Device<"atmega128rfa1",      [FamilyAVR51]>;
+def : Device<"atmega128rfr2",      [FamilyAVR51]>;
+def : Device<"atmega1284rfr2",     [FamilyAVR51]>;
+def : Device<"at90can128",         [FamilyAVR51]>;
+def : Device<"at90usb1286",        [FamilyAVR51]>;
+def : Device<"at90usb1287",        [FamilyAVR51]>;
+def : Device<"atmega2560",         [FamilyAVR6]>;
+def : Device<"atmega2561",         [FamilyAVR6]>;
+def : Device<"atmega256rfr2",      [FamilyAVR6]>;
+def : Device<"atmega2564rfr2",     [FamilyAVR6]>;
+def : Device<"atxmega16a4",        [FamilyXMEGA]>;
+def : Device<"atxmega16a4u",       [FamilyXMEGAU]>;
+def : Device<"atxmega16c4",        [FamilyXMEGAU]>;
+def : Device<"atxmega16d4",        [FamilyXMEGA]>;
+def : Device<"atxmega32a4",        [FamilyXMEGA]>;
+def : Device<"atxmega32a4u",       [FamilyXMEGAU]>;
+def : Device<"atxmega32c4",        [FamilyXMEGAU]>;
+def : Device<"atxmega32d4",        [FamilyXMEGA]>;
+def : Device<"atxmega32e5",        [FamilyXMEGA]>;
+def : Device<"atxmega16e5",        [FamilyXMEGA]>;
+def : Device<"atxmega8e5",         [FamilyXMEGA]>;
+def : Device<"atxmega32x1",        [FamilyXMEGA]>;
+def : Device<"atxmega64a3",        [FamilyXMEGA]>;
+def : Device<"atxmega64a3u",       [FamilyXMEGAU]>;
+def : Device<"atxmega64a4u",       [FamilyXMEGAU]>;
+def : Device<"atxmega64b1",        [FamilyXMEGAU]>;
+def : Device<"atxmega64b3",        [FamilyXMEGAU]>;
+def : Device<"atxmega64c3",        [FamilyXMEGAU]>;
+def : Device<"atxmega64d3",        [FamilyXMEGA]>;
+def : Device<"atxmega64d4",        [FamilyXMEGA]>;
+def : Device<"atxmega64a1",        [FamilyXMEGA]>;
+def : Device<"atxmega64a1u",       [FamilyXMEGAU]>;
+def : Device<"atxmega128a3",       [FamilyXMEGA]>;
+def : Device<"atxmega128a3u",      [FamilyXMEGAU]>;
+def : Device<"atxmega128b1",       [FamilyXMEGAU]>;
+def : Device<"atxmega128b3",       [FamilyXMEGAU]>;
+def : Device<"atxmega128c3",       [FamilyXMEGAU]>;
+def : Device<"atxmega128d3",       [FamilyXMEGA]>;
+def : Device<"atxmega128d4",       [FamilyXMEGA]>;
+def : Device<"atxmega192a3",       [FamilyXMEGA]>;
+def : Device<"atxmega192a3u",      [FamilyXMEGAU]>;
+def : Device<"atxmega192c3",       [FamilyXMEGAU]>;
+def : Device<"atxmega192d3",       [FamilyXMEGA]>;
+def : Device<"atxmega256a3",       [FamilyXMEGA]>;
+def : Device<"atxmega256a3u",      [FamilyXMEGAU]>;
+def : Device<"atxmega256a3b",      [FamilyXMEGA]>;
+def : Device<"atxmega256a3bu",     [FamilyXMEGAU]>;
+def : Device<"atxmega256c3",       [FamilyXMEGAU]>;
+def : Device<"atxmega256d3",       [FamilyXMEGA]>;
+def : Device<"atxmega384c3",       [FamilyXMEGAU]>;
+def : Device<"atxmega384d3",       [FamilyXMEGA]>;
+def : Device<"atxmega128a1",       [FamilyXMEGA]>;
+def : Device<"atxmega128a1u",      [FamilyXMEGAU]>;
+def : Device<"atxmega128a4u",      [FamilyXMEGAU]>;
+def : Device<"attiny4",            [FamilyAVRTiny]>;
+def : Device<"attiny5",            [FamilyAVRTiny]>;
+def : Device<"attiny9",            [FamilyAVRTiny]>;
+def : Device<"attiny10",           [FamilyAVRTiny]>;
+def : Device<"attiny20",           [FamilyAVRTiny]>;
+def : Device<"attiny40",           [FamilyAVRTiny]>;
 
 //===----------------------------------------------------------------------===//
 // Register File Description
@@ -463,8 +454,7 @@ include "AVRCallingConv.td"
 // Assembly Printers
 //===----------------------------------------------------------------------===//
 
-def AVRAsmWriter : AsmWriter
-{
+def AVRAsmWriter : AsmWriter {
   string AsmWriterClassName = "InstPrinter";
   bit isMCAsmWriter = 1;
 }
@@ -488,11 +478,10 @@ def AVRAsmParserVariant : AsmParserVariant {
 // Target Declaration
 //===----------------------------------------------------------------------===//
 
-def AVR : Target
-{
-  let InstructionSet = AVRInstrInfo;
-  let AssemblyWriters = [AVRAsmWriter];
+def AVR : Target {
+  let InstructionSet         = AVRInstrInfo;
+  let AssemblyWriters        = [AVRAsmWriter];
   
-  let AssemblyParsers = [AVRAsmParser];
+  let AssemblyParsers        = [AVRAsmParser];
   let AssemblyParserVariants = [AVRAsmParserVariant];
 }

@@ -7,10 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRMCEXPR_H__
-#define __INCLUDE_AVRMCEXPR_H__
+#ifndef LLVM_AVR_MCEXPR_H
+# define LLVM_AVR_MCEXPR_H
 
-#include "llvm/MC/MCExpr.h"
+# include "llvm/MC/MCExpr.h"
 
 namespace llvm
 {
@@ -77,4 +77,4 @@ private:
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRMCEXPR_H__
+#endif // LLVM_AVR_MCEXPR_H

@@ -1,4 +1,4 @@
-//===-- AVRTargetStreamer.cpp - AVR Target Streamer Methods -----------===//
+//===-- AVRTargetStreamer.cpp - AVR Target Streamer Methods ---------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -12,8 +12,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "AVRTargetStreamer.h"
-#include "InstPrinter/AVRInstPrinter.h"
+
 #include "llvm/Support/FormattedStream.h"
+
+#include "InstPrinter/AVRInstPrinter.h"
 
 using namespace llvm;
 

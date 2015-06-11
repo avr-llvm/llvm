@@ -12,15 +12,17 @@
 //===----------------------------------------------------------------------===//
 
 #include "AVRRegisterInfo.h"
-#include "AVR.h"
-#include "AVRInstrInfo.h"
-#include "AVRTargetMachine.h"
+
 #include "llvm/ADT/BitVector.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/IR/Function.h"
 #include "llvm/Target/TargetFrameLowering.h"
+
+#include "AVR.h"
+#include "AVRInstrInfo.h"
+#include "AVRTargetMachine.h"
 
 #define GET_REGINFO_TARGET_DESC
 #include "AVRGenRegisterInfo.inc"

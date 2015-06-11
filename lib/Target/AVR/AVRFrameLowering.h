@@ -11,16 +11,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRFRAMELOWERING_H__
-#define __INCLUDE_AVRFRAMELOWERING_H__
+#ifndef LLVM_AVR_FRAME_LOWERING_H
+# define LLVM_AVR_FRAME_LOWERING_H
 
-#include "llvm/Target/TargetFrameLowering.h"
+# include "llvm/Target/TargetFrameLowering.h"
 
-namespace llvm
-{
+namespace llvm {
 
-class AVRFrameLowering : public TargetFrameLowering
-{
+class AVRFrameLowering : public TargetFrameLowering {
 public:
   explicit AVRFrameLowering();
 public: // TargetFrameLowering
@@ -46,4 +44,4 @@ public: // TargetFrameLowering
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRFRAMELOWERING_H__
+#endif // LLVM_AVR_FRAME_LOWERING_H

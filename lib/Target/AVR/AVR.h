@@ -12,23 +12,24 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVR_H__
-#define __INCLUDE_AVR_H__
+#ifndef LLVM_AVR_H
+# define LLVM_AVR_H
 
-#include "MCTargetDesc/AVRMCTargetDesc.h"
-#include "llvm/Target/TargetMachine.h"
+# include "MCTargetDesc/AVRMCTargetDesc.h"
+# include "llvm/Target/TargetMachine.h"
 
-namespace llvm
-{
-  class AVRTargetMachine;
-  class FunctionPass;
+namespace llvm {
 
-  FunctionPass *createAVRISelDag(AVRTargetMachine &TM,
-                                 CodeGenOpt::Level OptLevel);
-  FunctionPass *createAVRExpandPseudoPass();
-  FunctionPass *createAVRFrameAnalyzerPass();
-  FunctionPass *createAVRDynAllocaSRPass();
-  FunctionPass *createAVRBranchSelectionPass();
+class AVRTargetMachine;
+class FunctionPass;
+
+FunctionPass *createAVRISelDag(AVRTargetMachine &TM,
+                               CodeGenOpt::Level OptLevel);
+FunctionPass *createAVRExpandPseudoPass();
+FunctionPass *createAVRFrameAnalyzerPass();
+FunctionPass *createAVRDynAllocaSRPass();
+FunctionPass *createAVRBranchSelectionPass();
+
 } // end namespace llvm
 
-#endif //__INCLUDE_AVR_H__
+#endif // LLVM_AVR_H

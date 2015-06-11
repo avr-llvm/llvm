@@ -13,9 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "AVRISelLowering.h"
-#include "AVR.h"
-#include "AVRMachineFunctionInfo.h"
-#include "AVRTargetMachine.h"
+
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -24,6 +22,10 @@
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/IR/Function.h"
 #include "llvm/Support/ErrorHandling.h"
+
+#include "AVR.h"
+#include "AVRMachineFunctionInfo.h"
+#include "AVRTargetMachine.h"
 
 using namespace llvm;
 

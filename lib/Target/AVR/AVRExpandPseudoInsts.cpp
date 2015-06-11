@@ -13,12 +13,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AVR.h"
-#include "AVRInstrInfo.h"
-#include "AVRTargetMachine.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+
+#include "AVR.h"
+#include "AVRInstrInfo.h"
+#include "AVRTargetMachine.h"
 
 #define UNUSED_VARIABLE(x) (void)(x)
 
@@ -68,10 +69,9 @@ bool
 AVRExpandPseudo::expandMBB(MachineBasicBlock &MBB) {
   bool Modified = false;
 
-  MachineBasicBlock::iterator MBBI = MBB.begin(), E = MBB.end();
-  while (MBBI != E)
-  {
-    MachineBasicBlock::iterator NMBBI = std::next(MBBI);
+  BlockIt MBBI = MBB.begin(), E = MBB.end();
+  while (MBBI != E) {
+    BlockIt NMBBI = std::next(MBBI);
     Modified |= expandMI(MBB, MBBI);
     MBBI = NMBBI;
   }
@@ -86,9 +86,8 @@ AVRExpandPseudo::runOnMachineFunction(MachineFunction &MF) {
   TRI = TM.getSubtargetImpl()->getRegisterInfo();
   TII = TM.getSubtargetImpl()->getInstrInfo();
 
-  for (MachineFunction::iterator MFI = MF.begin(), E = MF.end(); MFI != E;
-       ++MFI)
-  {
+  typedef MachineFunction::iterator FuncIt;
+  for (FuncIt MFI = MF.begin(), E = MF.end(); MFI != E; ++MFI) {
     Modified |= expandMBB(*MFI);
   }
 

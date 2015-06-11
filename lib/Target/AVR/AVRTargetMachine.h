@@ -11,16 +11,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRTARGETMACHINE_H__
-#define __INCLUDE_AVRTARGETMACHINE_H__
+#ifndef LLVM_AVR_TARGET_MACHINE_H
+# define LLVM_AVR_TARGET_MACHINE_H
 
-#include "AVRFrameLowering.h"
-#include "AVRISelLowering.h"
-#include "AVRInstrInfo.h"
-#include "AVRSelectionDAGInfo.h"
-#include "AVRSubtarget.h"
-#include "llvm/IR/DataLayout.h"
-#include "llvm/Target/TargetMachine.h"
+# include "llvm/IR/DataLayout.h"
+# include "llvm/Target/TargetMachine.h"
+
+# include "AVRFrameLowering.h"
+# include "AVRISelLowering.h"
+# include "AVRInstrInfo.h"
+# include "AVRSelectionDAGInfo.h"
+# include "AVRSubtarget.h"
 
 namespace llvm
 {
@@ -49,4 +50,4 @@ private:
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRTARGETMACHINE_H__
+#endif // LLVM_AVR_TARGET_MACHINE_H

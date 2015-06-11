@@ -1,4 +1,4 @@
-//===-- AVRMCCodeEmitter.cpp - Convert AVR Code to Machine Code ---------===//
+//===-- AVRMCCodeEmitter.cpp - Convert AVR Code to Machine Code -----------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -13,9 +13,7 @@
 //
 
 #include "AVRMCCodeEmitter.h"
-#include "MCTargetDesc/AVRFixupKinds.h"
-#include "MCTargetDesc/AVRMCExpr.h"
-#include "MCTargetDesc/AVRMCTargetDesc.h"
+
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/MC/MCContext.h"
@@ -26,6 +24,10 @@
 #include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include "MCTargetDesc/AVRFixupKinds.h"
+#include "MCTargetDesc/AVRMCExpr.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 #define DEBUG_TYPE "mccodeemitter"
 

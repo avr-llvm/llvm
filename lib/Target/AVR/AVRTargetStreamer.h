@@ -1,4 +1,4 @@
-//===-- AVRTargetStreamer.h - AVR Target Streamer ----------*- C++ -*--===//
+//===-- AVRTargetStreamer.h - AVR Target Streamer --------------*- C++ -*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //

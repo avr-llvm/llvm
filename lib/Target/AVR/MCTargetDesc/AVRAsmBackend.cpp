@@ -1,4 +1,4 @@
-//===-- AVRAsmBackend.cpp - AVR Asm Backend  -----------------------------===//
+//===-- AVRAsmBackend.cpp - AVR Asm Backend  ------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -10,11 +10,9 @@
 // This file implements the AVRAsmBackend class.
 //
 //===----------------------------------------------------------------------===//
-//
 
-#include "MCTargetDesc/AVRFixupKinds.h"
 #include "MCTargetDesc/AVRAsmBackend.h"
-#include "MCTargetDesc/AVRMCTargetDesc.h"
+
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCContext.h"
@@ -27,10 +25,13 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "MCTargetDesc/AVRFixupKinds.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
+
 using namespace llvm;
 
-namespace
-{
+namespace {
+
 inline unsigned adjustFixupRelCondbr(unsigned size,
                                      const MCFixup &Fixup,
                                      uint64_t Value,

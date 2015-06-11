@@ -1,4 +1,4 @@
-//===-- AVRELFObjectWriter.cpp - AVR ELF Writer -------------------------===//
+//===-- AVRELFObjectWriter.cpp - AVR ELF Writer ---------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,15 +7,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "MCTargetDesc/AVRFixupKinds.h"
-#include "MCTargetDesc/AVRMCTargetDesc.h"
+#include <list>
+
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <list>
+
+#include "MCTargetDesc/AVRFixupKinds.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 using namespace llvm;
 
@@ -44,136 +46,52 @@ AVRELFObjectWriter::~AVRELFObjectWriter() {}
 unsigned AVRELFObjectWriter::GetRelocType(const MCValue &Target,
                                            const MCFixup &Fixup,
                                            bool IsPCRel) const {
-  // determine the type of the relocation
-  unsigned Type = (unsigned)ELF::R_AVR_NONE;
-  unsigned Kind = (unsigned)Fixup.getKind();
-
-  switch (Kind) {
-    default:
-      llvm_unreachable("invalid fixup kind!");
-      break;
-    case FK_Data_1:
-      Type = ELF::R_AVR_8;
-      break;
-    case FK_Data_2:
-      Type = ELF::R_AVR_16;
-      break;
-    case FK_Data_4:
-      Type = ELF::R_AVR_32;
-      break;
-    case AVR::fixup_32:
-      Type = ELF::R_AVR_32;
-      break;
-    case AVR::fixup_7_pcrel:
-      Type = ELF::R_AVR_7_PCREL;
-      break;
-    case AVR::fixup_13_pcrel:
-      Type = ELF::R_AVR_13_PCREL;
-      break;
-    case AVR::fixup_16:
-      Type = ELF::R_AVR_16;
-      break;
-    case AVR::fixup_16_pm:
-      Type = ELF::R_AVR_16_PM;
-      break;
-    case AVR::fixup_lo8_ldi:
-      Type = ELF::R_AVR_LO8_LDI;
-      break;
-    case AVR::fixup_hi8_ldi:
-      Type = ELF::R_AVR_HI8_LDI;
-      break;
-    case AVR::fixup_hh8_ldi:
-      Type = ELF::R_AVR_HH8_LDI;
-      break;
-    case AVR::fixup_lo8_ldi_neg:
-      Type = ELF::R_AVR_LO8_LDI_NEG;
-      break;
-    case AVR::fixup_hi8_ldi_neg:
-      Type = ELF::R_AVR_HI8_LDI_NEG;
-      break;
-    case AVR::fixup_hh8_ldi_neg:
-      Type = ELF::R_AVR_HH8_LDI_NEG;
-      break;
-    case AVR::fixup_lo8_ldi_pm:
-      Type = ELF::R_AVR_LO8_LDI_PM;
-      break;
-    case AVR::fixup_hi8_ldi_pm:
-      Type = ELF::R_AVR_HI8_LDI_PM;
-      break;
-    case AVR::fixup_hh8_ldi_pm:
-      Type = ELF::R_AVR_HH8_LDI_PM;
-      break;
-    case AVR::fixup_lo8_ldi_pm_neg:
-      Type = ELF::R_AVR_LO8_LDI_PM_NEG;
-      break;
-    case AVR::fixup_hi8_ldi_pm_neg:
-      Type = ELF::R_AVR_HI8_LDI_PM_NEG;
-      break;
-    case AVR::fixup_hh8_ldi_pm_neg:
-      Type = ELF::R_AVR_HH8_LDI_PM_NEG;
-      break;
-    case AVR::fixup_call:
-      Type = ELF::R_AVR_CALL;
-      break;
-    case AVR::fixup_ldi:
-      Type = ELF::R_AVR_LDI;
-      break;
-    case AVR::fixup_6:
-      Type = ELF::R_AVR_6;
-      break;
-    case AVR::fixup_6_adiw:
-      Type = ELF::R_AVR_6_ADIW;
-      break;
-    case AVR::fixup_ms8_ldi:
-      Type = ELF::R_AVR_MS8_LDI;
-      break;
-    case AVR::fixup_ms8_ldi_neg:
-      Type = ELF::R_AVR_MS8_LDI_NEG;
-      break;
-    case AVR::fixup_lo8_ldi_gs:
-      Type = ELF::R_AVR_LO8_LDI_GS;
-      break;
-    case AVR::fixup_hi8_ldi_gs:
-      Type = ELF::R_AVR_HI8_LDI_GS;
-      break;
-    case AVR::fixup_8:
-      Type = ELF::R_AVR_8;
-      break;
-    case AVR::fixup_8_lo8:
-      Type = ELF::R_AVR_8_LO8;
-      break;
-    case AVR::fixup_8_hi8:
-      Type = ELF::R_AVR_8_HI8;
-      break;
-    case AVR::fixup_8_hlo8:
-      Type = ELF::R_AVR_8_HLO8;
-      break;
-    case AVR::fixup_sym_diff:
-      Type = ELF::R_AVR_SYM_DIFF;
-      break;
-    case AVR::fixup_16_ldst:
-      Type = ELF::R_AVR_16_LDST;
-      break;
-    case AVR::fixup_lds_sts_16:
-      Type = ELF::R_AVR_LDS_STS_16;
-      break;
-    case AVR::fixup_port6:
-      Type = ELF::R_AVR_PORT6;
-      break;
-    case AVR::fixup_port5:
-      Type = ELF::R_AVR_PORT5;
-      break;
+  switch ((unsigned)Fixup.getKind()) {
+    case FK_Data_1:                 return ELF::R_AVR_8;
+    case FK_Data_2:                 return ELF::R_AVR_16;
+    case FK_Data_4:                 return ELF::R_AVR_32;
+    case AVR::fixup_32:             return ELF::R_AVR_32;
+    case AVR::fixup_7_pcrel:        return ELF::R_AVR_7_PCREL;
+    case AVR::fixup_13_pcrel:       return ELF::R_AVR_13_PCREL;
+    case AVR::fixup_16:             return ELF::R_AVR_16;
+    case AVR::fixup_16_pm:          return ELF::R_AVR_16_PM;
+    case AVR::fixup_lo8_ldi:        return ELF::R_AVR_LO8_LDI;
+    case AVR::fixup_hi8_ldi:        return ELF::R_AVR_HI8_LDI;
+    case AVR::fixup_hh8_ldi:        return ELF::R_AVR_HH8_LDI;
+    case AVR::fixup_lo8_ldi_neg:    return ELF::R_AVR_LO8_LDI_NEG;
+    case AVR::fixup_hi8_ldi_neg:    return ELF::R_AVR_HI8_LDI_NEG;
+    case AVR::fixup_hh8_ldi_neg:    return ELF::R_AVR_HH8_LDI_NEG;
+    case AVR::fixup_lo8_ldi_pm:     return ELF::R_AVR_LO8_LDI_PM;
+    case AVR::fixup_hi8_ldi_pm:     return ELF::R_AVR_HI8_LDI_PM;
+    case AVR::fixup_hh8_ldi_pm:     return ELF::R_AVR_HH8_LDI_PM;
+    case AVR::fixup_lo8_ldi_pm_neg: return ELF::R_AVR_LO8_LDI_PM_NEG;
+    case AVR::fixup_hi8_ldi_pm_neg: return ELF::R_AVR_HI8_LDI_PM_NEG;
+    case AVR::fixup_hh8_ldi_pm_neg: return ELF::R_AVR_HH8_LDI_PM_NEG;
+    case AVR::fixup_call:           return ELF::R_AVR_CALL;
+    case AVR::fixup_ldi:            return ELF::R_AVR_LDI;
+    case AVR::fixup_6:              return ELF::R_AVR_6;
+    case AVR::fixup_6_adiw:         return ELF::R_AVR_6_ADIW;
+    case AVR::fixup_ms8_ldi:        return ELF::R_AVR_MS8_LDI;
+    case AVR::fixup_ms8_ldi_neg:    return ELF::R_AVR_MS8_LDI_NEG;
+    case AVR::fixup_lo8_ldi_gs:     return ELF::R_AVR_LO8_LDI_GS;
+    case AVR::fixup_hi8_ldi_gs:     return ELF::R_AVR_HI8_LDI_GS;
+    case AVR::fixup_8:              return ELF::R_AVR_8;
+    case AVR::fixup_8_lo8:          return ELF::R_AVR_8_LO8;
+    case AVR::fixup_8_hi8:          return ELF::R_AVR_8_HI8;
+    case AVR::fixup_8_hlo8:         return ELF::R_AVR_8_HLO8;
+    case AVR::fixup_sym_diff:       return ELF::R_AVR_SYM_DIFF;
+    case AVR::fixup_16_ldst:        return ELF::R_AVR_16_LDST;
+    case AVR::fixup_lds_sts_16:     return ELF::R_AVR_LDS_STS_16;
+    case AVR::fixup_port6:          return ELF::R_AVR_PORT6;
+    case AVR::fixup_port5:          return ELF::R_AVR_PORT5;
+    default: llvm_unreachable("invalid fixup kind!"); return ELF::R_AVR_NONE;
   }
-  return Type;
 }
 
 bool
 AVRELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
                                             unsigned Type) const {
-  switch (Type) {
-  default:
-    return true;
-  }
+  return true;
 }
 
 MCObjectWriter *llvm::createAVRELFObjectWriter(raw_pwrite_stream &OS,
