@@ -13,12 +13,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "AVRMCInstLower.h"
-#include "AVRInstrInfo.h"
-#include "MCTargetDesc/AVRMCExpr.h"
+
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/IR/Mangler.h"
+
+#include "AVRInstrInfo.h"
+#include "MCTargetDesc/AVRMCExpr.h"
 
 using namespace llvm;
 

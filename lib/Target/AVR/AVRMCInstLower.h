@@ -7,10 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRMCINSTLOWER_H__
-#define __INCLUDE_AVRMCINSTLOWER_H__
+#ifndef LLVM_AVR_MCINST_LOWER_H
+# define LLVM_AVR_MCINST_LOWER_H
 
-#include "llvm/Support/Compiler.h"
+# include "llvm/Support/Compiler.h"
 
 namespace llvm
 {
@@ -38,4 +38,4 @@ private:
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRMCINSTLOWER_H__
+#endif // LLVM_AVR_MCINST_LOWER_H

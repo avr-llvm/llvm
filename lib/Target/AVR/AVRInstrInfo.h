@@ -11,14 +11,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRINSTRINFO_H__
-#define __INCLUDE_AVRINSTRINFO_H__
+#ifndef LLVM_AVR_INSTR_INFO_H
+# define LLVM_AVR_INSTR_INFO_H
 
-#include "AVRRegisterInfo.h"
-#include "llvm/Target/TargetInstrInfo.h"
+# include "llvm/Target/TargetInstrInfo.h"
 
-#define GET_INSTRINFO_HEADER
-#include "AVRGenInstrInfo.inc"
+# include "AVRRegisterInfo.h"
+
+# define GET_INSTRINFO_HEADER
+# include "AVRGenInstrInfo.inc"
 
 namespace llvm
 {
@@ -108,4 +109,4 @@ private:
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRINSTRINFO_H__
+#endif // LLVM_AVR_INSTR_INFO_H

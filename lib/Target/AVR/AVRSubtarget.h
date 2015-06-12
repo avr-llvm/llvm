@@ -11,22 +11,21 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRSUBTARGET_H__
-#define __INCLUDE_AVRSUBTARGET_H__
+#ifndef LLVM_AVR_SUBTARGET_H
+# define LLVM_AVR_SUBTARGET_H
 
-#include "llvm/Target/TargetSubtargetInfo.h"
-#include "llvm/IR/DataLayout.h"
+# include "llvm/Target/TargetSubtargetInfo.h"
+# include "llvm/IR/DataLayout.h"
+# include "llvm/IR/DataLayout.h"
+# include "llvm/Target/TargetMachine.h"
 
-#define GET_SUBTARGETINFO_HEADER
-#include "AVRGenSubtargetInfo.inc"
+# include "AVRFrameLowering.h"
+# include "AVRISelLowering.h"
+# include "AVRInstrInfo.h"
+# include "AVRSelectionDAGInfo.h"
 
-#include "AVRFrameLowering.h"
-#include "AVRISelLowering.h"
-#include "AVRInstrInfo.h"
-#include "AVRSelectionDAGInfo.h"
-#include "AVRSubtarget.h"
-#include "llvm/IR/DataLayout.h"
-#include "llvm/Target/TargetMachine.h"
+# define GET_SUBTARGETINFO_HEADER
+# include "AVRGenSubtargetInfo.inc"
 
 namespace llvm
 {
@@ -104,12 +103,11 @@ private:
   bool m_hasBREAK;
   bool m_hasTinyEncoding;
 
-  // Dummy feature value, used by PseudoSubtargetFeature.
-  // We cannot have a SubtargetFeature with no variable, so
-  // we instead bind pseudo features to this variable.
-  bool m_DummyFeature;
+  // Dummy member, used by FeatureSet's. We cannot have a SubtargetFeature with
+  // no variable, so we instead bind pseudo features to this variable.
+  bool m_FeatureSetDummy;
 };
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRSUBTARGET_H__
+#endif // LLVM_AVR_SUBTARGET_H

@@ -12,16 +12,18 @@
 //===----------------------------------------------------------------------===//
 
 #include "AVRFrameLowering.h"
-#include "AVR.h"
-#include "AVRInstrInfo.h"
-#include "AVRMachineFunctionInfo.h"
-#include "AVRTargetMachine.h"
+
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/IR/Function.h"
+
+#include "AVR.h"
+#include "AVRInstrInfo.h"
+#include "AVRMachineFunctionInfo.h"
+#include "AVRTargetMachine.h"
 
 using namespace llvm;
 

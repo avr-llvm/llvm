@@ -17,12 +17,13 @@
 
 #define DEBUG_TYPE "avr-branch-select"
 
-#include "AVR.h"
-#include "AVRInstrInfo.h"
-#include "AVRTargetMachine.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+
+#include "AVR.h"
+#include "AVRInstrInfo.h"
+#include "AVRTargetMachine.h"
 
 using namespace llvm;
 

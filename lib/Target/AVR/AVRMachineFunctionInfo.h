@@ -11,10 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRMACHINEFUNCTIONINFO_H__
-#define __INCLUDE_AVRMACHINEFUNCTIONINFO_H__
+#ifndef LLVM_AVR_MACHINE_FUNCTION_INFO_H
+# define LLVM_AVR_MACHINE_FUNCTION_INFO_H
 
-#include "llvm/CodeGen/MachineFunction.h"
+# include "llvm/CodeGen/MachineFunction.h"
 
 namespace llvm
 {
@@ -75,4 +75,4 @@ public:
 
 } // end llvm namespace
 
-#endif //__INCLUDE_AVRMACHINEFUNCTIONINFO_H__
+#endif // LLVM_AVR_MACHINE_FUNCTION_INFO_H

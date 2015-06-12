@@ -12,10 +12,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRISELLOWERING_H__
-#define __INCLUDE_AVRISELLOWERING_H__
+#ifndef LLVM_AVR_ISEL_LOWERING_H
+# define LLVM_AVR_ISEL_LOWERING_H
 
-#include "llvm/Target/TargetLowering.h"
+# include "llvm/Target/TargetLowering.h"
 
 namespace llvm
 {
@@ -173,4 +173,4 @@ private:
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRISELLOWERING_H__
+#endif // LLVM_AVR_ISEL_LOWERING_H

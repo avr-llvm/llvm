@@ -11,50 +11,44 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRMCTARGETDESC_H__
-#define __INCLUDE_AVRMCTARGETDESC_H__
+#ifndef LLVM_AVR_MCTARGET_DESC_H
+# define LLVM_AVR_MCTARGET_DESC_H
 
-#include "llvm/Support/DataTypes.h"
+# include "llvm/Support/DataTypes.h"
 
-namespace llvm
-{
-    class MCCodeEmitter;
-    class MCAsmBackend;
-    class MCRegisterInfo;
-    class MCObjectWriter;
-    class MCInstrInfo;
-    class MCContext;
-    class StringRef;
-    class Target;
-    class raw_pwrite_stream;
+namespace llvm {
 
-    extern Target TheAVRTarget;
+class MCCodeEmitter;
+class MCAsmBackend;
+class MCRegisterInfo;
+class MCObjectWriter;
+class MCInstrInfo;
+class MCContext;
+class StringRef;
+class Target;
+class raw_pwrite_stream;
+
+extern Target TheAVRTarget;
 
 
-    MCCodeEmitter *createAVRMCCodeEmitter(const MCInstrInfo &MCII,
-                                          const MCRegisterInfo &MRI,
-                                          MCContext &Ctx);
-    /*!
-     * Creates a little endian AVR assembly backend.
-     */
-    MCAsmBackend *createAVRAsmBackend(const Target &T, const MCRegisterInfo &MRI,
-                                        StringRef TT, StringRef CPU);
-                                        
-    MCObjectWriter *createAVRELFObjectWriter(raw_pwrite_stream &OS,
-                                             uint8_t OSABI);
+MCCodeEmitter *createAVRMCCodeEmitter(const MCInstrInfo &MCII,
+                                      const MCRegisterInfo &MRI,
+                                      MCContext &Ctx);
+
+MCAsmBackend *createAVRAsmBackend(const Target &T, const MCRegisterInfo &MRI,
+                                    StringRef TT, StringRef CPU);
+                                    
+MCObjectWriter *createAVRELFObjectWriter(raw_pwrite_stream &OS, uint8_t OSABI);
 
 } // end namespace llvm
 
-// Defines symbolic names for AVR registers.  This defines a mapping from
-// register name to register number.
-#define GET_REGINFO_ENUM
-#include "AVRGenRegisterInfo.inc"
+# define GET_REGINFO_ENUM
+# include "AVRGenRegisterInfo.inc"
 
-// Defines symbolic names for the AVR instructions.
-#define GET_INSTRINFO_ENUM
-#include "AVRGenInstrInfo.inc"
+# define GET_INSTRINFO_ENUM
+# include "AVRGenInstrInfo.inc"
 
-#define GET_SUBTARGETINFO_ENUM
-#include "AVRGenSubtargetInfo.inc"
+# define GET_SUBTARGETINFO_ENUM
+# include "AVRGenSubtargetInfo.inc"
 
-#endif //__INCLUDE_AVRMCTARGETDESC_H__
+#endif // LLVM_AVR_MCTARGET_DESC_H

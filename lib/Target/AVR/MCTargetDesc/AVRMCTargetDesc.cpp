@@ -12,15 +12,17 @@
 //===----------------------------------------------------------------------===//
 
 #include "AVRMCTargetDesc.h"
-#include "AVRMCAsmInfo.h"
-#include "AVRTargetStreamer.h"
-#include "InstPrinter/AVRInstPrinter.h"
+
 #include "llvm/MC/MCCodeGenInfo.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCELFStreamer.h"
 #include "llvm/Support/TargetRegistry.h"
+
+#include "AVRMCAsmInfo.h"
+#include "AVRTargetStreamer.h"
+#include "InstPrinter/AVRInstPrinter.h"
 
 #define GET_INSTRINFO_MC_DESC
 #include "AVRGenInstrInfo.inc"

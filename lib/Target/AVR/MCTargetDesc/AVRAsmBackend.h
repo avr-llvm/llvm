@@ -1,4 +1,4 @@
-//===-- AVRAsmBackend.h - AVR Asm Backend  -------------------------------===//
+//===-- AVRAsmBackend.h - AVR Asm Backend  --------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -12,11 +12,13 @@
 //===----------------------------------------------------------------------===//
 //
 
-#ifndef LLVM_LIB_TARGET_AVR_MCTARGETDESC_AVRASMBACKEND_H
-#define LLVM_LIB_TARGET_AVR_MCTARGETDESC_AVRASMBACKEND_H
+#ifndef LLVM_AVR_ASM_BACKEND_H
+# define LLVM_AVR_ASM_BACKEND_H
 
-#include "llvm/MC/MCAsmBackend.h"
-#include "llvm/ADT/Triple.h"
+# include "llvm/MC/MCAsmBackend.h"
+# include "llvm/ADT/Triple.h"
+
+# include "MCTargetDesc/AVRFixupKinds.h"
 
 namespace llvm {
 
@@ -87,4 +89,4 @@ private:
 
 } // namespace
 
-#endif
+#endif // LLVM_AVR_ASM_BACKEND_H

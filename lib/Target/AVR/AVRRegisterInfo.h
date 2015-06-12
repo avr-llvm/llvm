@@ -11,13 +11,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRREGISTERINFO_H__
-#define __INCLUDE_AVRREGISTERINFO_H__
+#ifndef LLVM_AVR_REGISTER_INFO_H
+# define LLVM_AVR_REGISTER_INFO_H
 
-#include "llvm/Target/TargetRegisterInfo.h"
+# include "llvm/Target/TargetRegisterInfo.h"
 
-#define GET_REGINFO_HEADER
-#include "AVRGenRegisterInfo.inc"
+# define GET_REGINFO_HEADER
+# include "AVRGenRegisterInfo.inc"
 
 namespace llvm
 {
@@ -53,4 +53,4 @@ public:
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRREGISTERINFO_H__
+#endif // LLVM_AVR_REGISTER_INFO_H

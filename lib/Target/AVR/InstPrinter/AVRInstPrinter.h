@@ -11,10 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRINSTPRINTER_H__
-#define __INCLUDE_AVRINSTPRINTER_H__
+#ifndef LLVM_AVR_INST_PRINTER_H
+# define LLVM_AVR_INST_PRINTER_H
 
-#include "llvm/MC/MCInstPrinter.h"
+# include "llvm/MC/MCInstPrinter.h"
 
 namespace llvm
 {
@@ -52,4 +52,4 @@ private:
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRINSTPRINTER_H__
+#endif // LLVM_AVR_INST_PRINTER_H

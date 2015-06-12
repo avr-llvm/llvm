@@ -13,7 +13,7 @@
 
 #define DEBUG_TYPE "avr-selectiondag-info"
 
-#include "AVRTargetMachine.h"
+#include "AVRSelectionDAGInfo.h"
 
 using namespace llvm;
 

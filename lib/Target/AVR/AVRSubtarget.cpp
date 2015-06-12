@@ -11,10 +11,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Support/TargetRegistry.h"
+
 #include "AVR.h"
 #include "AVRSubtarget.h"
 #include "AVRTargetMachine.h"
-#include "llvm/Support/TargetRegistry.h"
 
 #define DEBUG_TYPE "avr-subtarget"
 
@@ -52,7 +53,7 @@ AVRSubtarget::AVRSubtarget(const std::string &TT, const std::string &CPU,
   m_supportsMultiplication(),
   m_hasBREAK(),
   m_hasTinyEncoding(),
-  m_DummyFeature()
+  m_FeatureSetDummy()
 {
   // Parse features string.
   ParseSubtargetFeatures(CPU, FS);

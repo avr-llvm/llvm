@@ -14,9 +14,6 @@
 
 #define DEBUG_TYPE "avr-asm-printer"
 
-#include "AVR.h"
-#include "AVRMCInstLower.h"
-#include "InstPrinter/AVRInstPrinter.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -29,6 +26,10 @@
 #include "llvm/IR/Mangler.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
+
+#include "AVR.h"
+#include "AVRMCInstLower.h"
+#include "InstPrinter/AVRInstPrinter.h"
 
 using namespace llvm;
 

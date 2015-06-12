@@ -14,13 +14,16 @@
 #define DEBUG_TYPE "asm-printer"
 
 #include "AVRInstPrinter.h"
-#include "MCTargetDesc/AVRMCTargetDesc.h"
+
+#include <cstring>
+
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
-#include <cstring>
+
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 #define LLVM_AVR_GCC_COMPAT
 

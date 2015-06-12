@@ -7,9 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AVR.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/TargetRegistry.h"
+
+#include "AVR.h"
 
 using namespace llvm;
 

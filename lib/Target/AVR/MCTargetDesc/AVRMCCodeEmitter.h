@@ -1,4 +1,4 @@
-//===-- AVRMCCodeEmitter.h - Convert AVR Code to Machine Code -----------===//
+//===-- AVRMCCodeEmitter.h - Convert AVR Code to Machine Code -------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -12,11 +12,11 @@
 //===----------------------------------------------------------------------===//
 //
 
-#ifndef LLVM_LIB_TARGET_AVR_MCTARGETDESC_AVRMCCODEEMITTER_H
-#define LLVM_LIB_TARGET_AVR_MCTARGETDESC_AVRMCCODEEMITTER_H
+#ifndef LLVM_AVR_CODE_EMITTER_H
+# define LLVM_AVR_CODE_EMITTER_H
 
-#include "llvm/MC/MCCodeEmitter.h"
-#include "llvm/Support/DataTypes.h"
+# include "llvm/MC/MCCodeEmitter.h"
+# include "llvm/Support/DataTypes.h"
 
 using namespace llvm;
 
@@ -135,4 +135,4 @@ private:
 }; // class AVRMCCodeEmitter
 } // namespace llvm.
 
-#endif
+#endif // LLVM_AVR_CODE_EMITTER_H

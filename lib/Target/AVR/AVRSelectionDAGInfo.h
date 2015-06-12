@@ -11,10 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef __INCLUDE_AVRSELECTIONDAGINFO_H__
-#define __INCLUDE_AVRSELECTIONDAGINFO_H__
+#ifndef LLVM_AVR_SELECTION_DAG_INFO_H
+# define LLVM_AVR_SELECTION_DAG_INFO_H
 
-#include "llvm/Target/TargetSelectionDAGInfo.h"
+# include "llvm/Target/TargetSelectionDAGInfo.h"
 
 namespace llvm
 {
@@ -29,4 +29,4 @@ public:
 
 } // end namespace llvm
 
-#endif //__INCLUDE_AVRSELECTIONDAGINFO_H__
+#endif // LLVM_AVR_SELECTION_DAG_INFO_H
