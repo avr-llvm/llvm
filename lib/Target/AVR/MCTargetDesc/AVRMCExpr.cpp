@@ -13,6 +13,7 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCValue.h"
+#include "llvm/MC/MCAsmLayout.h"
 
 using namespace llvm;
 
@@ -61,7 +62,7 @@ AVRMCExpr::evaluateAsConstant(int64_t & Result) const {
 }
 
 bool
-AVRMCExpr::evaluateAsRelocatableImpl(MCValue &Res,
+AVRMCExpr::evaluateAsRelocatableImpl(MCValue &Result,
                                      const MCAsmLayout *Layout,
                                      const MCFixup *Fixup) const
 {
@@ -70,11 +71,34 @@ AVRMCExpr::evaluateAsRelocatableImpl(MCValue &Res,
     return false;
 
   if (Value.isAbsolute()) {
-    int64_t Result = evaluateAsInt64(Value.getConstant());
-    Res = MCValue::get(Result);
+    Result = MCValue::get(evaluateAsInt64(Value.getConstant()));
   } else {
-    // TODO?
-    return false;
+
+    if (!getSubExpr()->evaluateAsRelocatable(Value, Layout, Fixup))
+      return false;
+
+    if (!Layout)
+      return false;
+
+    MCContext &Context = Layout->getAssembler().getContext();
+    const MCSymbolRefExpr *Sym = Value.getSymA();
+    MCSymbolRefExpr::VariantKind Modifier = Sym->getKind();
+    if (Modifier != MCSymbolRefExpr::VK_None)
+      return false;
+#if 0
+    switch (Kind) {
+      default:
+        llvm_unreachable("Invalid kind!");
+      case VK_AVR_LO8:
+        Modifier = MCSymbolRefExpr::VK_AVR_LO;
+        break;
+      case VK_AVR_HI8:
+        Modifier = MCSymbolRefExpr::VK_AVR_HI;
+        break;
+    }
+#endif
+    Sym = MCSymbolRefExpr::create(&Sym->getSymbol(), Modifier, Context);
+    Result = MCValue::get(Sym, Value.getSymB(), Value.getConstant());
   }
   return true;
 }
@@ -83,19 +107,18 @@ int64_t
 AVRMCExpr::evaluateAsInt64(int64_t Value) const {
   uint64_t v = static_cast<uint64_t>(Value);
   switch (Kind) {
-    case AVRMCExpr::VK_AVR_LO8:                   break;
+    case AVRMCExpr::VK_AVR_LO8:               break;
     case AVRMCExpr::VK_AVR_HI8:     v >>= 8;  break;
     case AVRMCExpr::VK_AVR_HLO8:    v >>= 16; break;
     case AVRMCExpr::VK_AVR_HHI8:    v >>= 24; break;
-
     case AVRMCExpr::VK_AVR_PM_LO8:  v >>= 1;  break;
     case AVRMCExpr::VK_AVR_PM_HI8:  v >>= 9;  break;
     case AVRMCExpr::VK_AVR_PM_HLO8: v >>= 17; break;
-    case AVRMCExpr::VK_AVR_None: llvm_unreachable("Uninitialized expression."); break;
+
+    case AVRMCExpr::VK_AVR_None: llvm_unreachable("Uninitialized expression.");
   }
   return v & 0xff;
 }
-
 
 void AVRMCExpr::visitUsedExpr(MCStreamer &Streamer) const {
   Streamer.visitUsedExpr(*getSubExpr());

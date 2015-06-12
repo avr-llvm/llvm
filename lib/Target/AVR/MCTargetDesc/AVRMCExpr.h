@@ -46,12 +46,10 @@ public: // MCTargetExpr
   
   void visitUsedExpr(MCStreamer& streamer) const override;
   
-  MCSection *findAssociatedSection() const override
-  {
+  MCSection *findAssociatedSection() const override {
     return getSubExpr()->findAssociatedSection();
   }
 
-  // There are no TLS AVRMCExprs at the moment.
   void fixELFSymbolsInTLSFixups(MCAssembler &Asm) const {}
 
   bool evaluateAsConstant(int64_t & Result) const;

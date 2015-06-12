@@ -38,7 +38,7 @@ namespace {
 
 AVRELFObjectWriter::AVRELFObjectWriter(uint8_t OSABI)
   : MCELFObjectTargetWriter(false, OSABI, ELF::EM_AVR,
-                            /*HasRelocationAddend*/ false,
+                            true,
                             false) {}
 
 AVRELFObjectWriter::~AVRELFObjectWriter() {}
@@ -91,7 +91,7 @@ unsigned AVRELFObjectWriter::GetRelocType(const MCValue &Target,
 bool
 AVRELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
                                             unsigned Type) const {
-  return true;
+  return false;
 }
 
 MCObjectWriter *llvm::createAVRELFObjectWriter(raw_pwrite_stream &OS,
