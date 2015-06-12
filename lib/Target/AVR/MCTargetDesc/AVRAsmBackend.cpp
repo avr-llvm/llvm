@@ -69,35 +69,29 @@ inline unsigned adjustFixupCall(const MCFixup &Fixup,
 // Prepare value for the target space for it
 inline unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
                                  MCContext *Ctx = nullptr) {
+  switch ((unsigned)Fixup.getKind()) {
+    case AVR::fixup_7_pcrel:  return adjustFixupRelCondbr(7, Fixup, Value, Ctx);
+    case AVR::fixup_13_pcrel: return adjustFixupRelCondbr(13, Fixup, Value, Ctx);
+    case AVR::fixup_call:     return adjustFixupCall(Fixup, Value, Ctx);
 
-  unsigned Kind = Fixup.getKind();
+    case AVR::fixup_lo8_ldi:
+    case AVR::fixup_hi8_ldi:
+    case AVR::fixup_hh8_ldi:
+    case AVR::fixup_ms8_ldi:
 
-  // Add/subtract and shift
-  switch (Kind) {
-    default: llvm_unreachable("unhandled fixup"); break;
     case FK_Data_2:
     case FK_GPRel_4:
     case FK_Data_4:
     case FK_Data_8:
-      break;
-    case AVR::fixup_7_pcrel:
-      Value = adjustFixupRelCondbr(7, Fixup, Value, Ctx);
-      break;
-    case AVR::fixup_13_pcrel:
-      Value = adjustFixupRelCondbr(13, Fixup, Value, Ctx);
-      break;
-    case AVR::fixup_call:
-      Value = adjustFixupCall(Fixup, Value, Ctx);
-      break;
+      return Value;
+    default: llvm_unreachable("unhandled fixup");
   }
-  
-  return Value;
-}
 }
 
+} // end of anonymous namespace
+
 MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_pwrite_stream &OS) const {
-  return createAVRELFObjectWriter(OS,
-    MCELFObjectTargetWriter::getOSABI(OSType));
+  return createAVRELFObjectWriter(OS, MCELFObjectTargetWriter::getOSABI(OSType));
 }
 
 /// ApplyFixup - Apply the \p Value for given \p Fixup into the provided
@@ -229,13 +223,11 @@ void AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
                                       const MCValue &Target,
                                       uint64_t &Value,
                                       bool &IsResolved) {
-  IsResolved = false;
-  
   // At this point we'll ignore the value returned by adjustFixupValue as
   // we are only checking if the fixup can be applied correctly. We have
   // access to MCContext from here which allows us to report a fatal error
   // with *possibly* a source code location.
-  Value = adjustFixupValue(Fixup, Value, &Asm.getContext());
+  adjustFixupValue(Fixup, Value, &Asm.getContext());
 }
 
 MCAsmBackend *llvm::createAVRAsmBackend(const Target &T,
