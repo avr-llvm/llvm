@@ -25,7 +25,6 @@
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "MCTargetDesc/AVRFixupKinds.h"
 #include "MCTargetDesc/AVRMCExpr.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 
@@ -248,24 +247,8 @@ getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
       return Result;
     }
 
-    AVR::Fixups FixupKind = AVR::Fixups(0);
-    
-    switch (AVRExpr->getKind()) {
-      case AVRMCExpr::VK_AVR_LO8:  FixupKind = AVR::fixup_lo8_ldi; break;
-      case AVRMCExpr::VK_AVR_HI8:  FixupKind = AVR::fixup_hi8_ldi; break;
-
-      case AVRMCExpr::VK_AVR_HLO8: FixupKind = AVR::fixup_hh8_ldi; break;
-      case AVRMCExpr::VK_AVR_HHI8: FixupKind = AVR::fixup_ms8_ldi; break;
-
-      case AVRMCExpr::VK_AVR_PM_HI8:
-      case AVRMCExpr::VK_AVR_PM_LO8:
-      case AVRMCExpr::VK_AVR_PM_HLO8:
-        llvm_unreachable("Not implemented"); break;
-        
-      case AVRMCExpr::VK_AVR_None: llvm_unreachable("Uninitialized expression."); break;
-    }
-    
-    Fixups.push_back(MCFixup::create(0, AVRExpr, MCFixupKind(FixupKind)));
+    MCFixupKind FixupKind = static_cast<MCFixupKind>(AVRExpr->getFixupKind());
+    Fixups.push_back(MCFixup::create(0, AVRExpr, FixupKind));
     return 0;
   }
 

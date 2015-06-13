@@ -25,13 +25,13 @@ const struct ModifierEntry {
 } ModifierNames[] = {
   { "lo8",     AVRMCExpr::VK_AVR_LO8     },
   { "hi8",     AVRMCExpr::VK_AVR_HI8     },
-  { "hh8",     AVRMCExpr::VK_AVR_HLO8    }, // synonym with hlo8
-  { "hlo8",    AVRMCExpr::VK_AVR_HLO8    },
+  { "hh8",     AVRMCExpr::VK_AVR_HH8    }, // synonym with hlo8
+  { "hlo8",    AVRMCExpr::VK_AVR_HH8    },
   { "hhi8",    AVRMCExpr::VK_AVR_HHI8    },
 
   { "pm_lo8",  AVRMCExpr::VK_AVR_PM_LO8  },
   { "pm_hi8",  AVRMCExpr::VK_AVR_PM_HI8  },
-  { "pm_hh8",  AVRMCExpr::VK_AVR_PM_HLO8 },
+  { "pm_hh8",  AVRMCExpr::VK_AVR_PM_HH8 },
 };
 
 } // end of anonymous namespace
@@ -87,14 +87,8 @@ AVRMCExpr::evaluateAsRelocatableImpl(MCValue &Result,
       return false;
 #if 0
     switch (Kind) {
-      default:
-        llvm_unreachable("Invalid kind!");
-      case VK_AVR_LO8:
-        Modifier = MCSymbolRefExpr::VK_AVR_LO;
-        break;
-      case VK_AVR_HI8:
-        Modifier = MCSymbolRefExpr::VK_AVR_HI;
-        break;
+      case VK_AVR_LO8: Modifier = MCSymbolRefExpr::VK_AVR_LO; break;
+      case VK_AVR_HI8: Modifier = MCSymbolRefExpr::VK_AVR_HI; break;
     }
 #endif
     Sym = MCSymbolRefExpr::create(&Sym->getSymbol(), Modifier, Context);
@@ -107,13 +101,13 @@ int64_t
 AVRMCExpr::evaluateAsInt64(int64_t Value) const {
   uint64_t v = static_cast<uint64_t>(Value);
   switch (Kind) {
-    case AVRMCExpr::VK_AVR_LO8:               break;
-    case AVRMCExpr::VK_AVR_HI8:     v >>= 8;  break;
-    case AVRMCExpr::VK_AVR_HLO8:    v >>= 16; break;
-    case AVRMCExpr::VK_AVR_HHI8:    v >>= 24; break;
-    case AVRMCExpr::VK_AVR_PM_LO8:  v >>= 1;  break;
-    case AVRMCExpr::VK_AVR_PM_HI8:  v >>= 9;  break;
-    case AVRMCExpr::VK_AVR_PM_HLO8: v >>= 17; break;
+    case AVRMCExpr::VK_AVR_LO8:              break;
+    case AVRMCExpr::VK_AVR_HI8:    v >>= 8;  break;
+    case AVRMCExpr::VK_AVR_HH8:    v >>= 16; break;
+    case AVRMCExpr::VK_AVR_HHI8:   v >>= 24; break;
+    case AVRMCExpr::VK_AVR_PM_LO8: v >>= 1;  break;
+    case AVRMCExpr::VK_AVR_PM_HI8: v >>= 9;  break;
+    case AVRMCExpr::VK_AVR_PM_HH8: v >>= 17; break;
 
     case AVRMCExpr::VK_AVR_None: llvm_unreachable("Uninitialized expression.");
   }

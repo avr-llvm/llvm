@@ -78,6 +78,9 @@ inline unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
     case AVR::fixup_hi8_ldi:
     case AVR::fixup_hh8_ldi:
     case AVR::fixup_ms8_ldi:
+    case AVR::fixup_lo8_ldi_pm:
+    case AVR::fixup_hi8_ldi_pm:
+    case AVR::fixup_hh8_ldi_pm:
 
     case FK_Data_2:
     case FK_GPRel_4:

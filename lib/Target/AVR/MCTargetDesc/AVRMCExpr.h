@@ -12,6 +12,8 @@
 
 # include "llvm/MC/MCExpr.h"
 
+# include "MCTargetDesc/AVRFixupKinds.h"
+
 namespace llvm
 {
 
@@ -21,14 +23,14 @@ public:
   enum VariantKind {
     VK_AVR_None,
 
-    VK_AVR_HI8,         // hi8()
-    VK_AVR_LO8,         // lo8()
-    VK_AVR_HLO8,        // hlo8() and hh8()
-    VK_AVR_HHI8,        // hhi8()
+    VK_AVR_HI8,        // hi8()
+    VK_AVR_LO8,        // lo8()
+    VK_AVR_HH8,        // hlo8() and hh8()
+    VK_AVR_HHI8,       // hhi8()
 
-    VK_AVR_PM_LO8,      // pm_lo8()
-    VK_AVR_PM_HI8,      // pm_hi8()
-    VK_AVR_PM_HLO8      // pm_hh8()
+    VK_AVR_PM_LO8,     // pm_lo8()
+    VK_AVR_PM_HI8,     // pm_hi8()
+    VK_AVR_PM_HH8      // pm_hh8()
   };
 public:
   static const AVRMCExpr *create(VariantKind Kind, const MCExpr *Expr,
@@ -37,6 +39,20 @@ public:
   VariantKind getKind() const { return Kind; }
   char const* getName() const;
   const MCExpr *getSubExpr() const { return Expr; }
+  AVR::Fixups getFixupKind() const {
+    switch (getKind()) {
+      case VK_AVR_LO8:    return AVR::fixup_lo8_ldi;   
+      case VK_AVR_HI8:    return AVR::fixup_hi8_ldi;   
+      case VK_AVR_HH8:    return AVR::fixup_hh8_ldi;   
+      case VK_AVR_HHI8:   return AVR::fixup_ms8_ldi;   
+
+      case VK_AVR_PM_LO8: return AVR::fixup_lo8_ldi_pm;
+      case VK_AVR_PM_HI8: return AVR::fixup_hi8_ldi_pm;
+      case VK_AVR_PM_HH8: return AVR::fixup_hh8_ldi_pm;
+
+      case VK_AVR_None: llvm_unreachable("Uninitialized expression");
+    }
+  }
 
 public: // MCTargetExpr
   void printImpl(raw_ostream &OS) const override;
@@ -54,8 +70,7 @@ public: // MCTargetExpr
 
   bool evaluateAsConstant(int64_t & Result) const;
 
-  static bool classof(const MCExpr *E)
-  {
+  static bool classof(const MCExpr *E) {
     return E->getKind() == MCExpr::Target;
   }
 
