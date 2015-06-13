@@ -23,11 +23,9 @@
 # include "AVRSelectionDAGInfo.h"
 # include "AVRSubtarget.h"
 
-namespace llvm
-{
+namespace llvm {
 
-class AVRTargetMachine : public LLVMTargetMachine
-{
+class AVRTargetMachine : public LLVMTargetMachine {
 public:
 
   AVRTargetMachine(const Target &T, StringRef TT, StringRef CPU, StringRef FS,

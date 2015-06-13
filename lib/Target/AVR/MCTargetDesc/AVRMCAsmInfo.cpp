@@ -15,17 +15,14 @@
 
 #include "llvm/ADT/StringRef.h"
 
-using namespace llvm;
+namespace llvm {
 
-
-AVRMCAsmInfo::AVRMCAsmInfo(StringRef TT)
-{
-  PointerSize = CalleeSaveStackSlotSize = 2;
-
-  // TODO: Cleanup from 3.4
-  // PCSymbol = ".";
-  CommentString = ";";
-  PrivateGlobalPrefix = ".L";
-
+AVRMCAsmInfo::AVRMCAsmInfo(StringRef TT) {
+  PointerSize                   = 2;
+  CalleeSaveStackSlotSize       = 2;
+  CommentString                 = ";";
+  PrivateGlobalPrefix           = ".L";
   UsesELFSectionDirectiveForBSS = true;
 }
+
+} // end of namespace llvm

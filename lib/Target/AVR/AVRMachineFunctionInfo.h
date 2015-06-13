@@ -16,8 +16,7 @@
 
 # include "llvm/CodeGen/MachineFunction.h"
 
-namespace llvm
-{
+namespace llvm {
 
 /*!
  * Contains private AVR-specific information for each MachineFunction.

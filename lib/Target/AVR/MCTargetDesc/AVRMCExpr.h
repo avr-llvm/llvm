@@ -14,11 +14,9 @@
 
 # include "MCTargetDesc/AVRFixupKinds.h"
 
-namespace llvm
-{
+namespace llvm {
 
-class AVRMCExpr : public MCTargetExpr
-{
+class AVRMCExpr : public MCTargetExpr {
 public:
   enum VariantKind {
     VK_AVR_None,
@@ -39,21 +37,8 @@ public:
   VariantKind getKind() const { return Kind; }
   char const* getName() const;
   const MCExpr *getSubExpr() const { return Expr; }
-  AVR::Fixups getFixupKind() const {
-    switch (getKind()) {
-      case VK_AVR_LO8:    return AVR::fixup_lo8_ldi;   
-      case VK_AVR_HI8:    return AVR::fixup_hi8_ldi;   
-      case VK_AVR_HH8:    return AVR::fixup_hh8_ldi;   
-      case VK_AVR_HHI8:   return AVR::fixup_ms8_ldi;   
-
-      case VK_AVR_PM_LO8: return AVR::fixup_lo8_ldi_pm;
-      case VK_AVR_PM_HI8: return AVR::fixup_hi8_ldi_pm;
-      case VK_AVR_PM_HH8: return AVR::fixup_hh8_ldi_pm;
-
-      case VK_AVR_None: llvm_unreachable("Uninitialized expression");
-    }
-  }
-
+  AVR::Fixups getFixupKind() const;
+  
 public: // MCTargetExpr
   void printImpl(raw_ostream &OS) const override;
   bool evaluateAsRelocatableImpl(MCValue &Res,

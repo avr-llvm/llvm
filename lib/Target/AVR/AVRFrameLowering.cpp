@@ -25,7 +25,7 @@
 #include "AVRMachineFunctionInfo.h"
 #include "AVRTargetMachine.h"
 
-using namespace llvm;
+namespace llvm {
 
 AVRFrameLowering::AVRFrameLowering() :
   TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 1, -2) {}
@@ -462,159 +462,147 @@ processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
   }
 }
 
-namespace
+/// AVRFrameAnalyzer - Create the Frame Analyzer pass. Scan the function for
+/// allocas and used arguments that are passed through the stack.
+struct AVRFrameAnalyzer : public MachineFunctionPass
 {
-  /// AVRFrameAnalyzer - Create the Frame Analyzer pass. Scan the function for
-  /// allocas and used arguments that are passed through the stack.
-  struct AVRFrameAnalyzer : public MachineFunctionPass
+  static char ID;
+  AVRFrameAnalyzer() : MachineFunctionPass(ID) {}
+
+  bool runOnMachineFunction(MachineFunction &MF)
   {
-    static char ID;
-    AVRFrameAnalyzer() : MachineFunctionPass(ID) {}
+    const MachineFrameInfo *MFI = MF.getFrameInfo();
+    AVRMachineFunctionInfo *FuncInfo = MF.getInfo<AVRMachineFunctionInfo>();
 
-    bool runOnMachineFunction(MachineFunction &MF)
+    // If there are no fixed frame indexes during this stage it means there
+    // are allocas present in the function.
+    if (MFI->getNumObjects() - MFI->getNumFixedObjects())
     {
-      const MachineFrameInfo *MFI = MF.getFrameInfo();
-      AVRMachineFunctionInfo *FuncInfo = MF.getInfo<AVRMachineFunctionInfo>();
-
-      // If there are no fixed frame indexes during this stage it means there
-      // are allocas present in the function.
-      if (MFI->getNumObjects() - MFI->getNumFixedObjects())
+      // Check for the type of allocas present in the function. We only care
+      // about fixed size allocas so do not give false positives if only
+      // variable sized allocas are present.
+      for (unsigned i = 0, e = MFI->getObjectIndexEnd(); i != e; ++i)
       {
-        // Check for the type of allocas present in the function. We only care
-        // about fixed size allocas so do not give false positives if only
-        // variable sized allocas are present.
-        for (unsigned i = 0, e = MFI->getObjectIndexEnd(); i != e; ++i)
+        // Variable sized objects have size 0.
+        if (MFI->getObjectSize(i))
         {
-          // Variable sized objects have size 0.
-          if (MFI->getObjectSize(i))
-          {
-            FuncInfo->setHasAllocas(true);
-            break;
-          }
+          FuncInfo->setHasAllocas(true);
+          break;
         }
       }
+    }
 
-      // If there are fixed frame indexes present, scan the function to see if
-      // they are really being used.
-      if (MFI->getNumFixedObjects() == 0)
-      {
-        return false;
-      }
+    // If there are fixed frame indexes present, scan the function to see if
+    // they are really being used.
+    if (MFI->getNumFixedObjects() == 0)
+    {
+      return false;
+    }
 
-      // Ok fixed frame indexes present, now scan the function to see if they
-      // are really being used, otherwise we can ignore them.
-      for (MachineFunction::const_iterator BB = MF.begin(), BBE = MF.end();
-           BB != BBE; ++BB)
+    // Ok fixed frame indexes present, now scan the function to see if they
+    // are really being used, otherwise we can ignore them.
+    for (MachineFunction::const_iterator BB = MF.begin(), BBE = MF.end();
+         BB != BBE; ++BB)
+    {
+      for (MachineBasicBlock::const_iterator I = (*BB).begin(),
+           E = (*BB).end(); I != E; ++I)
       {
-        for (MachineBasicBlock::const_iterator I = (*BB).begin(),
-             E = (*BB).end(); I != E; ++I)
+        const MachineInstr *MI = I;
+        int Opcode = MI->getOpcode();
+
+        if ((Opcode != AVR::LDDRdPtrQ) && (Opcode != AVR::LDDWRdPtrQ)
+            && (Opcode != AVR::STDPtrQRr) && (Opcode != AVR::STDWPtrQRr))
         {
-          const MachineInstr *MI = I;
-          int Opcode = MI->getOpcode();
+          continue;
+        }
 
-          if ((Opcode != AVR::LDDRdPtrQ) && (Opcode != AVR::LDDWRdPtrQ)
-              && (Opcode != AVR::STDPtrQRr) && (Opcode != AVR::STDWPtrQRr))
+        for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i)
+        {
+          const MachineOperand &MO = MI->getOperand(i);
+
+          if (!MO.isFI())
           {
             continue;
           }
 
-          for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i)
+          if (MFI->isFixedObjectIndex(MO.getIndex()))
           {
-            const MachineOperand &MO = MI->getOperand(i);
-
-            if (!MO.isFI())
-            {
-              continue;
-            }
-
-            if (MFI->isFixedObjectIndex(MO.getIndex()))
-            {
-              FuncInfo->setHasStackArgs(true);
-              return false;
-            }
+            FuncInfo->setHasStackArgs(true);
+            return false;
           }
         }
       }
+    }
 
+    return false;
+  }
+
+  const char *getPassName() const
+  {
+    return "AVR Frame Analyzer";
+  }
+};
+
+char AVRFrameAnalyzer::ID = 0;
+
+/// createAVRFrameAnalyzerPass - returns an instance of the frame analyzer pass.
+FunctionPass * createAVRFrameAnalyzerPass() { return new AVRFrameAnalyzer(); }
+
+/// AVRDynAllocaSR - Create the Dynalloca Stack Pointer Save/Restore pass.
+/// Insert a copy of SP before allocating the dynamic stack memory and restore
+/// it in function exit to restore the original SP state. This avoids the need
+/// of reserving a register pair for a frame pointer.
+struct AVRDynAllocaSR : public MachineFunctionPass {
+  static char ID;
+  AVRDynAllocaSR() : MachineFunctionPass(ID) {}
+
+  bool runOnMachineFunction(MachineFunction &MF) {
+    // Early exit when there are no variable sized objects in the function.
+    if (!MF.getFrameInfo()->hasVarSizedObjects())
+    {
       return false;
     }
 
-    const char *getPassName() const
+    const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
+    const TargetInstrInfo *TII = TM.getSubtargetImpl()->getInstrInfo();
+    MachineBasicBlock &EntryMBB = MF.front();
+    MachineBasicBlock::iterator MBBI = EntryMBB.begin();
+    DebugLoc DL = EntryMBB.findDebugLoc(MBBI);
+
+    unsigned SPCopy =
+      MF.getRegInfo().createVirtualRegister(&AVR::DREGSRegClass);
+
+    // Create a copy of SP in function entry before any dynallocas are
+    // inserted.
+    BuildMI(EntryMBB, MBBI, DL, TII->get(AVR::COPY), SPCopy).addReg(AVR::SP);
+
+    // Restore SP in all exit basic blocks.
+    for (MachineFunction::iterator MFI = MF.begin(), MFE = MF.end();
+         MFI != MFE; ++MFI)
     {
-      return "AVR Frame Analyzer";
+      // If last instruction is a return instruction, add a restore copy.
+      if (!MFI->empty() && MFI->back().isReturn())
+      {
+        MBBI = MFI->getLastNonDebugInstr();
+        DL = MBBI->getDebugLoc();
+        BuildMI(*MFI, MBBI, DL, TII->get(AVR::COPY), AVR::SP)
+          .addReg(SPCopy, RegState::Kill);
+      }
     }
-  };
 
-  char AVRFrameAnalyzer::ID = 0;
-} // end of anonymous namespace
+    return true;
+  }
 
-/// createAVRFrameAnalyzerPass - returns an instance of the frame analyzer pass.
-FunctionPass *llvm::createAVRFrameAnalyzerPass()
-{
-  return new AVRFrameAnalyzer();
-}
-
-namespace
-{
-  /// AVRDynAllocaSR - Create the Dynalloca Stack Pointer Save/Restore pass.
-  /// Insert a copy of SP before allocating the dynamic stack memory and restore
-  /// it in function exit to restore the original SP state. This avoids the need
-  /// of reserving a register pair for a frame pointer.
-  struct AVRDynAllocaSR : public MachineFunctionPass
+  const char *getPassName() const
   {
-    static char ID;
-    AVRDynAllocaSR() : MachineFunctionPass(ID) {}
+    return "AVR dynalloca stack pointer save/restore";
+  }
+};
 
-    bool runOnMachineFunction(MachineFunction &MF)
-    {
-      // Early exit when there are no variable sized objects in the function.
-      if (!MF.getFrameInfo()->hasVarSizedObjects())
-      {
-        return false;
-      }
-
-      const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
-      const TargetInstrInfo *TII = TM.getSubtargetImpl()->getInstrInfo();
-      MachineBasicBlock &EntryMBB = MF.front();
-      MachineBasicBlock::iterator MBBI = EntryMBB.begin();
-      DebugLoc DL = EntryMBB.findDebugLoc(MBBI);
-
-      unsigned SPCopy =
-        MF.getRegInfo().createVirtualRegister(&AVR::DREGSRegClass);
-
-      // Create a copy of SP in function entry before any dynallocas are
-      // inserted.
-      BuildMI(EntryMBB, MBBI, DL, TII->get(AVR::COPY), SPCopy).addReg(AVR::SP);
-
-      // Restore SP in all exit basic blocks.
-      for (MachineFunction::iterator MFI = MF.begin(), MFE = MF.end();
-           MFI != MFE; ++MFI)
-      {
-        // If last instruction is a return instruction, add a restore copy.
-        if (!MFI->empty() && MFI->back().isReturn())
-        {
-          MBBI = MFI->getLastNonDebugInstr();
-          DL = MBBI->getDebugLoc();
-          BuildMI(*MFI, MBBI, DL, TII->get(AVR::COPY), AVR::SP)
-            .addReg(SPCopy, RegState::Kill);
-        }
-      }
-
-      return true;
-    }
-
-    const char *getPassName() const
-    {
-      return "AVR dynalloca stack pointer save/restore";
-    }
-  };
-
-  char AVRDynAllocaSR::ID = 0;
-} // end of anonymous namespace
+char AVRDynAllocaSR::ID = 0;
 
 /// createAVRDynAllocaSRPass - returns an instance of the dynalloca stack
 /// pointer save/restore pass.
-FunctionPass *llvm::createAVRDynAllocaSRPass()
-{
-  return new AVRDynAllocaSR();
-}
+FunctionPass * createAVRDynAllocaSRPass() { return new AVRDynAllocaSR(); }
+
+} // end of namespace llvm

@@ -23,9 +23,7 @@
 
 #define UNUSED_VARIABLE(x) (void)(x)
 
-using namespace llvm;
-
-namespace {
+namespace llvm {
 
 class AVRExpandPseudo : public MachineFunctionPass {
 public:
@@ -1497,6 +1495,7 @@ AVRExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
   return false;
 }
 
-} // end of anonymous namespace
+FunctionPass * createAVRExpandPseudoPass() { return new AVRExpandPseudo(); }
 
-FunctionPass *llvm::createAVRExpandPseudoPass() { return new AVRExpandPseudo(); }
+} // end of namespace llvm
+

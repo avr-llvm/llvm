@@ -17,7 +17,7 @@
 
 #include "InstPrinter/AVRInstPrinter.h"
 
-using namespace llvm;
+namespace llvm {
 
 // pin vtable to this file
 AVRTargetStreamer::AVRTargetStreamer(MCStreamer &S) : MCTargetStreamer(S) {}
@@ -31,3 +31,5 @@ AVRTargetELFStreamer::AVRTargetELFStreamer(MCStreamer &S)
 MCELFStreamer &AVRTargetELFStreamer::getStreamer() {
   return static_cast<MCELFStreamer &>(Streamer);
 }
+
+} // end of namespace llvm

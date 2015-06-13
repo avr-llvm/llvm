@@ -21,17 +21,13 @@
 #include "AVR.h"
 #include "AVRTargetMachine.h"
 
-using namespace llvm;
-
 //===----------------------------------------------------------------------===//
 // Instruction Selector Implementation
 //===----------------------------------------------------------------------===//
 
-namespace
-{
+namespace llvm {
 
-class AVRDAGToDAGISel : public SelectionDAGISel
-{
+class AVRDAGToDAGISel : public SelectionDAGISel {
 public:
   explicit AVRDAGToDAGISel(AVRTargetMachine &tm, CodeGenOpt::Level OptLevel) :
     SelectionDAGISel(tm, OptLevel), Subtarget(nullptr) {}
@@ -61,8 +57,6 @@ private:
   
   const AVRSubtarget *Subtarget;
 };
-
-} // end of anonymous namespace
 
 bool
 AVRDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
@@ -551,8 +545,10 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
 /// createAVRISelDag - This pass converts a legalized DAG into a
 /// AVR-specific DAG, ready for instruction scheduling.
 ///
-FunctionPass *llvm::createAVRISelDag(AVRTargetMachine &TM,
-                                     CodeGenOpt::Level OptLevel)
-{
+FunctionPass *
+createAVRISelDag(AVRTargetMachine &TM, CodeGenOpt::Level OptLevel) {
   return new AVRDAGToDAGISel(TM, OptLevel);
 }
+
+} // end of namespace llvm
+

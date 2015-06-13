@@ -28,9 +28,7 @@
 #include "MCTargetDesc/AVRFixupKinds.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 
-using namespace llvm;
-
-namespace {
+namespace llvm {
 
 inline unsigned adjustFixupRelCondbr(unsigned size,
                                      const MCFixup &Fixup,
@@ -91,7 +89,6 @@ inline unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
   }
 }
 
-} // end of anonymous namespace
 
 MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_pwrite_stream &OS) const {
   return createAVRELFObjectWriter(OS, MCELFObjectTargetWriter::getOSABI(OSType));
@@ -201,19 +198,16 @@ getFixupKindInfo(MCFixupKind Kind) const {
 /// \return - True on success.
 bool AVRAsmBackend::writeNopData(uint64_t Count, MCObjectWriter *OW) const {
   // Check for a less than instruction size number of bytes
-  // FIXME: 16 bit instructions are not handled yet here.
-  // We shouldn't be using a hard coded number for instruction size.
-  // FIXME: I believe we are writing 4 null bytes for each NOP instead of 2.
-  
-  // If the count is not 4-byte aligned, we must be writing data into the text
+
+  // If the count is not 2-byte aligned, we must be writing data into the text
   // section (otherwise we have unaligned instructions, and thus have far
   // bigger problems), so just write zeros instead.
-  for (uint64_t i = 0, e = Count % 4; i != e; ++i)
+  if (Count % 2 != 0)
     OW->Write8(0);
 
-  uint64_t NumNops = Count / 4;
+  uint64_t NumNops = Count / 2;
   for (uint64_t i = 0; i != NumNops; ++i)
-    OW->Write32(0);
+    OW->Write16(0);
   return true;
 }
 
@@ -225,7 +219,8 @@ void AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
                                       const MCFragment *DF,
                                       const MCValue &Target,
                                       uint64_t &Value,
-                                      bool &IsResolved) {
+                                      bool &IsResolved)
+{
   // At this point we'll ignore the value returned by adjustFixupValue as
   // we are only checking if the fixup can be applied correctly. We have
   // access to MCContext from here which allows us to report a fatal error
@@ -233,10 +228,12 @@ void AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
   adjustFixupValue(Fixup, Value, &Asm.getContext());
 }
 
-MCAsmBackend *llvm::createAVRAsmBackend(const Target &T,
-                                        const MCRegisterInfo &MRI,
-                                        StringRef TT,
-                                        StringRef CPU) {
+MCAsmBackend *
+createAVRAsmBackend(const Target &T, const MCRegisterInfo &MRI,
+                    StringRef TT, StringRef CPU)
+{
   return new AVRAsmBackend(T, Triple(TT).getOS());
 }
+
+} // end of namespace llvm
 

@@ -21,7 +21,7 @@
 #include "AVRTargetObjectFile.h"
 #include "AVR.h"
 
-using namespace llvm;
+namespace llvm {
 
 namespace
 {
@@ -112,3 +112,4 @@ void AVRPassConfig::addPreEmitPass()
   addPass(createAVRBranchSelectionPass());
 }
 
+} // end of namespace llvm

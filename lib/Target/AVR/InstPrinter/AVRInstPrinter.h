@@ -16,13 +16,11 @@
 
 # include "llvm/MC/MCInstPrinter.h"
 
-namespace llvm
-{
+namespace llvm {
 /*!
  * Prints AVR instructions to a textual stream.
  */
-class AVRInstPrinter : public MCInstPrinter
-{
+class AVRInstPrinter : public MCInstPrinter {
 public:
   AVRInstPrinter(const MCAsmInfo &MAI, const MCInstrInfo &MII,
                  const MCRegisterInfo &MRI) :

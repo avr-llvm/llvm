@@ -31,16 +31,14 @@
 #include "AVRMCInstLower.h"
 #include "InstPrinter/AVRInstPrinter.h"
 
-using namespace llvm;
-
-namespace
-{
+namespace llvm {
 
 class AVRAsmPrinter : public AsmPrinter
 {
   MCRegisterInfo MRI;
 public:
-  explicit AVRAsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer) :
+  explicit
+  AVRAsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer) :
     AsmPrinter(TM, std::move(Streamer)) {}
 
   const char *getPassName() const override { return "AVR Assembly Printer"; }
@@ -60,7 +58,6 @@ public: // AsmPrinter
   void EmitInstruction(const MachineInstr *MI) override;
 };
 
-} // end of anonymous namespace
 
 void AVRAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
                                  raw_ostream &O, const char *Modifier)
@@ -198,12 +195,13 @@ void AVRAsmPrinter::EmitInstruction(const MachineInstr *MI)
   EmitToStreamer(*OutStreamer, I);
 }
 
+} // end of namespace llvm
+
 //===----------------------------------------------------------------------===//
 // Target Registry Stuff
 //===----------------------------------------------------------------------===//
 
 // Force static initialization.
-extern "C" void LLVMInitializeAVRAsmPrinter()
-{
-  RegisterAsmPrinter<AVRAsmPrinter> X(TheAVRTarget);
+extern "C" void LLVMInitializeAVRAsmPrinter() {
+  llvm::RegisterAsmPrinter<llvm::AVRAsmPrinter> X(llvm::TheAVRTarget);
 }

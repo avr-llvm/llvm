@@ -12,11 +12,9 @@
 
 # include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 
-namespace llvm
-{
+namespace llvm {
 
-class AVRTargetObjectFile : public TargetLoweringObjectFileELF
-{
+class AVRTargetObjectFile : public TargetLoweringObjectFileELF {
 public:
   void Initialize(MCContext &ctx, const TargetMachine &TM) override;
 

@@ -32,7 +32,7 @@
 #define GET_INSTRINFO_CTOR_DTOR
 #include "AVRGenInstrInfo.inc"
 
-using namespace llvm;
+namespace llvm {
 
 // External variable defined inside the register allocator to indicate if
 // we should reserve REG_Y if it is going to be used as the frame pointer.
@@ -40,6 +40,7 @@ extern bool RA_ReserveREG_Y;
 // External variable defined inside the register allocator to indicate if
 // the register allocator is executing code inside the spiller.
 extern bool RA_InSpillerCode;
+
 
 AVRInstrInfo::AVRInstrInfo() :
   AVRGenInstrInfo(AVR::ADJCALLSTACKDOWN, AVR::ADJCALLSTACKUP),
@@ -517,3 +518,5 @@ unsigned AVRInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const
     }
   }
 }
+
+} // end of namespace llvm

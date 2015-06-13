@@ -15,7 +15,7 @@
 #include "llvm/MC/MCValue.h"
 #include "llvm/MC/MCAsmLayout.h"
 
-using namespace llvm;
+namespace llvm {
 
 namespace {
 
@@ -114,7 +114,24 @@ AVRMCExpr::evaluateAsInt64(int64_t Value) const {
   return v & 0xff;
 }
 
-void AVRMCExpr::visitUsedExpr(MCStreamer &Streamer) const {
+AVR::Fixups
+AVRMCExpr::getFixupKind() const {
+  switch (getKind()) {
+    case VK_AVR_LO8:    return AVR::fixup_lo8_ldi;
+    case VK_AVR_HI8:    return AVR::fixup_hi8_ldi;
+    case VK_AVR_HH8:    return AVR::fixup_hh8_ldi;
+    case VK_AVR_HHI8:   return AVR::fixup_ms8_ldi;
+
+    case VK_AVR_PM_LO8: return AVR::fixup_lo8_ldi_pm;
+    case VK_AVR_PM_HI8: return AVR::fixup_hi8_ldi_pm;
+    case VK_AVR_PM_HH8: return AVR::fixup_hh8_ldi_pm;
+
+    case VK_AVR_None: llvm_unreachable("Uninitialized expression");
+  }
+}
+
+void
+AVRMCExpr::visitUsedExpr(MCStreamer &Streamer) const {
   Streamer.visitUsedExpr(*getSubExpr());
 }
 
@@ -144,3 +161,4 @@ AVRMCExpr::getKindByName(StringRef Name) {
   return VK_AVR_None;
 }
 
+} // end of namespace llvm

@@ -17,52 +17,51 @@
 
 # include "llvm/Target/TargetLowering.h"
 
-namespace llvm
-{
+namespace llvm {
 
-namespace AVRISD
-{
-  //! AVR Specific DAG Nodes
-  enum NodeType
-  {
-    //! Start the numbering where the builtin ops leave off.
-    FIRST_NUMBER = ISD::BUILTIN_OP_END,
-    //! Return from subroutine.
-    RET_FLAG,
-    //! Return from ISR.
-    RETI_FLAG,
-    //! These operations represent an abstract call
-    //! instruction, which includes a bunch of information.
-    CALL,
-    //! A wrapper node for TargetConstantPool,
-    //! TargetExternalSymbol, and TargetGlobalAddress.
-    Wrapper,
-    //! Bit shifting and rotation.
-    LSL,
-    LSR,
-    ASR,
-    ROR,
-    ROL,
-    //! Non-constant shifts.
-    LSLLOOP,
-    LSRLOOP,
-    ASRLOOP,
-    //! AVR conditional branches. Operand 0 is the chain operand, operand 1
-    //! is the block to branch if condition is true, operand 2 is the
-    //! condition code, and operand 3 is the flag operand produced by a CMP
-    //! or TEST instruction.
-    BRCOND,
-    //! Compare instruction.
-    CMP,
-    //! Compare with carry instruction.
-    CMPC,
-    //! Test for zero or minus instruction.
-    TST,
-    //! Operand 0 and operand 1 are selection variable, operand 2
-    //! is condition code and operand 3 is flag operand.
-    SELECT_CC
-  };
-}
+namespace AVRISD {
+
+//! AVR Specific DAG Nodes
+enum NodeType {
+  //! Start the numbering where the builtin ops leave off.
+  FIRST_NUMBER = ISD::BUILTIN_OP_END,
+  //! Return from subroutine.
+  RET_FLAG,
+  //! Return from ISR.
+  RETI_FLAG,
+  //! These operations represent an abstract call
+  //! instruction, which includes a bunch of information.
+  CALL,
+  //! A wrapper node for TargetConstantPool,
+  //! TargetExternalSymbol, and TargetGlobalAddress.
+  Wrapper,
+  //! Bit shifting and rotation.
+  LSL,
+  LSR,
+  ASR,
+  ROR,
+  ROL,
+  //! Non-constant shifts.
+  LSLLOOP,
+  LSRLOOP,
+  ASRLOOP,
+  //! AVR conditional branches. Operand 0 is the chain operand, operand 1
+  //! is the block to branch if condition is true, operand 2 is the
+  //! condition code, and operand 3 is the flag operand produced by a CMP
+  //! or TEST instruction.
+  BRCOND,
+  //! Compare instruction.
+  CMP,
+  //! Compare with carry instruction.
+  CMPC,
+  //! Test for zero or minus instruction.
+  TST,
+  //! Operand 0 and operand 1 are selection variable, operand 2
+  //! is condition code and operand 3 is flag operand.
+  SELECT_CC
+};
+
+} // end of namespace AVRISD
 
 class AVRTargetMachine;
 

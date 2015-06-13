@@ -23,8 +23,7 @@
 #define GET_SUBTARGETINFO_CTOR
 #include "AVRGenSubtargetInfo.inc"
 
-using namespace llvm;
-
+namespace llvm {
 
 AVRSubtarget::AVRSubtarget(const std::string &TT, const std::string &CPU,
                            const std::string &FS, AVRTargetMachine &TM) :
@@ -59,3 +58,4 @@ AVRSubtarget::AVRSubtarget(const std::string &TT, const std::string &CPU,
   ParseSubtargetFeatures(CPU, FS);
 }
 
+} // end of namespace llvm

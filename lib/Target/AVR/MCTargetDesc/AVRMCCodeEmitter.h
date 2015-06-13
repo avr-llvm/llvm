@@ -18,9 +18,8 @@
 # include "llvm/MC/MCCodeEmitter.h"
 # include "llvm/Support/DataTypes.h"
 
-using namespace llvm;
-
 namespace llvm {
+
 class MCContext;
 class MCExpr;
 class MCInst;
@@ -133,6 +132,7 @@ private:
   const MCInstrInfo &MCII;
   MCContext &Ctx;
 }; // class AVRMCCodeEmitter
-} // namespace llvm.
+
+} // end namespace of llvm.
 
 #endif // LLVM_AVR_CODE_EMITTER_H

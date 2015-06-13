@@ -31,12 +31,11 @@
 #include "AVRRegisterInfo.h"
 #include "MCTargetDesc/AVRMCExpr.h"
 
-using namespace llvm;
 
 #define DEBUG_TYPE "avr-asm-parser"
 #define LLVM_AVR_GCC_COMPAT
 
-namespace {
+namespace llvm {
 
 class AVRAsmParser : public MCTargetAsmParser {
   MCSubtargetInfo &STI;
@@ -187,8 +186,6 @@ public:
     OS << "\n";
   }
 };
-
-} // end of anonymous namespace
 
 // Auto-generated Match Functions
 
@@ -476,3 +473,6 @@ AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp,
   }
   return Match_InvalidOperand;
 }
+
+} // end of namespace llvm
+

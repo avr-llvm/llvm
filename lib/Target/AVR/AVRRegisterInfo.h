@@ -19,8 +19,7 @@
 # define GET_REGINFO_HEADER
 # include "AVRGenRegisterInfo.inc"
 
-namespace llvm
-{
+namespace llvm {
 /*!
  * Holds information about AVR registers.
  */

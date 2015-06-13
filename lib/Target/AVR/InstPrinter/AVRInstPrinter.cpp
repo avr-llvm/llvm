@@ -27,7 +27,7 @@
 
 #define LLVM_AVR_GCC_COMPAT
 
-using namespace llvm;
+namespace llvm {
 
 // Include the auto-generated portion of the assembly writer.
 #define PRINT_ALIAS_INSTR
@@ -129,3 +129,5 @@ void AVRInstPrinter::print_pcrel_imm(const MCInst *MI, unsigned OpNo,
   assert(Op.isExpr() && "Unknown pcrel immediate operand");
   O << *Op.getExpr();
 }
+
+} // end of namespace llvm

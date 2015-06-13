@@ -16,13 +16,11 @@
 
 # include "llvm/Target/TargetSelectionDAGInfo.h"
 
-namespace llvm
-{
+namespace llvm {
 
 class AVRTargetMachine;
 
-class AVRSelectionDAGInfo : public TargetSelectionDAGInfo
-{
+class AVRSelectionDAGInfo : public TargetSelectionDAGInfo {
 public:
   explicit AVRSelectionDAGInfo(const DataLayout &DL);
 };

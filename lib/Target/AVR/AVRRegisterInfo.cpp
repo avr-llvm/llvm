@@ -27,7 +27,7 @@
 #define GET_REGINFO_TARGET_DESC
 #include "AVRGenRegisterInfo.inc"
 
-using namespace llvm;
+namespace llvm {
 
 AVRRegisterInfo::AVRRegisterInfo() :
   AVRGenRegisterInfo(0) {}
@@ -269,3 +269,5 @@ AVRRegisterInfo::getPointerRegClass(const MachineFunction &MF,
   // of memory constraint, so we can fix it and bit avr-gcc here ;-)
   return &AVR::PTRDISPREGSRegClass;
 }
+
+} // end of namespace llvm

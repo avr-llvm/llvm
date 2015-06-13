@@ -33,7 +33,7 @@
 #define GET_REGINFO_MC_DESC
 #include "AVRGenRegisterInfo.inc"
 
-using namespace llvm;
+namespace llvm {
 
 static MCInstrInfo *createAVRMCInstrInfo()
 {
@@ -103,8 +103,9 @@ static MCTargetStreamer *createMCAsmTargetStreamer(MCStreamer &S,
   return new AVRTargetAsmStreamer(S);
 }
 
-extern "C" void LLVMInitializeAVRTargetMC()
-{
+extern "C"
+void
+LLVMInitializeAVRTargetMC() {
   // Register the MC asm info.
   RegisterMCAsmInfo<AVRMCAsmInfo> X(TheAVRTarget);
 
@@ -140,3 +141,5 @@ extern "C" void LLVMInitializeAVRTargetMC()
   TargetRegistry::RegisterMCAsmBackend(TheAVRTarget,
                                        createAVRAsmBackend);
 }
+
+} // end of namespace llvm

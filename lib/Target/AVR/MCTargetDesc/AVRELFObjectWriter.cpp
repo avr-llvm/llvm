@@ -19,22 +19,21 @@
 #include "MCTargetDesc/AVRFixupKinds.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 
-using namespace llvm;
+namespace llvm {
 
-namespace {
-  class AVRELFObjectWriter : public MCELFObjectTargetWriter {
-  public:
-    AVRELFObjectWriter(uint8_t OSABI);
+class AVRELFObjectWriter : public MCELFObjectTargetWriter {
+public:
+  AVRELFObjectWriter(uint8_t OSABI);
 
-    virtual ~AVRELFObjectWriter();
+  virtual ~AVRELFObjectWriter();
 
-    unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
-                          bool IsPCRel) const override;
-    
-    bool needsRelocateWithSymbol(const MCSymbol &Sym,
-                                 unsigned Type) const override;
-  };
-}
+  unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
+                        bool IsPCRel) const override;
+  
+  bool needsRelocateWithSymbol(const MCSymbol &Sym,
+                               unsigned Type) const override;
+};
+
 
 AVRELFObjectWriter::AVRELFObjectWriter(uint8_t OSABI)
   : MCELFObjectTargetWriter(false, OSABI, ELF::EM_AVR,
@@ -94,8 +93,11 @@ AVRELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
   return false;
 }
 
-MCObjectWriter *llvm::createAVRELFObjectWriter(raw_pwrite_stream &OS,
-                                               uint8_t OSABI) {
+MCObjectWriter *
+createAVRELFObjectWriter(raw_pwrite_stream &OS, uint8_t OSABI) {
   MCELFObjectTargetWriter *MOTW = new AVRELFObjectWriter(OSABI);
   return createELFObjectWriter(MOTW, OS, true);
 }
+
+} // end of namespace llvm
+

@@ -16,7 +16,7 @@
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/Support/ELF.h"
 
-using namespace llvm;
+namespace llvm {
 
 void AVRTargetObjectFile::Initialize(MCContext &ctx, const TargetMachine &TM)
 {
@@ -46,3 +46,5 @@ AVRTargetObjectFile::SelectSectionForGlobal(const GlobalValue *GV,
   return TargetLoweringObjectFileELF::SelectSectionForGlobal(GV, Kind, Mang,
                                                              TM);
 }
+
+} // end of namespace llvm

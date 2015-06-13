@@ -16,13 +16,11 @@
 
 # include "llvm/MC/MCAsmInfo.h"
 
-namespace llvm
-{
+namespace llvm {
 
 class StringRef;
 
-class AVRMCAsmInfo : public MCAsmInfo
-{
+class AVRMCAsmInfo : public MCAsmInfo {
 public:
   explicit AVRMCAsmInfo(StringRef TT);
 };

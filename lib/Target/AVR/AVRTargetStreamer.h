@@ -7,15 +7,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIB_TARGET_AVR_AVRTARGETSTREAMER_H
-#define LLVM_LIB_TARGET_AVR_AVRTARGETSTREAMER_H
+#ifndef LLVM_AVR_TARGET_STREAMER_H
+# define LLVM_AVR_TARGET_STREAMER_H
 
-#include "llvm/MC/MCELFStreamer.h"
-#include "llvm/MC/MCStreamer.h"
+# include "llvm/MC/MCELFStreamer.h"
+# include "llvm/MC/MCStreamer.h"
 
 namespace llvm {
-class AVRTargetStreamer : public MCTargetStreamer {
 
+class AVRTargetStreamer : public MCTargetStreamer {
 public:
   explicit AVRTargetStreamer(MCStreamer &S);
 };
@@ -33,6 +33,7 @@ public:
   explicit AVRTargetELFStreamer(MCStreamer &S);
   MCELFStreamer &getStreamer();
 };
+
 } // end namespace llvm
 
-#endif
+#endif // LLVM_AVR_TARGET_STREAMER_H

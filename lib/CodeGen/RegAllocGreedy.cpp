@@ -1601,8 +1601,10 @@ RAGreedy::tryInstructionSplit(LiveInterval &VirtReg, AllocationOrder &Order,
 // :NOTE: KEEP THIS CONSTANT UPDATED with the backend!
 //   This has to be a define because of linkage problems between libraries.
 #define REG_Y   (51U)
+namespace llvm {
 bool RA_ReserveREG_Y = false;
 bool RA_InSpillerCode = false;
+} // end of namespace llvm
 
 void RAGreedy::UndoRegYAllocation() {
   // search through all virtual registers where REG_Y has been assigned and

@@ -15,8 +15,9 @@
 
 #include "AVRSelectionDAGInfo.h"
 
-using namespace llvm;
+namespace llvm {
 
 AVRSelectionDAGInfo::AVRSelectionDAGInfo(const DataLayout &DL) :
   TargetSelectionDAGInfo(&DL) {}
 
+} // end of namespace llvm

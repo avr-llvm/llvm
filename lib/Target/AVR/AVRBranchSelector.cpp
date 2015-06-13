@@ -25,12 +25,9 @@
 #include "AVRInstrInfo.h"
 #include "AVRTargetMachine.h"
 
-using namespace llvm;
-
 STATISTIC(NumExpanded, "Number of branches expanded to long format");
 
-namespace
-{
+namespace llvm {
 
 class AVRBSel : public MachineFunctionPass
 {
@@ -52,7 +49,6 @@ private:
 
 char AVRBSel::ID = 0;
 
-} // end of anonymous namespace
 
 /// isCondBranch - Returns true if the passed opcode is a conditional branch.
 static bool isCondBranch(int Opcode)
@@ -260,7 +256,9 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn)
 
 /// createAVRBranchSelectionPass - returns an instance of the Branch
 /// Selection Pass.
-FunctionPass *llvm::createAVRBranchSelectionPass()
-{
+FunctionPass * createAVRBranchSelectionPass() {
   return new AVRBSel();
 }
+
+} // end of namespace llvm
+

@@ -22,7 +22,7 @@
 #include "AVRInstrInfo.h"
 #include "MCTargetDesc/AVRMCExpr.h"
 
-using namespace llvm;
+namespace llvm {
 
 MCOperand AVRMCInstLower::
 LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const
@@ -115,3 +115,5 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
     OutMI.addOperand(MCOp);
   }
 }
+
+} // end of namespace llvm

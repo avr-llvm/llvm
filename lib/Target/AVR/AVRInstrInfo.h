@@ -21,46 +21,45 @@
 # define GET_INSTRINFO_HEADER
 # include "AVRGenInstrInfo.inc"
 
-namespace llvm
-{
+namespace llvm {
 
-namespace AVRCC
-{
-  /*! AVR specific condition code.
-   * These correspond to `AVR_*_COND` in `AVRInstrInfo.td.
-   * They must be kept in synch.
-   */
-  enum CondCodes
-  {
-    COND_EQ,            //!< Equal
-    COND_NE,            //!< Not equal
-    COND_GE,            //!< Greater than or equal
-    COND_LT,            //!< Less than
-    COND_SH,            //!< Unsigned same or higher
-    COND_LO,            //!< Unsigned lower
-    COND_MI,            //!< Minus
-    COND_PL,            //!< Plus
-    COND_INVALID
-  };
-}
+namespace AVRCC {
 
-namespace AVRII
-{
-  /// Specifies a target operand flag.
-  enum TOF
-  {
-    MO_NO_FLAG,
+/*! AVR specific condition code.
+ * These correspond to `AVR_*_COND` in `AVRInstrInfo.td.
+ * They must be kept in synch.
+ */
+enum CondCodes {
+  COND_EQ,            //!< Equal
+  COND_NE,            //!< Not equal
+  COND_GE,            //!< Greater than or equal
+  COND_LT,            //!< Less than
+  COND_SH,            //!< Unsigned same or higher
+  COND_LO,            //!< Unsigned lower
+  COND_MI,            //!< Minus
+  COND_PL,            //!< Plus
+  COND_INVALID
+};
 
-    /// On a symbol operand, this represents the lo part.
-    MO_LO = (1 << 1),
+} // end of namespace AVRCC
 
-    /// On a symbol operand, this represents the hi part.
-    MO_HI = (1 << 2),
+namespace AVRII {
 
-    /// On a symbol operand, this represents it has to be negated.
-    MO_NEG = (1 << 3)
-  };
-}
+/// Specifies a target operand flag.
+enum TOF {
+  MO_NO_FLAG,
+
+  /// On a symbol operand, this represents the lo part.
+  MO_LO = (1 << 1),
+
+  /// On a symbol operand, this represents the hi part.
+  MO_HI = (1 << 2),
+
+  /// On a symbol operand, this represents it has to be negated.
+  MO_NEG = (1 << 3)
+};
+
+} // end of namespace AVRII
 
 class AVRInstrInfo : public AVRGenInstrInfo
 {

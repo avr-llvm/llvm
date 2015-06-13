@@ -34,22 +34,29 @@
 #include "AVRGenInstrInfo.inc"
 #undef GET_INSTRMAP_INFO
 
-MCCodeEmitter *llvm::createAVRMCCodeEmitter(const MCInstrInfo &MCII,
-                                         const MCRegisterInfo &MRI,
-                                         MCContext &Ctx) {
+namespace llvm {
+
+MCCodeEmitter *
+createAVRMCCodeEmitter(const MCInstrInfo &MCII,
+                       const MCRegisterInfo &MRI,
+                       MCContext &Ctx)
+{
   return new AVRMCCodeEmitter(MCII, Ctx);
 }
 
-void AVRMCCodeEmitter::emitByte(unsigned char C, raw_ostream &OS) const {
+void
+AVRMCCodeEmitter::emitByte(unsigned char C, raw_ostream &OS) const {
   OS << (char)C;
 }
 
-void AVRMCCodeEmitter::emitWord(uint16_t word, raw_ostream &OS) const {
+void
+AVRMCCodeEmitter::emitWord(uint16_t word, raw_ostream &OS) const {
   emitByte((word & 0x00ff)>>0, OS);
   emitByte((word & 0xff00)>>8, OS);
 }
 
-void AVRMCCodeEmitter::emitWords(uint16_t* words, size_t count, raw_ostream &OS) const {
+void
+AVRMCCodeEmitter::emitWords(uint16_t* words, size_t count, raw_ostream &OS) const {
   for(int64_t i=count-1; i>=0; --i) {
     uint16_t word = words[i];
 
@@ -57,19 +64,20 @@ void AVRMCCodeEmitter::emitWords(uint16_t* words, size_t count, raw_ostream &OS)
   }
 }
 
-void AVRMCCodeEmitter::emitInstruction(uint64_t Val, unsigned Size,
-                                        const MCSubtargetInfo &STI,
-                                        raw_ostream &OS) const {
+void
+AVRMCCodeEmitter::emitInstruction(uint64_t Val, unsigned Size,
+                                  const MCSubtargetInfo &STI,
+                                  raw_ostream &OS) const {
   uint16_t* words = (uint16_t*) &Val;
   size_t wordCount = Size/2;
 
   emitWords(words, wordCount, OS);
 }
 
-void AVRMCCodeEmitter::
-encodeInstruction(const MCInst &MI, raw_ostream &OS,
-                  SmallVectorImpl<MCFixup> &Fixups,
-                  const MCSubtargetInfo &STI) const
+void
+AVRMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
+                                    SmallVectorImpl<MCFixup> &Fixups,
+                                    const MCSubtargetInfo &STI) const
 {
   uint32_t Binary = getBinaryCodeForInstr(MI, Fixups, STI);
   
@@ -107,10 +115,11 @@ encodeInstruction(const MCInst &MI, raw_ostream &OS,
 // inconsistent_bit = is_predec OR is_postinc OR is_reg_x
 //
 // We manually set this bit in the post encoder method.
-unsigned AVRMCCodeEmitter::
-loadStorePostEncoder(const MCInst &MI,
-                     unsigned EncodedValue,
-                     const MCSubtargetInfo &STI) const {
+unsigned
+AVRMCCodeEmitter::loadStorePostEncoder(const MCInst &MI,
+                                       unsigned EncodedValue,
+                                       const MCSubtargetInfo &STI) const
+{
 
   assert(MI.getOperand(0).isReg() && MI.getOperand(1).isReg() && "the load/store operands must be registers");
 
@@ -137,9 +146,9 @@ loadStorePostEncoder(const MCInst &MI,
 
 unsigned
 AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
-                                          const MCInst &MI, unsigned OpNo,
-                                          SmallVectorImpl<MCFixup> &Fixups,
-                                          const MCSubtargetInfo &STI) const {
+                                             const MCInst &MI, unsigned OpNo,
+                                             SmallVectorImpl<MCFixup> &Fixups,
+                                             const MCSubtargetInfo &STI) const {
                                    
   const MCOperand MO = MI.getOperand(OpNo);
   
@@ -177,7 +186,8 @@ AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
 unsigned
 AVRMCCodeEmitter::getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
                                         SmallVectorImpl<MCFixup> &Fixups,
-                                        const MCSubtargetInfo &STI) const {
+                                        const MCSubtargetInfo &STI) const
+{
 
   // the operand should be a pointer register.
   assert(MI.getOperand(OpNo).isReg());
@@ -217,21 +227,20 @@ AVRMCCodeEmitter::getCallTargetEncoding(const MCInst &MI, unsigned OpNo,
                                         const MCSubtargetInfo &STI) const {
   auto MO = MI.getOperand(OpNo);
   
-  if (MO.isExpr())
-  {
-    Fixups.push_back(MCFixup::create(0, MO.getExpr(), MCFixupKind(AVR::fixup_call), MI.getLoc()));
-    
+  if (MO.isExpr()){
+    MCFixupKind FixupKind = static_cast<MCFixupKind>(AVR::fixup_call);
+    Fixups.push_back(MCFixup::create(0, MO.getExpr(), FixupKind, MI.getLoc()));
     return 0;
-  } 
-  else {
-    return AVR::fixups::adjustBranchTarget(MO.getImm());
   }
+  return AVR::fixups::adjustBranchTarget(MO.getImm());
 }
 
 
-unsigned AVRMCCodeEmitter::
-getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
-               const MCSubtargetInfo &STI) const {
+unsigned
+AVRMCCodeEmitter::getExprOpValue(const MCExpr *Expr,
+                                 SmallVectorImpl<MCFixup> &Fixups,
+                                 const MCSubtargetInfo &STI) const
+{
                
   MCExpr::ExprKind Kind = Expr->getKind();
 
@@ -276,3 +285,6 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
 }
 
 #include "AVRGenMCCodeEmitter.inc"
+
+} // end of namespace llvm
+

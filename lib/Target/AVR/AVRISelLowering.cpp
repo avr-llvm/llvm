@@ -27,7 +27,8 @@
 #include "AVRMachineFunctionInfo.h"
 #include "AVRTargetMachine.h"
 
-using namespace llvm;
+namespace llvm {
+
 
 AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   TargetLowering(tm)
@@ -1807,3 +1808,5 @@ void AVRTargetLowering::LowerAsmOperandForConstraint(SDValue Op,
 
   return TargetLowering::LowerAsmOperandForConstraint(Op, Constraint, Ops, DAG);
 }
+
+} // end of namespace llvm

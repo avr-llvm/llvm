@@ -27,8 +27,7 @@
 # define GET_SUBTARGETINFO_HEADER
 # include "AVRGenSubtargetInfo.inc"
 
-namespace llvm
-{
+namespace llvm {
 /*!
  * Holds information about an AVR subtarget.
  */

@@ -12,8 +12,7 @@
 
 # include "llvm/Support/Compiler.h"
 
-namespace llvm
-{
+namespace llvm {
 
 class AsmPrinter;
 class MachineInstr;
