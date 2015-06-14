@@ -183,6 +183,10 @@ def PTRDISPREGS : RegisterClass<"AVR", [i16], 8,
     add R31R30, R29R28
   )>;
 
+// We have a bunch of instructions with an explicit Z register argument. We
+// model this using a register class containing only the Z register.
+def ZREGS : RegisterClass<"AVR", [i16], 8, (add R31R30)>;
+
 // Register class used for the stack read pseudo instruction
 def GPRSP: RegisterClass<"AVR", [i16], 8, (add SP)>;
 

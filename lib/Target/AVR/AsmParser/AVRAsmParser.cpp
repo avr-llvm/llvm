@@ -72,10 +72,14 @@ class AVRAsmParser : public MCTargetAsmParser {
 
   // Given a register returns the corresponding DREG
   unsigned toDREG(unsigned Reg, unsigned From = AVR::sub_lo) {
-    return MRI->getMatchingSuperReg(Reg, From, &AVRMCRegisterClasses[AVR::DREGSRegClassID]);
+    MCRegisterClass const* Class = &AVRMCRegisterClasses[AVR::DREGSRegClassID];
+    return MRI->getMatchingSuperReg(Reg, From, Class);
   }
 
-  bool InvalidOperand(SMLoc const& Loc, OperandVector const& Operands, uint64_t const& ErrorInfo);
+  bool emit(MCInst & Instruction, SMLoc const& Loc, MCStreamer & Out) const;
+  bool InvalidOperand(SMLoc const& Loc, OperandVector const& Operands,
+                      uint64_t const& ErrorInfo);
+  bool MissingFeature(SMLoc const& Loc, uint64_t const& ErrorInfo);
 public:
   AVRAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,
                 const MCInstrInfo &MII, const MCTargetOptions &Options)
@@ -158,32 +162,38 @@ public:
     return Imm;
   }
 
-  static std::unique_ptr<AVROperand> CreateToken(StringRef Str, SMLoc S) {
+  static
+  std::unique_ptr<AVROperand>
+  CreateToken(StringRef Str, SMLoc S) {
     return make_unique<AVROperand>(Str, S);
   }
 
-  static std::unique_ptr<AVROperand> CreateReg(unsigned RegNum, SMLoc S, SMLoc E) {
+  static
+  std::unique_ptr<AVROperand>
+  CreateReg(unsigned RegNum, SMLoc S, SMLoc E) {
     return make_unique<AVROperand>(RegNum, S, E);
   }
 
-  static std::unique_ptr<AVROperand> CreateImm(const MCExpr *Val, SMLoc S, SMLoc E) {
+  static
+  std::unique_ptr<AVROperand>
+  CreateImm(const MCExpr *Val, SMLoc S, SMLoc E) {
     return make_unique<AVROperand>(Val, S, E);
   }
 
-  void makeToken(StringRef Token) { Kind = k_Token; Tok = Token; }
-  void makeReg(unsigned RegNo)    { Kind = k_Register; Reg = RegNo; }
-  void makeImm(MCExpr const* Ex)  { Kind = k_Immediate; Imm = Ex; }
+  void makeToken(StringRef Token) { Kind = k_Token;     Tok = Token; }
+  void makeReg(unsigned RegNo)    { Kind = k_Register;  Reg = RegNo; }
+  void makeImm(MCExpr const* Ex)  { Kind = k_Immediate; Imm = Ex;    }
 
   SMLoc getStartLoc() const { return Start; }
   SMLoc getEndLoc()   const { return End;   }
 
-  virtual void print(raw_ostream &OS) const {
+  virtual void print(raw_ostream & O) const {
     switch(Kind) {
-      case k_Token:     OS << "Token: \"" << Tok << "\"";                  break;
-      case k_Register:  OS << "Register: " << Reg;                         break;
-      case k_Immediate: OS << "Immediate: \""; Imm->print(OS); OS << "\""; break;
+      case k_Token:     O << "Token: \"" << Tok << "\"";                break;
+      case k_Register:  O << "Register: " << Reg;                       break;
+      case k_Immediate: O << "Immediate: \""; Imm->print(O); O << "\""; break;
     }
-    OS << "\n";
+    O << "\n";
   }
 };
 
@@ -217,27 +227,34 @@ AVRAsmParser::InvalidOperand(SMLoc const& Loc, OperandVector const& Operands,
 }
 
 bool
-AVRAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
-                                      OperandVector &Operands, MCStreamer &Out,
-                                      uint64_t &ErrorInfo, bool MatchingInlineAsm)
+AVRAsmParser::MissingFeature(llvm::SMLoc const& Loc, uint64_t const& ErrorInfo) {
+  return Error(Loc, "instruction requires a CPU feature not currently enabled");
+}
+
+bool
+AVRAsmParser::emit(MCInst & Inst, SMLoc const& Loc, MCStreamer & Out) const {
+  Inst.setLoc(Loc);
+  Out.EmitInstruction(Inst, STI);
+  return false;
+}
+
+bool
+AVRAsmParser::MatchAndEmitInstruction(SMLoc Loc,
+                                      unsigned & Opcode,
+                                      OperandVector & Operands,
+                                      MCStreamer & Out,
+                                      uint64_t & ErrorInfo,
+                                      bool MatchingInlineAsm)
 {
   MCInst Inst;
   unsigned MatchResult = MatchInstructionImpl(Operands, Inst, ErrorInfo,
                                               MatchingInlineAsm);
   switch (MatchResult) {
-    case Match_Success:
-      Inst.setLoc(IDLoc);
-      Out.EmitInstruction(Inst, STI);
-      return false;
+    case Match_Success:        return emit(Inst, Loc, Out);
 
-    case Match_MissingFeature:
-      return Error(IDLoc, "instruction requires a CPU feature not currently enabled");
-
-    case Match_InvalidOperand:
-      return InvalidOperand(IDLoc, Operands, ErrorInfo);
-
-    case Match_MnemonicFail:
-      return Error(IDLoc, "invalid instruction");
+    case Match_MissingFeature: return MissingFeature(Loc, ErrorInfo);
+    case Match_InvalidOperand: return InvalidOperand(Loc, Operands, ErrorInfo);
+    case Match_MnemonicFail:   return Error(Loc, "invalid instruction");
   }
   return true;
 }
@@ -437,14 +454,16 @@ AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp,
 #ifdef LLVM_AVR_GCC_COMPAT
   // If need be, GCC converts bare numbers to register names
   if (Op.isImm()) {
-    if (MCConstantExpr const*const Const = dyn_cast<MCConstantExpr>(Op.getImm())) {
+    if (MCConstantExpr const* Const = dyn_cast<MCConstantExpr>(Op.getImm())) {
       int64_t RegNum = Const->getValue();
       std::ostringstream RegName;
       RegName << "r" << RegNum;
       RegNum = MatchRegisterName(RegName.str().c_str());
       if (RegNum != AVR::NoRegister) {
         Op.makeReg(RegNum);
-        if (validateOperandClass(Op, Expected) == Match_Success) return Match_Success;
+        if (validateOperandClass(Op, Expected) == Match_Success) {
+          return Match_Success;
+        }
       }
       // Let the other quirks try their magic.
     }
@@ -464,12 +483,6 @@ AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp,
     }
 #endif
 
-    // Some instructions have hard coded values as operands.
-    // For example, the `lpm Rd, Z` instruction, where the second
-    // operand is always explicitly Z.
-    if (isSubclass(Expected, MCK_Z) && Op.getReg() == AVR::R31R30) {
-      return Match_Success;
-    }
   }
   return Match_InvalidOperand;
 }
