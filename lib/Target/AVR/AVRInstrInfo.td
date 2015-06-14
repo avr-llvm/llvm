@@ -1270,7 +1270,7 @@ let Constraints = "" in
                    Requires<[HasSRAM]>;
 }
 
-// Indirect stories (with postincrement or predecrement).
+// Indirect stores (with postincrement or predecrement).
 let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
 {
 
