@@ -9,10 +9,10 @@
 //
 // This file describes the AVR instructions in TableGen format.
 //
-//===----------------------------------------------------------------------===//
-
-//===----------------------------------------------------------------------===//
-// Instruction format superclass
+// Note: The instructions are grouped using `let Constraints = "" {...}` blocks
+//       because it changes nothing, and we want to indent instructions by
+//       catagory.
+//
 //===----------------------------------------------------------------------===//
 
 include "AVRInstrFormats.td"
@@ -185,7 +185,8 @@ def PtrRegAsmOperand : AsmOperandClass
 } 
  
 // A special operand type for the LD/ST instructions.
-// It converts the pointer register number into a two-bit field used in the instruction.
+// It converts the pointer register number into a two-bit field used in the
+// instruction.
 def LDSTPtrReg : Operand<i16>
 {
     let MIOperandInfo = (ops PTRREGS);
@@ -276,14 +277,14 @@ def AVR_COND_MI : PatLeaf<(i8 6)>;
 def AVR_COND_PL : PatLeaf<(i8 7)>;
 
 
-//__________________________________________________________________________________________
-//__________________________________________________________________________________________
-//__________________________________________________________________________________________
-//__________________________________________________________________________________________
-//__________________________________________________________________________________________
-//__________________________________________________________________________________________
-//__________________________________________________________________________________________
-//__________________________________________________________________________________________
+//______________________________________________________________________________
+//______________________________________________________________________________
+//______________________________________________________________________________
+//______________________________________________________________________________
+//______________________________________________________________________________
+//______________________________________________________________________________
+//______________________________________________________________________________
+//______________________________________________________________________________
 
 //===----------------------------------------------------------------------===//
 // AVR Instruction list
@@ -354,7 +355,8 @@ Defs = [SREG] in
                          (implicit SREG)]>;
 
     // ADCW Rd+1:Rd, Rr+1:Rr
-    // Pseudo instruction to add four 8-bit registers as two 16-bit values with carry.
+    // Pseudo instruction to add four 8-bit registers as two 16-bit values with
+    // carry.
     //
     // Expands to:
     // adc Rd,   Rr
@@ -1219,8 +1221,6 @@ isReMaterializable = 1 in
 }
 
 // Indirect store from register to data space.
-// We `let Constraints = ""` because it changes nothing, and we want
-// to indent instructions by catagory.
 let Constraints = "" in
 {
     def STSKRr : F32DM<0b1,
@@ -1243,8 +1243,6 @@ let Constraints = "" in
 }
  
 // Indirect stores.
-// We `let Constraints = ""` because it changes nothing, and we want
-// to indent instructions by catagory.
 let Constraints = "" in
 {
     // ST P, Rr
@@ -1328,13 +1326,11 @@ let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
 }
 
 // Store indirect with displacement operations.
-// We `let Constraints = ""` because it changes nothing, and we want
-// to indent instructions by catagory.
-let Constraints = "" in 
+let Constraints = "" in
 {
     // STD P+q, Rr
-    // Stores the value of Rr into the location addressed by pointer P with a displacement of q.
-    // Does not modify P.
+    // Stores the value of Rr into the location addressed by pointer P with a
+    // displacement of q. Does not modify P.
     def STDPtrQRr : FSTDLDD<1,
                             (outs),
                             (ins LDDSTDPtrReg:$ptr, i16imm:$imm, GPR8:$reg),
@@ -1343,8 +1339,8 @@ let Constraints = "" in
                     Requires<[HasSRAM]>;
 
     // STDW P+q, Rr+1:Rr
-    // Stores the value of Rr into the location addressed by pointer P with a displacement of q.
-    // Does not modify P.
+    // Stores the value of Rr into the location addressed by pointer P with a
+    // displacement of q. Does not modify P.
     //
     // Expands to:
     // std P+q,   Rr
@@ -1356,13 +1352,14 @@ let Constraints = "" in
                      Requires<[HasSRAM]>;
 }
 
+
 // Load program memory operations.
 let canFoldAsLoad = 1,
 isReMaterializable = 1,
-hasSideEffects = 0,
-Uses = [R31R30] in
+hasSideEffects = 0 in
 {
-    let Defs = [R0] in
+    let Defs = [R0],
+        Uses = [R31R30] in
     def LPM : F16<0b1001010111001000,
                   (outs),
                   (ins),
@@ -1373,14 +1370,14 @@ Uses = [R31R30] in
     def LPMRdZ : FLPMX<0,
                        0,
                        (outs GPR8:$dst),
-                       (ins),
-                       "lpm\t$dst, Z",
+                       (ins ZREGS:$z),
+                       "lpm\t$dst, $z",
                        []>,
                  Requires<[HasLPMX]>;
 
     def LPMWRdZ : Pseudo<(outs DREGS:$dst),
-                         (ins),
-                         "lpmw\t$dst, Z",
+                         (ins ZREGS:$z),
+                         "lpmw\t$dst, $z",
                          []>,
                   Requires<[HasLPMX]>;
 
@@ -1391,14 +1388,14 @@ Uses = [R31R30] in
         def LPMRdZPi : FLPMX<0,
                              1,
                              (outs GPR8:$dst),
-                             (ins),
-                             "lpm\t$dst, Z+",
+                             (ins ZREGS:$z),
+                             "lpm\t$dst, $z+",
                              []>,
                        Requires<[HasLPMX]>;
 
         def LPMWRdZPi : Pseudo<(outs DREGS:$dst),
-                               (ins),
-                               "lpmw\t$dst, Z+",
+                               (ins ZREGS:$z),
+                               "lpmw\t$dst, $z+",
                                []>,
                         Requires<[HasLPMX]>;
     }
@@ -1406,10 +1403,10 @@ Uses = [R31R30] in
 
 // Extended load program memory operations.
 let mayLoad = 1,
-hasSideEffects = 0,
-Uses = [R31R30] in
+hasSideEffects = 0 in
 {
-    let Defs = [R0] in
+    let Defs = [R0],
+        Uses = [R31R30] in
     def ELPM : F16<0b1001010111011000,
                    (outs),
                    (ins),
@@ -1420,8 +1417,8 @@ Uses = [R31R30] in
     def ELPMRdZ : FLPMX<1,
                         0,
                         (outs GPR8:$dst),
-                        (ins),
-                        "elpm\t$dst, Z",
+                        (ins ZREGS:$z),
+                        "elpm\t$dst, $z",
                         []>,
                   Requires<[HasELPMX]>;
 
@@ -1429,16 +1426,17 @@ Uses = [R31R30] in
     def ELPMRdZPi : FLPMX<1,
                           1,
                           (outs GPR8:$dst),
-                          (ins),
-                          "elpm\t$dst, Z+",
+                          (ins ZREGS: $z),
+                          "elpm\t$dst, $z+",
                           []>,
                     Requires<[HasELPMX]>;
 }
 
 // Store program memory operations.
 // TODO: set instruction flags properly (hasSideEffects,etc)
-let Uses = [R31R30, R1, R0] in
+let Uses = [R1, R0] in
 {
+    let Uses = [R31R30, R1, R0] in
     def SPM : F16<0b1001010111101000,
                   (outs),
                   (ins),
@@ -1449,8 +1447,8 @@ let Uses = [R31R30, R1, R0] in
     let Defs = [R31R30] in
     def SPMZPi : F16<0b1001010111111000,
                      (outs),
-                     (ins),
-                     "spm Z+",
+                     (ins ZREGS:$z),
+                     "spm $z+",
                      []>,
                  Requires<[HasSPMX]>;
 }
@@ -1471,8 +1469,6 @@ isReMaterializable = 1 in
 }
 
 // Write data to IO location operations.
-// We `let Constraints = ""` because it changes nothing, and we want
-// to indent instructions by catagory.
 let Constraints = "" in
 {
     def OUTARr : FIOARr<(outs),
@@ -1529,33 +1525,33 @@ hasSideEffects = 0 in
 }
 
 // Read-Write-Modify (RMW) instructions.
-let Uses = [R31R30] in
+let Constraints = "" in
 {
     def XCHZRd : FZRd<0b100,
                       (outs GPR8:$rd),
-                      (ins),
-                      "xch\tZ, $rd",
+                      (ins ZREGS:$z),
+                      "xch\t$z, $rd",
                       []>,
                  Requires<[SupportsRMW]>;
 
     def LASZRd : FZRd<0b101,
                       (outs GPR8:$rd),
-                      (ins),
-                      "las\tZ, $rd",
+                      (ins ZREGS:$z),
+                      "las\t$z, $rd",
                       []>,
                  Requires<[SupportsRMW]>;
 
     def LACZRd : FZRd<0b110,
                       (outs GPR8:$rd),
-                      (ins),
-                      "lac\tZ, $rd",
+                      (ins ZREGS:$z),
+                      "lac\t$z, $rd",
                       []>,
                  Requires<[SupportsRMW]>;
 
     def LATZRd : FZRd<0b111,
                       (outs GPR8:$rd),
-                      (ins),
-                      "lat\tZ, $rd",
+                      (ins ZREGS:$z),
+                      "lat\t$z, $rd",
                       []>,
                  Requires<[SupportsRMW]>;
 }
@@ -1646,8 +1642,6 @@ def SWAPRd : FRd<0b1001,
                  [(set GPR8:$rd, (bswap GPR8:$src))]>;
 
 // IO register bit set/clear operations.
-// We `let Constraints = ""` because it changes nothing, and we want
-// to indent instructions by catagory.
 let Constraints = "" in
 {
     //:TODO: add 16 bit versions of cbi/sbi
@@ -1669,8 +1663,6 @@ let Constraints = "" in
 }
 
 // Status register bit load/store operations.
-// We `let Constraints = ""` because it changes nothing, and we want
-// to indent instructions by catagory.
 let Constraints = "" in
 {
 
@@ -1690,8 +1682,6 @@ let Constraints = "" in
 }
 
 // Set/clear bit in register operations.
-// We `let Constraints = ""` because it changes nothing, and we want
-// to indent instructions by catagory.
 let Constraints = "$src = $rd",
 Defs = [SREG] in
 {
