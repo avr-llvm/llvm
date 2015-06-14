@@ -7,6 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AVRConfig.h"
+
 #include <list>
 
 #include "llvm/MC/MCAssembler.h"

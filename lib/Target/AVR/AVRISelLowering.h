@@ -15,6 +15,8 @@
 #ifndef LLVM_AVR_ISEL_LOWERING_H
 # define LLVM_AVR_ISEL_LOWERING_H
 
+# include "AVRConfig.h"
+
 # include "llvm/Target/TargetLowering.h"
 
 namespace llvm {

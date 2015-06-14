@@ -7,6 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AVRConfig.h"
+
 #include <sstream>
 
 #include "llvm/ADT/APInt.h"
@@ -31,9 +33,7 @@
 #include "AVRRegisterInfo.h"
 #include "MCTargetDesc/AVRMCExpr.h"
 
-
 #define DEBUG_TYPE "avr-asm-parser"
-#define LLVM_AVR_GCC_COMPAT
 
 namespace llvm {
 

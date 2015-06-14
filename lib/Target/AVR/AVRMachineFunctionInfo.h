@@ -14,6 +14,8 @@
 #ifndef LLVM_AVR_MACHINE_FUNCTION_INFO_H
 # define LLVM_AVR_MACHINE_FUNCTION_INFO_H
 
+# include "AVRConfig.h"
+
 # include "llvm/CodeGen/MachineFunction.h"
 
 namespace llvm {

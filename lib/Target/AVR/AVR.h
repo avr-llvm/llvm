@@ -15,8 +15,11 @@
 #ifndef LLVM_AVR_H
 # define LLVM_AVR_H
 
-# include "MCTargetDesc/AVRMCTargetDesc.h"
+# include "AVRConfig.h"
+
 # include "llvm/Target/TargetMachine.h"
+
+# include "MCTargetDesc/AVRMCTargetDesc.h"
 
 namespace llvm {
 

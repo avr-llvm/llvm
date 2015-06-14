@@ -10,6 +10,8 @@
 #ifndef LLVM_AVR_FIXUP_KINDS_H
 # define LLVM_AVR_FIXUP_KINDS_H
 
+# include "AVRConfig.h"
+
 # include "llvm/MC/MCFixup.h"
 
 namespace llvm { namespace AVR {

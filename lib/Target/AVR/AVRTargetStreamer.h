@@ -10,28 +10,28 @@
 #ifndef LLVM_AVR_TARGET_STREAMER_H
 # define LLVM_AVR_TARGET_STREAMER_H
 
+# include "AVRConfig.h"
+
 # include "llvm/MC/MCELFStreamer.h"
 # include "llvm/MC/MCStreamer.h"
 
 namespace llvm {
 
 class AVRTargetStreamer : public MCTargetStreamer {
-public:
-  explicit AVRTargetStreamer(MCStreamer &S);
+  public:
+    explicit AVRTargetStreamer(MCStreamer & S);
 };
 
 // This part is for ascii assembly output
 class AVRTargetAsmStreamer : public AVRTargetStreamer {
-
-public:
-  AVRTargetAsmStreamer(MCStreamer &);
+  public:
+    explicit AVRTargetAsmStreamer(MCStreamer & S);
 };
 
 // This part is for ELF object output
 class AVRTargetELFStreamer : public AVRTargetStreamer {
-public:
-  explicit AVRTargetELFStreamer(MCStreamer &S);
-  MCELFStreamer &getStreamer();
+  public:
+    explicit AVRTargetELFStreamer(MCStreamer & S);
 };
 
 } // end namespace llvm

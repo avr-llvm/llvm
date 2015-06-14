@@ -10,11 +10,14 @@
 #ifndef LLVM_AVR_TARGET_OBJECT_FILE_H
 # define LLVM_AVR_TARGET_OBJECT_FILE_H
 
+# include "AVRConfig.h"
+
 # include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 
 namespace llvm {
 
 class AVRTargetObjectFile : public TargetLoweringObjectFileELF {
+  typedef TargetLoweringObjectFileELF Base;
 public:
   void Initialize(MCContext &ctx, const TargetMachine &TM) override;
 

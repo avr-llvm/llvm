@@ -11,9 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "avr-selectiondag-info"
 
 #include "AVRSelectionDAGInfo.h"
+
+#define DEBUG_TYPE "avr-selectiondag-info"
 
 namespace llvm {
 

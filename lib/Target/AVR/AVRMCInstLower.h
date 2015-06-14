@@ -10,6 +10,8 @@
 #ifndef LLVM_AVR_MCINST_LOWER_H
 # define LLVM_AVR_MCINST_LOWER_H
 
+# include "AVRConfig.h"
+
 # include "llvm/Support/Compiler.h"
 
 namespace llvm {

@@ -14,6 +14,8 @@
 #ifndef LLVM_AVR_INST_PRINTER_H
 # define LLVM_AVR_INST_PRINTER_H
 
+# include "AVRConfig.h"
+
 # include "llvm/MC/MCInstPrinter.h"
 
 namespace llvm {

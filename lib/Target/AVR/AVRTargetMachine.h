@@ -14,6 +14,8 @@
 #ifndef LLVM_AVR_TARGET_MACHINE_H
 # define LLVM_AVR_TARGET_MACHINE_H
 
+# include "AVRConfig.h"
+
 # include "llvm/IR/DataLayout.h"
 # include "llvm/Target/TargetMachine.h"
 

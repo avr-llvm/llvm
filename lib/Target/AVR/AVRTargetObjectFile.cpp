@@ -18,33 +18,26 @@
 
 namespace llvm {
 
-void AVRTargetObjectFile::Initialize(MCContext &ctx, const TargetMachine &TM)
-{
-  TargetLoweringObjectFileELF::Initialize(ctx, TM);
-
+void
+AVRTargetObjectFile::Initialize(MCContext &Ctx, const TargetMachine &TM) {
+  Base::Initialize(Ctx, TM);
   ProgmemDataSection =
-    getContext().getELFSection(".progmem.data", ELF::SHT_PROGBITS,
-                               ELF::SHF_ALLOC);
+    Ctx.getELFSection(".progmem.data", ELF::SHT_PROGBITS, ELF::SHF_ALLOC);
 }
 
 MCSection *
 AVRTargetObjectFile::SelectSectionForGlobal(const GlobalValue *GV,
-                                            SectionKind Kind, Mangler &Mang,
+                                            SectionKind Kind,
+                                            Mangler &Mang,
                                             const TargetMachine &TM) const
 {
-  // Global values in flash memory are placed in the progmem.data section.
-  if (GV->getType()->getAddressSpace() == 1)
-  {
-    // Do not override custom user sections.
-    if (!GV->hasSection())
-    {
+  // Global values in flash memory are placed in the progmem.data section
+  // unless they already have a user assigned section.
+  if (GV->getType()->getAddressSpace() == 1 and not GV->hasSection())
       return ProgmemDataSection;
-    }
-  }
 
   // Otherwise, we work the same way as ELF.
-  return TargetLoweringObjectFileELF::SelectSectionForGlobal(GV, Kind, Mang,
-                                                             TM);
+  return Base::SelectSectionForGlobal(GV, Kind, Mang, TM);
 }
 
 } // end of namespace llvm

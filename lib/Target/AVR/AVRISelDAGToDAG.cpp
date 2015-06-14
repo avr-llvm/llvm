@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "avr-isel"
+#include "AVRConfig.h"
 
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
@@ -20,6 +20,8 @@
 
 #include "AVR.h"
 #include "AVRTargetMachine.h"
+
+#define DEBUG_TYPE "avr-isel"
 
 //===----------------------------------------------------------------------===//
 // Instruction Selector Implementation

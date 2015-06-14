@@ -28,8 +28,4 @@ AVRTargetAsmStreamer::AVRTargetAsmStreamer(MCStreamer &S)
 AVRTargetELFStreamer::AVRTargetELFStreamer(MCStreamer &S)
     : AVRTargetStreamer(S) {}
 
-MCELFStreamer &AVRTargetELFStreamer::getStreamer() {
-  return static_cast<MCELFStreamer &>(Streamer);
-}
-
 } // end of namespace llvm

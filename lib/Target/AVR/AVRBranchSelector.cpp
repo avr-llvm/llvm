@@ -15,7 +15,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "avr-branch-select"
+#include "AVRConfig.h"
 
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -24,6 +24,8 @@
 #include "AVR.h"
 #include "AVRInstrInfo.h"
 #include "AVRTargetMachine.h"
+
+#define DEBUG_TYPE "avr-branch-select"
 
 STATISTIC(NumExpanded, "Number of branches expanded to long format");
 

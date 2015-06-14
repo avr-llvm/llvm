@@ -15,6 +15,8 @@
 #ifndef LLVM_AVR_ASM_BACKEND_H
 # define LLVM_AVR_ASM_BACKEND_H
 
+# include "AVRConfig.h"
+
 # include "llvm/MC/MCAsmBackend.h"
 # include "llvm/ADT/Triple.h"
 
@@ -31,8 +33,8 @@ class AVRAsmBackend : public MCAsmBackend {
 
 
 public:
-  AVRAsmBackend(const Target &T, Triple::OSType _OSType)
-      : MCAsmBackend(), OSType(_OSType) {}
+  AVRAsmBackend(const Target &T, Triple::OSType OSType)
+      : MCAsmBackend(), OSType(OSType) {}
 
   MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override;
 

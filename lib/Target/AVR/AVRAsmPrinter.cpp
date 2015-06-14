@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "avr-asm-printer"
+#include "AVRConfig.h"
 
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -30,6 +30,8 @@
 #include "AVR.h"
 #include "AVRMCInstLower.h"
 #include "InstPrinter/AVRInstPrinter.h"
+
+#define DEBUG_TYPE "avr-asm-printer"
 
 namespace llvm {
 

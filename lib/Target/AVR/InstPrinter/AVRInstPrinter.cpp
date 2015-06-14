@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "asm-printer"
 
 #include "AVRInstPrinter.h"
 
@@ -25,7 +24,7 @@
 
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 
-#define LLVM_AVR_GCC_COMPAT
+#define DEBUG_TYPE "asm-printer"
 
 namespace llvm {
 

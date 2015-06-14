@@ -7,6 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AVRConfig.h"
+
 #include "llvm/IR/Module.h"
 #include "llvm/Support/TargetRegistry.h"
 

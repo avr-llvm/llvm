@@ -11,10 +11,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AVRSubtarget.h"
+
 #include "llvm/Support/TargetRegistry.h"
 
 #include "AVR.h"
-#include "AVRSubtarget.h"
 #include "AVRTargetMachine.h"
 
 #define DEBUG_TYPE "avr-subtarget"

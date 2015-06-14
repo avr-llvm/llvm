@@ -15,6 +15,8 @@
 #ifndef LLVM_AVR_CODE_EMITTER_H
 # define LLVM_AVR_CODE_EMITTER_H
 
+# include "AVRConfig.h"
+
 # include "llvm/MC/MCCodeEmitter.h"
 # include "llvm/Support/DataTypes.h"
 
