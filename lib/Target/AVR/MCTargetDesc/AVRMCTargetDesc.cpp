@@ -51,7 +51,7 @@ static MCRegisterInfo *createAVRMCRegisterInfo(StringRef TT)
   return X;
 }
 
-static MCSubtargetInfo *createAVRMCSubtargetInfo(StringRef TT, StringRef CPU,
+static MCSubtargetInfo *createAVRMCSubtargetInfo(const Triple &TT, StringRef CPU,
                                                  StringRef FS)
 {
   MCSubtargetInfo *X = new MCSubtargetInfo();

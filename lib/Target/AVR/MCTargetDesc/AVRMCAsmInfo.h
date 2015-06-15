@@ -21,10 +21,11 @@
 namespace llvm {
 
 class StringRef;
+class Triple;
 
 class AVRMCAsmInfo : public MCAsmInfo {
 public:
-  explicit AVRMCAsmInfo(StringRef TT);
+  explicit AVRMCAsmInfo(const Triple &TT);
 };
 
 } // end namespace llvm

@@ -152,17 +152,15 @@ bool AMDGPUInstrInfo::expandPostRAPseudo (MachineBasicBlock::iterator MI) const 
   return true;
 }
 
-MachineInstr *AMDGPUInstrInfo::foldMemoryOperandImpl(MachineFunction &MF,
-                                                     MachineInstr *MI,
-                                                     ArrayRef<unsigned> Ops,
-                                                     int FrameIndex) const {
+MachineInstr *AMDGPUInstrInfo::foldMemoryOperandImpl(
+    MachineFunction &MF, MachineInstr *MI, ArrayRef<unsigned> Ops,
+    MachineBasicBlock::iterator InsertPt, int FrameIndex) const {
 // TODO: Implement this function
   return nullptr;
 }
-MachineInstr *
-AMDGPUInstrInfo::foldMemoryOperandImpl(MachineFunction &MF, MachineInstr *MI,
-                                       ArrayRef<unsigned> Ops,
-                                       MachineInstr *LoadMI) const {
+MachineInstr *AMDGPUInstrInfo::foldMemoryOperandImpl(
+    MachineFunction &MF, MachineInstr *MI, ArrayRef<unsigned> Ops,
+    MachineBasicBlock::iterator InsertPt, MachineInstr *LoadMI) const {
   // TODO: Implement this function
   return nullptr;
 }
@@ -236,10 +234,9 @@ bool AMDGPUInstrInfo::isPredicated(const MachineInstr *MI) const {
   // TODO: Implement this function
   return false;
 }
-bool
-AMDGPUInstrInfo::SubsumesPredicate(const SmallVectorImpl<MachineOperand> &Pred1,
-                                  const SmallVectorImpl<MachineOperand> &Pred2)
-  const {
+
+bool AMDGPUInstrInfo::SubsumesPredicate(ArrayRef<MachineOperand> Pred1,
+                                        ArrayRef<MachineOperand> Pred2) const {
   // TODO: Implement this function
   return false;
 }

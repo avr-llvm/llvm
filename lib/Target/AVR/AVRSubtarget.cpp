@@ -26,7 +26,7 @@
 
 namespace llvm {
 
-AVRSubtarget::AVRSubtarget(const std::string &TT, const std::string &CPU,
+AVRSubtarget::AVRSubtarget(const Triple &TT, const std::string &CPU,
                            const std::string &FS, AVRTargetMachine &TM) :
   AVRGenSubtargetInfo(TT, CPU, FS),
   InstrInfo(),

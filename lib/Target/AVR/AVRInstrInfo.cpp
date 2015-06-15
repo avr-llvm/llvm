@@ -419,7 +419,7 @@ bool AVRInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
 unsigned AVRInstrInfo::InsertBranch(MachineBasicBlock &MBB,
                                     MachineBasicBlock *TBB,
                                     MachineBasicBlock *FBB,
-                                    const SmallVectorImpl<MachineOperand> &Cond,
+                                    ArrayRef<MachineOperand> Cond,
                                     DebugLoc DL) const
 {
   // Shouldn't be a fall through.

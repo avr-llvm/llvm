@@ -26,7 +26,7 @@ namespace llvm {
 // The default CPU to choose if an empty string is passed.
 namespace { const char* DefaultCPU = "avr2"; }
 
-AVRTargetMachine::AVRTargetMachine(const Target &T, StringRef TT, StringRef CPU,
+AVRTargetMachine::AVRTargetMachine(const Target &T, const Triple &TT, StringRef CPU,
                                    StringRef FS, const TargetOptions &Options,
                                    Reloc::Model RM, CodeModel::Model CM,
                                    CodeGenOpt::Level OL) :

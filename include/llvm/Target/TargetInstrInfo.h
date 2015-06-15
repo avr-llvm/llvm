@@ -405,7 +405,7 @@ public:
   /// merging needs to be disabled.
   virtual unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                                 MachineBasicBlock *FBB,
-                                const SmallVectorImpl<MachineOperand> &Cond,
+                                ArrayRef<MachineOperand> Cond,
                                 DebugLoc DL) const {
     llvm_unreachable("Target didn't implement TargetInstrInfo::InsertBranch!");
   }
@@ -530,7 +530,7 @@ public:
   /// @param TrueCycles  Latency from TrueReg to select output.
   /// @param FalseCycles Latency from FalseReg to select output.
   virtual bool canInsertSelect(const MachineBasicBlock &MBB,
-                               const SmallVectorImpl<MachineOperand> &Cond,
+                               ArrayRef<MachineOperand> Cond,
                                unsigned TrueReg, unsigned FalseReg,
                                int &CondCycles,
                                int &TrueCycles, int &FalseCycles) const {
@@ -554,8 +554,7 @@ public:
   /// @param FalseReg Virtual register to copy when Cons is false.
   virtual void insertSelect(MachineBasicBlock &MBB,
                             MachineBasicBlock::iterator I, DebugLoc DL,
-                            unsigned DstReg,
-                            const SmallVectorImpl<MachineOperand> &Cond,
+                            unsigned DstReg, ArrayRef<MachineOperand> Cond,
                             unsigned TrueReg, unsigned FalseReg) const {
     llvm_unreachable("Target didn't implement TargetInstrInfo::insertSelect!");
   }
@@ -711,20 +710,22 @@ protected:
   /// Target-dependent implementation for foldMemoryOperand.
   /// Target-independent code in foldMemoryOperand will
   /// take care of adding a MachineMemOperand to the newly created instruction.
-  virtual MachineInstr *foldMemoryOperandImpl(MachineFunction &MF,
-                                              MachineInstr *MI,
-                                              ArrayRef<unsigned> Ops,
-                                              int FrameIndex) const {
+  /// The instruction and any auxiliary instructions necessary will be inserted
+  /// at InsertPt.
+  virtual MachineInstr *foldMemoryOperandImpl(
+      MachineFunction &MF, MachineInstr *MI, ArrayRef<unsigned> Ops,
+      MachineBasicBlock::iterator InsertPt, int FrameIndex) const {
     return nullptr;
   }
 
   /// Target-dependent implementation for foldMemoryOperand.
   /// Target-independent code in foldMemoryOperand will
   /// take care of adding a MachineMemOperand to the newly created instruction.
-  virtual MachineInstr *foldMemoryOperandImpl(MachineFunction &MF,
-                                              MachineInstr *MI,
-                                              ArrayRef<unsigned> Ops,
-                                              MachineInstr *LoadMI) const {
+  /// The instruction and any auxiliary instructions necessary will be inserted
+  /// at InsertPt.
+  virtual MachineInstr *foldMemoryOperandImpl(
+      MachineFunction &MF, MachineInstr *MI, ArrayRef<unsigned> Ops,
+      MachineBasicBlock::iterator InsertPt, MachineInstr *LoadMI) const {
     return nullptr;
   }
 
@@ -876,13 +877,13 @@ public:
   /// It returns true if the operation was successful.
   virtual
   bool PredicateInstruction(MachineInstr *MI,
-                        const SmallVectorImpl<MachineOperand> &Pred) const;
+                            ArrayRef<MachineOperand> Pred) const;
 
   /// Returns true if the first specified predicate
   /// subsumes the second, e.g. GE subsumes GT.
   virtual
-  bool SubsumesPredicate(const SmallVectorImpl<MachineOperand> &Pred1,
-                         const SmallVectorImpl<MachineOperand> &Pred2) const {
+  bool SubsumesPredicate(ArrayRef<MachineOperand> Pred1,
+                         ArrayRef<MachineOperand> Pred2) const {
     return false;
   }
 

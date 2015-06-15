@@ -28,6 +28,7 @@ class MCInstrInfo;
 class MCContext;
 class StringRef;
 class Target;
+class Triple;
 class raw_pwrite_stream;
 
 extern Target TheAVRTarget;
@@ -38,7 +39,7 @@ MCCodeEmitter *createAVRMCCodeEmitter(const MCInstrInfo &MCII,
                                       MCContext &Ctx);
 
 MCAsmBackend *createAVRAsmBackend(const Target &T, const MCRegisterInfo &MRI,
-                                    StringRef TT, StringRef CPU);
+                                  const Triple &TT, StringRef CPU);
                                     
 MCObjectWriter *createAVRELFObjectWriter(raw_pwrite_stream &OS, uint8_t OSABI);
 

@@ -30,7 +30,7 @@ namespace llvm {
 class AVRTargetMachine : public LLVMTargetMachine {
 public:
 
-  AVRTargetMachine(const Target &T, StringRef TT, StringRef CPU, StringRef FS,
+  AVRTargetMachine(const Target &T, const Triple &TT, StringRef CPU, StringRef FS,
                    const TargetOptions &Options, Reloc::Model RM,
                    CodeModel::Model CM, CodeGenOpt::Level OL);
 

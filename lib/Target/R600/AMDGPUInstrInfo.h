@@ -87,9 +87,11 @@ public:
 protected:
   MachineInstr *foldMemoryOperandImpl(MachineFunction &MF, MachineInstr *MI,
                                       ArrayRef<unsigned> Ops,
+                                      MachineBasicBlock::iterator InsertPt,
                                       int FrameIndex) const override;
   MachineInstr *foldMemoryOperandImpl(MachineFunction &MF, MachineInstr *MI,
                                       ArrayRef<unsigned> Ops,
+                                      MachineBasicBlock::iterator InsertPt,
                                       MachineInstr *LoadMI) const override;
 
 public:
@@ -123,8 +125,8 @@ public:
   void insertNoop(MachineBasicBlock &MBB,
                   MachineBasicBlock::iterator MI) const override;
   bool isPredicated(const MachineInstr *MI) const override;
-  bool SubsumesPredicate(const SmallVectorImpl<MachineOperand> &Pred1,
-                   const SmallVectorImpl<MachineOperand> &Pred2) const override;
+  bool SubsumesPredicate(ArrayRef<MachineOperand> Pred1,
+                         ArrayRef<MachineOperand> Pred2) const override;
   bool DefinesPredicate(MachineInstr *MI,
                         std::vector<MachineOperand> &Pred) const override;
   bool isPredicable(MachineInstr *MI) const override;

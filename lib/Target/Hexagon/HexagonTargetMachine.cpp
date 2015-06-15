@@ -68,7 +68,7 @@ namespace llvm {
 
 /// Hexagon_TODO: Do I need an aggregate alignment?
 ///
-HexagonTargetMachine::HexagonTargetMachine(const Target &T, StringRef TT,
+HexagonTargetMachine::HexagonTargetMachine(const Target &T, const Triple &TT,
                                            StringRef CPU, StringRef FS,
                                            const TargetOptions &Options,
                                            Reloc::Model RM, CodeModel::Model CM,

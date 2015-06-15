@@ -24,6 +24,10 @@
 #include "llvm/Target/TargetOptions.h"
 using namespace llvm;
 
+static cl::opt<bool> EnableMachineCombinerPass("x86-machine-combiner",
+                               cl::desc("Enable the machine combiner pass"),
+                               cl::init(true), cl::Hidden);
+
 extern "C" void LLVMInitializeX86Target() {
   // Register the target.
   RegisterTargetMachine<X86TargetMachine> X(TheX86_32Target);
@@ -90,12 +94,13 @@ static std::string computeDataLayout(const Triple &TT) {
 
 /// X86TargetMachine ctor - Create an X86 target.
 ///
-X86TargetMachine::X86TargetMachine(const Target &T, StringRef TT, StringRef CPU,
-                                   StringRef FS, const TargetOptions &Options,
+X86TargetMachine::X86TargetMachine(const Target &T, const Triple &TT,
+                                   StringRef CPU, StringRef FS,
+                                   const TargetOptions &Options,
                                    Reloc::Model RM, CodeModel::Model CM,
                                    CodeGenOpt::Level OL)
-    : LLVMTargetMachine(T, computeDataLayout(Triple(TT)), TT, CPU, FS, Options,
-                        RM, CM, OL),
+    : LLVMTargetMachine(T, computeDataLayout(TT), TT, CPU, FS, Options, RM, CM,
+                        OL),
       TLOF(createTLOF(Triple(getTargetTriple()))),
       Subtarget(TT, CPU, FS, *this, Options.StackAlignmentOverride) {
   // Windows stack unwinder gets confused when execution flow "falls through"
@@ -148,7 +153,7 @@ X86TargetMachine::getSubtargetImpl(const Function &F) const {
     // creation will depend on the TM and the code generation flags on the
     // function that reside in TargetOptions.
     resetTargetOptions(F);
-    I = llvm::make_unique<X86Subtarget>(TargetTriple, CPU, FS, *this,
+    I = llvm::make_unique<X86Subtarget>(Triple(TargetTriple), CPU, FS, *this,
                                         Options.StackAlignmentOverride);
   }
   return I.get();
@@ -224,6 +229,8 @@ bool X86PassConfig::addInstSelector() {
 
 bool X86PassConfig::addILPOpts() {
   addPass(&EarlyIfConverterID);
+  if (EnableMachineCombinerPass)
+    addPass(&MachineCombinerID);
   return true;
 }
 

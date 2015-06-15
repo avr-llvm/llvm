@@ -191,7 +191,7 @@ public:
     switch(Kind) {
       case k_Token:     O << "Token: \"" << Tok << "\"";                break;
       case k_Register:  O << "Register: " << Reg;                       break;
-      case k_Immediate: O << "Immediate: \""; Imm->print(O); O << "\""; break;
+      case k_Immediate: O << "Immediate: \"" << *Imm << "\""; break;
     }
     O << "\n";
   }

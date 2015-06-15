@@ -385,8 +385,8 @@ public:
 
   MachO::any_relocation_info getRelocation(DataRefImpl Rel) const;
   MachO::data_in_code_entry getDice(DataRefImpl Rel) const;
-  MachO::mach_header getHeader() const;
-  MachO::mach_header_64 getHeader64() const;
+  const MachO::mach_header &getHeader() const;
+  const MachO::mach_header_64 &getHeader64() const;
   uint32_t
   getIndirectSymbolTableEntry(const MachO::dysymtab_command &DLC,
                               unsigned Index) const;
@@ -429,10 +429,10 @@ public:
   }
 
 private:
-  // Walk load commands.
-  LoadCommandInfo getFirstLoadCommandInfo() const;
-  LoadCommandInfo getNextLoadCommandInfo(const LoadCommandInfo &L) const;
-
+  union {
+    MachO::mach_header_64 Header64;
+    MachO::mach_header Header;
+  };
   typedef SmallVector<const char*, 1> SectionList;
   SectionList Sections;
   typedef SmallVector<const char*, 1> LibraryList;
@@ -476,7 +476,7 @@ inline std::error_code DiceRef::getOffset(uint32_t &Result) const {
     static_cast<const MachOObjectFile *>(OwningObject);
   MachO::data_in_code_entry Dice = MachOOF->getDice(DicePimpl);
   Result = Dice.offset;
-  return object_error::success;
+  return std::error_code();
 }
 
 inline std::error_code DiceRef::getLength(uint16_t &Result) const {
@@ -484,7 +484,7 @@ inline std::error_code DiceRef::getLength(uint16_t &Result) const {
     static_cast<const MachOObjectFile *>(OwningObject);
   MachO::data_in_code_entry Dice = MachOOF->getDice(DicePimpl);
   Result = Dice.length;
-  return object_error::success;
+  return std::error_code();
 }
 
 inline std::error_code DiceRef::getKind(uint16_t &Result) const {
@@ -492,7 +492,7 @@ inline std::error_code DiceRef::getKind(uint16_t &Result) const {
     static_cast<const MachOObjectFile *>(OwningObject);
   MachO::data_in_code_entry Dice = MachOOF->getDice(DicePimpl);
   Result = Dice.kind;
-  return object_error::success;
+  return std::error_code();
 }
 
 inline DataRefImpl DiceRef::getRawDataRefImpl() const {

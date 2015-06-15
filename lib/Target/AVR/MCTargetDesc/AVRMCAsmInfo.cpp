@@ -14,10 +14,11 @@
 #include "AVRMCAsmInfo.h"
 
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/Triple.h"
 
 namespace llvm {
 
-AVRMCAsmInfo::AVRMCAsmInfo(StringRef TT) {
+AVRMCAsmInfo::AVRMCAsmInfo(const Triple &TT) {
   PointerSize                   = 2;
   CalleeSaveStackSlotSize       = 2;
   CommentString                 = ";";

@@ -197,17 +197,12 @@ getFixupKindInfo(MCFixupKind Kind) const {
 ///
 /// \return - True on success.
 bool AVRAsmBackend::writeNopData(uint64_t Count, MCObjectWriter *OW) const {
-  // Check for a less than instruction size number of bytes
-
   // If the count is not 2-byte aligned, we must be writing data into the text
   // section (otherwise we have unaligned instructions, and thus have far
   // bigger problems), so just write zeros instead.
-  if (Count % 2 != 0)
-    OW->Write8(0);
+  assert((Count % 2) == 0 && "NOP instructions must be 2 bytes");
 
-  uint64_t NumNops = Count / 2;
-  for (uint64_t i = 0; i != NumNops; ++i)
-    OW->Write16(0);
+  OW->WriteZeros(Count);
   return true;
 }
 
@@ -230,9 +225,9 @@ void AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
 
 MCAsmBackend *
 createAVRAsmBackend(const Target &T, const MCRegisterInfo &MRI,
-                    StringRef TT, StringRef CPU)
+                    const Triple &TT, StringRef CPU)
 {
-  return new AVRAsmBackend(T, Triple(TT).getOS());
+  return new AVRAsmBackend(T, TT.getOS());
 }
 
 } // end of namespace llvm

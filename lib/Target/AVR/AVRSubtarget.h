@@ -42,7 +42,7 @@ public:
   //! \param CPU The CPU to target.
   //! \param FS  The feature string.
   //! \param TM  The target machine.
-  AVRSubtarget(const std::string &TT, const std::string &CPU,
+  AVRSubtarget(const Triple &TT, const std::string &CPU,
                const std::string &FS, AVRTargetMachine &TM);
 
   const AVRInstrInfo *getInstrInfo() const override { return &InstrInfo; }
