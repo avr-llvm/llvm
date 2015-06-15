@@ -1,5 +1,4 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
-; XFAIL: *
 
 ; TODO: test returning byval structs
 
@@ -142,7 +141,7 @@ define void @testcallprologue() {
 ; CHECK-LABEL: testcallprologue:
 ; CHECK: push r28
 ; CHECK: push r29
-; CHECK: sbiw r28, 27
+; CHECK: sbiw Y, 27
 ; CHECK: ldi [[REG1:r[0-9]+]], 88
 ; CHECK: std Y+9, [[REG1]]
 ; CHECK: ldi [[REG1:r[0-9]+]], 11
@@ -176,7 +175,7 @@ define i32 @icall(i32 (i32)* %foo) {
 ; CHECK: ldi r23, 248
 ; CHECK: ldi r24, 214
 ; CHECK: ldi r25, 198
-; CHECK: movw r30, [[REG]]
+; CHECK: movw Z, [[REG]]
 ; CHECK: icall
 ; CHECK: subi r22, 251
 ; CHECK: sbci r23, 255
@@ -193,8 +192,8 @@ declare i32 @foofloat(float)
 
 define i32 @externcall(float %a, float %b) {
 ; CHECK-LABEL: externcall:
-; CHECK: movw [[REG1:r[0-9]+]], r24
-; CHECK: movw [[REG2:r[0-9]+]], r22
+; CHECK: movw [[REG1:(r[0-9]+|[XYZ])]], r24
+; CHECK: movw [[REG2:(r[0-9]+|[XYZ])]], r22
 ; CHECK: movw r22, r18
 ; CHECK: movw r24, r20
 ; CHECK: movw r18, [[REG2]]
