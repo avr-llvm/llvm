@@ -74,3 +74,5 @@ clang -S -emit-llvm main.c -o main.ll
 This will add all included headers, and concatenate it into one simple file.
 
 Any questions can be asked on the `dev` mailing list.
+
+Good luck!
