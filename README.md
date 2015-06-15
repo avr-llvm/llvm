@@ -13,15 +13,20 @@ a production-quality compiler backend, so bugs will not be tolerated.
 
 AVR-related code can be found in `lib/Target/AVR`.
 
-## Mailing List
+## Mailing Lists
 
-The mailing list can be found [here](https://lists.sourceforge.net/lists/listinfo/avr-llvm-backend-mail).
+The mailing lists can be found [here](http://lists.avr-llvm.org/mailman/listinfo).
+
+`users` can be used for general user questions.
+
+`dev` is for commentary relating to AVR-LLVM development (bugs, feature requests, etc).
 
 ## Features
 
 * Machine code generation
 * Assembly and machine code support for the entire instruction set
 * ELF object outputting
+* AVR-GCC compatability
 
 ## History
 
@@ -46,3 +51,26 @@ Any improvement, however minor, is welcomed :)
 Take a look at the issues page for goals and bugs that currently exist. Pull requests are very welcome!
 
 For more information, please read the [Contributing](https://github.com/avr-llvm/llvm/wiki/Contributing) page on the Wiki.
+
+## Submitting Bugs
+
+Bugs can be reported on the GitHub issue [tracker](https://github.com/avr-llvm/llvm/issues).
+
+It is useful to submit small testcases (generally LLVM IR files) that reproduce the bug. We prefer IR files over
+C/C++ sources for several reasons:
+
+* They often require headers or libraries that we must also install (e.g. Arduino)
+* They require building clang (which we don't often due, as it takes a long time)
+* They are smaller and self-contained
+
+If you want to submit a C/C++ testcase, please convert into IR form first.
+
+To do this:
+```
+# compile `main.c` into `main.ll`
+clang -S -emit-llvm main.c -o main.ll
+```
+
+This will add all included headers, and concatenate it into one simple file.
+
+Any questions can be asked on the `dev` mailing list.

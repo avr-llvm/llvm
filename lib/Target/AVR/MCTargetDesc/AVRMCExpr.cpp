@@ -110,6 +110,7 @@ AVRMCExpr::evaluateAsInt64(int64_t Value) const {
     case AVRMCExpr::VK_AVR_PM_HH8: v >>= 17; break;
 
     case AVRMCExpr::VK_AVR_None: llvm_unreachable("Uninitialized expression.");
+    default: llvm_unreachable("unknown fixup kind");
   }
   return v & 0xff;
 }
@@ -127,6 +128,7 @@ AVRMCExpr::getFixupKind() const {
     case VK_AVR_PM_HH8: return AVR::fixup_hh8_ldi_pm;
 
     case VK_AVR_None: llvm_unreachable("Uninitialized expression");
+    default: llvm_unreachable("unknown fixup kind");
   }
 }
 

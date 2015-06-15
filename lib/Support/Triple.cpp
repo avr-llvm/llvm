@@ -1059,6 +1059,7 @@ Triple Triple::get32BitArchVariant() const {
   case Triple::UnknownArch:
   case Triple::aarch64:
   case Triple::aarch64_be:
+  case Triple::avr:
   case Triple::amdgcn:
   case Triple::bpfel:
   case Triple::bpfeb:
