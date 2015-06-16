@@ -94,7 +94,13 @@ void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   const MCOperand &Op = MI->getOperand(OpNo);
 
   if (Op.isReg()) {
-    O << getPrettyRegisterName(Op.getReg(), MRI);
+    bool isDREGS = false;
+
+    if(isDREGS) {
+
+    } else {
+        O << getPrettyRegisterName(Op.getReg(), MRI);
+    }
   } else if (Op.isImm()) {
     O << Op.getImm();
   } else {
