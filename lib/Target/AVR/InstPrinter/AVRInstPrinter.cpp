@@ -18,6 +18,8 @@
 
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrDesc.h"
+#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
@@ -92,14 +94,19 @@ void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
                                   raw_ostream &O)
 {
   const MCOperand &Op = MI->getOperand(OpNo);
+  const MCOperandInfo& MOI = this->MII.get(MI->getOpcode()).OpInfo[OpNo];
+
 
   if (Op.isReg()) {
-    bool isDREGS = false;
+    //.RegClass == AVR::GPR8RegClassID
+    bool isPtrReg = (MOI.RegClass == AVR::PTRREGSRegClassID) ||
+                    (MOI.RegClass == AVR::PTRDISPREGSRegClassID) ||
+                    (MOI.RegClass == AVR::ZREGSRegClassID);
 
-    if(isDREGS) {
-
+    if(isPtrReg) {
+      O << getRegisterName(Op.getReg(), AVR::ptr);
     } else {
-        O << getPrettyRegisterName(Op.getReg(), MRI);
+      O << getPrettyRegisterName(Op.getReg(), MRI);
     }
   } else if (Op.isImm()) {
     O << Op.getImm();
