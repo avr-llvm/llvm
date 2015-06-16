@@ -110,26 +110,27 @@ AVRMCExpr::evaluateAsInt64(int64_t Value) const {
     case AVRMCExpr::VK_AVR_PM_HH8: v >>= 17; break;
 
     case AVRMCExpr::VK_AVR_None: llvm_unreachable("Uninitialized expression.");
-    default: llvm_unreachable("unknown fixup kind");
   }
   return v & 0xff;
 }
 
 AVR::Fixups
 AVRMCExpr::getFixupKind() const {
-  switch (getKind()) {
-    case VK_AVR_LO8:    return AVR::fixup_lo8_ldi;
-    case VK_AVR_HI8:    return AVR::fixup_hi8_ldi;
-    case VK_AVR_HH8:    return AVR::fixup_hh8_ldi;
-    case VK_AVR_HHI8:   return AVR::fixup_ms8_ldi;
+  auto kind = AVR::Fixups(-1);
 
-    case VK_AVR_PM_LO8: return AVR::fixup_lo8_ldi_pm;
-    case VK_AVR_PM_HI8: return AVR::fixup_hi8_ldi_pm;
-    case VK_AVR_PM_HH8: return AVR::fixup_hh8_ldi_pm;
+  switch (getKind()) {
+    case VK_AVR_LO8:    kind = AVR::fixup_lo8_ldi; break;
+    case VK_AVR_HI8:    kind = AVR::fixup_hi8_ldi; break;
+    case VK_AVR_HH8:    kind = AVR::fixup_hh8_ldi; break;
+    case VK_AVR_HHI8:   kind = AVR::fixup_ms8_ldi; break;
+
+    case VK_AVR_PM_LO8: kind = AVR::fixup_lo8_ldi_pm; break;
+    case VK_AVR_PM_HI8: kind = AVR::fixup_hi8_ldi_pm; break;
+    case VK_AVR_PM_HH8: kind = AVR::fixup_hh8_ldi_pm; break;
 
     case VK_AVR_None: llvm_unreachable("Uninitialized expression");
-    default: llvm_unreachable("unknown fixup kind");
   }
+  return kind;
 }
 
 void
