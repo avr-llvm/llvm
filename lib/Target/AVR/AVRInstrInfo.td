@@ -150,7 +150,7 @@ def memspi : Operand<iPTR>
 
 def i8imm_com : Operand<i8>
 {
-  let EncoderMethod = "getI8ImmComEncoding";
+  let EncoderMethod = "encodeI8ImmCom";
 
   let MIOperandInfo = (ops i8imm);
 }
@@ -158,19 +158,19 @@ def i8imm_com : Operand<i8>
 def rel_condbr_7_target : Operand<OtherVT>
 {
     let PrintMethod   = "printPCRelImm";
-    let EncoderMethod = "getRelCondBrTargetEncoding<AVR::fixup_7_pcrel>";
+    let EncoderMethod = "encodeRelCondBrTarget<AVR::fixup_7_pcrel>";
 }
 
 def rel_condbr_13_target : Operand<OtherVT>
 {
     let PrintMethod   = "printPCRelImm";
-    let EncoderMethod = "getRelCondBrTargetEncoding<AVR::fixup_13_pcrel>";
+    let EncoderMethod = "encodeRelCondBrTarget<AVR::fixup_13_pcrel>";
 }
 
 // The target of a 22 or 16-bit call/jmp instruction.
 def call_target : Operand<iPTR>
 {
-    let EncoderMethod = "getCallTargetEncoding";
+    let EncoderMethod = "encodeCallTarget";
 }
 
 // Addressing mode pattern reg+imm6
@@ -190,7 +190,7 @@ def PtrRegAsmOperand : AsmOperandClass
 def LDSTPtrReg : Operand<i16>
 {
     let MIOperandInfo = (ops PTRREGS);
-    let EncoderMethod = "getLDSTPtrRegEncoding";
+    let EncoderMethod = "encodeLDSTPtrReg";
     
     let ParserMatchClass = PtrRegAsmOperand;
 }
@@ -201,7 +201,7 @@ def LDSTPtrReg : Operand<i16>
 def LDDSTDPtrReg : Operand<i16>
 {
     let MIOperandInfo = (ops PTRDISPREGS);
-    let EncoderMethod = "getLDSTPtrRegEncoding";
+    let EncoderMethod = "encodeLDSTPtrReg";
 
     let ParserMatchClass = PtrRegAsmOperand;
 }

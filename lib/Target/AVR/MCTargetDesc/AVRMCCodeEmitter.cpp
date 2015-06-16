@@ -36,61 +36,6 @@
 
 namespace llvm {
 
-MCCodeEmitter *
-createAVRMCCodeEmitter(const MCInstrInfo &MCII,
-                       const MCRegisterInfo &MRI,
-                       MCContext &Ctx)
-{
-  return new AVRMCCodeEmitter(MCII, Ctx);
-}
-
-void
-AVRMCCodeEmitter::emitByte(unsigned char C, raw_ostream &OS) const {
-  OS << (char)C;
-}
-
-void
-AVRMCCodeEmitter::emitWord(uint16_t word, raw_ostream &OS) const {
-  emitByte((word & 0x00ff)>>0, OS);
-  emitByte((word & 0xff00)>>8, OS);
-}
-
-void
-AVRMCCodeEmitter::emitWords(uint16_t* words, size_t count, raw_ostream &OS) const {
-  for(int64_t i=count-1; i>=0; --i) {
-    uint16_t word = words[i];
-
-    emitWord(word, OS);
-  }
-}
-
-void
-AVRMCCodeEmitter::emitInstruction(uint64_t Val, unsigned Size,
-                                  const MCSubtargetInfo &STI,
-                                  raw_ostream &OS) const {
-  uint16_t* words = (uint16_t*) &Val;
-  size_t wordCount = Size/2;
-
-  emitWords(words, wordCount, OS);
-}
-
-void
-AVRMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
-                                    SmallVectorImpl<MCFixup> &Fixups,
-                                    const MCSubtargetInfo &STI) const
-{
-  uint32_t Binary = getBinaryCodeForInstr(MI, Fixups, STI);
-  
-  const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
-  
-  // Get byte count of instruction
-  unsigned Size = Desc.getSize();
-  if (!Size)
-    llvm_unreachable("Desc.getSize() returns 0");
-
-  emitInstruction(Binary, Size, STI, OS);
-}
-
 // The encoding of the LD/ST family of instructions is inconsistent w.r.t
 // the pointer register and the addressing mode.
 //
@@ -121,7 +66,9 @@ AVRMCCodeEmitter::loadStorePostEncoder(const MCInst &MI,
                                        const MCSubtargetInfo &STI) const
 {
 
-  assert(MI.getOperand(0).isReg() && MI.getOperand(1).isReg() && "the load/store operands must be registers");
+  assert(MI.getOperand(0).isReg() &&
+         MI.getOperand(1).isReg() &&
+         "the load/store operands must be registers");
 
   auto opcode = MI.getOpcode();
 
@@ -146,19 +93,18 @@ AVRMCCodeEmitter::loadStorePostEncoder(const MCInst &MI,
 
 template <AVR::Fixups Fixup>
 unsigned
-AVRMCCodeEmitter::getRelCondBrTargetEncoding(const MCInst &MI, unsigned OpNo,
-                                             SmallVectorImpl<MCFixup> &Fixups,
-                                             const MCSubtargetInfo &STI) const {
-                                   
-  const MCOperand MO = MI.getOperand(OpNo);
+AVRMCCodeEmitter::encodeRelCondBrTarget(const MCInst &MI, unsigned OpNo,
+                                        SmallVectorImpl<MCFixup> &Fixups,
+                                        const MCSubtargetInfo &STI) const
+{
+  MCOperand const& MO = MI.getOperand(OpNo);
   
   if (MO.isExpr()) {
     const MCOperand &MO = MI.getOperand(OpNo);
     const MCExpr *Expr = MO.getExpr();
     Fixups.push_back(MCFixup::create(0, Expr, MCFixupKind(Fixup), MI.getLoc()));
     return 0;
-  } 
-  else {
+  } else {
     // take the size of the current instruction away.
     // with labels, this is implicitly handled.
     auto target = MO.getImm();
@@ -170,11 +116,10 @@ AVRMCCodeEmitter::getRelCondBrTargetEncoding(const MCInst &MI, unsigned OpNo,
 }
 
 unsigned
-AVRMCCodeEmitter::getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
-                                        SmallVectorImpl<MCFixup> &Fixups,
-                                        const MCSubtargetInfo &STI) const
+AVRMCCodeEmitter::encodeLDSTPtrReg(const MCInst &MI, unsigned OpNo,
+                                   SmallVectorImpl<MCFixup> &Fixups,
+                                   const MCSubtargetInfo &STI) const
 {
-
   // the operand should be a pointer register.
   assert(MI.getOperand(OpNo).isReg());
 
@@ -192,11 +137,11 @@ AVRMCCodeEmitter::getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
   return encoding;
 }
 
-
 unsigned
-AVRMCCodeEmitter::getI8ImmComEncoding(const MCInst &MI, unsigned OpNo,
-                                      SmallVectorImpl<MCFixup> &Fixups,
-                                      const MCSubtargetInfo &STI) const {
+AVRMCCodeEmitter::encodeI8ImmCom(const MCInst &MI, unsigned OpNo,
+                                 SmallVectorImpl<MCFixup> &Fixups,
+                                 const MCSubtargetInfo &STI) const
+{
   // the operand should be a pointer register.
   assert(MI.getOperand(OpNo).isImm());
 
@@ -208,9 +153,10 @@ AVRMCCodeEmitter::getI8ImmComEncoding(const MCInst &MI, unsigned OpNo,
 }
 
 unsigned
-AVRMCCodeEmitter::getCallTargetEncoding(const MCInst &MI, unsigned OpNo,
-                                        SmallVectorImpl<MCFixup> &Fixups,
-                                        const MCSubtargetInfo &STI) const {
+AVRMCCodeEmitter::encodeCallTarget(const MCInst &MI, unsigned OpNo,
+                                   SmallVectorImpl<MCFixup> &Fixups,
+                                   const MCSubtargetInfo &STI) const
+{
   auto MO = MI.getOperand(OpNo);
   
   if (MO.isExpr()){
@@ -251,10 +197,12 @@ AVRMCCodeEmitter::getExprOpValue(const MCExpr *Expr,
   return 0;
 }
 
-unsigned AVRMCCodeEmitter::
-getMachineOpValue(const MCInst &MI, const MCOperand &MO,
-                  SmallVectorImpl<MCFixup> &Fixups,
-                  const MCSubtargetInfo &STI) const {
+unsigned
+AVRMCCodeEmitter::getMachineOpValue(const MCInst &MI,
+                                    const MCOperand &MO,
+                                    SmallVectorImpl<MCFixup> &Fixups,
+                                    const MCSubtargetInfo &STI) const
+{
   if (MO.isReg()) {
     return Ctx.getRegisterInfo()->getEncodingValue(MO.getReg());
   } else if (MO.isImm()) {
@@ -268,6 +216,59 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   assert(MO.isExpr());
   
   return getExprOpValue(MO.getExpr(),Fixups, STI);
+}
+
+void
+AVRMCCodeEmitter::emitByte(unsigned char C, raw_ostream &OS) const {
+  OS << (char)C;
+}
+
+void
+AVRMCCodeEmitter::emitWord(uint16_t word, raw_ostream &OS) const {
+  emitByte((word & 0x00ff)>>0, OS);
+  emitByte((word & 0xff00)>>8, OS);
+}
+
+void
+AVRMCCodeEmitter::emitWords(uint16_t const* Words,
+                            size_t Count,
+                            raw_ostream &OS) const
+{
+  for(int64_t i = Count - 1; i >= 0; --i) {
+    emitWord(Words[i], OS);
+  }
+}
+
+void
+AVRMCCodeEmitter::emitInstruction(uint64_t Val, unsigned Size,
+                                  const MCSubtargetInfo &STI,
+                                  raw_ostream &OS) const
+{
+  uint16_t const* words = reinterpret_cast<uint16_t const*>(&Val);
+  size_t wordCount = Size / 2;
+  emitWords(words, wordCount, OS);
+}
+
+void
+AVRMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
+                                    SmallVectorImpl<MCFixup> &Fixups,
+                                    const MCSubtargetInfo &STI) const
+{
+  const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
+
+  // Get byte count of instruction
+  unsigned Size = Desc.getSize();
+  if (!Size) llvm_unreachable("instruction size is zero");
+  uint64_t BinaryOpCode = getBinaryCodeForInstr(MI, Fixups, STI);
+  emitInstruction(BinaryOpCode, Size, STI, OS);
+}
+
+MCCodeEmitter *
+createAVRMCCodeEmitter(const MCInstrInfo &MCII,
+                       const MCRegisterInfo &MRI,
+                       MCContext &Ctx)
+{
+  return new AVRMCCodeEmitter(MCII, Ctx);
 }
 
 #include "AVRGenMCCodeEmitter.inc"
