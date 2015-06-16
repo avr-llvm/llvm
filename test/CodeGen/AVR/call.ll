@@ -141,7 +141,7 @@ define void @testcallprologue() {
 ; CHECK-LABEL: testcallprologue:
 ; CHECK: push r28
 ; CHECK: push r29
-; CHECK: sbiw Y, 27
+; CHECK: sbiw r28, 27
 ; CHECK: ldi [[REG1:r[0-9]+]], 88
 ; CHECK: std Y+9, [[REG1]]
 ; CHECK: ldi [[REG1:r[0-9]+]], 11
@@ -175,7 +175,7 @@ define i32 @icall(i32 (i32)* %foo) {
 ; CHECK: ldi r23, 248
 ; CHECK: ldi r24, 214
 ; CHECK: ldi r25, 198
-; CHECK: movw Z, [[REG]]
+; CHECK: movw r30, [[REG]]
 ; CHECK: icall
 ; CHECK: subi r22, 251
 ; CHECK: sbci r23, 255

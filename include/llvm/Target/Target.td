@@ -905,6 +905,10 @@ class AsmParser {
   // written register name matcher
   bit ShouldEmitMatchRegisterName = 1;
 
+  // ShouldEmitMatchRegisterAltName - Set to false if the target needs a hand
+  // written register alternative name matcher
+  bit ShouldEmitMatchRegisterAltName = 0;
+
   /// Does the instruction mnemonic allow '.'
   bit MnemonicContainsDot = 0;
 }

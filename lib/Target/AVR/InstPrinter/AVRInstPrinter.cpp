@@ -18,6 +18,8 @@
 
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrDesc.h"
+#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
@@ -76,15 +78,16 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
 }
 
 const char *
-AVRInstPrinter::getPrettyRegisterName(unsigned RegNo, MCRegisterInfo const& MRI) {
+AVRInstPrinter::getPrettyRegisterName(unsigned RegNum, MCRegisterInfo const& MRI) {
+
 #ifdef LLVM_AVR_GCC_COMPAT
-  if (AVRMCRegisterClasses[AVR::DREGSRegClassID].contains(RegNo) &&
-      !AVRMCRegisterClasses[AVR::PTRREGSRegClassID].contains(RegNo))
-  {
-    return getRegisterName(MRI.getSubReg(RegNo, AVR::sub_lo));
-  }
+  // GCC prints register pairs by just printing the lower register
+  // If the register contains a subregister, print it instead
+  auto RegLoNum = MRI.getSubReg(RegNum, AVR::sub_lo);
+  RegNum = (RegLoNum != AVR::NoRegister) ? RegLoNum : RegNum;
 #endif
-  return getRegisterName(RegNo);
+
+  return getRegisterName(RegNum);
 }
 
 
@@ -92,9 +95,20 @@ void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
                                   raw_ostream &O)
 {
   const MCOperand &Op = MI->getOperand(OpNo);
+  const MCOperandInfo& MOI = this->MII.get(MI->getOpcode()).OpInfo[OpNo];
+
 
   if (Op.isReg()) {
-    O << getPrettyRegisterName(Op.getReg(), MRI);
+    //.RegClass == AVR::GPR8RegClassID
+    bool isPtrReg = (MOI.RegClass == AVR::PTRREGSRegClassID) ||
+                    (MOI.RegClass == AVR::PTRDISPREGSRegClassID) ||
+                    (MOI.RegClass == AVR::ZREGSRegClassID);
+
+    if(isPtrReg) {
+      O << getRegisterName(Op.getReg(), AVR::ptr);
+    } else {
+      O << getPrettyRegisterName(Op.getReg(), MRI);
+    }
   } else if (Op.isImm()) {
     O << Op.getImm();
   } else {

@@ -12,7 +12,10 @@
 //===----------------------------------------------------------------------===//
 
 // general purpose register definition
-class AVRReg<bits<16> num, string n, list<Register> subregs = []>
+class AVRReg<bits<16> num,
+             string n,
+             list<Register> subregs = [],
+             list<string> altNames = []>
   : RegisterWithSubRegs<n, subregs>
 {
   field bits<16> Num = num;
@@ -20,6 +23,7 @@ class AVRReg<bits<16> num, string n, list<Register> subregs = []>
   let HWEncoding = num;
   let Namespace = "AVR";
   let SubRegs = subregs;
+  let AltNames = altNames;
 }
 
 // subregister indices
@@ -28,6 +32,11 @@ let Namespace = "AVR" in
   def sub_lo : SubRegIndex<8>;
   def sub_hi : SubRegIndex<8, 8>;
 }
+
+let Namespace = "AVR" in {
+  def ptr : RegAltNameIndex;
+}
+
 
 //===----------------------------------------------------------------------===//
 //  Register definitions
@@ -74,9 +83,15 @@ CoveredBySubRegs = 1 in
 {
   // 16 bit register pairs
   def SP     : AVRReg<32, "SP",      [SPL, SPH]>, DwarfRegNum<[32]>;
-  def R31R30 : AVRReg<30, "Z",       [R30, R31]>, DwarfRegNum<[30]>;
-  def R29R28 : AVRReg<28, "Y",       [R28, R29]>, DwarfRegNum<[28]>;
-  def R27R26 : AVRReg<26, "X",       [R26, R27]>, DwarfRegNum<[26]>;
+
+  // The pointer registers (X,Y,Z) are a special case because they
+  // are printed as a `high:low` pair when a DREG is expected,
+  // but printed using `X`, `Y`, `Z` when a pointer register is expected.
+  let RegAltNameIndices = [ptr] in {
+      def R31R30 : AVRReg<30, "r31:r30", [R30, R31], ["Z"]>, DwarfRegNum<[30]>;
+      def R29R28 : AVRReg<28, "r29:r28", [R28, R29], ["Y"]>, DwarfRegNum<[28]>;
+      def R27R26 : AVRReg<26, "r27:r26", [R26, R27], ["X"]>, DwarfRegNum<[26]>;
+  }
   def R25R24 : AVRReg<24, "r25:r24", [R24, R25]>, DwarfRegNum<[24]>;
   def R23R22 : AVRReg<22, "r23:r22", [R22, R23]>, DwarfRegNum<[22]>;
   def R21R20 : AVRReg<20, "r21:r20", [R20, R21]>, DwarfRegNum<[20]>;
@@ -174,14 +189,14 @@ def PTRREGS : RegisterClass<"AVR", [i16], 8,
     add R27R26, // X
         R29R28, // Y
         R31R30  // Z
-  )>;
+  ), ptr>;
 
 // 16 bit register class for the ldd and std instructions
 // aka y, z
 def PTRDISPREGS : RegisterClass<"AVR", [i16], 8,
   (
     add R31R30, R29R28
-  )>;
+  ), ptr>;
 
 // We have a bunch of instructions with an explicit Z register argument. We
 // model this using a register class containing only the Z register.

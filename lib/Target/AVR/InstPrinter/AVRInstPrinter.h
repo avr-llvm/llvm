@@ -18,6 +18,8 @@
 
 # include "llvm/MC/MCInstPrinter.h"
 
+# include "MCTargetDesc/AVRMCTargetDesc.h"
+
 namespace llvm {
 /*!
  * Prints AVR instructions to a textual stream.
@@ -38,7 +40,9 @@ public: // MCInstPrinter
                  const MCSubtargetInfo &STI) override;
 
 private:
-  static const char *getRegisterName(unsigned RegNo);
+  static const char *getRegisterName(unsigned RegNo,
+                                     unsigned AltIdx = AVR::NoRegAltName);
+
   void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printPCRelImm(const MCInst *MI, unsigned OpNo, raw_ostream &O);
 
