@@ -1475,34 +1475,35 @@ AVRTargetLowering::getConstraintType(const std::string &Constraint) const
 {
   if (Constraint.size() == 1)
   {
+    // See http://www.nongnu.org/avr-libc/user-manual/inline_asm.html
     switch (Constraint[0])
     {
-    case 'a':
-    case 'b':
-    case 'd':
-    case 'l':
-    case 'e':
-    case 'q':
-    case 'r':
-    case 'w':
+    case 'a': // Simple upper registers
+    case 'b': // Base pointer registers pairs
+    case 'd': // Upper register
+    case 'l': // Lower registers
+    case 'e': // Pointer register pairs
+    case 'q': // Stack pointer register
+    case 'r': // Any register
+    case 'w': // Special upper register pairs
       return C_RegisterClass;
-    case 't':
-    case 'x':
-    case 'y':
-    case 'z':
+    case 't': // Temporary register
+    case 'x': // Pointer register pair X
+    case 'y': // Pointer register pair Y
+    case 'z': // Pointer register pair Z
       return C_Register;
-    case 'Q':
+    case 'Q': // A memory address based on Y or Z pointer with displacement.
       return C_Memory;
-    case 'G':
-    case 'I':
-    case 'J':
-    case 'K':
-    case 'L':
-    case 'M':
-    case 'N':
-    case 'O':
-    case 'P':
-    case 'R':
+    case 'G': // Floating point constant
+    case 'I': // 6-bit positive integer constant
+    case 'J': // 6-bit negative integer constant
+    case 'K': // Integer constant (Range: 2)
+    case 'L': // Integer constant (Range: 0)
+    case 'M': // 8-bit integer constant
+    case 'N': // Integer constant (Range: -1)
+    case 'O': // Integer constant (Range: 8, 16, 24)
+    case 'P': // Integer constant (Range: 1)
+    case 'R': // Integer constant (Range: -6 to 5)x
       return C_Other;
     default:
       break;
@@ -1510,6 +1511,16 @@ AVRTargetLowering::getConstraintType(const std::string &Constraint) const
   }
 
   return TargetLowering::getConstraintType(Constraint);
+}
+
+unsigned
+AVRTargetLowering::getInlineAsmMemConstraint(const std::string &ConstraintCode) const {
+  // Not sure if this is actually the right thing to do, but we got to do
+  // *something* [agnat]
+  switch (ConstraintCode[0]) {
+    case 'Q': return InlineAsm::Constraint_Q;
+  }
+  return TargetLowering::getInlineAsmMemConstraint(ConstraintCode);
 }
 
 AVRTargetLowering::ConstraintWeight

@@ -155,11 +155,6 @@ bool AVRAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   const MachineOperand &MO = MI->getOperand(OpNum);
   assert(MO.isReg() && "Unexpected inline asm memory operand");
 
-  if (!MI->getOperand(OpNum).isReg())
-  {
-    return true;
-  }
-
   // :FIXME: This fixme is related with another one in AVRInstPrinter, line 29:
   // this should be done somewhere else
   // check out the new feature about alternative reg names

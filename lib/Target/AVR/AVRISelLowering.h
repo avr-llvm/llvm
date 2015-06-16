@@ -136,6 +136,9 @@ public:
                                const std::string &Constraint,
                                MVT VT) const override;
 
+  unsigned
+  getInlineAsmMemConstraint(const std::string &ConstraintCode) const override;
+
   void LowerAsmOperandForConstraint(SDValue Op, std::string &Constraint,
                                     std::vector<SDValue> &Ops,
                                     SelectionDAG &DAG) const override;
