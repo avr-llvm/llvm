@@ -79,23 +79,15 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
 
 const char *
 AVRInstPrinter::getPrettyRegisterName(unsigned RegNum, MCRegisterInfo const& MRI) {
-  unsigned RegToPrint = RegNum;
 
 #ifdef LLVM_AVR_GCC_COMPAT
   // GCC prints register pairs by just printing the lower register
   // If the register contains a subregister, print it instead
-  if (MRI.getSubReg(RegNum, 1) != 0)
-  {
-    auto RegLoNum = MRI.getSubReg(RegNum, AVR::sub_lo);
-
-    if(RegLoNum == AVR::NoRegister)
-      RegToPrint = RegNum; // print the entire register pair
-    else
-      RegToPrint = RegLoNum; // print the lower register
-  }
+  auto RegLoNum = MRI.getSubReg(RegNum, AVR::sub_lo);
+  RegNum = (RegLoNum != AVR::NoRegister) ? RegLoNum : RegNum;
 #endif
 
-  return getRegisterName(RegToPrint);
+  return getRegisterName(RegNum);
 }
 
 
