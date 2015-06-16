@@ -18,10 +18,10 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
+# include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
-#include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -144,32 +144,18 @@ AVRMCCodeEmitter::loadStorePostEncoder(const MCInst &MI,
   return EncodedValue;
 }
 
+template <AVR::Fixups Fixup>
 unsigned
-AVRMCCodeEmitter::getRelCondBrTargetEncoding(unsigned size,
-                                             const MCInst &MI, unsigned OpNo,
+AVRMCCodeEmitter::getRelCondBrTargetEncoding(const MCInst &MI, unsigned OpNo,
                                              SmallVectorImpl<MCFixup> &Fixups,
                                              const MCSubtargetInfo &STI) const {
                                    
   const MCOperand MO = MI.getOperand(OpNo);
   
-  if (MO.isExpr())
-  {
+  if (MO.isExpr()) {
     const MCOperand &MO = MI.getOperand(OpNo);
-
-    AVR::Fixups Kind = AVR::Fixups(0);
-
-    switch(size)
-    {
-      case 7:  Kind = AVR::fixup_7_pcrel;        break;
-      case 13: Kind = AVR::fixup_13_pcrel;       break;
-      default: llvm_unreachable("unknown size"); break;
-    }
-
     const MCExpr *Expr = MO.getExpr();
-    
-    Fixups.push_back(MCFixup::create(0, Expr, MCFixupKind(Kind), MI.getLoc()));
-    
-    // All of the information is in the fixup.
+    Fixups.push_back(MCFixup::create(0, Expr, MCFixupKind(Fixup), MI.getLoc()));
     return 0;
   } 
   else {

@@ -157,14 +157,14 @@ def i8imm_com : Operand<i8>
 
 def rel_condbr_7_target : Operand<OtherVT>
 {
-    let PrintMethod = "print_pcrel_imm";
-    let EncoderMethod = "getRelCondBr7TargetEncoding";
+    let PrintMethod   = "printPCRelImm";
+    let EncoderMethod = "getRelCondBrTargetEncoding<AVR::fixup_7_pcrel>";
 }
 
 def rel_condbr_13_target : Operand<OtherVT>
 {
-    let PrintMethod = "print_pcrel_imm";
-    let EncoderMethod = "getRelCondBr13TargetEncoding";
+    let PrintMethod   = "printPCRelImm";
+    let EncoderMethod = "getRelCondBrTargetEncoding<AVR::fixup_13_pcrel>";
 }
 
 // The target of a 22 or 16-bit call/jmp instruction.

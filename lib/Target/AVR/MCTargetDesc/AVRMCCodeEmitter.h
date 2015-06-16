@@ -20,6 +20,8 @@
 # include "llvm/MC/MCCodeEmitter.h"
 # include "llvm/Support/DataTypes.h"
 
+# include "AVRFixupKinds.h"
+
 namespace llvm {
 
 class MCContext;
@@ -69,27 +71,13 @@ public:
                                 unsigned EncodedValue,
                                 const MCSubtargetInfo &STI) const;
 
-  unsigned getRelCondBrTargetEncoding(unsigned size,
-                                   const MCInst &MI, unsigned OpNo,
-                                   SmallVectorImpl<MCFixup> &Fixups,
-                                   const MCSubtargetInfo &STI) const;
-  
   /*!
    * Gets the encoding for a break target.
    */
-  unsigned getRelCondBr7TargetEncoding(const MCInst &MI, unsigned OpNo,
-                                    SmallVectorImpl<MCFixup> &Fixups,
-                                    const MCSubtargetInfo &STI) const
-  {
-      return getRelCondBrTargetEncoding(7, MI, OpNo, Fixups, STI);
-  }
-  
-  unsigned getRelCondBr13TargetEncoding(const MCInst &MI, unsigned OpNo,
-                                    SmallVectorImpl<MCFixup> &Fixups,
-                                    const MCSubtargetInfo &STI) const
-  {
-      return getRelCondBrTargetEncoding(13, MI, OpNo, Fixups, STI);
-  }
+  template <AVR::Fixups Fixup>
+  unsigned getRelCondBrTargetEncoding(const MCInst &MI, unsigned OpNo,
+                                      SmallVectorImpl<MCFixup> &Fixups,
+                                      const MCSubtargetInfo &STI) const;
   
   unsigned getLDSTPtrRegEncoding(const MCInst &MI, unsigned OpNo,
                                  SmallVectorImpl<MCFixup> &Fixups,

@@ -106,7 +106,7 @@ void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 
 /// print_pcrel_imm - This is used to print an immediate value that ends up
 /// being encoded as a pc-relative value.
-void AVRInstPrinter::print_pcrel_imm(const MCInst *MI, unsigned OpNo,
+void AVRInstPrinter::printPCRelImm(const MCInst *MI, unsigned OpNo,
                                      raw_ostream &O)
 {
   const MCOperand &Op = MI->getOperand(OpNo);
