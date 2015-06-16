@@ -2187,6 +2187,13 @@ static void emitMatchRegisterName(CodeGenTarget &Target, Record *AsmParser,
 
     Matches.emplace_back(Reg.TheDef->getValueAsString("AsmName"),
                          "return " + utostr(Reg.EnumValue) + ";");
+
+    auto AltNames = Reg.TheDef->getValueAsListOfStrings("AltNames");
+
+    for(auto AltName : AltNames) {
+        Matches.emplace_back(AltName,
+                             "return " + utostr(Reg.EnumValue) + ";");
+    }
   }
 
   OS << "static unsigned MatchRegisterName(StringRef Name) {\n";
