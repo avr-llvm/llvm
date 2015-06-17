@@ -1086,7 +1086,7 @@ void Verifier::visitDIExpression(const DIExpression &N) {
 void Verifier::visitDIObjCProperty(const DIObjCProperty &N) {
   Assert(N.getTag() == dwarf::DW_TAG_APPLE_property, "invalid tag", &N);
   if (auto *T = N.getRawType())
-    Assert(isa<DIType>(T), "invalid type ref", &N, T);
+    Assert(isTypeRef(N, T), "invalid type ref", &N, T);
   if (auto *F = N.getRawFile())
     Assert(isa<DIFile>(F), "invalid file", &N, F);
 }
@@ -1251,6 +1251,7 @@ void Verifier::VerifyAttributeTypes(AttributeSet Attrs, unsigned Idx,
         I->getKindAsEnum() == Attribute::StackProtect ||
         I->getKindAsEnum() == Attribute::StackProtectReq ||
         I->getKindAsEnum() == Attribute::StackProtectStrong ||
+        I->getKindAsEnum() == Attribute::SafeStack ||
         I->getKindAsEnum() == Attribute::NoRedZone ||
         I->getKindAsEnum() == Attribute::NoImplicitFloat ||
         I->getKindAsEnum() == Attribute::Naked ||

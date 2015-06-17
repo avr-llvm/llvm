@@ -179,6 +179,12 @@ class X86InstrInfo final : public X86GenInstrInfo {
 
   virtual void anchor();
 
+  bool AnalyzeBranchImpl(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+                         MachineBasicBlock *&FBB,
+                         SmallVectorImpl<MachineOperand> &Cond,
+                         SmallVectorImpl<MachineInstr *> &CondBranches,
+                         bool AllowModify) const;
+
 public:
   explicit X86InstrInfo(X86Subtarget &STI);
 
@@ -267,6 +273,14 @@ public:
                      MachineBasicBlock *&FBB,
                      SmallVectorImpl<MachineOperand> &Cond,
                      bool AllowModify) const override;
+
+  bool getMemOpBaseRegImmOfs(MachineInstr *LdSt, unsigned &BaseReg,
+                             unsigned &Offset,
+                             const TargetRegisterInfo *TRI) const override;
+  bool AnalyzeBranchPredicate(MachineBasicBlock &MBB,
+                              TargetInstrInfo::MachineBranchPredicate &MBP,
+                              bool AllowModify = false) const override;
+
   unsigned RemoveBranch(MachineBasicBlock &MBB) const override;
   unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                         MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
@@ -433,7 +447,7 @@ public:
 
   bool isHighLatencyDef(int opc) const override;
 
-  bool hasHighOperandLatency(const InstrItineraryData *ItinData,
+  bool hasHighOperandLatency(const TargetSchedModel &SchedModel,
                              const MachineRegisterInfo *MRI,
                              const MachineInstr *DefMI, unsigned DefIdx,
                              const MachineInstr *UseMI,

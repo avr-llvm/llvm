@@ -17,6 +17,7 @@
 
 [common]
 subdirectories =
+ AMDGPU
  ARM
  AArch64
  AVR
@@ -27,7 +28,6 @@ subdirectories =
  NVPTX
  Mips
  PowerPC
- R600
  Sparc
  SystemZ
  X86

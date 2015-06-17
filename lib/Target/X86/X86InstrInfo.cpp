@@ -3456,11 +3456,11 @@ bool X86InstrInfo::isUnpredicatedTerminator(const MachineInstr *MI) const {
   return !isPredicated(MI);
 }
 
-bool X86InstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
-                                 MachineBasicBlock *&TBB,
-                                 MachineBasicBlock *&FBB,
-                                 SmallVectorImpl<MachineOperand> &Cond,
-                                 bool AllowModify) const {
+bool X86InstrInfo::AnalyzeBranchImpl(
+    MachineBasicBlock &MBB, MachineBasicBlock *&TBB, MachineBasicBlock *&FBB,
+    SmallVectorImpl<MachineOperand> &Cond,
+    SmallVectorImpl<MachineInstr *> &CondBranches, bool AllowModify) const {
+
   // Start from the bottom of the block and work up, examining the
   // terminator instructions.
   MachineBasicBlock::iterator I = MBB.end();
@@ -3558,6 +3558,7 @@ bool X86InstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
       FBB = TBB;
       TBB = I->getOperand(0).getMBB();
       Cond.push_back(MachineOperand::CreateImm(BranchCode));
+      CondBranches.push_back(I);
       continue;
     }
 
@@ -3595,9 +3596,88 @@ bool X86InstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
 
     // Update the MachineOperand.
     Cond[0].setImm(BranchCode);
+    CondBranches.push_back(I);
   }
 
   return false;
+}
+
+bool X86InstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
+                                 MachineBasicBlock *&TBB,
+                                 MachineBasicBlock *&FBB,
+                                 SmallVectorImpl<MachineOperand> &Cond,
+                                 bool AllowModify) const {
+  SmallVector<MachineInstr *, 4> CondBranches;
+  return AnalyzeBranchImpl(MBB, TBB, FBB, Cond, CondBranches, AllowModify);
+}
+
+bool X86InstrInfo::AnalyzeBranchPredicate(MachineBasicBlock &MBB,
+                                          MachineBranchPredicate &MBP,
+                                          bool AllowModify) const {
+  using namespace std::placeholders;
+
+  SmallVector<MachineOperand, 4> Cond;
+  SmallVector<MachineInstr *, 4> CondBranches;
+  if (AnalyzeBranchImpl(MBB, MBP.TrueDest, MBP.FalseDest, Cond, CondBranches,
+                        AllowModify))
+    return true;
+
+  if (Cond.size() != 1)
+    return true;
+
+  assert(MBP.TrueDest && "expected!");
+
+  if (!MBP.FalseDest)
+    MBP.FalseDest = MBB.getNextNode();
+
+  const TargetRegisterInfo *TRI = &getRegisterInfo();
+
+  MachineInstr *ConditionDef = nullptr;
+  bool SingleUseCondition = true;
+
+  for (auto I = std::next(MBB.rbegin()), E = MBB.rend(); I != E; ++I) {
+    if (I->modifiesRegister(X86::EFLAGS, TRI)) {
+      ConditionDef = &*I;
+      break;
+    }
+
+    if (I->readsRegister(X86::EFLAGS, TRI))
+      SingleUseCondition = false;
+  }
+
+  if (!ConditionDef)
+    return true;
+
+  if (SingleUseCondition) {
+    for (auto *Succ : MBB.successors())
+      if (Succ->isLiveIn(X86::EFLAGS))
+        SingleUseCondition = false;
+  }
+
+  MBP.ConditionDef = ConditionDef;
+  MBP.SingleUseCondition = SingleUseCondition;
+
+  // Currently we only recognize the simple pattern:
+  //
+  //   test %reg, %reg
+  //   je %label
+  //
+  const unsigned TestOpcode =
+      Subtarget.is64Bit() ? X86::TEST64rr : X86::TEST32rr;
+
+  if (ConditionDef->getOpcode() == TestOpcode &&
+      ConditionDef->getNumOperands() == 3 &&
+      ConditionDef->getOperand(0).isIdenticalTo(ConditionDef->getOperand(1)) &&
+      (Cond[0].getImm() == X86::COND_NE || Cond[0].getImm() == X86::COND_E)) {
+    MBP.LHS = ConditionDef->getOperand(0);
+    MBP.RHS = MachineOperand::CreateImm(0);
+    MBP.Predicate = Cond[0].getImm() == X86::COND_NE
+                        ? MachineBranchPredicate::PRED_NE
+                        : MachineBranchPredicate::PRED_EQ;
+    return false;
+  }
+
+  return true;
 }
 
 unsigned X86InstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
@@ -3963,6 +4043,36 @@ static unsigned getLoadStoreRegOpcode(unsigned Reg,
     else
       return load ? X86::VMOVUPSZrm : X86::VMOVUPSZmr;
   }
+}
+
+bool X86InstrInfo::getMemOpBaseRegImmOfs(MachineInstr *MemOp, unsigned &BaseReg,
+                                         unsigned &Offset,
+                                         const TargetRegisterInfo *TRI) const {
+  const MCInstrDesc &Desc = MemOp->getDesc();
+  int MemRefBegin = X86II::getMemoryOperandNo(Desc.TSFlags, MemOp->getOpcode());
+  if (MemRefBegin < 0)
+    return false;
+
+  MemRefBegin += X86II::getOperandBias(Desc);
+
+  BaseReg = MemOp->getOperand(MemRefBegin + X86::AddrBaseReg).getReg();
+  if (MemOp->getOperand(MemRefBegin + X86::AddrScaleAmt).getImm() != 1)
+    return false;
+
+  if (MemOp->getOperand(MemRefBegin + X86::AddrIndexReg).getReg() !=
+      X86::NoRegister)
+    return false;
+
+  const MachineOperand &DispMO = MemOp->getOperand(MemRefBegin + X86::AddrDisp);
+
+  // Displacement can be symbolic
+  if (!DispMO.isImm())
+    return false;
+
+  Offset = DispMO.getImm();
+
+  return (MemOp->getOperand(MemRefBegin + X86::AddrIndexReg).getReg() ==
+          X86::NoRegister);
 }
 
 static unsigned getStoreRegOpcode(unsigned SrcReg,
@@ -6217,7 +6327,7 @@ bool X86InstrInfo::isHighLatencyDef(int opc) const {
 }
 
 bool X86InstrInfo::
-hasHighOperandLatency(const InstrItineraryData *ItinData,
+hasHighOperandLatency(const TargetSchedModel &SchedModel,
                       const MachineRegisterInfo *MRI,
                       const MachineInstr *DefMI, unsigned DefIdx,
                       const MachineInstr *UseMI, unsigned UseIdx) const {

@@ -694,7 +694,7 @@ void MipsAsmPrinter::EmitStartOfAsmFile(Module &M) {
   // clean anyhow.
   // FIXME: For ifunc related functions we could iterate over and look
   // for a feature string that doesn't match the default one.
-  const Triple TT(TM.getTargetTriple());
+  const Triple &TT = TM.getTargetTriple();
   StringRef CPU = MIPS_MC::selectMipsCPU(TT, TM.getTargetCPU());
   StringRef FS = TM.getTargetFeatureString();
   const MipsTargetMachine &MTM = static_cast<const MipsTargetMachine &>(TM);
@@ -899,7 +899,8 @@ void MipsAsmPrinter::EmitFPCallStub(
   // freed) and since we're at the global level we can use the default
   // constructed subtarget.
   std::unique_ptr<MCSubtargetInfo> STI(TM.getTarget().createMCSubtargetInfo(
-      TM.getTargetTriple(), TM.getTargetCPU(), TM.getTargetFeatureString()));
+      TM.getTargetTriple().str(), TM.getTargetCPU(),
+      TM.getTargetFeatureString()));
 
   //
   // .global xxxx

@@ -110,7 +110,7 @@ protected:
   bool IsE500;
   bool IsPPC4xx;
   bool IsPPC6xx;
-  bool DeprecatedMFTB;
+  bool FeatureMFTB;
   bool DeprecatedDST;
   bool HasLazyResolverStubs;
   bool IsLittleEndian;
@@ -237,7 +237,7 @@ public:
   bool isPPC4xx() const { return IsPPC4xx; }
   bool isPPC6xx() const { return IsPPC6xx; }
   bool isE500() const { return IsE500; }
-  bool isDeprecatedMFTB() const { return DeprecatedMFTB; }
+  bool isFeatureMFTB() const { return FeatureMFTB; }
   bool isDeprecatedDST() const { return DeprecatedDST; }
   bool hasICBT() const { return HasICBT; }
   bool hasInvariantFunctionDescriptors() const {
@@ -274,7 +274,7 @@ public:
   // Scheduling customization.
   bool enableMachineScheduler() const override;
   // This overrides the PostRAScheduler bit in the SchedModel for each CPU.
-  bool enablePostMachineScheduler() const override;
+  bool enablePostRAScheduler() const override;
   AntiDepBreakMode getAntiDepBreakMode() const override;
   void getCriticalPathRCs(RegClassVector &CriticalPathRCs) const override;
 
