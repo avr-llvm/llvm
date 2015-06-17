@@ -110,9 +110,9 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
                               "using 'A'..'Z' operand extracodes.");
       unsigned Reg = RegOp.getReg();
 
-      unsigned ByteNumber = ExtraCode[0] -'A';
+      unsigned ByteNumber = ExtraCode[0] - 'A';
 
-      unsigned OpFlags = MI->getOperand(OpNum-1).getImm();
+      unsigned OpFlags = MI->getOperand(OpNum - 1).getImm();
       unsigned NumOpRegs = InlineAsm::getNumOperandRegisters(OpFlags);
 
       const TargetRegisterInfo *TRI = MF->getSubtarget().getRegisterInfo();

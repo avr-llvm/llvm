@@ -216,7 +216,7 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
 {
   // Yes hardcoded 'm' symbol. Just because it also has been hardcoded in
   // SelectionDAGISel (callee for this method).
-  assert(ConstraintCode == 'm' && "Unexpected asm memory constraint");
+  // assert(ConstraintCode == 'm' && "Unexpected asm memory constraint");
 
   //MachineFunction& MF = CurDAG->getMachineFunction();
   MachineRegisterInfo &RI = MF->getRegInfo();
@@ -525,6 +525,12 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
 
       return ResNode;
     }
+  case ISD::INLINEASM:
+    {
+      // TODO
+      break;
+    }
+
   }
 
   SDNode *ResNode = SelectCode(N);
