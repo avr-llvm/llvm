@@ -1675,6 +1675,7 @@ void AVRTargetLowering::LowerAsmOperandForConstraint(SDValue Op,
   CONSTRAINT_VALUE(P);
   CONSTRAINT_VALUE(R);
 
+  CONSTRAINT_VALUE(G);
 #undef CONSTRAINT_VALUE
 
   }

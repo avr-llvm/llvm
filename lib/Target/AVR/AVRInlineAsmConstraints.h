@@ -89,6 +89,8 @@ struct M : ConstantConstraint<'M', Integer, M> {
   checkValue(T const* C) { return isUInt<8>(get(C)); }
   template <typename T> static uint64_t get(T const* C) { return C->getZExtValue(); }
   static EVT getValueType(SDValue const& Op) {
+    // i8 type may be printed as a negative number, e.g. 254 would be printed
+    // as -2, so we force it to i16 at least.
     return Op.getValueType() == MVT::i8 ? MVT::i16 : Op.getValueType();
   }
 };
