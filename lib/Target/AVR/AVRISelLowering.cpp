@@ -1504,7 +1504,7 @@ AVRTargetLowering::getConstraintType(const std::string &Constraint) const
     case 'N': // Integer constant (Range: -1)
     case 'O': // Integer constant (Range: 8, 16, 24)
     case 'P': // Integer constant (Range: 1)
-    case 'R': // Integer constant (Range: -6 to 5)x
+    case 'R': // Integer constant (Range: -6 to 5)
       return C_Other;
     default:
       break;
@@ -1591,18 +1591,14 @@ AVRTargetLowering::getSingleConstraintMatchWeight(AsmOperandInfo &info,
   return CW_Invalid;
 }
 
+
+
 std::pair<unsigned, const TargetRegisterClass *>
 AVRTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
                                                 const std::string &Constraint,
                                                 MVT VT) const
 {
   auto STI = static_cast<const AVRTargetMachine&>(this->getTargetMachine()).getSubtargetImpl();
-
-  // We only support i8 and i16.
-  //
-  //:FIXME: remove this assert for now since it gets sometimes executed
-  assert((VT == MVT::i16 || VT == MVT::i8) && "Wrong operand type.");
-
   if (Constraint.size() == 1)
   {
     switch (Constraint[0])
@@ -1620,7 +1616,7 @@ AVRTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
     case 'q': // Stack pointer register: SPH:SPL.
       return std::make_pair(0U, &AVR::GPRSPRegClass);
     case 'r': // Any register: r0..r31.
-      return std::make_pair(0U, VT == MVT::i8 ? &AVR::GPR8RegClass : &AVR::DREGSRegClass);
+        return std::make_pair(0U, VT == MVT::i16 ? &AVR::DREGSRegClass : &AVR::GPR8RegClass);
     case 't': // Temporary register: r0.
       return std::make_pair(unsigned(AVR::R0), &AVR::GPR8RegClass);
     case 'w': // Special upper register pairs: r24, r26, r28, r30.

@@ -170,7 +170,7 @@ def call_target : Operand<iPTR>
 }
 
 // Addressing mode pattern reg+imm6
-def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], [SDNPWantRoot]>;
+def addr : ComplexPattern<iPTR, 2, "selectAddr", [], [SDNPWantRoot]>;
 
 // AsmOperand class for a pointer register.
 // Used with the LD/ST family of instructions.
