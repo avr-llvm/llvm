@@ -102,34 +102,32 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
   {
     if (ExtraCode[1] != 0) return true; // Unknown modifier.
 
-    if  (ExtraCode[0] >= 'A' && ExtraCode[0] <= 'Z')
-    {
+    if  (ExtraCode[0] >= 'A' && ExtraCode[0] <= 'Z') {
       const MachineOperand& RegOp = MI->getOperand(OpNum);
 
       assert(RegOp.isReg() && "Operand must be a register when you're"
                               "using 'A'..'Z' operand extracodes.");
       unsigned Reg = RegOp.getReg();
 
-      unsigned ByteNumber = ExtraCode[0] -'A';
-
-      unsigned OpFlags = MI->getOperand(OpNum-1).getImm();
-      unsigned NumOpRegs = InlineAsm::getNumOperandRegisters(OpFlags);
 
       const TargetRegisterInfo *TRI = MF->getSubtarget().getRegisterInfo();
 
       unsigned BytesPerReg = TRI->getMinimalPhysRegClass(Reg)->getSize();
+      unsigned ByteIndex = ExtraCode[0] - 'A';
 
-      assert(BytesPerReg <= 2 && "Only 8 and 16 bit regs are supported.");
-
-      unsigned RegIdx = ByteNumber / BytesPerReg;
-      assert(RegIdx < NumOpRegs && "Multibyte index out of range.");
-
-      Reg = MI->getOperand(OpNum + RegIdx).getReg();
-
-      if (BytesPerReg == 2)
-      {
-        Reg = TRI->getSubReg(Reg, ByteNumber % BytesPerReg ?
-                                  AVR::sub_hi : AVR::sub_lo);
+      int SubRegisterIndex = AVR::NoSubRegister;
+      if (BytesPerReg == 2) {
+        SubRegisterIndex = ByteIndex % BytesPerReg ? AVR::sub_hi : AVR::sub_lo;
+      } else if (BytesPerReg == 4){
+        switch (ByteIndex % BytesPerReg) {
+          case 0: SubRegisterIndex = AVR::qsub_0; break;
+          case 1: SubRegisterIndex = AVR::qsub_1; break;
+          case 2: SubRegisterIndex = AVR::qsub_2; break;
+          case 3: SubRegisterIndex = AVR::qsub_3; break;
+        }
+      }
+      if (SubRegisterIndex != AVR::NoSubRegister) {
+        Reg = TRI->getSubReg(Reg, SubRegisterIndex);
       }
 
       O << AVRInstPrinter::getPrettyRegisterName(Reg, MRI);

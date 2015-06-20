@@ -107,6 +107,7 @@ CoveredBySubRegs = 1 in
   def R1R0   : AVRReg<0,  "r1:r0",   [R0, R1]>,   DwarfRegNum<[0]>;
 }
 
+
 //===----------------------------------------------------------------------===//
 // Register Classes
 //===----------------------------------------------------------------------===//
@@ -214,7 +215,20 @@ def CCR : RegisterClass<"AVR", [i8], 8, (add SREG)>
 }
 
 //===----------------------------------------------------------------------===//
-// Register Classes
+// Pseudo Register Classes
 //===----------------------------------------------------------------------===//
 
+let Namespace = "AVR" in {
+  def qsub_0 : SubRegIndex<8>;
+  def qsub_1 : SubRegIndex<8, 8>;
+  def qsub_2 : SubRegIndex<8, 16>;
+  def qsub_3 : SubRegIndex<8, 24>;
+}
 
+def Tuples4r : RegisterTuples<[qsub_0, qsub_1, qsub_2, qsub_3],
+                              [(add R20, R21, R22, R23, R24, R25, R26, R27, R28),
+                               (add R21, R22, R23, R24, R25, R26, R27, R28, R29),
+                               (add R22, R23, R24, R25, R26, R27, R28, R29, R30),
+                               (add R23, R24, R25, R26, R27, R28, R29, R30, R31)]>;
+
+def GPR8Quad : RegisterClass<"AVR", [i32], 8, (add Tuples4r)>;

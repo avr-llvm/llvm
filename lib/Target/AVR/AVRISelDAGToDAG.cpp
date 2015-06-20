@@ -41,12 +41,6 @@ public:
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
-  // Address Selection.
-  bool SelectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp);
-  // Indexed load (postinc and predec) matching code.
-  SDNode *SelectIndexedLoad(SDNode *N);
-  // Indexed progmem load (only postinc) matching code.
-  unsigned SelectIndexedProgMemLoad(const LoadSDNode *LD, MVT VT);
 
   bool SelectInlineAsmMemoryOperand(const SDValue &Op, unsigned ConstraintCode,
                                     std::vector<SDValue> &OutOps) override;
@@ -55,6 +49,16 @@ public:
   #include "AVRGenDAGISel.inc"
 
 private:
+
+  SDNode * selectInlineAsm(SDNode* N);
+  SDNode * createGPR8QuadNode(EVT VT, SDValue V0, SDValue V1, SDValue V2, SDValue V3);
+  // Address Selection.
+  bool selectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp);
+  // Indexed load (postinc and predec) matching code.
+  SDNode *selectIndexedLoad(SDNode *N);
+  // Indexed progmem load (only postinc) matching code.
+  unsigned selectIndexedProgMemLoad(const LoadSDNode *LD, MVT VT);
+
   SDNode *Select(SDNode *N) override;
   
   const AVRSubtarget *Subtarget;
@@ -70,7 +74,7 @@ AVRDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
 }
 
 bool
-AVRDAGToDAGISel::SelectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp)
+AVRDAGToDAGISel::selectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp)
 {
   SDLoc DL(Op);
 
@@ -132,7 +136,7 @@ AVRDAGToDAGISel::SelectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp)
   return false;
 }
 
-SDNode *AVRDAGToDAGISel::SelectIndexedLoad(SDNode *N)
+SDNode *AVRDAGToDAGISel::selectIndexedLoad(SDNode *N)
 {
   const LoadSDNode *LD = cast<LoadSDNode>(N);
   ISD::MemIndexedMode AM = LD->getAddressingMode();
@@ -173,7 +177,7 @@ SDNode *AVRDAGToDAGISel::SelectIndexedLoad(SDNode *N)
                                 LD->getBasePtr(), LD->getChain());
 }
 
-unsigned AVRDAGToDAGISel::SelectIndexedProgMemLoad(const LoadSDNode *LD, MVT VT)
+unsigned AVRDAGToDAGISel::selectIndexedProgMemLoad(const LoadSDNode *LD, MVT VT)
 {
   ISD::MemIndexedMode AM = LD->getAddressingMode();
 
@@ -216,7 +220,7 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
 {
   // Yes hardcoded 'm' symbol. Just because it also has been hardcoded in
   // SelectionDAGISel (callee for this method).
-  assert(ConstraintCode == 'm' && "Unexpected asm memory constraint");
+  // assert(ConstraintCode == 'm' && "Unexpected asm memory constraint");
 
   //MachineFunction& MF = CurDAG->getMachineFunction();
   MachineRegisterInfo &RI = MF->getRegInfo();
@@ -238,7 +242,7 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
   if (Op->getOpcode() == ISD::FrameIndex)
   {
     SDValue Base, Disp;
-    if (SelectAddr(Op.getNode(), Op, Base, Disp))
+    if (selectAddr(Op.getNode(), Op, Base, Disp))
     {
       OutOps.push_back(Base);
       OutOps.push_back(Disp);
@@ -338,6 +342,169 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
   return false;
 }
 
+SDNode *
+AVRDAGToDAGISel::selectInlineAsm(SDNode* N) {
+  std::vector<SDValue> AsmNodeOperands;
+  unsigned Flag, Kind;
+  bool Changed = false;
+  unsigned NumOps = N->getNumOperands();
+
+  // Normally, i64 data is bounded to two arbitrary GRPs for "%r" constraint.
+  // However, some instrstions (e.g. ldrexd/strexd in ARM mode) require
+  // (even/even+1) GPRs and use %n and %Hn to refer to the individual regs
+  // respectively. Since there is no constraint to explicitly specify a
+  // reg pair, we use GPRPair reg class for "%r" for 64-bit data. For Thumb,
+  // the 64-bit data may be referred by H, Q, R modifiers, so we still pack
+  // them into a GPRPair.
+
+  SDLoc dl(N);
+  SDValue Glue = N->getGluedNode() ? N->getOperand(NumOps-1) : SDValue(nullptr,0);
+
+  SmallVector<bool, 8> OpChanged;
+  // Glue node will be appended late.
+  for(unsigned i = 0, e = N->getGluedNode() ? NumOps - 1 : NumOps; i < e; ++i) {
+    SDValue op = N->getOperand(i);
+    AsmNodeOperands.push_back(op);
+
+    if (i < InlineAsm::Op_FirstOperand)
+      continue;
+
+    if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(N->getOperand(i))) {
+      Flag = C->getZExtValue();
+      Kind = InlineAsm::getKind(Flag);
+    } else
+      continue;
+
+    // Immediate operands to inline asm in the SelectionDAG are modeled with
+    // two operands. The first is a constant of value InlineAsm::Kind_Imm, and
+    // the second is a constant with the value of the immediate. If we get here
+    // and we have a Kind_Imm, skip the next operand, and continue.
+    if (Kind == InlineAsm::Kind_Imm) {
+      SDValue op = N->getOperand(++i);
+      AsmNodeOperands.push_back(op);
+      continue;
+    }
+
+    unsigned NumRegs = InlineAsm::getNumOperandRegisters(Flag);
+    if (NumRegs)
+      OpChanged.push_back(false);
+
+    unsigned DefIdx = 0;
+    bool IsTiedToChangedOp = false;
+    // If it's a use that is tied with a previous def, it has no
+    // reg class constraint.
+    if (Changed && InlineAsm::isUseOperandTiedToDef(Flag, DefIdx))
+      IsTiedToChangedOp = OpChanged[DefIdx];
+
+    if (Kind != InlineAsm::Kind_RegUse && Kind != InlineAsm::Kind_RegDef
+        && Kind != InlineAsm::Kind_RegDefEarlyClobber)
+      continue;
+
+    unsigned RC;
+    bool HasRC = InlineAsm::hasRegClassConstraint(Flag, RC);
+    if ((!IsTiedToChangedOp && (!HasRC || RC != AVR::GPR8RegClassID)) // Poof
+        || NumRegs != 2)
+      continue;
+
+    assert((i+2 < NumOps) && "Invalid number of operands in inline asm");
+    SDValue V0 = N->getOperand(i+1);
+    SDValue V1 = N->getOperand(i+2);
+    unsigned Reg0 = cast<RegisterSDNode>(V0)->getReg();
+    unsigned Reg1 = cast<RegisterSDNode>(V1)->getReg();
+    SDValue PairedReg;
+    MachineRegisterInfo &MRI = MF->getRegInfo();
+
+    if (Kind == InlineAsm::Kind_RegDef ||
+        Kind == InlineAsm::Kind_RegDefEarlyClobber) {
+      // Replace the two GPRs with 1 GPRPair and copy values from GPRPair to
+      // the original GPRs.
+
+      unsigned GPVR = MRI.createVirtualRegister(&AVR::GPR8QuadRegClass);
+      PairedReg = CurDAG->getRegister(GPVR, MVT::Untyped);
+      SDValue Chain = SDValue(N,0);
+
+      SDNode *GU = N->getGluedUser();
+      SDValue RegCopy = CurDAG->getCopyFromReg(Chain, dl, GPVR, MVT::Untyped,
+                                               Chain.getValue(1));
+
+      // Extract values from a GPRPair reg and copy to the original GPR reg.
+      SDValue Sub0 = CurDAG->getTargetExtractSubreg(AVR::qsub_0, dl, MVT::i8,
+                                                    RegCopy);
+      SDValue Sub1 = CurDAG->getTargetExtractSubreg(AVR::qsub_1, dl, MVT::i8,
+                                                    RegCopy);
+      SDValue T0 = CurDAG->getCopyToReg(Sub0, dl, Reg0, Sub0,
+                                        RegCopy.getValue(1));
+      SDValue T1 = CurDAG->getCopyToReg(Sub1, dl, Reg1, Sub1, T0.getValue(1));
+
+      // Update the original glue user.
+      std::vector<SDValue> Ops(GU->op_begin(), GU->op_end()-1);
+      Ops.push_back(T1.getValue(1));
+      CurDAG->UpdateNodeOperands(GU, Ops);
+    }
+    else {
+      // For Kind  == InlineAsm::Kind_RegUse, we first copy two GPRs into a
+      // GPRPair and then pass the GPRPair to the inline asm.
+      SDValue Chain = AsmNodeOperands[InlineAsm::Op_InputChain];
+
+      // As REG_SEQ doesn't take RegisterSDNode, we copy them first.
+      SDValue T0 = CurDAG->getCopyFromReg(Chain, dl, Reg0, MVT::i8,
+                                          Chain.getValue(1));
+      SDValue T1 = CurDAG->getCopyFromReg(Chain, dl, Reg1, MVT::i8,
+                                          T0.getValue(1));
+      SDValue Quad = SDValue(createGPR8QuadNode(MVT::Untyped, T0, T1, T1, T1), 0); // XXX
+
+      // Copy REG_SEQ into a GPRPair-typed VR and replace the original two
+      // i32 VRs of inline asm with it.
+      unsigned GPVR = MRI.createVirtualRegister(&AVR::GPR8QuadRegClass);
+      PairedReg = CurDAG->getRegister(GPVR, MVT::Untyped);
+      Chain = CurDAG->getCopyToReg(T1, dl, GPVR, Quad, T1.getValue(1));
+
+      AsmNodeOperands[InlineAsm::Op_InputChain] = Chain;
+      Glue = Chain.getValue(1);
+    }
+
+    Changed = true;
+
+    if(PairedReg.getNode()) {
+      OpChanged[OpChanged.size() -1 ] = true;
+      Flag = InlineAsm::getFlagWord(Kind, 1 /* RegNum*/);
+      if (IsTiedToChangedOp)
+        Flag = InlineAsm::getFlagWordForMatchingOp(Flag, DefIdx);
+      else
+        Flag = InlineAsm::getFlagWordForRegClass(Flag, AVR::GPR8QuadRegClassID);
+      // Replace the current flag.
+      AsmNodeOperands[AsmNodeOperands.size() -1] = CurDAG->getTargetConstant(Flag, dl, MVT::i32);
+      // Add the new register node and skip the original two GPRs.
+      AsmNodeOperands.push_back(PairedReg);
+      // Skip the next two GPRs.
+      i += 4;
+    }
+  }
+  if (Glue.getNode())
+    AsmNodeOperands.push_back(Glue);
+  if (!Changed)
+    return nullptr;
+
+  SDValue New = CurDAG->getNode(ISD::INLINEASM, SDLoc(N),
+                                CurDAG->getVTList(MVT::Other, MVT::Glue), AsmNodeOperands);
+  New->setNodeId(-1);
+  return New.getNode();
+
+}
+
+SDNode *
+AVRDAGToDAGISel::createGPR8QuadNode(EVT VT, SDValue V0, SDValue V1, SDValue V2, SDValue V3) {
+  SDLoc dl(V0.getNode());
+  SDValue RegClass =
+  CurDAG->getTargetConstant(AVR::GPR8QuadRegClassID, dl, MVT::i8);
+  SDValue SubReg0 = CurDAG->getTargetConstant(AVR::qsub_0, dl, MVT::i8);
+  SDValue SubReg1 = CurDAG->getTargetConstant(AVR::qsub_1, dl, MVT::i8);
+  SDValue SubReg2 = CurDAG->getTargetConstant(AVR::qsub_2, dl, MVT::i8);
+  SDValue SubReg3 = CurDAG->getTargetConstant(AVR::qsub_3, dl, MVT::i8);
+  const SDValue Ops[] = { RegClass, V0, SubReg0, V1, SubReg1, V2, SubReg2, V3, SubReg3 };
+  return CurDAG->getMachineNode(TargetOpcode::REG_SEQUENCE, dl, VT, Ops);
+}
+
 SDNode *AVRDAGToDAGISel::Select(SDNode *N)
 {
   unsigned Opcode = N->getOpcode();
@@ -424,7 +591,7 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
                                      Chain.getValue(1));
 
         // Check if the opcode can be converted into an indexed load.
-        if (unsigned LPMOpc = SelectIndexedProgMemLoad(LD, VT))
+        if (unsigned LPMOpc = selectIndexedProgMemLoad(LD, VT))
         {
           // It is legal to fold the load into an indexed load.
           ResNode = CurDAG->getMachineNode(LPMOpc, DL, VT, MVT::i16, MVT::Other,
@@ -463,7 +630,7 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
       }
 
       // Check if the opcode can be converted into an indexed load.
-      if (SDNode *ResNode = SelectIndexedLoad(N))
+      if (SDNode *ResNode = selectIndexedLoad(N))
       {
         return ResNode;
       }
@@ -525,6 +692,14 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
 
       return ResNode;
     }
+  case ISD::INLINEASM:
+    {
+      SDNode * ResNode = selectInlineAsm(N);
+      if (ResNode)
+        return ResNode;
+      break;
+    }
+
   }
 
   SDNode *ResNode = SelectCode(N);

@@ -76,16 +76,12 @@ const TargetRegisterClass *
 AVRRegisterInfo::getLargestLegalSuperClass(const TargetRegisterClass *RC,
                                            const MachineFunction &MF) const
 {
+  if (RC->hasType(MVT::i32))
+    return &AVR::GPR8QuadRegClass;
   if (RC->hasType(MVT::i16))
-  {
     return &AVR::DREGSRegClass;
-  }
-
   if (RC->hasType(MVT::i8))
-  {
     return &AVR::GPR8RegClass;
-  }
-
   llvm_unreachable("Invalid register size");
 }
 
