@@ -57,6 +57,7 @@ public:
 private:
   SDNode *Select(SDNode *N) override;
   
+  SDNode * selectMultiplication(SDNode * N);
   const AVRSubtarget *Subtarget;
 };
 
@@ -344,12 +345,12 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
   SDLoc DL(N);
 
   // Dump information about the Node being selected.
-  DEBUG(errs() << "Selecting: "; N->dump(CurDAG); errs() << "\n");
+  DEBUG(dbgs() << "Selecting: "; N->dump(CurDAG); dbgs() << "\n");
 
   // If we have a custom node, we already have selected!
   if (N->isMachineOpcode())
   {
-    DEBUG(errs() << "== "; N->dump(CurDAG); errs() << "\n");
+    DEBUG(dbgs() << "== "; N->dump(CurDAG); dbgs() << "\n");
     return 0;
   }
 
@@ -525,23 +526,53 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
 
       return ResNode;
     }
+  case ISD::UMUL_LOHI:
+  case ISD::SMUL_LOHI:
+    return selectMultiplication(N);
   }
 
   SDNode *ResNode = SelectCode(N);
 
-  DEBUG(errs() << "=> ";
-        if (ResNode == 0 || ResNode == N)
-        {
-          N->dump(CurDAG);
-        }
-        else
-        {
-          ResNode->dump(CurDAG);
-        }
-        errs() << "\n";
-       );
-
+  DEBUG(dbgs() << "=> "; (ResNode ? ResNode : N)->dump(CurDAG); dbgs() << "\n";);
   return ResNode;
+}
+
+SDNode *
+AVRDAGToDAGISel::selectMultiplication(llvm::SDNode *N) {
+  SDLoc DL(N);
+  MVT Type = N->getSimpleValueType(0);
+
+  assert(Type == MVT::i8 && "unexpected value type");
+
+  bool isSigned = N->getOpcode() == ISD::SMUL_LOHI;
+  unsigned MachineOp = isSigned ? AVR::MULSRdRr : AVR::MULRdRr;
+
+  SDValue Lhs = N->getOperand(0);
+  SDValue Rhs = N->getOperand(1);
+  SDNode * Mul = CurDAG->getMachineNode(MachineOp, DL, MVT::Glue, Lhs, Rhs);
+  SDValue InChain = CurDAG->getEntryNode();
+  SDValue InGlue  = SDValue(Mul, 0);
+
+  // Copy the low half of the result, if it is needed.
+  if (N->hasAnyUseOfValue(0)) {
+    SDValue CopyFromLo = CurDAG->getCopyFromReg(InChain, DL, AVR::R0, Type,
+                                           InGlue);
+    ReplaceUses(SDValue(N, 0), CopyFromLo);
+    InChain = CopyFromLo.getValue(1);
+    InGlue = CopyFromLo.getValue(2);
+  }
+  // Copy the high half of the result, if it is needed.
+  if (N->hasAnyUseOfValue(1)) {
+    SDValue CopyFromHi = CurDAG->getCopyFromReg(InChain, DL, AVR::R1, Type,
+                                           InGlue);
+    ReplaceUses(SDValue(N, 1), CopyFromHi);
+    InChain = CopyFromHi.getValue(1);
+    InGlue = CopyFromHi.getValue(2);
+  }
+
+  // :TODO: Clear R1. This is currently done using a custom inserter.
+
+  return nullptr;
 }
 
 /// createAVRISelDag - This pass converts a legalized DAG into a

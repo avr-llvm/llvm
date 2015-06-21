@@ -1356,95 +1356,6 @@ AVRExpandPseudo::expand<AVR::SPWRITE>(Block & MBB, BlockIt MBBI) {
   return true;
 }
 
-template <>
-bool
-AVRExpandPseudo::expand<AVR::MULRdRrP>(Block & MBB, BlockIt MBBI) {
-  MachineInstr & MI = *MBBI;
-  // mul r25, r24
-  // mov rdest, r0
-  // clr r1
-  unsigned DstReg = MI.getOperand(0).getReg();
-  bool DstIsDead = MI.getOperand(0).isDead();
-
-  MI.setDesc(TII->get(AVR::MULRdRr));
-  MI.getOperand(2).setIsDead();
-
-  buildMI(MBB, std::next(MBBI), AVR::MOVRdRr)
-    . addReg(DstReg, RegState::Define | getDeadRegState(DstIsDead))
-    . addReg(AVR::R0, RegState::Kill);
-
-  //:TODO: clr r1
-
-  return true;
-}
-
-template <>
-bool
-AVRExpandPseudo::expand<AVR::MULWRdRr>(Block & MBB, BlockIt MBBI) {
-  MachineInstr & MI = *MBBI;
-  unsigned DstLoReg, DstHiReg;
-  /*
-     %R25R24 = MULWRdRr %R23R22, %R19R18<kill>
-     mul r22,r18
-     movw r24,r0
-     mul r22,r19
-     add r25,r0
-     mul r23,r18
-     add r25,r0
-     clr r1
-   */
-  unsigned Src1LoReg, Src1HiReg, Src2LoReg, Src2HiReg;
-  unsigned DstReg = MI.getOperand(0).getReg();
-  unsigned Src1Reg = MI.getOperand(1).getReg();
-  unsigned Src2Reg = MI.getOperand(2).getReg();
-  bool DstIsDead = MI.getOperand(0).isDead();
-  bool Src1IsKill = MI.getOperand(1).isKill();
-  bool Src2IsKill = MI.getOperand(2).isKill();
-  bool ImpIsDead = MI.getOperand(5).isDead();
-  MachineInstrBuilder MIB;
-  splitRegs(Src1Reg, Src1LoReg, Src1HiReg);
-  splitRegs(Src2Reg, Src2LoReg, Src2HiReg);
-  splitRegs(DstReg, DstLoReg, DstHiReg);
-
-  MIB = buildMI(MBB, MBBI, AVR::MULRdRr)
-    . addReg(Src1LoReg)
-    . addReg(Src2LoReg);
-  MIB->getOperand(3).setIsDead();
-
-  buildMI(MBB, MBBI, AVR::MOVWRdRr)
-    . addReg(DstReg, RegState::Define)
-    . addReg(AVR::R1R0, RegState::Kill);
-
-  MIB = buildMI(MBB, MBBI, AVR::MULRdRr)
-    . addReg(Src1LoReg, getKillRegState(Src1IsKill))
-    . addReg(Src2HiReg, getKillRegState(Src2IsKill));
-  MIB->getOperand(2).setIsDead();
-  MIB->getOperand(4).setIsDead();
-
-  MIB = buildMI(MBB, MBBI, AVR::ADDRdRr)
-    . addReg(DstHiReg, RegState::Define)
-    . addReg(DstHiReg, RegState::Kill)
-    . addReg(AVR::R0, RegState::Kill);
-  MIB->getOperand(3).setIsDead();
-
-  MIB = buildMI(MBB, MBBI, AVR::MULRdRr)
-    . addReg(Src1HiReg, getKillRegState(Src1IsKill))
-    . addReg(Src2LoReg, getKillRegState(Src2IsKill));
-  MIB->getOperand(2).setIsDead();
-  MIB->getOperand(4).setIsDead();
-
-  MIB = buildMI(MBB, MBBI, AVR::ADDRdRr)
-    . addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-    . addReg(DstHiReg, RegState::Kill)
-    . addReg(AVR::R0, RegState::Kill);
-
-  if (ImpIsDead) MIB->getOperand(3).setIsDead();
-
-  //:TODO: clr r1
-  MI.eraseFromParent();
-  return true;
-}
-
 bool
 AVRExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
   MachineInstr & MI = *MBBI;
@@ -1490,8 +1401,6 @@ AVRExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(AVR::ZEXT);
     EXPAND(AVR::SPREAD);
     EXPAND(AVR::SPWRITE);
-    EXPAND(AVR::MULRdRrP);
-    EXPAND(AVR::MULWRdRr);
   }
 #undef EXPAND
   return false;

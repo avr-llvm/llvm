@@ -110,6 +110,7 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setOperationAction(ISD::VAARG, MVT::Other, Expand);
   setOperationAction(ISD::VACOPY, MVT::Other, Expand);
 
+
   setOperationAction(ISD::UDIV, MVT::i8, Expand);
   setOperationAction(ISD::UDIV, MVT::i16, Expand);
   setOperationAction(ISD::UREM, MVT::i8, Expand);
@@ -123,14 +124,13 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setOperationAction(ISD::SDIVREM, MVT::i8, Expand);
   setOperationAction(ISD::SDIVREM, MVT::i16, Expand);
 
-  setOperationAction(ISD::SMUL_LOHI, MVT::i8, Expand);
+  // Do not use MUL. The AVR instructions are closer to SMUL_LOHI &co.
+  setOperationAction(ISD::MUL, MVT::i8, Expand);
+  setOperationAction(ISD::MUL, MVT::i16, Expand);
+
+  // Expand 16 bit multiplications.
   setOperationAction(ISD::SMUL_LOHI, MVT::i16, Expand);
-  setOperationAction(ISD::UMUL_LOHI, MVT::i8, Expand);
   setOperationAction(ISD::UMUL_LOHI, MVT::i16, Expand);
-  setOperationAction(ISD::MULHU, MVT::i8, Expand);
-  setOperationAction(ISD::MULHU, MVT::i16, Expand);
-  setOperationAction(ISD::MULHS, MVT::i8, Expand);
-  setOperationAction(ISD::MULHS, MVT::i16, Expand);
 
   setMinFunctionAlignment(1);
 }
@@ -911,17 +911,11 @@ LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
     {
       EVT RegVT = VA.getLocVT();
       const TargetRegisterClass *RC;
-
-      if (RegVT == MVT::i8)
-      {
+      if (RegVT == MVT::i8) {
         RC = &AVR::GPR8RegClass;
-      }
-      else if (RegVT == MVT::i16)
-      {
+      } else if (RegVT == MVT::i16) {
         RC = &AVR::DREGSRegClass;
-      }
-      else
-      {
+      } else {
         llvm_unreachable("Unknown argument type!");
       }
 
@@ -1275,11 +1269,11 @@ AVRTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
 }
 
 //===----------------------------------------------------------------------===//
-//  Other Lowering Code
+//  Custom Inserters
 //===----------------------------------------------------------------------===//
 
 MachineBasicBlock*
-AVRTargetLowering::EmitShiftInstr(MachineInstr *MI, MachineBasicBlock *BB) const
+AVRTargetLowering::insertShift(MachineInstr *MI, MachineBasicBlock *BB) const
 {
   unsigned Opc;
   const TargetRegisterClass *RC;
@@ -1387,6 +1381,31 @@ AVRTargetLowering::EmitShiftInstr(MachineInstr *MI, MachineBasicBlock *BB) const
   return RemBB;
 }
 
+
+inline
+bool
+isCopyMulResult(MachineBasicBlock::iterator const& I) {
+  unsigned SrcReg = I->getOperand(1).getReg();
+  return I->getOpcode() == AVR::COPY && (SrcReg == AVR::R0 || SrcReg == AVR::R1);
+}
+
+// The mul instructions wreak havock on our zero_reg R1. We need to clear it
+// after the result has been evacuated. This is probably not the best way to do
+// it, but it works for now.
+MachineBasicBlock *
+AVRTargetLowering::insertMul(MachineInstr * MI, MachineBasicBlock * BB) const {
+  const AVRTargetMachine& TM = (const AVRTargetMachine&)getTargetMachine();
+  const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
+  MachineBasicBlock::iterator I(MI);
+  ++I; // in any case insert *after* the mul instruction
+  if (isCopyMulResult(I)) ++I;
+  if (isCopyMulResult(I)) ++I;
+  BuildMI(*BB, I, MI->getDebugLoc(),TII.get(AVR::EORRdRr), AVR::R1)
+    . addReg(AVR::R1)
+    . addReg(AVR::R1);
+  return BB;
+}
+
 MachineBasicBlock *
 AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
                                                MachineBasicBlock *BB) const
@@ -1395,15 +1414,17 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
 
   // Pseudo shift instructions with a non constant shift amount are expanded
   // into a loop.
-  switch (Opc)
-  {
-  case AVR::Lsl8:
-  case AVR::Lsl16:
-  case AVR::Lsr8:
-  case AVR::Lsr16:
-  case AVR::Asr8:
-  case AVR::Asr16:
-    return EmitShiftInstr(MI, BB);
+  switch (Opc) {
+    case AVR::Lsl8:
+    case AVR::Lsl16:
+    case AVR::Lsr8:
+    case AVR::Lsr16:
+    case AVR::Asr8:
+    case AVR::Asr16:
+      return insertShift(MI, BB);
+    case AVR::MULRdRr:
+    case AVR::MULSRdRr:
+      return insertMul(MI, BB);
   }
 
   assert((Opc == AVR::Select16 || Opc == AVR::Select8)
