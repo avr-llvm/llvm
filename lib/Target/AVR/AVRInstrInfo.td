@@ -489,60 +489,28 @@ Defs = [SREG] in
 let isCommutable = 1,
 Defs = [R1, R0, SREG] in
 {
+}
+
+let isCommutable = 1,
+Defs = [R1, R0, SREG] in
+{
   // MUL Rd, Rr
-  // Multiplies Rd by Rr and places the result into Rd.
-  def MULRdRr : FRdRr<0b1001,
-                      0b11,
-                      (outs),
-                      (ins GPR8:$lhs, GPR8:$rhs),
-                      "mul\t$lhs, $rhs",
-                      []>,
-                Requires<[SupportsMultiplication]>;
+  // Multiplies Rd by Rr and places the result into R1:R0.
+  let usesCustomInserter = 1 in {
+    def MULRdRr : FRdRr<0b1001, 0b11,
+                        (outs),
+                        (ins GPR8:$lhs, GPR8:$rhs),
+                        "mul\t$lhs, $rhs",
+                        [/*(set R1, R0, (smullohi GPR8:$lhs, GPR8:$rhs))*/]>,
+                    Requires<[SupportsMultiplication]>;
 
-  // MULW DST+1:DST, LHS+1:LHS, RHS+1:RHS
-  //
-  // The earlyclobber flag is required because the pseudo expansion needs $rd
-  // and $src to have different registers.
-  //
-  // Expands to:
-  // mul  LHS, RHS
-  // movw DST+1:DST, r1:r0
-  // mul  LHS, RHS+1
-  // add  DST+1, r0
-  // mul  LHS+1, RHS
-  // add  DST+1, r0
-  // clr r1
-  let Constraints = "@earlyclobber $dst" in
-  def MULWRdRr : Pseudo<(outs DREGS:$dst),
-                        (ins DREGS:$lhs, DREGS:$rhs),
-                        "mulw\t$dst, $lhs, $rhs",
-                        [(set DREGS:$dst, (mul DREGS:$lhs, DREGS:$rhs)),
-                         (implicit SREG)]>,
-                 Requires<[SupportsMultiplication]>;
-
-  // MULP Rd, Rr
-  //
-  // This pseudo is used as a marker to insert a "clr r1" after the operation.
-  //
-  // Expands to:
-  // mul Rd, Rr
-  // mov Rd, r0
-  // clr r1
-  let Constraints = "$src = $rd" in
-  def MULRdRrP : Pseudo<(outs GPR8:$rd),
-                        (ins GPR8:$src, GPR8:$rr),
-                        "mulp\t$rd, $src, $rr",
-                        [(set GPR8:$rd, (mul GPR8:$src, GPR8:$rr)),
-                         (implicit SREG)]>,
-                 Requires<[SupportsMultiplication]>;
-
-
-  def MULSRdRr : FMUL2RdRr<0,
-                           (outs),
-                           (ins GPR8:$lhs, GPR8:$rhs),
-                           "muls\t$lhs, $rhs",
-                           []>,
-                 Requires<[SupportsMultiplication]>;
+    def MULSRdRr : FMUL2RdRr<0,
+                             (outs),
+                             (ins GPR8:$lhs, GPR8:$rhs),
+                             "muls\t$lhs, $rhs",
+                             []>,
+                   Requires<[SupportsMultiplication]>;
+  }
 
   def MULSURdRr : FMUL2RdRr<1,
                             (outs),
@@ -1695,7 +1663,7 @@ Defs = [SREG] in
 // Alias for EOR Rd, Rd
 // -------------
 // Clears all bits in a register.
-def : InstAlias<"clr\t$rd", (EORRdRr GPR8:$rd, GPR8:$rd)>;
+def CLR : InstAlias<"clr\t$rd", (EORRdRr GPR8:$rd, GPR8:$rd)>;
 
 // SER Rd
 // Alias for LDI Rd, 0xff
@@ -1984,6 +1952,7 @@ def : Pat<(i16 (AVRWrapper tblockaddress:$dst)),
 // hi-reg truncation : trunc(int16 >> 8)
 //:FIXME: i think it's better to emit an extract subreg node in the DAG than
 // all this mess once we get optimal shift code
+// lol... I think so, too. [@agnat]
 def : Pat<(i8 (trunc (AVRlsr (AVRlsr (AVRlsr (AVRlsr (AVRlsr (AVRlsr (AVRlsr
                      (AVRlsr DREGS:$src)))))))))),
           (EXTRACT_SUBREG DREGS:$src, sub_hi)>;
@@ -1992,3 +1961,4 @@ def : Pat<(i8 (trunc (AVRlsr (AVRlsr (AVRlsr (AVRlsr (AVRlsr (AVRlsr (AVRlsr
 // BR_JT -> (mul x, 2) -> (shl x, 1)
 def : Pat<(shl DREGS:$src1, (i8 1)),
           (LSLWRd DREGS:$src1)>;
+

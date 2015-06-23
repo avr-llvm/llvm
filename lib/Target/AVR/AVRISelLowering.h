@@ -150,7 +150,7 @@ private:
   SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
-  SDValue LowerINLINEASM(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerINLINEASM(SDValue Op, SelectionDAG &DAG) const;          
   SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
@@ -171,8 +171,10 @@ private:
                           const SmallVectorImpl<ISD::InputArg> &Ins,
                           SDLoc dl, SelectionDAG &DAG,
                           SmallVectorImpl<SDValue> &InVals) const;
-  MachineBasicBlock *EmitShiftInstr(MachineInstr *MI,
-                                    MachineBasicBlock *BB) const;
+
+private: // custom inserters 
+  MachineBasicBlock * insertShift(MachineInstr *MI,  MachineBasicBlock *BB) const;
+  MachineBasicBlock * insertMul(MachineInstr * MI, MachineBasicBlock * BB) const;
 };
 
 } // end namespace llvm
