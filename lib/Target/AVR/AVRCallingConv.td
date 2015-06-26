@@ -16,10 +16,7 @@
 def RetCC_AVR : CallingConv
 <[
   // i8 is returned in R24.
-  CCIfType<[i8], CCAssignToReg<[R24]>>,
-
-  // i16 are returned in R25:R24, R23:R22, R21:R20 and R19:R18.
-  CCIfType<[i16], CCAssignToReg<[R25R24, R23R22, R21R20, R19R18]>>
+  CCIfType<[i8], CCAssignToReg<[R24, R23, R22, R21, R20, R19, R18, R17, R16, R15, R14, R13, R12, R11, R10, R9, R8]>>
 ]>;
 
 //===----------------------------------------------------------------------===//

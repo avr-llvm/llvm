@@ -154,6 +154,7 @@ private:
   SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerLoad(SDValue Op, SelectionDAG &DAG) const;
 
   SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
@@ -172,7 +173,7 @@ private:
                           SDLoc dl, SelectionDAG &DAG,
                           SmallVectorImpl<SDValue> &InVals) const;
 
-private: // custom inserters 
+private: // custom inserters
   MachineBasicBlock * insertShift(MachineInstr *MI,  MachineBasicBlock *BB) const;
   MachineBasicBlock * insertMul(MachineInstr * MI, MachineBasicBlock * BB) const;
 };

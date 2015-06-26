@@ -22,10 +22,14 @@
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/IR/Function.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include "AVR.h"
 #include "AVRMachineFunctionInfo.h"
 #include "AVRTargetMachine.h"
+
+#define DEBUG_TYPE "avr-target-lowering"
 
 namespace llvm {
 
@@ -35,7 +39,7 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
 {
   // Set up the register classes.
   addRegisterClass(MVT::i8, &AVR::GPR8RegClass);
-  addRegisterClass(MVT::i16, &AVR::DREGSRegClass);
+  // XXX addRegisterClass(MVT::i16, &AVR::DREGSRegClass);
 
   // Compute derived properties from the register classes.
   computeRegisterProperties(tm.getSubtargetImpl()->getRegisterInfo());
@@ -129,8 +133,14 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setOperationAction(ISD::MUL, MVT::i16, Expand);
 
   // Expand 16 bit multiplications.
-  setOperationAction(ISD::SMUL_LOHI, MVT::i16, Expand);
-  setOperationAction(ISD::UMUL_LOHI, MVT::i16, Expand);
+  //setOperationAction(ISD::SMUL_LOHI, MVT::i16, Expand);
+  //setOperationAction(ISD::UMUL_LOHI, MVT::i16, Expand);
+
+  // XXX
+  setOperationAction(ISD::FrameIndex, MVT::i16, Custom);
+  setOperationAction(ISD::LOAD, MVT::i16, Custom);
+  setOperationAction(ISD::LOAD, MVT::i8, Custom);
+
 
   setMinFunctionAlignment(1);
 }
@@ -534,34 +544,70 @@ SDValue AVRTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const
                       MachinePointerInfo(SV), false, false, 0);
 }
 
+SDValue
+AVRTargetLowering::lowerLoad(SDValue Op, SelectionDAG &DAG) const {
+  Op->getOperand(0)->dump();
+  Op->getOperand(1)->dump();
+  dbgs() << "Op: " << Op->getOperand(1)->getOpcode();
+  return Op;
+}
+
 SDValue AVRTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const
 {
   switch (Op.getOpcode())
   {
-  default:
-    llvm_unreachable("Don't know how to custom lower this!");
-  case ISD::SHL:
-  case ISD::SRA:
-  case ISD::SRL:
-  case ISD::ROTL:
-  case ISD::ROTR:
-    return LowerShifts(Op, DAG);
-  case ISD::GlobalAddress:
-    return LowerGlobalAddress(Op, DAG);
-  case ISD::BlockAddress:
-    return LowerBlockAddress(Op, DAG);
-  case ISD::BR_CC:
-    return LowerBR_CC(Op, DAG);
-  case ISD::SELECT_CC:
-    return LowerSELECT_CC(Op, DAG);
-  case ISD::SETCC:
-    return LowerSETCC(Op, DAG);
-  case ISD::VASTART:
-    return LowerVASTART(Op, DAG);
+    default:
+      llvm_unreachable("Don't know how to custom lower this!");
+    case ISD::SHL:
+    case ISD::SRA:
+    case ISD::SRL:
+    case ISD::ROTL:
+    case ISD::ROTR:
+      return LowerShifts(Op, DAG);
+    case ISD::GlobalAddress:
+      return LowerGlobalAddress(Op, DAG);
+    case ISD::BlockAddress:
+      return LowerBlockAddress(Op, DAG);
+    case ISD::BR_CC:
+      return LowerBR_CC(Op, DAG);
+    case ISD::SELECT_CC:
+      return LowerSELECT_CC(Op, DAG);
+    case ISD::SETCC:
+      return LowerSETCC(Op, DAG);
+    case ISD::VASTART:
+      return LowerVASTART(Op, DAG);
+    case ISD::LOAD:
+      return lowerLoad(Op, DAG);
   }
 
   return SDValue();
 }
+
+
+static
+void
+replaceFrameIndex(SDNode *N, SmallVectorImpl<SDValue> &Results,
+                  SelectionDAG &DAG)
+{
+  SDLoc DL(N);
+
+  // This function is only supposed to be called for i16 type destination.
+  assert(N->getValueType(0) == MVT::i16
+         && "replaceFrameIndex called for non-i16 type result.");
+
+  SDValue newNode = DAG.getNode(N->getOpcode(), DL, DAG.getVTList(MVT::i8, MVT::i8));
+  Results.push_back(newNode.getValue(0));
+  Results.push_back(newNode.getValue(1));
+}
+
+  static
+  void
+  replaceTTT(SDNode *N, SmallVectorImpl<SDValue> &Results,
+                    SelectionDAG &DAG)
+  {
+    N->dump();
+    dbgs() << "plonk\n";
+  }
 
 /// ReplaceNodeResults - Replace a node with an illegal result type
 /// with a new node built out of custom code.
@@ -573,22 +619,27 @@ void AVRTargetLowering::ReplaceNodeResults(SDNode *N,
 
   switch (N->getOpcode())
   {
-  default:
-    llvm_unreachable("Don't know how to custom expand this!");
-  case ISD::ADD:
-    {
+    default:
+      llvm_unreachable("Don't know how to custom expand this!");
+    case ISD::ADD: {
       // Convert add (x, imm) into sub (x, -imm).
       if (const ConstantSDNode *C = dyn_cast<ConstantSDNode>(N->getOperand(1)))
       {
         SDValue Sub =
-          DAG.getNode(ISD::SUB, DL, N->getValueType(0), N->getOperand(0),
-                      DAG.getConstant(-C->getAPIntValue(),
-                                      DL, C->getValueType(0)));
+        DAG.getNode(ISD::SUB, DL, N->getValueType(0), N->getOperand(0),
+                    DAG.getConstant(-C->getAPIntValue(),
+                                    DL, C->getValueType(0)));
         Results.push_back(Sub);
         return;
       }
       break;
     }
+    case ISD::FrameIndex:
+      replaceFrameIndex(N, Results, DAG);
+      return;
+    case ISD::LOAD:
+      replaceTTT(N, Results, DAG);
+      return;
   }
 }
 
@@ -768,11 +819,9 @@ AVRTargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const
 static void parseFunctionArgs(const Function *F, const DataLayout *TD,
                               SmallVectorImpl<unsigned> &Out)
 {
-  for (Function::const_arg_iterator I = F->arg_begin(), E = F->arg_end();
-       I != E; ++I)
-  {
-    unsigned Bytes = TD->getTypeSizeInBits(I->getType()) / 8;
-    Out.push_back(((Bytes == 1) || (Bytes == 2)) ? 1 : Bytes / 2);
+  typedef Function::const_arg_iterator Iterator;
+  for (Iterator I = F->arg_begin(), E = F->arg_end(); I != E; ++I) {
+    Out.push_back(TD->getTypeSizeInBits(I->getType()) / 8);
   }
 }
 
@@ -807,13 +856,7 @@ static void analyzeArguments(const Function *F, const DataLayout *TD,
 {
   static const MCPhysReg RegList8[] =
   {
-    AVR::R24, AVR::R22, AVR::R20, AVR::R18, AVR::R16, AVR::R14, AVR::R12,
-    AVR::R10, AVR::R8
-  };
-  static const MCPhysReg RegList16[] =
-  {
-    AVR::R25R24, AVR::R23R22, AVR::R21R20, AVR::R19R18, AVR::R17R16,
-    AVR::R15R14, AVR::R13R12, AVR::R11R10, AVR::R9R8
+    AVR::R24, AVR::R23, AVR::R22, AVR::R21, AVR::R20, AVR::R19, AVR::R18, AVR::R17, AVR::R16, AVR::R15, AVR::R14, AVR::R13, AVR::R12, AVR::R11, AVR::R10, AVR::R9, AVR::R8
   };
 
   if (IsVarArg)
@@ -852,16 +895,26 @@ static void analyzeArguments(const Function *F, const DataLayout *TD,
     // If we have plenty of regs to pass the whole argument do it.
     if (!UsesStack && (Size <= RegsLeft))
     {
-      const MCPhysReg *RegList = (LocVT == MVT::i16) ? RegList16 : RegList8;
+      const MCPhysReg *RegList = RegList8;
 
-      for (unsigned j = 0; j != Size; ++j)
-      {
+      if (Size == 1) {
         unsigned Reg = CCInfo.AllocateReg(ArrayRef<MCPhysReg>(RegList, array_lengthof(RegList8)));
         CCInfo.addLoc(CCValAssign::getReg(ValNo++, LocVT, Reg, LocVT,
                                           CCValAssign::Full));
-        --RegsLeft;
-      }
+        // allocate shadow reg
+        CCInfo.AllocateReg(ArrayRef<MCPhysReg>(RegList, array_lengthof(RegList8)));
+        RegsLeft -= 2;
 
+      } else {
+        for (unsigned j = 0; j != Size; ++j)
+        {
+          unsigned Reg = CCInfo.AllocateReg(ArrayRef<MCPhysReg>(RegList, array_lengthof(RegList8)));
+          CCInfo.addLoc(CCValAssign::getReg(ValNo++, LocVT, Reg, LocVT,
+                                            CCValAssign::Full));
+          --RegsLeft;
+        }
+      }
+      
       // Reverse the order of the pieces to agree with the "big endian" format
       // required in the calling convention ABI.
       std::reverse(ArgLocs.begin() + pos, ArgLocs.begin() + pos + Size);

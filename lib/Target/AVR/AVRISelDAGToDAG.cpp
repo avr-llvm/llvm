@@ -31,7 +31,7 @@ namespace llvm {
 
 class AVRDAGToDAGISel : public SelectionDAGISel {
 public:
-  explicit AVRDAGToDAGISel(AVRTargetMachine &tm, CodeGenOpt::Level OptLevel) :
+  AVRDAGToDAGISel(AVRTargetMachine &tm, CodeGenOpt::Level OptLevel) :
     SelectionDAGISel(tm, OptLevel), Subtarget(nullptr) {}
 
   const char *getPassName() const override
