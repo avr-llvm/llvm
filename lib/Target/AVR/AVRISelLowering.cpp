@@ -137,26 +137,28 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
 
 const char *AVRTargetLowering::getTargetNodeName(unsigned Opcode) const
 {
+#define NODE(name) case AVRISD::name: return "##name##"
   switch (Opcode)
   {
-  default:                                    return 0;
-  case AVRISD::RET_FLAG:                      return "AVRISD::RET_FLAG";
-  case AVRISD::RETI_FLAG:                     return "AVRISD::RETI_FLAG";
-  case AVRISD::CALL:                          return "AVRISD::CALL";
-  case AVRISD::Wrapper:                       return "AVRISD::Wrapper";
-  case AVRISD::LSL:                           return "AVRISD::LSL";
-  case AVRISD::LSR:                           return "AVRISD::LSR";
-  case AVRISD::ROL:                           return "AVRISD::ROL";
-  case AVRISD::ROR:                           return "AVRISD::ROR";
-  case AVRISD::ASR:                           return "AVRISD::ASR";
-  case AVRISD::LSLLOOP:                       return "AVRISD::LSLLOOP";
-  case AVRISD::LSRLOOP:                       return "AVRISD::LSRLOOP";
-  case AVRISD::ASRLOOP:                       return "AVRISD::ASRLOOP";
-  case AVRISD::BRCOND:                        return "AVRISD::BRCOND";
-  case AVRISD::CMP:                           return "AVRISD::CMP";
-  case AVRISD::CMPC:                          return "AVRISD::CMPC";
-  case AVRISD::TST:                           return "AVRISD::TST";
-  case AVRISD::SELECT_CC:                     return "AVRISD::SELECT_CC";
+  default:       return nullptr;
+  NODE(RET_FLAG);
+  NODE(RETI_FLAG);
+  NODE(CALL);
+  NODE(Wrapper);
+  NODE(LSL);
+  NODE(LSR);
+  NODE(ROL);
+  NODE(ROR);
+  NODE(ASR);
+  NODE(LSLLOOP);
+  NODE(LSRLOOP);
+  NODE(ASRLOOP);
+  NODE(BRCOND);
+  NODE(CMP);
+  NODE(CMPC);
+  NODE(TST);
+  NODE(SELECT_CC);
+#undef NODE
   }
 }
 
