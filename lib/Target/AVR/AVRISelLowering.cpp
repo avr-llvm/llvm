@@ -41,7 +41,7 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   computeRegisterProperties(tm.getSubtargetImpl()->getRegisterInfo());
 
   setBooleanContents(ZeroOrOneBooleanContent);
-  setBooleanVectorContents(ZeroOrOneBooleanContent); // FIXME: Is this correct?
+  setBooleanVectorContents(ZeroOrOneBooleanContent);
   setSchedulingPreference(Sched::RegPressure);
   setStackPointerRegisterToSaveRestore(AVR::SP);
 
@@ -119,10 +119,12 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setOperationAction(ISD::SDIV, MVT::i16, Expand);
   setOperationAction(ISD::SREM, MVT::i8, Expand);
   setOperationAction(ISD::SREM, MVT::i16, Expand);
-  setOperationAction(ISD::UDIVREM, MVT::i8, Expand);
-  setOperationAction(ISD::UDIVREM, MVT::i16, Expand);
-  setOperationAction(ISD::SDIVREM, MVT::i8, Expand);
-  setOperationAction(ISD::SDIVREM, MVT::i16, Expand);
+
+  // Make division and modulus custom
+  for(MVT VT : MVT::integer_valuetypes()) {
+    setOperationAction(ISD::UDIVREM, VT, Custom);
+    setOperationAction(ISD::SDIVREM, VT, Custom);
+  }
 
   // Do not use MUL. The AVR instructions are closer to SMUL_LOHI &co.
   setOperationAction(ISD::MUL, MVT::i8, Expand);
@@ -133,6 +135,60 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setOperationAction(ISD::UMUL_LOHI, MVT::i16, Expand);
   setOperationAction(ISD::MULHS, MVT::i16, Expand);
   setOperationAction(ISD::MULHU, MVT::i16, Expand);
+
+  //  Runtime library functions
+  {
+    // Division rtlib functions (not supported)
+    {
+      setLibcallName(RTLIB::SDIV_I8,   nullptr);
+      setLibcallName(RTLIB::SDIV_I16,  nullptr);
+      setLibcallName(RTLIB::SDIV_I32,  nullptr);
+      setLibcallName(RTLIB::SDIV_I64,  nullptr);
+      setLibcallName(RTLIB::SDIV_I128, nullptr);
+
+      setLibcallName(RTLIB::UDIV_I8,   nullptr);
+      setLibcallName(RTLIB::UDIV_I16,  nullptr);
+      setLibcallName(RTLIB::UDIV_I32,  nullptr);
+      setLibcallName(RTLIB::UDIV_I64,  nullptr);
+      setLibcallName(RTLIB::UDIV_I128, nullptr);
+    }
+
+    // Modulus rtlib functions (not supported)
+    {
+      setLibcallName(RTLIB::SREM_I8,   nullptr);
+      setLibcallName(RTLIB::SREM_I16,  nullptr);
+      setLibcallName(RTLIB::SREM_I32,  nullptr);
+      setLibcallName(RTLIB::SREM_I64,  nullptr);
+      setLibcallName(RTLIB::SREM_I128, nullptr);
+
+      setLibcallName(RTLIB::UREM_I8,   nullptr);
+      setLibcallName(RTLIB::UREM_I16,  nullptr);
+      setLibcallName(RTLIB::UREM_I32,  nullptr);
+      setLibcallName(RTLIB::UREM_I64,  nullptr);
+      setLibcallName(RTLIB::UREM_I128, nullptr);
+    }
+
+    // Division and modulus rtlib functions
+    {
+      setLibcallName(RTLIB::SDIVREM_I8,   "__divmodqi4");
+      setLibcallName(RTLIB::SDIVREM_I16,  "__divmodhi4");
+      setLibcallName(RTLIB::SDIVREM_I32,  "__divmodsi4");
+      setLibcallName(RTLIB::SDIVREM_I64,  "__divmoddi4");
+      setLibcallName(RTLIB::SDIVREM_I128, "__divmodti4");
+
+      setLibcallName(RTLIB::UDIVREM_I8,   "__udivmodqi4");
+      setLibcallName(RTLIB::UDIVREM_I16,  "__udivmodhi4");
+      setLibcallName(RTLIB::UDIVREM_I32,  "__udivmodsi4");
+      setLibcallName(RTLIB::UDIVREM_I64,  "__udivmoddi4");
+      setLibcallName(RTLIB::UDIVREM_I128, "__udivmodti4");
+
+      // Several of the runtime library functions use a special calling conv
+      setLibcallCallingConv(RTLIB::SDIVREM_I8,  CallingConv::AVR_RT_DIV);
+      setLibcallCallingConv(RTLIB::SDIVREM_I16, CallingConv::AVR_RT_DIV);
+      setLibcallCallingConv(RTLIB::UDIVREM_I8,  CallingConv::AVR_RT_DIV);
+      setLibcallCallingConv(RTLIB::UDIVREM_I16, CallingConv::AVR_RT_DIV);
+    }
+  }
 
   setMinFunctionAlignment(1);
   setMinimumJumpTableEntries(INT_MAX);
@@ -223,6 +279,54 @@ SDValue AVRTargetLowering::LowerShifts(SDValue Op, SelectionDAG &DAG) const
   }
 
   return Victim;
+}
+
+SDValue AVRTargetLowering::LowerDivRem(SDValue Op, SelectionDAG &DAG) const
+{
+  unsigned Opcode = Op->getOpcode();
+  assert((Opcode == ISD::SDIVREM || Opcode == ISD::UDIVREM) &&
+         "Invalid opcode for Div/Rem lowering");
+  bool isSigned = (Opcode == ISD::SDIVREM);
+  EVT VT = Op->getValueType(0);
+  Type *Ty = VT.getTypeForEVT(*DAG.getContext());
+
+  RTLIB::Libcall LC;
+  switch (VT.getSimpleVT().SimpleTy) {
+  default: llvm_unreachable("Unexpected request for libcall!");
+  case MVT::i8:  LC = isSigned ? RTLIB::SDIVREM_I8  : RTLIB::UDIVREM_I8;  break;
+  case MVT::i16: LC = isSigned ? RTLIB::SDIVREM_I16 : RTLIB::UDIVREM_I16; break;
+  case MVT::i32: LC = isSigned ? RTLIB::SDIVREM_I32 : RTLIB::UDIVREM_I32; break;
+  case MVT::i64: LC = isSigned ? RTLIB::SDIVREM_I64 : RTLIB::UDIVREM_I64; break;
+  }
+
+  SDValue InChain = DAG.getEntryNode();
+
+  TargetLowering::ArgListTy Args;
+  TargetLowering::ArgListEntry Entry;
+  for (unsigned i = 0, e = Op->getNumOperands(); i != e; ++i) {
+    EVT ArgVT = Op->getOperand(i).getValueType();
+    Type *ArgTy = ArgVT.getTypeForEVT(*DAG.getContext());
+    Entry.Node = Op->getOperand(i);
+    Entry.Ty = ArgTy;
+    Entry.isSExt = isSigned;
+    Entry.isZExt = !isSigned;
+    Args.push_back(Entry);
+  }
+
+  SDValue Callee = DAG.getExternalSymbol(getLibcallName(LC),
+                                         getPointerTy());
+
+  Type *RetTy = (Type*)StructType::get(Ty, Ty, nullptr);
+
+  SDLoc dl(Op);
+  TargetLowering::CallLoweringInfo CLI(DAG);
+  CLI.setDebugLoc(dl).setChain(InChain)
+    .setCallee(getLibcallCallingConv(LC), RetTy, Callee, std::move(Args), 0)
+    .setInRegister().setSExtResult(isSigned).setZExtResult(!isSigned);
+
+  std::pair<SDValue, SDValue> CallInfo = LowerCallTo(CLI);
+  return CallInfo.first;
+
 }
 
 SDValue
@@ -563,6 +667,9 @@ SDValue AVRTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const
     return LowerSETCC(Op, DAG);
   case ISD::VASTART:
     return LowerVASTART(Op, DAG);
+  case ISD::SDIVREM:
+  case ISD::UDIVREM:
+    return LowerDivRem(Op, DAG);
   }
 
   return SDValue();
@@ -795,6 +902,7 @@ static void parseExternFuncCallArgs(const SmallVectorImpl<ISD::OutputArg> &In,
 static void analyzeArguments(const Function *F, const DataLayout *TD,
                              const SmallVectorImpl<ISD::OutputArg> *Outs,
                              const SmallVectorImpl<ISD::InputArg> *Ins,
+                             CallingConv::ID CallConv,
                              SmallVectorImpl<CCValAssign> &ArgLocs,
                              CCState &CCInfo, bool IsCall, bool IsVarArg)
 {
@@ -809,16 +917,22 @@ static void analyzeArguments(const Function *F, const DataLayout *TD,
     AVR::R15R14, AVR::R13R12, AVR::R11R10, AVR::R9R8
   };
 
+  // If the calling convention is AVR_RT, handle it appropriately
+  if(CallConv == CallingConv::AVR_RT_MUL) {
+    CCInfo.AnalyzeCallOperands(*Outs, ArgCC_AVR_RT_MUL);
+    return;
+  } else if(CallConv == CallingConv::AVR_RT_DIV) {
+    CCInfo.AnalyzeCallOperands(*Outs, ArgCC_AVR_RT_DIV);
+    return;
+  }
+
   if (IsVarArg)
   {
     // Variadic functions do not need all the analisys below.
-    if (IsCall)
-    {
-      CCInfo.AnalyzeCallOperands(*Outs, CC_AVR_Vararg);
-    }
-    else
-    {
-      CCInfo.AnalyzeFormalArguments(*Ins, CC_AVR_Vararg);
+    if (IsCall) {
+      CCInfo.AnalyzeCallOperands(*Outs, ArgCC_AVR_Vararg);
+    } else {
+      CCInfo.AnalyzeFormalArguments(*Ins, ArgCC_AVR_Vararg);
     }
     return;
   }
@@ -891,7 +1005,7 @@ LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
                  ArgLocs, *DAG.getContext());
 
-  analyzeArguments(MF.getFunction(), getDataLayout(), 0, &Ins, ArgLocs, CCInfo, false,
+  analyzeArguments(MF.getFunction(), getDataLayout(), 0, &Ins, CallConv, ArgLocs, CCInfo, false,
                    isVarArg);
 
   SDValue ArgValue;
@@ -1021,7 +1135,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     Callee = DAG.getTargetExternalSymbol(ES->getSymbol(), getPointerTy());
   }
 
-  analyzeArguments(F, getDataLayout(), &Outs, 0, ArgLocs, CCInfo, true, isVarArg);
+  analyzeArguments(F, getDataLayout(), &Outs, 0, CallConv, ArgLocs, CCInfo, true, isVarArg);
 
   // Get a count of how many bytes are to be pushed on the stack.
   unsigned NumBytes = CCInfo.getNextStackOffset();
@@ -1170,7 +1284,11 @@ AVRTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
                  RVLocs, *DAG.getContext());
 
-  CCInfo.AnalyzeCallResult(Ins, RetCC_AVR);
+  if(CallConv == CallingConv::AVR_RT_MUL ||
+     CallConv == CallingConv::AVR_RT_DIV)
+    CCInfo.AnalyzeCallResult(Ins, RetCC_AVR_RT);
+  else
+    CCInfo.AnalyzeCallResult(Ins, RetCC_AVR);
 
   // Reverse splitted return values to get the "big endian" format required
   // to agree with the calling convention ABI.
@@ -1210,7 +1328,11 @@ AVRTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                  RVLocs, *DAG.getContext());
 
   // Analize return values.
-  CCInfo.AnalyzeReturn(Outs, RetCC_AVR);
+  if(CallConv == CallingConv::AVR_RT_MUL ||
+     CallConv == CallingConv::AVR_RT_DIV)
+    CCInfo.AnalyzeReturn(Outs, RetCC_AVR_RT);
+  else
+    CCInfo.AnalyzeReturn(Outs, RetCC_AVR);
 
   // If this is the first return lowered for this function, add the regs to
   // the liveout set for the function.

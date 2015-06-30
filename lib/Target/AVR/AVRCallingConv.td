@@ -22,6 +22,13 @@ def RetCC_AVR : CallingConv
   CCIfType<[i16], CCAssignToReg<[R25R24, R23R22, R21R20, R19R18]>>
 ]>;
 
+// Special return value calling convention for runtime functions.
+def RetCC_AVR_RT : CallingConv
+<[
+  CCIfType<[i8], CCAssignToReg<[R24,R25]>>,
+  CCIfType<[i16], CCAssignToReg<[R23R22, R25R24]>>
+]>;
+
 //===----------------------------------------------------------------------===//
 // AVR Argument Calling Conventions
 //===----------------------------------------------------------------------===//
@@ -29,10 +36,25 @@ def RetCC_AVR : CallingConv
 // The calling conventions are implemented in custom C++ code
 
 // Calling convention for variadic functions.
-def CC_AVR_Vararg : CallingConv
+def ArgCC_AVR_Vararg : CallingConv
 <[
   // i16 are always passed through the stack with an alignment of 1.
   CCAssignToStack<2, 1>
+]>;
+
+// Special argument calling convention for
+// multiplication runtime functions.
+def ArgCC_AVR_RT_MUL : CallingConv
+<[
+  CCIfType<[i16], CCAssignToReg<[R27R26,R19R18]>>
+]>;
+
+// Special argument calling convention for
+// division runtime functions.
+def ArgCC_AVR_RT_DIV : CallingConv
+<[
+  CCIfType<[i8], CCAssignToReg<[R24,R22]>>,
+  CCIfType<[i16], CCAssignToReg<[R25R24, R23R22]>>
 ]>;
 
 //===----------------------------------------------------------------------===//

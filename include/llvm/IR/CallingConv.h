@@ -150,7 +150,14 @@ namespace CallingConv {
     AVR_INTR = 81,
     
     /// AVR_SIGNAL - Calling convention used for AVR signal routines.
-    AVR_SIGNAL = 82
+    AVR_SIGNAL = 82,
+
+    /// Calling convention used for special multiplication RTLIB routines.
+    AVR_RT_MUL = 83,
+
+    /// Calling convention used for special division RTLIB routines.
+    AVR_RT_DIV = 84
+
   };
 } // End CallingConv namespace
 
