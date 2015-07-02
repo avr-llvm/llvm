@@ -130,7 +130,7 @@ getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_32",              0,      32,   0 },
 
     { "fixup_7_pcrel",         0,      7,    MCFixupKindInfo::FKF_IsPCRel },
-    { "fixup_13_pcrel",        0,      13,   MCFixupKindInfo::FKF_IsPCRel },
+    { "fixup_13_pcrel",        0,      12,   MCFixupKindInfo::FKF_IsPCRel },
 
     { "fixup_16",              0,      16,   0 },
     { "fixup_16_pm",           0,      16,   0 },
