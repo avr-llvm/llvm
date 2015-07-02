@@ -1895,8 +1895,6 @@ def : Pat<(subc DLDREGS:$src, imm:$src2),
 
 // these patterns convert add (x, -imm) to sub (x, imm) since we dont have
 // any add with imm instructions. Also take care of the adiw/sbiw instructions
-//:TODO: Use adiw/sbiw in 32/64 ops if the lower part is < 64 like
-// int32var + 3 -> adiw R25:R24, 3; adc R26, 0; adc r27, 0
 def : Pat<(add IWREGS:$src1, imm0_63_neg:$src2),
           (SBIWRdK IWREGS:$src1, (imm0_63_neg:$src2))>;
 def : Pat<(add DLDREGS:$src1, imm:$src2),
