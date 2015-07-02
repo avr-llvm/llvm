@@ -82,11 +82,7 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
       MCOp = MCOperand::createImm(MO.getImm());
       break;
     case MachineOperand::MO_GlobalAddress:
-      // TODO: Cleanup 3.4
       MCOp = LowerSymbolOperand(MO, Printer.getSymbol(MO.getGlobal()));
-      //const GlobalValue *GV = MO.getGlobal();
-      
-      //MCOp = LowerSymbolOperand(MO, GetSymbolFromOperand(MO));
       break;
     case MachineOperand::MO_ExternalSymbol:
       MCOp = LowerSymbolOperand(MO,
