@@ -53,7 +53,7 @@ inline unsigned adjustFixupCall(const MCFixup &Fixup,
                                 uint64_t Value,
                                 MCContext *Ctx = nullptr)
 {
-  // TODO: set this depending on device
+  // TODO: set this depending on instruction
   const auto CALL_TARGET_SIZE = 22;
 
   // We have one extra bit of precision because the value is rightshifted by one.
