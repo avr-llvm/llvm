@@ -486,10 +486,6 @@ Defs = [SREG] in
 //===----------------------------------------------------------------------===//
 // Multiplication
 //===----------------------------------------------------------------------===//
-let isCommutable = 1,
-Defs = [R1, R0, SREG] in
-{
-}
 
 let isCommutable = 1,
 Defs = [R1, R0, SREG] in
@@ -1053,8 +1049,7 @@ let hasSideEffects = 0 in
 }
 
 // Load immediate values into registers.
-let isReMaterializable = 1,
-isAsCheapAsAMove = 1 in
+let isReMaterializable = 1 in
 {
   def LDIRdK : FRdK<0b1110,
                     (outs LD8:$rd),

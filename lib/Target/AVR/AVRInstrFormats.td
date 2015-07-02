@@ -11,8 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// :TODO: set is isAsCheapAsAMove per format instead of per instruction??!
-
 // A generic AVR instruction.
 class AVRInst<dag outs, dag ins, string asmstr, list<dag> pattern> : Instruction
 {
@@ -126,6 +124,8 @@ class FRdK<bits<4> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{11-8} = k{7-4};
   let Inst{7-4} = rd{3-0};
   let Inst{3-0} = k{3-0};
+
+  let isAsCheapAsAMove = 1;
 }
 
 //===----------------------------------------------------------------------===//
