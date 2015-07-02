@@ -1403,7 +1403,6 @@ hasSideEffects = 0 in
 }
 
 // Store program memory operations.
-// TODO: set instruction flags properly (hasSideEffects,etc)
 let Uses = [R1, R0] in
 {
   let Uses = [R31R30, R1, R0] in
