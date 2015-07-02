@@ -600,7 +600,6 @@ bool AVRTargetLowering::isLegalAddressingMode(const AddrMode &AM,
                                               Type *Ty,
                                               unsigned AS) const
 {
-  // FIXME: should we be using AS over Ty->getPointerAddressSpace()?
   int64_t Offs = AM.BaseOffs;
 
   // Allow absolute addresses.
@@ -610,7 +609,7 @@ bool AVRTargetLowering::isLegalAddressingMode(const AddrMode &AM,
   }
 
   // Flash memory instructions only allow zero offsets.
-  if (isa<PointerType>(Ty) && Ty->getPointerAddressSpace() == 1)
+  if (isa<PointerType>(Ty) && AS == 1)
   {
     return false;
   }
