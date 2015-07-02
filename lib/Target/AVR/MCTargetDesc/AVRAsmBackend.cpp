@@ -123,9 +123,6 @@ void AVRAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
 const MCFixupKindInfo &AVRAsmBackend::
 getFixupKindInfo(MCFixupKind Kind) const {
   const static MCFixupKindInfo Infos[AVR::NumTargetFixupKinds] = {
-    // FIXME: all of the fixups are untested.
-    // Make sure every one works correctly. Many are probably broken.
-    //
     // This table *must* be in same the order of fixup_* kinds in
     // AVRFixupKinds.h.
     //
@@ -133,8 +130,7 @@ getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_32",              0,      32,   0 },
 
     { "fixup_7_pcrel",         0,      7,    MCFixupKindInfo::FKF_IsPCRel },
-    // FIXME: change `bits` to 13
-    { "fixup_13_pcrel",        0,      12,   MCFixupKindInfo::FKF_IsPCRel },
+    { "fixup_13_pcrel",        0,      13,   MCFixupKindInfo::FKF_IsPCRel },
 
     { "fixup_16",              0,      16,   0 },
     { "fixup_16_pm",           0,      16,   0 },
@@ -155,8 +151,8 @@ getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_hi8_ldi_pm_neg",  0,      8,    0 },
     { "fixup_hh8_ldi_pm_neg",  0,      8,    0 },
 
-    { "fixup_call",            0,      22, 0 },
-    { "fixup_ldi",             0,      0xff, 0 },
+    { "fixup_call",            0,      22,   0 },
+    { "fixup_ldi",             0,      8,    0 },
 
     { "fixup_6",               0,      6,    0 },
     { "fixup_6_adiw",          0,      6,    0 },
@@ -172,13 +168,13 @@ getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_8_hi8",           0,      8,    0 },
     { "fixup_8_hlo8",          0,      8,    0 },
 
-    { "fixup_sym_diff",        0,      0xff, 0 },
+    { "fixup_sym_diff",        0,      32,   0 },
     { "fixup_16_ldst",         0,      16,   0 },
 
     { "fixup_lds_sts_16",      0,      16,   0 },
 
-    { "fixup_port6",           0,      0xff, 0 },
-    { "fixup_port5",           0,      0xff, 0 },
+    { "fixup_port6",           0,      6,    0 },
+    { "fixup_port5",           0,      5,    0 },
 
   };
 
