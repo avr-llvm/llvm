@@ -493,23 +493,21 @@ ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const
 
 unsigned AVRInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const
 {
-  //:FIXME: use TSFlags here instead of listing all instrs.
-  switch(MI->getOpcode())
+  unsigned Opcode = MI->getOpcode();
+
+  switch(Opcode)
   {
-  default:
-    return 2;
-  case AVR::CALLk:
-  case AVR::JMPk:
-  case AVR::LDSRdK:
-  case AVR::STSKRr:
-    return 4;
-  case TargetOpcode::EH_LABEL:
-  case TargetOpcode::IMPLICIT_DEF:
-  case TargetOpcode::KILL:
-  case TargetOpcode::DBG_VALUE:
-    return 0;
-  case TargetOpcode::INLINEASM:
-    {
+    // A regular instruction
+    default: {
+      const MCInstrDesc &Desc = get(Opcode);
+      return Desc.getSize();
+    }
+    case TargetOpcode::EH_LABEL:
+    case TargetOpcode::IMPLICIT_DEF:
+    case TargetOpcode::KILL:
+    case TargetOpcode::DBG_VALUE:
+      return 0;
+    case TargetOpcode::INLINEASM: {
       const MachineFunction *MF = MI->getParent()->getParent();
       const AVRTargetMachine& TM = (const AVRTargetMachine&)MF->getTarget();
       const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();

@@ -90,10 +90,10 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
                Printer.GetBlockAddressSymbol(MO.getBlockAddress()));
       break;
     case MachineOperand::MO_JumpTableIndex:
-      MCOp = LowerSymbolOperand(MO, AsmPrinter.GetJTISymbol(MO.getIndex()));
+      MCOp = LowerSymbolOperand(MO, Printer.GetJTISymbol(MO.getIndex()));
       break;
     case MachineOperand::MO_ConstantPoolIndex:
-      MCOp = LowerSymbolOperand(MO, AsmPrinter.GetCPISymbol(MO.getIndex()));
+      MCOp = LowerSymbolOperand(MO, Printer.GetCPISymbol(MO.getIndex()));
       break;
     }
 
