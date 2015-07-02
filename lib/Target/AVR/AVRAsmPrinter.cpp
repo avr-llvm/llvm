@@ -80,12 +80,9 @@ void AVRAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
   case MachineOperand::MO_ExternalSymbol:
     O << *GetExternalSymbolSymbol(MO.getSymbolName());
     break;
-  //:FIXME: readd this once needed
-    /*
   case MachineOperand::MO_MachineBasicBlock:
     O << *MO.getMBB()->getSymbol();
     break;
-    */
   default:
     llvm_unreachable("Not implemented yet!");
   }

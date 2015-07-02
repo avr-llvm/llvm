@@ -27,32 +27,23 @@ namespace llvm {
 MCOperand AVRMCInstLower::
 LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const
 {
-  // FIXME: We would like an efficient form for this, so we don't have to do a
-  // lot of extra uniquing.
   unsigned char TF = MO.getTargetFlags();
   const MCExpr *Expr = MCSymbolRefExpr::create(Sym, Ctx);
 
-  if (TF & AVRII::MO_NEG)
-  {
+  if (TF & AVRII::MO_NEG) {
     Expr = MCUnaryExpr::createMinus(Expr, Ctx);
   }
 
-  if (!MO.isJTI() && MO.getOffset())
-  {
+  if (!MO.isJTI() && MO.getOffset()) {
     Expr = MCBinaryExpr::createAdd(Expr, MCConstantExpr::create(MO.getOffset(),
                                                                 Ctx), Ctx);
   }
 
-  if (TF & AVRII::MO_LO)
-  {
+  if (TF & AVRII::MO_LO) {
     Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_LO8, Expr, Ctx);
-  }
-  else if (TF & AVRII::MO_HI)
-  {
-    Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_HI8,Expr, Ctx);
-  }
-  else if (TF != 0)
-  {
+  } else if (TF & AVRII::MO_HI) {
+    Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_HI8, Expr, Ctx);
+  } else if (TF != 0) {
     llvm_unreachable("Unknown target flag on symbol operand");
   }
 
@@ -82,11 +73,7 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
       MCOp = MCOperand::createImm(MO.getImm());
       break;
     case MachineOperand::MO_GlobalAddress:
-      // TODO: Cleanup 3.4
       MCOp = LowerSymbolOperand(MO, Printer.getSymbol(MO.getGlobal()));
-      //const GlobalValue *GV = MO.getGlobal();
-      
-      //MCOp = LowerSymbolOperand(MO, GetSymbolFromOperand(MO));
       break;
     case MachineOperand::MO_ExternalSymbol:
       MCOp = LowerSymbolOperand(MO,
@@ -102,14 +89,12 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
       MCOp = LowerSymbolOperand(MO,
                Printer.GetBlockAddressSymbol(MO.getBlockAddress()));
       break;
-      //:FIXME: readd this when needed
-      /*
-      case MachineOperand::MO_JumpTableIndex:
-        MCOp = LowerSymbolOperand(MO, AsmPrinter.GetJTISymbol(MO.getIndex()));
-        break;
-      case MachineOperand::MO_ConstantPoolIndex:
-        MCOp = LowerSymbolOperand(MO, AsmPrinter.GetCPISymbol(MO.getIndex()));
-        break;*/
+    case MachineOperand::MO_JumpTableIndex:
+      MCOp = LowerSymbolOperand(MO, Printer.GetJTISymbol(MO.getIndex()));
+      break;
+    case MachineOperand::MO_ConstantPoolIndex:
+      MCOp = LowerSymbolOperand(MO, Printer.GetCPISymbol(MO.getIndex()));
+      break;
     }
 
     OutMI.addOperand(MCOp);

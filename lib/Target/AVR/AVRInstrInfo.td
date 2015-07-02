@@ -486,10 +486,6 @@ Defs = [SREG] in
 //===----------------------------------------------------------------------===//
 // Multiplication
 //===----------------------------------------------------------------------===//
-let isCommutable = 1,
-Defs = [R1, R0, SREG] in
-{
-}
 
 let isCommutable = 1,
 Defs = [R1, R0, SREG] in
@@ -775,7 +771,7 @@ let isCall = 1 in
   // immediately before calls from potentially appearing dead.
   //
   //:TODO: the imm field can be either 16 or 22 bits in devices with more
-  // than 64k of ROM, fix it once we support the largests devices.
+  // than 64k of ROM, fix it once we support the largest devices.
   let Uses = [SP] in
   def CALLk : F32BRk<0b111,
                      (outs),
@@ -1053,8 +1049,7 @@ let hasSideEffects = 0 in
 }
 
 // Load immediate values into registers.
-let isReMaterializable = 1,
-isAsCheapAsAMove = 1 in
+let isReMaterializable = 1 in
 {
   def LDIRdK : FRdK<0b1110,
                     (outs LD8:$rd),
@@ -1403,7 +1398,6 @@ hasSideEffects = 0 in
 }
 
 // Store program memory operations.
-// TODO: set instruction flags properly (hasSideEffects,etc)
 let Uses = [R1, R0] in
 {
   let Uses = [R31R30, R1, R0] in
@@ -1595,7 +1589,6 @@ Defs = [SREG] in
 
 // SWAP Rd
 // Swaps the high and low nibbles in a register.
-//:TODO: add 16 bit and wider version of this
 let Constraints = "$src = $rd" in
 def SWAPRd : FRd<0b1001,
                  0b0100010,
@@ -1605,7 +1598,6 @@ def SWAPRd : FRd<0b1001,
                  [(set GPR8:$rd, (bswap GPR8:$src))]>;
 
 // IO register bit set/clear operations.
-//:TODO: add 16 bit versions of cbi/sbi
 //:TODO: add patterns when popcount(imm)==2 to be expanded with 2 sbi/cbi
 // instead of in+ori+out which requires one more instr.
 def SBIAb : FIOBIT<0b10,
@@ -1895,8 +1887,6 @@ def : Pat<(subc DLDREGS:$src, imm:$src2),
 
 // these patterns convert add (x, -imm) to sub (x, imm) since we dont have
 // any add with imm instructions. Also take care of the adiw/sbiw instructions
-//:TODO: Use adiw/sbiw in 32/64 ops if the lower part is < 64 like
-// int32var + 3 -> adiw R25:R24, 3; adc R26, 0; adc r27, 0
 def : Pat<(add IWREGS:$src1, imm0_63_neg:$src2),
           (SBIWRdK IWREGS:$src1, (imm0_63_neg:$src2))>;
 def : Pat<(add DLDREGS:$src1, imm:$src2),

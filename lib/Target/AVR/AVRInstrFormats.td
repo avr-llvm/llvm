@@ -11,8 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-// :TODO: set is isAsCheapAsAMove per format instead of per instruction??!
-
 // A generic AVR instruction.
 class AVRInst<dag outs, dag ins, string asmstr, list<dag> pattern> : Instruction
 {
@@ -119,14 +117,15 @@ class FZRd<bits<3> t, dag outs, dag ins, string asmstr, list<dag> pattern>
 class FRdK<bits<4> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  // TODO: what happens when we make this 4 bits?
-  bits<5> rd;  // accept 5 bits but only encode the lower 4
+  bits<4> rd;
   bits<8> k;
 
   let Inst{15-12} = opcode;
   let Inst{11-8} = k{7-4};
   let Inst{7-4} = rd{3-0};
   let Inst{3-0} = k{3-0};
+
+  let isAsCheapAsAMove = 1;
 }
 
 //===----------------------------------------------------------------------===//
