@@ -1595,7 +1595,6 @@ Defs = [SREG] in
 
 // SWAP Rd
 // Swaps the high and low nibbles in a register.
-//:TODO: add 16 bit and wider version of this
 let Constraints = "$src = $rd" in
 def SWAPRd : FRd<0b1001,
                  0b0100010,
@@ -1605,7 +1604,6 @@ def SWAPRd : FRd<0b1001,
                  [(set GPR8:$rd, (bswap GPR8:$src))]>;
 
 // IO register bit set/clear operations.
-//:TODO: add 16 bit versions of cbi/sbi
 //:TODO: add patterns when popcount(imm)==2 to be expanded with 2 sbi/cbi
 // instead of in+ori+out which requires one more instr.
 def SBIAb : FIOBIT<0b10,
