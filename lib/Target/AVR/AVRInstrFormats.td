@@ -119,8 +119,7 @@ class FZRd<bits<3> t, dag outs, dag ins, string asmstr, list<dag> pattern>
 class FRdK<bits<4> opcode, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  // TODO: what happens when we make this 4 bits?
-  bits<5> rd;  // accept 5 bits but only encode the lower 4
+  bits<4> rd;
   bits<8> k;
 
   let Inst{15-12} = opcode;
