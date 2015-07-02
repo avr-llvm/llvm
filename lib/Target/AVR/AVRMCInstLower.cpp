@@ -27,32 +27,23 @@ namespace llvm {
 MCOperand AVRMCInstLower::
 LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const
 {
-  // FIXME: We would like an efficient form for this, so we don't have to do a
-  // lot of extra uniquing.
   unsigned char TF = MO.getTargetFlags();
   const MCExpr *Expr = MCSymbolRefExpr::create(Sym, Ctx);
 
-  if (TF & AVRII::MO_NEG)
-  {
+  if (TF & AVRII::MO_NEG) {
     Expr = MCUnaryExpr::createMinus(Expr, Ctx);
   }
 
-  if (!MO.isJTI() && MO.getOffset())
-  {
+  if (!MO.isJTI() && MO.getOffset()) {
     Expr = MCBinaryExpr::createAdd(Expr, MCConstantExpr::create(MO.getOffset(),
                                                                 Ctx), Ctx);
   }
 
-  if (TF & AVRII::MO_LO)
-  {
+  if (TF & AVRII::MO_LO) {
     Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_LO8, Expr, Ctx);
-  }
-  else if (TF & AVRII::MO_HI)
-  {
-    Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_HI8,Expr, Ctx);
-  }
-  else if (TF != 0)
-  {
+  } else if (TF & AVRII::MO_HI) {
+    Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_HI8, Expr, Ctx);
+  } else if (TF != 0) {
     llvm_unreachable("Unknown target flag on symbol operand");
   }
 
