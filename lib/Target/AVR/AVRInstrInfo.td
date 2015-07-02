@@ -775,7 +775,7 @@ let isCall = 1 in
   // immediately before calls from potentially appearing dead.
   //
   //:TODO: the imm field can be either 16 or 22 bits in devices with more
-  // than 64k of ROM, fix it once we support the largests devices.
+  // than 64k of ROM, fix it once we support the largest devices.
   let Uses = [SP] in
   def CALLk : F32BRk<0b111,
                      (outs),
