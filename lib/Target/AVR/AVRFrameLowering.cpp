@@ -82,7 +82,11 @@ void AVRFrameLowering::emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB)
     BuildMI(MBB, MBBI, dl, TII.get(AVR::PUSHRr))
       .addReg(AVR::R0, RegState::Kill)
       .setMIFlag(MachineInstr::FrameSetup);
-    //:TODO: clr __zero_reg__
+    BuildMI(MBB, MBBI, dl, TII.get(AVR::EORRdRr))
+      .addReg(AVR::R0, RegState::Define)
+      .addReg(AVR::R0, RegState::Kill)
+      .addReg(AVR::R0, RegState::Kill)
+      .setMIFlag(MachineInstr::FrameSetup);
   }
 
   // Early exit if the frame pointer is not needed in this function.
