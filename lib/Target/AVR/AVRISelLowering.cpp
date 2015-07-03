@@ -609,7 +609,7 @@ bool AVRTargetLowering::isLegalAddressingMode(const AddrMode &AM,
   }
 
   // Flash memory instructions only allow zero offsets.
-  if (isa<PointerType>(Ty) && AS == 1)
+  if (isa<PointerType>(Ty) && AS == AVR::ProgramMemory)
   {
     return false;
   }
