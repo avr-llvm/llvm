@@ -636,46 +636,35 @@ bool AVRTargetLowering::getPreIndexedAddressParts(SDNode *N, SDValue &Base,
   const SDNode *Op;
   SDLoc DL(N);
 
-  if (const LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
-  {
+  if (const LoadSDNode *LD = dyn_cast<LoadSDNode>(N)) {
     VT = LD->getMemoryVT();
     Op = LD->getBasePtr().getNode();
     if (LD->getExtensionType() != ISD::NON_EXTLOAD) return false;
-    if (cast<PointerType>(LD->getMemOperand()->getValue()->getType())->getAddressSpace() == 1)
-    {
+    if (AVR::isProgramMemoryAccess(LD)) {
       return false;
     }
-  }
-  else if (const StoreSDNode *ST = dyn_cast<StoreSDNode>(N))
-  {
+  } else if (const StoreSDNode *ST = dyn_cast<StoreSDNode>(N)) {
     VT = ST->getMemoryVT();
     Op = ST->getBasePtr().getNode();
-    if (cast<PointerType>(ST->getMemOperand()->getValue()->getType())->getAddressSpace() == 1)
-    {
+    if (AVR::isProgramMemoryAccess(ST)) {
       return false;
     }
-  }
-  else
-  {
+  } else {
     return false;
   }
 
-  if (VT != MVT::i8 && VT != MVT::i16)
-  {
+  if (VT != MVT::i8 && VT != MVT::i16) {
     return false;
   }
 
-  if (Op->getOpcode() != ISD::ADD && Op->getOpcode() != ISD::SUB)
-  {
+  if (Op->getOpcode() != ISD::ADD && Op->getOpcode() != ISD::SUB) {
     return false;
   }
 
-  if (const ConstantSDNode *RHS = dyn_cast<ConstantSDNode>(Op->getOperand(1)))
-  {
+  if (const ConstantSDNode *RHS = dyn_cast<ConstantSDNode>(Op->getOperand(1))) {
     int RHSC = RHS->getSExtValue();
     if (Op->getOpcode() == ISD::SUB) RHSC = -RHSC;
-    if ((VT == MVT::i16 && RHSC != -2) || (VT == MVT::i8 && RHSC != -1))
-    {
+    if ((VT == MVT::i16 && RHSC != -2) || (VT == MVT::i8 && RHSC != -1)) {
       return false;
     }
 
@@ -709,7 +698,7 @@ bool AVRTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
   else if (const StoreSDNode *ST = dyn_cast<StoreSDNode>(N))
   {
     VT = ST->getMemoryVT();
-    if (cast<PointerType>(ST->getMemOperand()->getValue()->getType())->getAddressSpace() == 1)
+    if (AVR::isProgramMemoryAccess(ST))
     {
       return false;
     }

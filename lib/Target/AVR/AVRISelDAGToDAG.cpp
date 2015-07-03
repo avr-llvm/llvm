@@ -410,8 +410,7 @@ SDNode *AVRDAGToDAGISel::Select(SDNode *N)
   case ISD::LOAD:
     {
       const LoadSDNode *LD = cast<LoadSDNode>(N);
-      const Value *SV = LD->getMemOperand()->getValue();
-      if (SV && cast<PointerType>(SV->getType())->getAddressSpace() == 1)
+      if (AVR::isProgramMemoryAccess(LD))
       {
         // This is a flash memory load, move the pointer into R31R30 and emit
         // the lpm instruction.

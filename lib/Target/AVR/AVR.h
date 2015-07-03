@@ -18,6 +18,7 @@
 # include "AVRConfig.h"
 
 # include "llvm/Target/TargetMachine.h"
+# include "llvm/CodeGen/SelectionDAGNodes.h"
 
 # include "MCTargetDesc/AVRMCTargetDesc.h"
 
@@ -32,6 +33,28 @@ FunctionPass *createAVRExpandPseudoPass();
 FunctionPass *createAVRFrameAnalyzerPass();
 FunctionPass *createAVRDynAllocaSRPass();
 FunctionPass *createAVRBranchSelectionPass();
+
+
+namespace AVR {
+
+enum AddressSpace {
+  DataMemory,
+  ProgramMemory
+};
+
+template <typename T>
+bool
+isProgramMemoryAddress(T * V) {
+  return cast<PointerType>(V->getType())->getAddressSpace() == ProgramMemory;
+}
+
+inline
+bool
+isProgramMemoryAccess(MemSDNode const* N) {
+  return isProgramMemoryAddress(N->getMemOperand()->getValue());
+}
+
+}  // end of namespace AVR
 
 } // end namespace llvm
 

@@ -16,6 +16,8 @@
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/Support/ELF.h"
 
+#include "AVR.h"
+
 namespace llvm {
 
 void
@@ -33,7 +35,7 @@ AVRTargetObjectFile::SelectSectionForGlobal(const GlobalValue *GV,
 {
   // Global values in flash memory are placed in the progmem.data section
   // unless they already have a user assigned section.
-  if (GV->getType()->getAddressSpace() == 1 and not GV->hasSection())
+  if (AVR::isProgramMemoryAddress(GV) and not GV->hasSection())
       return ProgmemDataSection;
 
   // Otherwise, we work the same way as ELF.
