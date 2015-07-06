@@ -167,6 +167,13 @@ def FamilyXMEGA          : Family<"xmega",
 def FamilyXMEGAU         : Family<"xmegau",
                                   [FamilyXMEGA, FeatureRMW]>;
 
+def FeatureSetSpecial    : FeatureSet<"special", "Enable use of the entire instruction set - used for debugging",
+                                      [FeatureSRAM, FeatureJMPCALL, FeatureIJMPCALL,
+                                       FeatureEIJMPCALL, FeatureADDSUBIW, FeatureMOVW,
+                                       FeatureLPM, FeatureLPMX, FeatureELPM, FeatureELPMX,
+                                       FeatureSPM, FeatureSPMX, FeatureDES, FeatureRMW,
+                                       FeatureMultiplication, FeatureBREAK]>;
+
 //===----------------------------------------------------------------------===//
 // AVR microcontrollers supported.
 //===----------------------------------------------------------------------===//
