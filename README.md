@@ -72,7 +72,7 @@ C/C++ sources for several reasons:
 If you want to submit a C/C++ testcase, please convert into IR form first.
 
 To do this:
-```
+``` bash
 # compile `main.c` into `main.ll`
 clang -S -emit-llvm main.c -o main.ll
 ```
