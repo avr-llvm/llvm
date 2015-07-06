@@ -39,8 +39,8 @@ public:
   /**
    * Adjusts a fixup value before it is applied.
    */
-  uint64_t adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
-                            MCContext *Ctx = nullptr) const;
+  void adjustFixupValue(const MCFixup &Fixup, uint64_t & Value,
+                        MCContext *Ctx = nullptr) const;
 
   MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override;
 

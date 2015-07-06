@@ -82,12 +82,12 @@ enum Fixups {
 
 namespace fixups {
 
-template<typename T> inline T adjustRelativeBranchTarget(T val) {
-  return val >> 1;
+template <typename T> inline void adjustRelativeBranchTarget(T & val) {
+  val >>= 1;
 }
 
-template<typename T> inline T adjustBranchTarget(T val) {
-  return val >> 1;
+template <typename T> inline void adjustBranchTarget(T & val) {
+  val >>= 1;
 }
 
 } // end of namespace fixups
