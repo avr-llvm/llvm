@@ -109,8 +109,6 @@ AVRMCCodeEmitter::encodeRelCondBrTarget(const MCInst &MI, unsigned OpNo,
     // with labels, this is implicitly handled.
     auto target = MO.getImm();
 
-    //if(target < 0) target -= 2;
-
     return AVR::fixups::adjustRelativeBranchTarget(target);
   }
 }

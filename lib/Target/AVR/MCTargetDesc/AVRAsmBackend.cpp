@@ -39,6 +39,8 @@ inline unsigned adjustFixupRelCondbr(unsigned size,
   // The value is rightshifted by one, giving us one extra bit of precision.
   if (!isIntN(size+1, Value) && Ctx != nullptr)
     Ctx->reportFatalError(Fixup.getLoc(), "out of range conditional branch target");
+
+  Value -= 2;
     
   Value = AVR::fixups::adjustRelativeBranchTarget(Value);
   
@@ -129,7 +131,7 @@ getFixupKindInfo(MCFixupKind Kind) const {
     // name                    offset  bits  flags
     { "fixup_32",              0,      32,   0 },
 
-    { "fixup_7_pcrel",         0,      7,    MCFixupKindInfo::FKF_IsPCRel },
+    { "fixup_7_pcrel",         7,      7,    MCFixupKindInfo::FKF_IsPCRel },
     { "fixup_13_pcrel",        0,      12,   MCFixupKindInfo::FKF_IsPCRel },
 
     { "fixup_16",              0,      16,   0 },
