@@ -104,13 +104,13 @@ AVRMCCodeEmitter::encodeRelCondBrTarget(const MCInst &MI, unsigned OpNo,
     const MCExpr *Expr = MO.getExpr();
     Fixups.push_back(MCFixup::create(0, Expr, MCFixupKind(Fixup), MI.getLoc()));
     return 0;
-  } else {
-    // take the size of the current instruction away.
-    // with labels, this is implicitly handled.
-    auto target = MO.getImm();
-
-    return AVR::fixups::adjustRelativeBranchTarget(target);
   }
+
+  // take the size of the current instruction away.
+  // with labels, this is implicitly handled.
+  auto target = MO.getImm();
+  AVR::fixups::adjustRelativeBranchTarget(target);
+  return target;
 }
 
 unsigned
@@ -162,7 +162,9 @@ AVRMCCodeEmitter::encodeCallTarget(const MCInst &MI, unsigned OpNo,
     Fixups.push_back(MCFixup::create(0, MO.getExpr(), FixupKind, MI.getLoc()));
     return 0;
   }
-  return AVR::fixups::adjustBranchTarget(MO.getImm());
+  auto target = MO.getImm();
+  AVR::fixups::adjustBranchTarget(target);
+  return target;
 }
 
 
