@@ -17,16 +17,22 @@ AVR-related code can be found in `lib/Target/AVR`.
 
 The mailing lists can be found [here](http://lists.avr-llvm.org/mailman/listinfo).
 
-`users` can be used for general user questions.
+[`users`](http://lists.avr-llvm.org/mailman/listinfo/users) can be used for general user questions.
 
-`dev` is for commentary relating to AVR-LLVM development (bugs, feature requests, etc).
+[`dev`](http://lists.avr-llvm.org/mailman/listinfo/dev) is for commentary relating to AVR-LLVM development (bugs, feature requests, etc).
+
 
 ## Features
 
-* Machine code generation
-* Assembly and machine code support for the entire instruction set
-* ELF object outputting
+* Assembly or machine code generation
+* Support for the entire instruction set
+* ELF object file support
 * AVR-GCC compatability
+* Permissive license
+
+## Doxygen Documentation
+
+An automatically updated server hosting Doxygen documentation can be found [here](http://doxygen.avr-llvm.org).
 
 ## History
 
@@ -73,6 +79,6 @@ clang -S -emit-llvm main.c -o main.ll
 
 This will add all included headers, and concatenate it into one simple file.
 
-Any questions can be asked on the `dev` mailing list.
+Any questions can be asked on the [`dev`](http://lists.avr-llvm.org/mailman/listinfo/dev) mailing list.
 
 Good luck!
