@@ -216,7 +216,7 @@ void AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
   // we are only checking if the fixup can be applied correctly. We have
   // access to MCContext from here which allows us to report a fatal error
   // with *possibly* a source code location.
-  adjustFixupValue(Fixup, Value, &Asm.getContext());
+  Value = adjustFixupValue(Fixup, Value, &Asm.getContext());
 }
 
 MCAsmBackend *
