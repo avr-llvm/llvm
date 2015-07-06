@@ -78,12 +78,15 @@ public:
   MCTargetStreamer(MCStreamer &S);
   virtual ~MCTargetStreamer();
 
-  const MCStreamer &getStreamer() { return Streamer; }
+  MCStreamer &getStreamer() { return Streamer; }
 
   // Allow a target to add behavior to the EmitLabel of MCStreamer.
   virtual void emitLabel(MCSymbol *Symbol);
   // Allow a target to add behavior to the emitAssignment of MCStreamer.
   virtual void emitAssignment(MCSymbol *Symbol, const MCExpr *Value);
+
+  virtual void prettyPrintAsm(MCInstPrinter &InstPrinter, raw_ostream &OS,
+                              const MCInst &Inst, const MCSubtargetInfo &STI);
 
   virtual void finish();
 };

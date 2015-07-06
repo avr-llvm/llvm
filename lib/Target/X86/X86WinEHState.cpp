@@ -146,16 +146,10 @@ bool WinEHStatePass::runOnFunction(Function &F) {
     return false;
 
   // Check the personality. Do nothing if this is not an MSVC personality.
-  LandingPadInst *LP = nullptr;
-  for (BasicBlock &BB : F) {
-    LP = BB.getLandingPadInst();
-    if (LP)
-      break;
-  }
-  if (!LP)
+  if (!F.hasPersonalityFn())
     return false;
   PersonalityFn =
-      dyn_cast<Function>(LP->getPersonalityFn()->stripPointerCasts());
+      dyn_cast<Function>(F.getPersonalityFn()->stripPointerCasts());
   if (!PersonalityFn)
     return false;
   Personality = classifyEHPersonality(PersonalityFn);
@@ -404,6 +398,7 @@ void WinEHStatePass::addCXXStateStores(Function &F, MachineModuleInfo &MMI) {
 
   // Set up RegNodeEscapeIndex
   int RegNodeEscapeIndex = escapeRegNode(F);
+  FuncInfo.EHRegNodeEscapeIndex = RegNodeEscapeIndex;
 
   // Only insert stores in catch handlers.
   Constant *FI8 =
@@ -486,8 +481,8 @@ void WinEHStatePass::addSEHStateStores(Function &F, MachineModuleInfo &MMI) {
   WinEHFuncInfo &FuncInfo = MMI.getWinEHFuncInfo(&F);
 
   // Remember and return the index that we used. We save it in WinEHFuncInfo so
-  // that we can lower llvm.x86.seh.exceptioninfo later in filter functions
-  // without too much trouble.
+  // that we can lower llvm.x86.seh.recoverfp later in filter functions without
+  // too much trouble.
   int RegNodeEscapeIndex = escapeRegNode(F);
   FuncInfo.EHRegNodeEscapeIndex = RegNodeEscapeIndex;
 
@@ -534,14 +529,12 @@ void WinEHStatePass::addSEHStateStores(Function &F, MachineModuleInfo &MMI) {
     }
   }
 
-  // Insert llvm.stackrestore into each __except block.
-  Function *StackRestore =
-      Intrinsic::getDeclaration(TheModule, Intrinsic::stackrestore);
+  // Insert llvm.x86.seh.restoreframe() into each __except block.
+  Function *RestoreFrame =
+      Intrinsic::getDeclaration(TheModule, Intrinsic::x86_seh_restoreframe);
   for (BasicBlock *ExceptBB : ExceptBlocks) {
     IRBuilder<> Builder(ExceptBB->begin());
-    Value *SP =
-        Builder.CreateLoad(Builder.CreateStructGEP(RegNodeTy, RegNode, 0));
-    Builder.CreateCall(StackRestore, {SP});
+    Builder.CreateCall(RestoreFrame, {});
   }
 }
 

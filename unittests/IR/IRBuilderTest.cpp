@@ -104,8 +104,7 @@ TEST_F(IRBuilderTest, CreateCondBr) {
 
 TEST_F(IRBuilderTest, LandingPadName) {
   IRBuilder<> Builder(BB);
-  LandingPadInst *LP = Builder.CreateLandingPad(Builder.getInt32Ty(),
-                                                Builder.getInt32(0), 0, "LP");
+  LandingPadInst *LP = Builder.CreateLandingPad(Builder.getInt32Ty(), 0, "LP");
   EXPECT_EQ(LP->getName(), "LP");
 }
 
@@ -321,5 +320,52 @@ TEST_F(IRBuilderTest, InsertExtractElement) {
   EXPECT_EQ(Elt2, X2);
 }
 
+TEST_F(IRBuilderTest, CreateGlobalStringPtr) {
+  IRBuilder<> Builder(BB);
 
+  auto String1a = Builder.CreateGlobalStringPtr("TestString", "String1a");
+  auto String1b = Builder.CreateGlobalStringPtr("TestString", "String1b", 0);
+  auto String2 = Builder.CreateGlobalStringPtr("TestString", "String2", 1);
+  auto String3 = Builder.CreateGlobalString("TestString", "String3", 2);
+
+  EXPECT_TRUE(String1a->getType()->getPointerAddressSpace() == 0);
+  EXPECT_TRUE(String1b->getType()->getPointerAddressSpace() == 0);
+  EXPECT_TRUE(String2->getType()->getPointerAddressSpace() == 1);
+  EXPECT_TRUE(String3->getType()->getPointerAddressSpace() == 2);
+}
+
+TEST_F(IRBuilderTest, DebugLoc) {
+  auto CalleeTy = FunctionType::get(Type::getVoidTy(Ctx),
+                                    /*isVarArg=*/false);
+  auto Callee =
+      Function::Create(CalleeTy, Function::ExternalLinkage, "", M.get());
+
+  DIBuilder DIB(*M);
+  auto File = DIB.createFile("tmp.cpp", "/");
+  auto CU = DIB.createCompileUnit(dwarf::DW_LANG_C_plus_plus_11, "tmp.cpp", "/",
+                                  "", true, "", 0);
+  auto SPType = DIB.createSubroutineType(File, DIB.getOrCreateTypeArray(None));
+  auto SP =
+      DIB.createFunction(CU, "foo", "foo", File, 1, SPType, false, true, 1);
+  DebugLoc DL1 = DILocation::get(Ctx, 2, 0, SP);
+  DebugLoc DL2 = DILocation::get(Ctx, 3, 0, SP);
+
+  auto BB2 = BasicBlock::Create(Ctx, "bb2", F);
+  auto Br = BranchInst::Create(BB2, BB);
+  Br->setDebugLoc(DL1);
+
+  IRBuilder<> Builder(Ctx);
+  Builder.SetInsertPoint(Br);
+  EXPECT_EQ(DL1, Builder.getCurrentDebugLocation());
+  auto Call1 = Builder.CreateCall(Callee, None);
+  EXPECT_EQ(DL1, Call1->getDebugLoc());
+
+  Call1->setDebugLoc(DL2);
+  Builder.SetInsertPoint(Call1->getParent(), Call1);
+  EXPECT_EQ(DL2, Builder.getCurrentDebugLocation());
+  auto Call2 = Builder.CreateCall(Callee, None);
+  EXPECT_EQ(DL2, Call2->getDebugLoc());
+
+  DIB.finalize();
+}
 }

@@ -637,9 +637,9 @@ void SelectionDAGISel::ComputeLiveOutVRegInfo() {
       continue;
 
     // Otherwise, add all chain operands to the worklist.
-    for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i)
-      if (N->getOperand(i).getValueType() == MVT::Other)
-        Worklist.push_back(N->getOperand(i).getNode());
+    for (const SDValue &Op : N->op_values())
+      if (Op.getValueType() == MVT::Other)
+        Worklist.push_back(Op.getNode());
 
     // If this is a CopyToReg with a vreg dest, process it.
     if (N->getOpcode() != ISD::CopyToReg)
@@ -938,8 +938,10 @@ bool SelectionDAGISel::PrepareEHLandingPad() {
   // pad into several BBs.
   const BasicBlock *LLVMBB = MBB->getBasicBlock();
   const LandingPadInst *LPadInst = LLVMBB->getLandingPadInst();
-  MF->getMMI().addPersonality(
-      MBB, cast<Function>(LPadInst->getPersonalityFn()->stripPointerCasts()));
+  MF->getMMI().addPersonality(MBB, cast<Function>(LPadInst->getParent()
+                                                      ->getParent()
+                                                      ->getPersonalityFn()
+                                                      ->stripPointerCasts()));
   EHPersonality Personality = MF->getMMI().getPersonalityType();
 
   if (isMSVCEHPersonality(Personality)) {
@@ -1812,12 +1814,12 @@ static bool findNonImmUse(SDNode *Use, SDNode* Def, SDNode *ImmedUse,
   if (!Visited.insert(Use).second)
     return false;
 
-  for (unsigned i = 0, e = Use->getNumOperands(); i != e; ++i) {
+  for (const SDValue &Op : Use->op_values()) {
     // Ignore chain uses, they are validated by HandleMergeInputChains.
-    if (Use->getOperand(i).getValueType() == MVT::Other && IgnoreChains)
+    if (Op.getValueType() == MVT::Other && IgnoreChains)
       continue;
 
-    SDNode *N = Use->getOperand(i).getNode();
+    SDNode *N = Op.getNode();
     if (N == Def) {
       if (Use == ImmedUse || Use == Root)
         continue;  // We are not looking for immediate use.
@@ -2210,10 +2212,10 @@ HandleMergeInputChains(SmallVectorImpl<SDNode*> &ChainNodesMatched,
 
     // If we have a token factor, we want to add all inputs of the token factor
     // that are not part of the pattern we're matching.
-    for (unsigned op = 0, e = N->getNumOperands(); op != e; ++op) {
+    for (const SDValue &Op : N->op_values()) {
       if (!std::count(ChainNodesMatched.begin(), ChainNodesMatched.end(),
-                      N->getOperand(op).getNode()))
-        InputChains.push_back(N->getOperand(op));
+                      Op.getNode()))
+        InputChains.push_back(Op);
     }
   }
 
@@ -2560,6 +2562,7 @@ SelectCodeCommon(SDNode *NodeToMatch, const unsigned char *MatcherTable,
   case ISD::TargetConstantPool:
   case ISD::TargetFrameIndex:
   case ISD::TargetExternalSymbol:
+  case ISD::MCSymbol:
   case ISD::TargetBlockAddress:
   case ISD::TargetJumpTable:
   case ISD::TargetGlobalTLSAddress:

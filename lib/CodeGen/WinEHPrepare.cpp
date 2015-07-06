@@ -76,7 +76,7 @@ public:
   WinEHPrepare(const TargetMachine *TM = nullptr)
       : FunctionPass(ID) {
     if (TM)
-      TheTriple = Triple(TM->getTargetTriple());
+      TheTriple = TM->getTargetTriple();
   }
 
   bool runOnFunction(Function &Fn) override;
@@ -106,12 +106,12 @@ private:
                                 LandingPadInst *OutlinedLPad,
                                 const LandingPadInst *OriginalLPad,
                                 FrameVarInfoMap &VarInfo);
-  Function *createHandlerFunc(Type *RetTy, const Twine &Name, Module *M,
-                              Value *&ParentFP);
+  Function *createHandlerFunc(Function *ParentFn, Type *RetTy,
+                              const Twine &Name, Module *M, Value *&ParentFP);
   bool outlineHandler(ActionHandler *Action, Function *SrcFn,
                       LandingPadInst *LPad, BasicBlock *StartBB,
                       FrameVarInfoMap &VarInfo);
-  void addStubInvokeToHandlerIfNeeded(Function *Handler, Value *PersonalityFn);
+  void addStubInvokeToHandlerIfNeeded(Function *Handler);
 
   void mapLandingPadBlocks(LandingPadInst *LPad, LandingPadActions &Actions);
   CatchHandler *findCatchHandler(BasicBlock *BB, BasicBlock *&NextBB,
@@ -379,7 +379,7 @@ bool WinEHPrepare::runOnFunction(Function &Fn) {
     return false;
 
   // Classify the personality to see what kind of preparation we need.
-  Personality = classifyEHPersonality(LPads.back()->getPersonalityFn());
+  Personality = classifyEHPersonality(Fn.getPersonalityFn());
 
   // Do nothing if this is not an MSVC personality.
   if (!isMSVCEHPersonality(Personality))
@@ -1265,8 +1265,7 @@ static bool isCatchBlock(BasicBlock *BB) {
   return false;
 }
 
-static BasicBlock *createStubLandingPad(Function *Handler,
-                                        Value *PersonalityFn) {
+static BasicBlock *createStubLandingPad(Function *Handler) {
   // FIXME: Finish this!
   LLVMContext &Context = Handler->getContext();
   BasicBlock *StubBB = BasicBlock::Create(Context, "stub");
@@ -1275,7 +1274,7 @@ static BasicBlock *createStubLandingPad(Function *Handler,
   LandingPadInst *LPad = Builder.CreateLandingPad(
       llvm::StructType::get(Type::getInt8PtrTy(Context),
                             Type::getInt32Ty(Context), nullptr),
-      PersonalityFn, 0);
+      0);
   // Insert a call to llvm.eh.actions so that we don't try to outline this lpad.
   Function *ActionIntrin =
       Intrinsic::getDeclaration(Handler->getParent(), Intrinsic::eh_actions);
@@ -1290,8 +1289,7 @@ static BasicBlock *createStubLandingPad(Function *Handler,
 // landing pad if none is found.  The code that generates the .xdata tables for
 // the handler needs at least one landing pad to identify the parent function's
 // personality.
-void WinEHPrepare::addStubInvokeToHandlerIfNeeded(Function *Handler,
-                                                  Value *PersonalityFn) {
+void WinEHPrepare::addStubInvokeToHandlerIfNeeded(Function *Handler) {
   ReturnInst *Ret = nullptr;
   UnreachableInst *Unreached = nullptr;
   for (BasicBlock &BB : *Handler) {
@@ -1323,7 +1321,7 @@ void WinEHPrepare::addStubInvokeToHandlerIfNeeded(Function *Handler,
   // parent block.  We want to replace that with an invoke call, so we can
   // erase it now.
   OldRetBB->getTerminator()->eraseFromParent();
-  BasicBlock *StubLandingPad = createStubLandingPad(Handler, PersonalityFn);
+  BasicBlock *StubLandingPad = createStubLandingPad(Handler);
   Function *F =
       Intrinsic::getDeclaration(Handler->getParent(), Intrinsic::donothing);
   InvokeInst::Create(F, NewRetBB, StubLandingPad, None, "", OldRetBB);
@@ -1331,14 +1329,15 @@ void WinEHPrepare::addStubInvokeToHandlerIfNeeded(Function *Handler,
 
 // FIXME: Consider sinking this into lib/Target/X86 somehow. TargetLowering
 // usually doesn't build LLVM IR, so that's probably the wrong place.
-Function *WinEHPrepare::createHandlerFunc(Type *RetTy, const Twine &Name,
-                                          Module *M, Value *&ParentFP) {
+Function *WinEHPrepare::createHandlerFunc(Function *ParentFn, Type *RetTy,
+                                          const Twine &Name, Module *M,
+                                          Value *&ParentFP) {
   // x64 uses a two-argument prototype where the parent FP is the second
   // argument. x86 uses no arguments, just the incoming EBP value.
   LLVMContext &Context = M->getContext();
+  Type *Int8PtrType = Type::getInt8PtrTy(Context);
   FunctionType *FnType;
   if (TheTriple.getArch() == Triple::x86_64) {
-    Type *Int8PtrType = Type::getInt8PtrTy(Context);
     Type *ArgTys[2] = {Int8PtrType, Int8PtrType};
     FnType = FunctionType::get(RetTy, ArgTys, false);
   } else {
@@ -1355,9 +1354,13 @@ Function *WinEHPrepare::createHandlerFunc(Type *RetTy, const Twine &Name,
     assert(M);
     Function *FrameAddressFn =
         Intrinsic::getDeclaration(M, Intrinsic::frameaddress);
-    Value *Args[1] = {ConstantInt::get(Type::getInt32Ty(Context), 1)};
-    ParentFP = CallInst::Create(FrameAddressFn, Args, "parent_fp",
-                                &Handler->getEntryBlock());
+    Function *RecoverFPFn =
+        Intrinsic::getDeclaration(M, Intrinsic::x86_seh_recoverfp);
+    IRBuilder<> Builder(&Handler->getEntryBlock());
+    Value *EBP =
+        Builder.CreateCall(FrameAddressFn, {Builder.getInt32(1)}, "ebp");
+    Value *ParentI8Fn = Builder.CreateBitCast(ParentFn, Int8PtrType);
+    ParentFP = Builder.CreateCall(RecoverFPFn, {ParentI8Fn, EBP});
   }
   return Handler;
 }
@@ -1373,12 +1376,13 @@ bool WinEHPrepare::outlineHandler(ActionHandler *Action, Function *SrcFn,
   Value *ParentFP;
   Function *Handler;
   if (Action->getType() == Catch) {
-    Handler = createHandlerFunc(Int8PtrType, SrcFn->getName() + ".catch", M,
+    Handler = createHandlerFunc(SrcFn, Int8PtrType, SrcFn->getName() + ".catch", M,
                                 ParentFP);
   } else {
-    Handler = createHandlerFunc(Type::getVoidTy(Context),
+    Handler = createHandlerFunc(SrcFn, Type::getVoidTy(Context),
                                 SrcFn->getName() + ".cleanup", M, ParentFP);
   }
+  Handler->setPersonalityFn(SrcFn->getPersonalityFn());
   HandlerToParentFP[Handler] = ParentFP;
   Handler->addFnAttr("wineh-parent", SrcFn->getName());
   BasicBlock *Entry = &Handler->getEntryBlock();
@@ -1456,7 +1460,7 @@ bool WinEHPrepare::outlineHandler(ActionHandler *Action, Function *SrcFn,
   ClonedEntryBB->eraseFromParent();
 
   // Make sure we can identify the handler's personality later.
-  addStubInvokeToHandlerIfNeeded(Handler, LPad->getPersonalityFn());
+  addStubInvokeToHandlerIfNeeded(Handler);
 
   if (auto *CatchAction = dyn_cast<CatchHandler>(Action)) {
     WinEHCatchDirector *CatchDirector =
@@ -2297,7 +2301,7 @@ void WinEHPrepare::findCleanupHandlers(LandingPadActions &Actions,
         // value for this block but the value is a nullptr.  This means that
         // we have previously analyzed the block and determined that it did
         // not contain any cleanup code.  Based on the earlier analysis, we
-        // know the the block must end in either an unconditional branch, a
+        // know the block must end in either an unconditional branch, a
         // resume or a conditional branch that is predicated on a comparison
         // with a selector.  Either the resume or the selector dispatch
         // would terminate the search for cleanup code, so the unconditional
@@ -2396,40 +2400,43 @@ void WinEHPrepare::findCleanupHandlers(LandingPadActions &Actions,
           MaybeCall = MaybeCall->getNextNode();
       }
 
-      // Look for outlined finally calls.
-      if (CallSite FinallyCall = matchOutlinedFinallyCall(BB, MaybeCall)) {
-        Function *Fin = FinallyCall.getCalledFunction();
-        assert(Fin && "outlined finally call should be direct");
-        auto *Action = new CleanupHandler(BB);
-        Action->setHandlerBlockOrFunc(Fin);
-        Actions.insertCleanupHandler(Action);
-        CleanupHandlerMap[BB] = Action;
-        DEBUG(dbgs() << "  Found frontend-outlined finally call to "
-                     << Fin->getName() << " in block "
-                     << Action->getStartBlock()->getName() << "\n");
+      // Look for outlined finally calls on x64, since those happen to match the
+      // prototype provided by the runtime.
+      if (TheTriple.getArch() == Triple::x86_64) {
+        if (CallSite FinallyCall = matchOutlinedFinallyCall(BB, MaybeCall)) {
+          Function *Fin = FinallyCall.getCalledFunction();
+          assert(Fin && "outlined finally call should be direct");
+          auto *Action = new CleanupHandler(BB);
+          Action->setHandlerBlockOrFunc(Fin);
+          Actions.insertCleanupHandler(Action);
+          CleanupHandlerMap[BB] = Action;
+          DEBUG(dbgs() << "  Found frontend-outlined finally call to "
+                       << Fin->getName() << " in block "
+                       << Action->getStartBlock()->getName() << "\n");
 
-        // Split the block if there were more interesting instructions and look
-        // for finally calls in the normal successor block.
-        BasicBlock *SuccBB = BB;
-        if (FinallyCall.getInstruction() != BB->getTerminator() &&
-            FinallyCall.getInstruction()->getNextNode() !=
-                BB->getTerminator()) {
-          SuccBB =
-              SplitBlock(BB, FinallyCall.getInstruction()->getNextNode(), DT);
-        } else {
-          if (FinallyCall.isInvoke()) {
+          // Split the block if there were more interesting instructions and
+          // look for finally calls in the normal successor block.
+          BasicBlock *SuccBB = BB;
+          if (FinallyCall.getInstruction() != BB->getTerminator() &&
+              FinallyCall.getInstruction()->getNextNode() !=
+                  BB->getTerminator()) {
             SuccBB =
-                cast<InvokeInst>(FinallyCall.getInstruction())->getNormalDest();
+                SplitBlock(BB, FinallyCall.getInstruction()->getNextNode(), DT);
           } else {
-            SuccBB = BB->getUniqueSuccessor();
-            assert(SuccBB &&
-                   "splitOutlinedFinallyCalls didn't insert a branch");
+            if (FinallyCall.isInvoke()) {
+              SuccBB = cast<InvokeInst>(FinallyCall.getInstruction())
+                           ->getNormalDest();
+            } else {
+              SuccBB = BB->getUniqueSuccessor();
+              assert(SuccBB &&
+                     "splitOutlinedFinallyCalls didn't insert a branch");
+            }
           }
+          BB = SuccBB;
+          if (BB == EndBB)
+            return;
+          continue;
         }
-        BB = SuccBB;
-        if (BB == EndBB)
-          return;
-        continue;
       }
     }
 

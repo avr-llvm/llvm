@@ -76,9 +76,6 @@ cl::opt<bool> EnableAArch64ELFLocalDynamicTLSGeneration(
     cl::desc("Allow AArch64 Local Dynamic TLS code generation"),
     cl::init(false));
 
-/// Value type used for condition codes.
-static const MVT MVT_CC = MVT::i32;
-
 AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
                                              const AArch64Subtarget &STI)
     : TargetLowering(TM), Subtarget(&STI) {
@@ -810,9 +807,6 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case AArch64ISD::ADCS:              return "AArch64ISD::ADCS";
   case AArch64ISD::SBCS:              return "AArch64ISD::SBCS";
   case AArch64ISD::ANDS:              return "AArch64ISD::ANDS";
-  case AArch64ISD::CCMP:              return "AArch64ISD::CCMP";
-  case AArch64ISD::CCMN:              return "AArch64ISD::CCMN";
-  case AArch64ISD::FCCMP:             return "AArch64ISD::FCCMP";
   case AArch64ISD::FCMP:              return "AArch64ISD::FCMP";
   case AArch64ISD::FMIN:              return "AArch64ISD::FMIN";
   case AArch64ISD::FMAX:              return "AArch64ISD::FMAX";
@@ -1171,131 +1165,8 @@ static SDValue emitComparison(SDValue LHS, SDValue RHS, ISD::CondCode CC,
     LHS = LHS.getOperand(0);
   }
 
-  return DAG.getNode(Opcode, dl, DAG.getVTList(VT, MVT_CC), LHS, RHS)
+  return DAG.getNode(Opcode, dl, DAG.getVTList(VT, MVT::i32), LHS, RHS)
       .getValue(1);
-}
-
-static SDValue emitConditionalComparison(SDValue LHS, SDValue RHS,
-                                         ISD::CondCode CC, SDValue CCOp,
-                                         SDValue Condition, unsigned NZCV,
-                                         SDLoc DL, SelectionDAG &DAG) {
-  unsigned Opcode = 0;
-  if (LHS.getValueType().isFloatingPoint())
-    Opcode = AArch64ISD::FCCMP;
-  else if (RHS.getOpcode() == ISD::SUB) {
-    SDValue SubOp0 = RHS.getOperand(0);
-    if (const ConstantSDNode *SubOp0C = dyn_cast<ConstantSDNode>(SubOp0))
-      if (SubOp0C->isNullValue() && (CC == ISD::SETEQ || CC == ISD::SETNE)) {
-        // See emitComparison() on why we can only do this for SETEQ and SETNE.
-        Opcode = AArch64ISD::CCMN;
-        RHS = RHS.getOperand(1);
-      }
-  }
-  if (Opcode == 0)
-    Opcode = AArch64ISD::CCMP;
-
-  SDValue NZCVOp = DAG.getConstant(NZCV, DL, MVT::i32);
-  return DAG.getNode(Opcode, DL, MVT_CC, LHS, RHS, NZCVOp, Condition, CCOp);
-}
-
-/// Returns true if @p Val is a tree of AND/OR/SETCC operations.
-static bool isConjunctionDisjunctionTree(const SDValue Val, unsigned Depth) {
-  if (!Val.hasOneUse())
-    return false;
-  if (Val->getOpcode() == ISD::SETCC)
-    return true;
-  // Protect against stack overflow.
-  if (Depth > 1000)
-    return false;
-  if (Val->getOpcode() == ISD::AND || Val->getOpcode() == ISD::OR) {
-    SDValue O0 = Val->getOperand(0);
-    SDValue O1 = Val->getOperand(1);
-    return isConjunctionDisjunctionTree(O0, Depth+1) &&
-           isConjunctionDisjunctionTree(O1, Depth+1);
-  }
-  return false;
-}
-
-/// Emit conjunction or disjunction tree with the CMP/FCMP followed by a chain
-/// of CCMP/CFCMP ops. For example (SETCC_0 & SETCC_1) with condition cond0 and
-/// cond1 can be transformed into "CMP; CCMP" with CCMP executing on cond_0
-/// and setting flags to inversed(cond_1) otherwise.
-/// This recursive function produces DAG nodes that produce condition flags
-/// suitable to determine the truth value of @p Val (which is AND/OR/SETCC)
-/// by testing the result for the condition set to @p OutCC. If @p Negate is
-/// set the opposite truth value is produced. If @p CCOp and @p Condition are
-/// given then conditional comparison are created so that false is reported
-/// when they are false.
-static SDValue emitConjunctionDisjunctionTree(
-    SelectionDAG &DAG, SDValue Val, AArch64CC::CondCode &OutCC, bool Negate,
-    SDValue CCOp = SDValue(), AArch64CC::CondCode Condition = AArch64CC::AL) {
-  assert(isConjunctionDisjunctionTree(Val, 0));
-  // We're at a tree leaf, produce a c?f?cmp.
-  unsigned Opcode = Val->getOpcode();
-  if (Opcode == ISD::SETCC) {
-    SDValue LHS = Val->getOperand(0);
-    SDValue RHS = Val->getOperand(1);
-    ISD::CondCode CC = cast<CondCodeSDNode>(Val->getOperand(2))->get();
-    bool isInteger = LHS.getValueType().isInteger();
-    if (Negate)
-      CC = getSetCCInverse(CC, isInteger);
-    SDLoc DL(Val);
-    // Determine OutCC and handle FP special case.
-    if (isInteger) {
-      OutCC = changeIntCCToAArch64CC(CC);
-    } else {
-      assert(LHS.getValueType().isFloatingPoint());
-      AArch64CC::CondCode ExtraCC;
-      changeFPCCToAArch64CC(CC, OutCC, ExtraCC);
-      // Surpisingly some floating point conditions can't be tested with a
-      // single condition code. Construct an additional comparison in this case.
-      // See comment below on how we deal with OR conditions.
-      if (ExtraCC != AArch64CC::AL) {
-        SDValue ExtraCmp;
-        if (!CCOp.getNode())
-          ExtraCmp = emitComparison(LHS, RHS, CC, DL, DAG);
-        else {
-          SDValue ConditionOp = DAG.getConstant(Condition, DL, MVT_CC);
-          // Note that we want the inverse of ExtraCC, so NZCV is not inversed.
-          unsigned NZCV = AArch64CC::getNZCVToSatisfyCondCode(ExtraCC);
-          ExtraCmp = emitConditionalComparison(LHS, RHS, CC, CCOp, ConditionOp,
-                                               NZCV, DL, DAG);
-        }
-        CCOp = ExtraCmp;
-        Condition = AArch64CC::getInvertedCondCode(ExtraCC);
-        OutCC = AArch64CC::getInvertedCondCode(OutCC);
-      }
-    }
-
-    // Produce a normal comparison if we are first in the chain
-    if (!CCOp.getNode())
-      return emitComparison(LHS, RHS, CC, DL, DAG);
-    // Otherwise produce a ccmp.
-    SDValue ConditionOp = DAG.getConstant(Condition, DL, MVT_CC);
-    AArch64CC::CondCode InvOutCC = AArch64CC::getInvertedCondCode(OutCC);
-    unsigned NZCV = AArch64CC::getNZCVToSatisfyCondCode(InvOutCC);
-    return emitConditionalComparison(LHS, RHS, CC, CCOp, ConditionOp, NZCV, DL,
-                                     DAG);
-  }
-
-  // Construct comparison sequence for the left hand side.
-  SDValue LHS = Val->getOperand(0);
-  SDValue RHS = Val->getOperand(1);
-
-  // We can only implement AND-like behaviour here, but negation is free. So we
-  // use (not (and (not x) (not y))) to implement (or x y).
-  bool isOr = Val->getOpcode() == ISD::OR;
-  assert((isOr || Val->getOpcode() == ISD::AND) && "Should have AND or OR.");
-  Negate ^= isOr;
-
-  AArch64CC::CondCode RHSCC;
-  SDValue CmpR =
-      emitConjunctionDisjunctionTree(DAG, RHS, RHSCC, isOr, CCOp, Condition);
-  SDValue CmpL =
-      emitConjunctionDisjunctionTree(DAG, LHS, OutCC, isOr, CmpR, RHSCC);
-  if (Negate)
-    OutCC = AArch64CC::getInvertedCondCode(OutCC);
-  return CmpL;
 }
 
 static SDValue getAArch64Cmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
@@ -1356,55 +1227,47 @@ static SDValue getAArch64Cmp(SDValue LHS, SDValue RHS, ISD::CondCode CC,
       }
     }
   }
+  // The imm operand of ADDS is an unsigned immediate, in the range 0 to 4095.
+  // For the i8 operand, the largest immediate is 255, so this can be easily
+  // encoded in the compare instruction. For the i16 operand, however, the
+  // largest immediate cannot be encoded in the compare.
+  // Therefore, use a sign extending load and cmn to avoid materializing the -1
+  // constant. For example,
+  // movz w1, #65535
+  // ldrh w0, [x0, #0]
+  // cmp w0, w1
+  // >
+  // ldrsh w0, [x0, #0]
+  // cmn w0, #1
+  // Fundamental, we're relying on the property that (zext LHS) == (zext RHS)
+  // if and only if (sext LHS) == (sext RHS). The checks are in place to ensure
+  // both the LHS and RHS are truely zero extended and to make sure the
+  // transformation is profitable.
   if ((CC == ISD::SETEQ || CC == ISD::SETNE) && isa<ConstantSDNode>(RHS)) {
-    const ConstantSDNode *RHSC = cast<ConstantSDNode>(RHS);
-
-    // The imm operand of ADDS is an unsigned immediate, in the range 0 to 4095.
-    // For the i8 operand, the largest immediate is 255, so this can be easily
-    // encoded in the compare instruction. For the i16 operand, however, the
-    // largest immediate cannot be encoded in the compare.
-    // Therefore, use a sign extending load and cmn to avoid materializing the
-    // -1 constant. For example,
-    // movz w1, #65535
-    // ldrh w0, [x0, #0]
-    // cmp w0, w1
-    // >
-    // ldrsh w0, [x0, #0]
-    // cmn w0, #1
-    // Fundamental, we're relying on the property that (zext LHS) == (zext RHS)
-    // if and only if (sext LHS) == (sext RHS). The checks are in place to
-    // ensure both the LHS and RHS are truely zero extended and to make sure the
-    // transformation is profitable.
-    if ((RHSC->getZExtValue() >> 16 == 0) && isa<LoadSDNode>(LHS) &&
-        cast<LoadSDNode>(LHS)->getExtensionType() == ISD::ZEXTLOAD &&
-        cast<LoadSDNode>(LHS)->getMemoryVT() == MVT::i16 &&
-        LHS.getNode()->hasNUsesOfValue(1, 0)) {
-      int16_t ValueofRHS = cast<ConstantSDNode>(RHS)->getZExtValue();
-      if (ValueofRHS < 0 && isLegalArithImmed(-ValueofRHS)) {
-        SDValue SExt =
-            DAG.getNode(ISD::SIGN_EXTEND_INREG, dl, LHS.getValueType(), LHS,
-                        DAG.getValueType(MVT::i16));
-        Cmp = emitComparison(SExt, DAG.getConstant(ValueofRHS, dl,
-                                                   RHS.getValueType()),
-                             CC, dl, DAG);
-        AArch64CC = changeIntCCToAArch64CC(CC);
-        goto CreateCCNode;
+    if ((cast<ConstantSDNode>(RHS)->getZExtValue() >> 16 == 0) &&
+        isa<LoadSDNode>(LHS)) {
+      if (cast<LoadSDNode>(LHS)->getExtensionType() == ISD::ZEXTLOAD &&
+          cast<LoadSDNode>(LHS)->getMemoryVT() == MVT::i16 &&
+          LHS.getNode()->hasNUsesOfValue(1, 0)) {
+        int16_t ValueofRHS = cast<ConstantSDNode>(RHS)->getZExtValue();
+        if (ValueofRHS < 0 && isLegalArithImmed(-ValueofRHS)) {
+          SDValue SExt =
+              DAG.getNode(ISD::SIGN_EXTEND_INREG, dl, LHS.getValueType(), LHS,
+                          DAG.getValueType(MVT::i16));
+          Cmp = emitComparison(SExt,
+                               DAG.getConstant(ValueofRHS, dl,
+                                               RHS.getValueType()),
+                               CC, dl, DAG);
+          AArch64CC = changeIntCCToAArch64CC(CC);
+          AArch64cc = DAG.getConstant(AArch64CC, dl, MVT::i32);
+          return Cmp;
+        }
       }
     }
-
-    if ((RHSC->isNullValue() || RHSC->isOne()) &&
-        isConjunctionDisjunctionTree(LHS, 0)) {
-      bool Negate = (CC == ISD::SETNE) ^ RHSC->isNullValue();
-      Cmp = emitConjunctionDisjunctionTree(DAG, LHS, AArch64CC, Negate);
-      goto CreateCCNode;
-    }
   }
-
   Cmp = emitComparison(LHS, RHS, CC, dl, DAG);
   AArch64CC = changeIntCCToAArch64CC(CC);
-
-CreateCCNode:
-  AArch64cc = DAG.getConstant(AArch64CC, dl, MVT_CC);
+  AArch64cc = DAG.getConstant(AArch64CC, dl, MVT::i32);
   return Cmp;
 }
 
@@ -1561,7 +1424,7 @@ static SDValue LowerXOR(SDValue Op, SelectionDAG &DAG) {
   ConstantSDNode *CFVal = dyn_cast<ConstantSDNode>(FVal);
   ConstantSDNode *CTVal = dyn_cast<ConstantSDNode>(TVal);
 
-  // The the values aren't constants, this isn't the pattern we're looking for.
+  // The values aren't constants, this isn't the pattern we're looking for.
   if (!CFVal || !CTVal)
     return Op;
 
@@ -1914,8 +1777,7 @@ static bool isExtendedBUILD_VECTOR(SDNode *N, SelectionDAG &DAG,
   if (N->getOpcode() != ISD::BUILD_VECTOR)
     return false;
 
-  for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i) {
-    SDNode *Elt = N->getOperand(i).getNode();
+  for (const SDValue &Elt : N->op_values()) {
     if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(Elt)) {
       unsigned EltSize = VT.getVectorElementType().getSizeInBits();
       unsigned HalfSize = EltSize / 2;
@@ -3557,7 +3419,7 @@ SDValue AArch64TargetLowering::LowerFCOPYSIGN(SDValue Op,
     EltVT = MVT::i64;
     VecVT = MVT::v2i64;
 
-    // We want to materialize a mask with the the high bit set, but the AdvSIMD
+    // We want to materialize a mask with the high bit set, but the AdvSIMD
     // immediate moves cannot materialize that in a single instruction for
     // 64-bit elements. Instead, materialize zero and then negate it.
     EltMask = 0;
@@ -4370,7 +4232,7 @@ bool AArch64TargetLowering::isFPImmLegal(const APFloat &Imm, EVT VT) const {
 /// getConstraintType - Given a constraint letter, return the type of
 /// constraint it is for this target.
 AArch64TargetLowering::ConstraintType
-AArch64TargetLowering::getConstraintType(const std::string &Constraint) const {
+AArch64TargetLowering::getConstraintType(StringRef Constraint) const {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
     default:
@@ -4421,8 +4283,7 @@ AArch64TargetLowering::getSingleConstraintMatchWeight(
 
 std::pair<unsigned, const TargetRegisterClass *>
 AArch64TargetLowering::getRegForInlineAsmConstraint(
-    const TargetRegisterInfo *TRI, const std::string &Constraint,
-    MVT VT) const {
+    const TargetRegisterInfo *TRI, StringRef Constraint, MVT VT) const {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
     case 'r':
@@ -4458,10 +4319,9 @@ AArch64TargetLowering::getRegForInlineAsmConstraint(
     unsigned Size = Constraint.size();
     if ((Size == 4 || Size == 5) && Constraint[0] == '{' &&
         tolower(Constraint[1]) == 'v' && Constraint[Size - 1] == '}') {
-      const std::string Reg =
-          std::string(&Constraint[2], &Constraint[Size - 1]);
-      int RegNo = atoi(Reg.c_str());
-      if (RegNo >= 0 && RegNo <= 31) {
+      int RegNo;
+      bool Failed = Constraint.slice(2, Size - 1).getAsInteger(10, RegNo);
+      if (!Failed && RegNo >= 0 && RegNo <= 31) {
         // v0 - v31 are aliases of q0 - q31.
         // By default we'll emit v0-v31 for this unless there's a modifier where
         // we'll emit the correct register as well.
@@ -6824,6 +6684,160 @@ bool AArch64TargetLowering::hasPairedLoad(EVT LoadedType,
   RequiredAligment = 0;
   unsigned NumBits = LoadedType.getSizeInBits();
   return NumBits == 32 || NumBits == 64;
+}
+
+/// \brief Lower an interleaved load into a ldN intrinsic.
+///
+/// E.g. Lower an interleaved load (Factor = 2):
+///        %wide.vec = load <8 x i32>, <8 x i32>* %ptr
+///        %v0 = shuffle %wide.vec, undef, <0, 2, 4, 6>  ; Extract even elements
+///        %v1 = shuffle %wide.vec, undef, <1, 3, 5, 7>  ; Extract odd elements
+///
+///      Into:
+///        %ld2 = { <4 x i32>, <4 x i32> } call llvm.aarch64.neon.ld2(%ptr)
+///        %vec0 = extractelement { <4 x i32>, <4 x i32> } %ld2, i32 0
+///        %vec1 = extractelement { <4 x i32>, <4 x i32> } %ld2, i32 1
+bool AArch64TargetLowering::lowerInterleavedLoad(
+    LoadInst *LI, ArrayRef<ShuffleVectorInst *> Shuffles,
+    ArrayRef<unsigned> Indices, unsigned Factor) const {
+  assert(Factor >= 2 && Factor <= getMaxSupportedInterleaveFactor() &&
+         "Invalid interleave factor");
+  assert(!Shuffles.empty() && "Empty shufflevector input");
+  assert(Shuffles.size() == Indices.size() &&
+         "Unmatched number of shufflevectors and indices");
+
+  const DataLayout *DL = getDataLayout();
+
+  VectorType *VecTy = Shuffles[0]->getType();
+  unsigned VecSize = DL->getTypeAllocSizeInBits(VecTy);
+
+  // Skip illegal vector types.
+  if (VecSize != 64 && VecSize != 128)
+    return false;
+
+  // A pointer vector can not be the return type of the ldN intrinsics. Need to
+  // load integer vectors first and then convert to pointer vectors.
+  Type *EltTy = VecTy->getVectorElementType();
+  if (EltTy->isPointerTy())
+    VecTy = VectorType::get(DL->getIntPtrType(EltTy),
+                            VecTy->getVectorNumElements());
+
+  Type *PtrTy = VecTy->getPointerTo(LI->getPointerAddressSpace());
+  Type *Tys[2] = {VecTy, PtrTy};
+  static const Intrinsic::ID LoadInts[3] = {Intrinsic::aarch64_neon_ld2,
+                                            Intrinsic::aarch64_neon_ld3,
+                                            Intrinsic::aarch64_neon_ld4};
+  Function *LdNFunc =
+      Intrinsic::getDeclaration(LI->getModule(), LoadInts[Factor - 2], Tys);
+
+  IRBuilder<> Builder(LI);
+  Value *Ptr = Builder.CreateBitCast(LI->getPointerOperand(), PtrTy);
+
+  CallInst *LdN = Builder.CreateCall(LdNFunc, Ptr, "ldN");
+
+  // Replace uses of each shufflevector with the corresponding vector loaded
+  // by ldN.
+  for (unsigned i = 0; i < Shuffles.size(); i++) {
+    ShuffleVectorInst *SVI = Shuffles[i];
+    unsigned Index = Indices[i];
+
+    Value *SubVec = Builder.CreateExtractValue(LdN, Index);
+
+    // Convert the integer vector to pointer vector if the element is pointer.
+    if (EltTy->isPointerTy())
+      SubVec = Builder.CreateIntToPtr(SubVec, SVI->getType());
+
+    SVI->replaceAllUsesWith(SubVec);
+  }
+
+  return true;
+}
+
+/// \brief Get a mask consisting of sequential integers starting from \p Start.
+///
+/// I.e. <Start, Start + 1, ..., Start + NumElts - 1>
+static Constant *getSequentialMask(IRBuilder<> &Builder, unsigned Start,
+                                   unsigned NumElts) {
+  SmallVector<Constant *, 16> Mask;
+  for (unsigned i = 0; i < NumElts; i++)
+    Mask.push_back(Builder.getInt32(Start + i));
+
+  return ConstantVector::get(Mask);
+}
+
+/// \brief Lower an interleaved store into a stN intrinsic.
+///
+/// E.g. Lower an interleaved store (Factor = 3):
+///        %i.vec = shuffle <8 x i32> %v0, <8 x i32> %v1,
+///                                  <0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11>
+///        store <12 x i32> %i.vec, <12 x i32>* %ptr
+///
+///      Into:
+///        %sub.v0 = shuffle <8 x i32> %v0, <8 x i32> v1, <0, 1, 2, 3>
+///        %sub.v1 = shuffle <8 x i32> %v0, <8 x i32> v1, <4, 5, 6, 7>
+///        %sub.v2 = shuffle <8 x i32> %v0, <8 x i32> v1, <8, 9, 10, 11>
+///        call void llvm.aarch64.neon.st3(%sub.v0, %sub.v1, %sub.v2, %ptr)
+///
+/// Note that the new shufflevectors will be removed and we'll only generate one
+/// st3 instruction in CodeGen.
+bool AArch64TargetLowering::lowerInterleavedStore(StoreInst *SI,
+                                                  ShuffleVectorInst *SVI,
+                                                  unsigned Factor) const {
+  assert(Factor >= 2 && Factor <= getMaxSupportedInterleaveFactor() &&
+         "Invalid interleave factor");
+
+  VectorType *VecTy = SVI->getType();
+  assert(VecTy->getVectorNumElements() % Factor == 0 &&
+         "Invalid interleaved store");
+
+  unsigned NumSubElts = VecTy->getVectorNumElements() / Factor;
+  Type *EltTy = VecTy->getVectorElementType();
+  VectorType *SubVecTy = VectorType::get(EltTy, NumSubElts);
+
+  const DataLayout *DL = getDataLayout();
+  unsigned SubVecSize = DL->getTypeAllocSizeInBits(SubVecTy);
+
+  // Skip illegal vector types.
+  if (SubVecSize != 64 && SubVecSize != 128)
+    return false;
+
+  Value *Op0 = SVI->getOperand(0);
+  Value *Op1 = SVI->getOperand(1);
+  IRBuilder<> Builder(SI);
+
+  // StN intrinsics don't support pointer vectors as arguments. Convert pointer
+  // vectors to integer vectors.
+  if (EltTy->isPointerTy()) {
+    Type *IntTy = DL->getIntPtrType(EltTy);
+    unsigned NumOpElts =
+        dyn_cast<VectorType>(Op0->getType())->getVectorNumElements();
+
+    // Convert to the corresponding integer vector.
+    Type *IntVecTy = VectorType::get(IntTy, NumOpElts);
+    Op0 = Builder.CreatePtrToInt(Op0, IntVecTy);
+    Op1 = Builder.CreatePtrToInt(Op1, IntVecTy);
+
+    SubVecTy = VectorType::get(IntTy, NumSubElts);
+  }
+
+  Type *PtrTy = SubVecTy->getPointerTo(SI->getPointerAddressSpace());
+  Type *Tys[2] = {SubVecTy, PtrTy};
+  static const Intrinsic::ID StoreInts[3] = {Intrinsic::aarch64_neon_st2,
+                                             Intrinsic::aarch64_neon_st3,
+                                             Intrinsic::aarch64_neon_st4};
+  Function *StNFunc =
+      Intrinsic::getDeclaration(SI->getModule(), StoreInts[Factor - 2], Tys);
+
+  SmallVector<Value *, 5> Ops;
+
+  // Split the shufflevector operands into sub vectors for the new stN call.
+  for (unsigned i = 0; i < Factor; i++)
+    Ops.push_back(Builder.CreateShuffleVector(
+        Op0, Op1, getSequentialMask(Builder, NumSubElts * i, NumSubElts)));
+
+  Ops.push_back(Builder.CreateBitCast(SI->getPointerOperand(), PtrTy));
+  Builder.CreateCall(StNFunc, Ops);
+  return true;
 }
 
 static bool memOpAlign(unsigned DstAlign, unsigned SrcAlign,
@@ -9268,9 +9282,4 @@ Value *AArch64TargetLowering::emitStoreConditional(IRBuilder<> &Builder,
 bool AArch64TargetLowering::functionArgumentNeedsConsecutiveRegisters(
     Type *Ty, CallingConv::ID CallConv, bool isVarArg) const {
   return Ty->isArrayTy();
-}
-
-bool AArch64TargetLowering::shouldNormalizeToSelectSequence(LLVMContext &,
-                                                            EVT) const {
-  return false;
 }

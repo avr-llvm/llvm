@@ -1463,7 +1463,7 @@ Optional Features:
                           target1,target2,... Valid targets are: host, x86,
                           x86_64, sparc, powerpc, arm64, arm, aarch64, avr, mips,
                           hexagon, xcore, msp430, nvptx, systemz, r600, bpf,
-                          and cpp (default=all)
+                          wasm, and cpp (default=all)
   --enable-experimental-targets
                           Build experimental host targets: disable or
                           target1,target2,... (default=disable)
@@ -2033,24 +2033,9 @@ echo "$as_me: error: Already configured in ${srcdir}" >&2;}
 fi
 
 if test ${srcdir} == "." ; then
-  { echo "$as_me:$LINENO: WARNING: **************************************************************************************" >&5
-echo "$as_me: WARNING: **************************************************************************************" >&2;}
-  { echo "$as_me:$LINENO: WARNING: *                                                                                    *" >&5
-echo "$as_me: WARNING: *                                                                                    *" >&2;}
-  { echo "$as_me:$LINENO: WARNING: *                                   WARNING                                          *" >&5
-echo "$as_me: WARNING: *                                   WARNING                                          *" >&2;}
-  { echo "$as_me:$LINENO: WARNING: *                                                                                    *" >&5
-echo "$as_me: WARNING: *                                                                                    *" >&2;}
-  { echo "$as_me:$LINENO: WARNING: *                        In-source builds are deprecated.                            *" >&5
-echo "$as_me: WARNING: *                        In-source builds are deprecated.                            *" >&2;}
-  { echo "$as_me:$LINENO: WARNING: *                                                                                    *" >&5
-echo "$as_me: WARNING: *                                                                                    *" >&2;}
-  { echo "$as_me:$LINENO: WARNING: *               Please configure from a separate build directory!                    *" >&5
-echo "$as_me: WARNING: *               Please configure from a separate build directory!                    *" >&2;}
-  { echo "$as_me:$LINENO: WARNING: *                                                                                    *" >&5
-echo "$as_me: WARNING: *                                                                                    *" >&2;}
-  { echo "$as_me:$LINENO: WARNING: **************************************************************************************" >&5
-echo "$as_me: WARNING: **************************************************************************************" >&2;}
+  { { echo "$as_me:$LINENO: error: In-source builds are not allowed. Please configure from a separate build directory!" >&5
+echo "$as_me: error: In-source builds are not allowed. Please configure from a separate build directory!" >&2;}
+   { (exit 1); exit 1; }; }
 fi
 
 : ${CFLAGS=}
@@ -4208,6 +4193,7 @@ else
   hexagon-*)              llvm_cv_target_arch="Hexagon" ;;
   nvptx-*)                llvm_cv_target_arch="NVPTX" ;;
   s390x-*)                llvm_cv_target_arch="SystemZ" ;;
+  wasm*-*)                llvm_cv_target_arch="WebAssembly" ;;
   *)                      llvm_cv_target_arch="Unknown" ;;
 esac
 fi
@@ -4245,6 +4231,7 @@ case $host in
   msp430-*)               host_arch="MSP430" ;;
   hexagon-*)              host_arch="Hexagon" ;;
   s390x-*)                host_arch="SystemZ" ;;
+  wasm*-*)                host_arch="WebAssembly" ;;
   *)                      host_arch="Unknown" ;;
 esac
 
@@ -5174,6 +5161,8 @@ else
  ;;
     SystemZ)     TARGET_HAS_JIT=1
  ;;
+    WebAssembly) TARGET_HAS_JIT=0
+ ;;
     *)           TARGET_HAS_JIT=0
  ;;
   esac
@@ -5671,6 +5660,7 @@ case "$enableval" in
         systemz)  TARGETS_TO_BUILD="SystemZ $TARGETS_TO_BUILD" ;;
         amdgpu)   TARGETS_TO_BUILD="AMDGPU $TARGETS_TO_BUILD" ;;
         r600)     TARGETS_TO_BUILD="AMDGPU $TARGETS_TO_BUILD" ;;
+        wasm)     TARGETS_TO_BUILD="WebAssembly $TARGETS_TO_BUILD" ;;
         host) case "$llvm_cv_target_arch" in
             x86)         TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
             x86_64)      TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
@@ -5685,6 +5675,7 @@ case "$enableval" in
             Hexagon)     TARGETS_TO_BUILD="Hexagon $TARGETS_TO_BUILD" ;;
             NVPTX)       TARGETS_TO_BUILD="NVPTX $TARGETS_TO_BUILD" ;;
             SystemZ)     TARGETS_TO_BUILD="SystemZ $TARGETS_TO_BUILD" ;;
+            WebAssembly) TARGETS_TO_BUILD="WebAssembly $TARGETS_TO_BUILD" ;;
             *)       { { echo "$as_me:$LINENO: error: Can not set target to build" >&5
 echo "$as_me: error: Can not set target to build" >&2;}
    { (exit 1); exit 1; }; } ;;
@@ -8734,6 +8725,87 @@ if test $ac_cv_lib_imagehlp_main = yes; then
 _ACEOF
 
   LIBS="-limagehlp $LIBS"
+
+fi
+
+
+{ echo "$as_me:$LINENO: checking for main in -lole32" >&5
+echo $ECHO_N "checking for main in -lole32... $ECHO_C" >&6; }
+if test "${ac_cv_lib_ole32_main+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lole32  $LIBS"
+cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+
+int
+main ()
+{
+return main ();
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext conftest$ac_exeext
+if { (ac_try="$ac_link"
+case "(($ac_try" in
+  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+  *) ac_try_echo=$ac_try;;
+esac
+eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
+  (eval "$ac_link") 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+	 { ac_try='test -z "$ac_c_werror_flag" || test ! -s conftest.err'
+  { (case "(($ac_try" in
+  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+  *) ac_try_echo=$ac_try;;
+esac
+eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
+  (eval "$ac_try") 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; } &&
+	 { ac_try='test -s conftest$ac_exeext'
+  { (case "(($ac_try" in
+  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+  *) ac_try_echo=$ac_try;;
+esac
+eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
+  (eval "$ac_try") 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ac_cv_lib_ole32_main=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+	ac_cv_lib_ole32_main=no
+fi
+
+rm -f core conftest.err conftest.$ac_objext \
+      conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ echo "$as_me:$LINENO: result: $ac_cv_lib_ole32_main" >&5
+echo "${ECHO_T}$ac_cv_lib_ole32_main" >&6; }
+if test $ac_cv_lib_ole32_main = yes; then
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBOLE32 1
+_ACEOF
+
+  LIBS="-lole32 $LIBS"
 
 fi
 

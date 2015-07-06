@@ -630,26 +630,18 @@ private:
 };
 
 /// \brief Handles the loop versioning based on memchecks.
-class RuntimeCheckEmitter {
+class LoopVersioning {
 public:
-  RuntimeCheckEmitter(const LoopAccessInfo &LAI, Loop *L, LoopInfo *LI,
-                      DominatorTree *DT)
-      : OrigLoop(L), NonDistributedLoop(nullptr), LAI(LAI), LI(LI), DT(DT) {}
+  LoopVersioning(const LoopAccessInfo &LAI, Loop *L, LoopInfo *LI,
+                 DominatorTree *DT,
+                 const SmallVector<int, 8> *PtrToPartition = nullptr)
+      : VersionedLoop(L), NonVersionedLoop(nullptr),
+        PtrToPartition(PtrToPartition), LAI(LAI), LI(LI), DT(DT) {}
 
-  /// \brief Given the \p Partitions formed by Loop Distribution, it determines
-  /// in which partition each pointer is used.
-  void partitionPointers(InstPartitionContainer &Partitions) {
-    // Set up partition id in PtrRtChecks.  Ptr -> Access -> Intruction ->
-    // Partition.
-    PtrToPartition = Partitions.computePartitionSetForPointers(LAI);
-
-    DEBUG(dbgs() << "\nPointers:\n");
-    DEBUG(LAI.getRuntimePointerCheck()->print(dbgs(), 0, &PtrToPartition));
-  }
-
-  /// \brief Returns true if we need memchecks to distribute the loop.
+  /// \brief Returns true if we need memchecks to disambiguate may-aliasing
+  /// accesses.
   bool needsRuntimeChecks() const {
-    return LAI.getRuntimePointerCheck()->needsAnyChecking(&PtrToPartition);
+    return LAI.getRuntimePointerCheck()->needsAnyChecking(PtrToPartition);
   }
 
   /// \brief Performs the CFG manipulation part of versioning the loop including
@@ -658,49 +650,51 @@ public:
     Instruction *FirstCheckInst;
     Instruction *MemRuntimeCheck;
     // Add the memcheck in the original preheader (this is empty initially).
-    BasicBlock *MemCheckBB = OrigLoop->getLoopPreheader();
+    BasicBlock *MemCheckBB = VersionedLoop->getLoopPreheader();
     std::tie(FirstCheckInst, MemRuntimeCheck) =
-        LAI.addRuntimeCheck(MemCheckBB->getTerminator(), &PtrToPartition);
+        LAI.addRuntimeCheck(MemCheckBB->getTerminator(), PtrToPartition);
     assert(MemRuntimeCheck && "called even though needsAnyChecking = false");
 
     // Rename the block to make the IR more readable.
-    MemCheckBB->setName(OrigLoop->getHeader()->getName() + ".ldist.memcheck");
+    MemCheckBB->setName(VersionedLoop->getHeader()->getName() +
+                        ".lver.memcheck");
 
     // Create empty preheader for the loop (and after cloning for the
-    // original/nondist loop).
+    // non-versioned loop).
     BasicBlock *PH =
         SplitBlock(MemCheckBB, MemCheckBB->getTerminator(), DT, LI);
-    PH->setName(OrigLoop->getHeader()->getName() + ".ph");
+    PH->setName(VersionedLoop->getHeader()->getName() + ".ph");
 
     // Clone the loop including the preheader.
     //
     // FIXME: This does not currently preserve SimplifyLoop because the exit
     // block is a join between the two loops.
-    SmallVector<BasicBlock *, 8> NonDistributedLoopBlocks;
-    NonDistributedLoop =
-        cloneLoopWithPreheader(PH, MemCheckBB, OrigLoop, VMap, ".ldist.nondist",
-                               LI, DT, NonDistributedLoopBlocks);
-    remapInstructionsInLoop(NonDistributedLoopBlocks, VMap);
+    SmallVector<BasicBlock *, 8> NonVersionedLoopBlocks;
+    NonVersionedLoop =
+        cloneLoopWithPreheader(PH, MemCheckBB, VersionedLoop, VMap,
+                               ".lver.orig", LI, DT, NonVersionedLoopBlocks);
+    remapInstructionsInLoop(NonVersionedLoopBlocks, VMap);
 
     // Insert the conditional branch based on the result of the memchecks.
     Instruction *OrigTerm = MemCheckBB->getTerminator();
-    BranchInst::Create(NonDistributedLoop->getLoopPreheader(),
-                       OrigLoop->getLoopPreheader(), MemRuntimeCheck, OrigTerm);
+    BranchInst::Create(NonVersionedLoop->getLoopPreheader(),
+                       VersionedLoop->getLoopPreheader(), MemRuntimeCheck,
+                       OrigTerm);
     OrigTerm->eraseFromParent();
 
     // The loops merge in the original exit block.  This is now dominated by the
     // memchecking block.
-    DT->changeImmediateDominator(OrigLoop->getExitBlock(), MemCheckBB);
+    DT->changeImmediateDominator(VersionedLoop->getExitBlock(), MemCheckBB);
   }
 
   /// \brief Adds the necessary PHI nodes for the versioned loops based on the
   /// loop-defined values used outside of the loop.
   void addPHINodes(const SmallVectorImpl<Instruction *> &DefsUsedOutside) {
-    BasicBlock *PHIBlock = OrigLoop->getExitBlock();
+    BasicBlock *PHIBlock = VersionedLoop->getExitBlock();
     assert(PHIBlock && "No single successor to loop exit block");
 
     for (auto *Inst : DefsUsedOutside) {
-      auto *NonDistInst = cast<Instruction>(VMap[Inst]);
+      auto *NonVersionedLoopInst = cast<Instruction>(VMap[Inst]);
       PHINode *PN;
 
       // First see if we have a single-operand PHI with the value defined by the
@@ -713,33 +707,35 @@ public:
       }
       // If not create it.
       if (!PN) {
-        PN = PHINode::Create(Inst->getType(), 2, Inst->getName() + ".ldist",
+        PN = PHINode::Create(Inst->getType(), 2, Inst->getName() + ".lver",
                              PHIBlock->begin());
         for (auto *User : Inst->users())
-          if (!OrigLoop->contains(cast<Instruction>(User)->getParent()))
+          if (!VersionedLoop->contains(cast<Instruction>(User)->getParent()))
             User->replaceUsesOfWith(Inst, PN);
-        PN->addIncoming(Inst, OrigLoop->getExitingBlock());
+        PN->addIncoming(Inst, VersionedLoop->getExitingBlock());
       }
-      // Add the new incoming value from the non-distributed loop.
-      PN->addIncoming(NonDistInst, NonDistributedLoop->getExitingBlock());
+      // Add the new incoming value from the non-versioned loop.
+      PN->addIncoming(NonVersionedLoopInst,
+                      NonVersionedLoop->getExitingBlock());
     }
   }
 
 private:
   /// \brief The original loop.  This becomes the "versioned" one, i.e. control
   /// goes if the memchecks all pass.
-  Loop *OrigLoop;
+  Loop *VersionedLoop;
   /// \brief The fall-back loop, i.e. if any of the memchecks fail.
-  Loop *NonDistributedLoop;
+  Loop *NonVersionedLoop;
 
   /// \brief For each memory pointer it contains the partitionId it is used in.
+  /// If nullptr, no partitioning is used.
   ///
   /// The I-th entry corresponds to I-th entry in LAI.getRuntimePointerCheck().
   /// If the pointer is used in multiple partitions the entry is set to -1.
-  SmallVector<int, 8> PtrToPartition;
+  const SmallVector<int, 8> *PtrToPartition;
 
-  /// \brief This maps the instructions from OrigLoop to their counterpart in
-  /// NonDistributedLoop.
+  /// \brief This maps the instructions from VersionedLoop to their counterpart
+  /// in NonVersionedLoop.
   ValueToValueMapTy VMap;
 
   /// \brief Analyses used.
@@ -929,11 +925,13 @@ private:
 
     // If we need run-time checks to disambiguate pointers are run-time, version
     // the loop now.
-    RuntimeCheckEmitter RtCheckEmitter(LAI, L, LI, DT);
-    RtCheckEmitter.partitionPointers(Partitions);
-    if (RtCheckEmitter.needsRuntimeChecks()) {
-      RtCheckEmitter.versionLoop(this);
-      RtCheckEmitter.addPHINodes(DefsUsedOutside);
+    auto PtrToPartition = Partitions.computePartitionSetForPointers(LAI);
+    LoopVersioning LVer(LAI, L, LI, DT, &PtrToPartition);
+    if (LVer.needsRuntimeChecks()) {
+      DEBUG(dbgs() << "\nPointers:\n");
+      DEBUG(LAI.getRuntimePointerCheck()->print(dbgs(), 0, &PtrToPartition));
+      LVer.versionLoop(this);
+      LVer.addPHINodes(DefsUsedOutside);
     }
 
     // Create identical copies of the original loop for each partition and hook

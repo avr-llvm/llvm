@@ -83,11 +83,11 @@ EnableFMFInDAG("enable-fmf-dag", cl::init(false), cl::Hidden,
                 cl::desc("Enable fast-math-flags for DAG nodes"));
 
 // Limit the width of DAG chains. This is important in general to prevent
-// prevent DAG-based analysis from blowing up. For example, alias analysis and
+// DAG-based analysis from blowing up. For example, alias analysis and
 // load clustering may not complete in reasonable time. It is difficult to
 // recognize and avoid this situation within each individual analysis, and
 // future analyses are likely to have the same behavior. Limiting DAG width is
-// the safe approach, and will be especially important with global DAGs.
+// the safe approach and will be especially important with global DAGs.
 //
 // MaxParallelChains default is arbitrarily high to avoid affecting
 // optimization, but could be lowered to improve compile time. Any ld-ld-st-st
@@ -261,8 +261,9 @@ static SDValue getCopyFromPartsVector(SelectionDAG &DAG, SDLoc DL,
     assert(NumRegs == NumParts && "Part count doesn't match vector breakdown!");
     NumParts = NumRegs; // Silence a compiler warning.
     assert(RegisterVT == PartVT && "Part type doesn't match vector breakdown!");
-    assert(RegisterVT == Parts[0].getSimpleValueType() &&
-           "Part type doesn't match part!");
+    assert(RegisterVT.getSizeInBits() ==
+           Parts[0].getSimpleValueType().getSizeInBits() &&
+           "Part type sizes don't match!");
 
     // Assemble the parts into intermediate operands.
     SmallVector<SDValue, 8> Ops(NumIntermediates);
@@ -1445,8 +1446,8 @@ void SelectionDAGBuilder::FindMergedConditions(const Value *Cond,
     // We have flexibility in setting Prob for BB1 and Prob for TmpBB.
     // The requirement is that
     //   TrueProb for BB1 + (FalseProb for BB1 * TrueProb for TmpBB)
-    //     = TrueProb for orignal BB.
-    // Assuming the orignal weights are A and B, one choice is to set BB1's
+    //     = TrueProb for original BB.
+    // Assuming the original weights are A and B, one choice is to set BB1's
     // weights to A and A+2B, and set TmpBB's weights to A and 2B. This choice
     // assumes that
     //   TrueProb for BB1 == FalseProb for BB1 * TrueProb for TmpBB.
@@ -1481,8 +1482,8 @@ void SelectionDAGBuilder::FindMergedConditions(const Value *Cond,
     // We have flexibility in setting Prob for BB1 and Prob for TmpBB.
     // The requirement is that
     //   FalseProb for BB1 + (TrueProb for BB1 * FalseProb for TmpBB)
-    //     = FalseProb for orignal BB.
-    // Assuming the orignal weights are A and B, one choice is to set BB1's
+    //     = FalseProb for original BB.
+    // Assuming the original weights are A and B, one choice is to set BB1's
     // weights to 2A+B and B, and set TmpBB's weights to 2A and B. This choice
     // assumes that
     //   FalseProb for BB1 == TrueProb for BB1 * FalseProb for TmpBB.
@@ -2238,17 +2239,11 @@ void SelectionDAGBuilder::visitSDiv(const User &I) {
   SDValue Op1 = getValue(I.getOperand(0));
   SDValue Op2 = getValue(I.getOperand(1));
 
-  // Turn exact SDivs into multiplications.
-  // FIXME: This should be in DAGCombiner, but it doesn't have access to the
-  // exact bit.
-  if (isa<BinaryOperator>(&I) && cast<BinaryOperator>(&I)->isExact() &&
-      !isa<ConstantSDNode>(Op1) &&
-      isa<ConstantSDNode>(Op2) && !cast<ConstantSDNode>(Op2)->isNullValue())
-    setValue(&I, DAG.getTargetLoweringInfo()
-                     .BuildExactSDIV(Op1, Op2, getCurSDLoc(), DAG));
-  else
-    setValue(&I, DAG.getNode(ISD::SDIV, getCurSDLoc(), Op1.getValueType(),
-                             Op1, Op2));
+  SDNodeFlags Flags;
+  Flags.setExact(isa<PossiblyExactOperator>(&I) &&
+                 cast<PossiblyExactOperator>(&I)->isExact());
+  setValue(&I, DAG.getNode(ISD::SDIV, getCurSDLoc(), Op1.getValueType(), Op1,
+                           Op2, &Flags));
 }
 
 void SelectionDAGBuilder::visitICmp(const User &I) {
@@ -2914,7 +2909,7 @@ void SelectionDAGBuilder::visitLoad(const LoadInst &I) {
     // Serialize volatile loads with other side effects.
     Root = getRoot();
   else if (AA->pointsToConstantMemory(
-             AliasAnalysis::Location(SV, AA->getTypeStoreSize(Ty), AAInfo))) {
+               MemoryLocation(SV, AA->getTypeStoreSize(Ty), AAInfo))) {
     // Do not serialize (non-volatile) loads of constant memory with anything.
     Root = DAG.getEntryNode();
     ConstantMemory = true;
@@ -2929,8 +2924,7 @@ void SelectionDAGBuilder::visitLoad(const LoadInst &I) {
     Root = TLI.prepareVolatileOrAtomicLoad(Root, dl, DAG);
 
   SmallVector<SDValue, 4> Values(NumValues);
-  SmallVector<SDValue, 4> Chains(std::min(unsigned(MaxParallelChains),
-                                          NumValues));
+  SmallVector<SDValue, 4> Chains(std::min(MaxParallelChains, NumValues));
   EVT PtrVT = Ptr.getValueType();
   unsigned ChainI = 0;
   for (unsigned i = 0; i != NumValues; ++i, ++ChainI) {
@@ -2994,8 +2988,7 @@ void SelectionDAGBuilder::visitStore(const StoreInst &I) {
   SDValue Ptr = getValue(PtrV);
 
   SDValue Root = getRoot();
-  SmallVector<SDValue, 4> Chains(std::min(unsigned(MaxParallelChains),
-                                          NumValues));
+  SmallVector<SDValue, 4> Chains(std::min(MaxParallelChains, NumValues));
   EVT PtrVT = Ptr.getValueType();
   bool isVolatile = I.isVolatile();
   bool isNonTemporal = I.getMetadata(LLVMContext::MD_nontemporal) != nullptr;
@@ -3163,10 +3156,8 @@ void SelectionDAGBuilder::visitMaskedLoad(const CallInst &I) {
   const MDNode *Ranges = I.getMetadata(LLVMContext::MD_range);
 
   SDValue InChain = DAG.getRoot();
-  if (AA->pointsToConstantMemory(
-      AliasAnalysis::Location(PtrOperand,
-                              AA->getTypeStoreSize(I.getType()),
-                              AAInfo))) {
+  if (AA->pointsToConstantMemory(MemoryLocation(
+          PtrOperand, AA->getTypeStoreSize(I.getType()), AAInfo))) {
     // Do not serialize (non-volatile) loads of constant memory with anything.
     InChain = DAG.getEntryNode();
   }
@@ -3208,10 +3199,9 @@ void SelectionDAGBuilder::visitMaskedGather(const CallInst &I) {
   Value *BasePtr = Ptr;
   bool UniformBase = getUniformBase(BasePtr, Base, Index, this);
   bool ConstantMemory = false;
-  if (UniformBase && AA->pointsToConstantMemory(
-      AliasAnalysis::Location(BasePtr,
-	                            AA->getTypeStoreSize(I.getType()),
-                              AAInfo))) {
+  if (UniformBase &&
+      AA->pointsToConstantMemory(
+          MemoryLocation(BasePtr, AA->getTypeStoreSize(I.getType()), AAInfo))) {
     // Do not serialize (non-volatile) loads of constant memory with anything.
     Root = DAG.getEntryNode();
     ConstantMemory = true;
@@ -4791,7 +4781,10 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
 
   case Intrinsic::debugtrap:
   case Intrinsic::trap: {
-    StringRef TrapFuncName = TM.Options.getTrapFunctionName();
+    StringRef TrapFuncName =
+        I.getAttributes()
+            .getAttribute(AttributeSet::FunctionIndex, "trap-func-name")
+            .getValueAsString();
     if (TrapFuncName.empty()) {
       ISD::NodeType Op = (Intrinsic == Intrinsic::trap) ?
         ISD::TRAP : ISD::DEBUGTRAP;
@@ -4981,11 +4974,9 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
         MF.getMMI().getContext().getOrCreateFrameAllocSymbol(
             GlobalValue::getRealLinkageName(Fn->getName()), IdxVal);
 
-    // Create a TargetExternalSymbol for the label to avoid any target lowering
+    // Create a MCSymbol for the label to avoid any target lowering
     // that would make this PC relative.
-    StringRef Name = FrameAllocSym->getName();
-    assert(Name.data()[Name.size()] == '\0' && "not null terminated");
-    SDValue OffsetSym = DAG.getTargetExternalSymbol(Name.data(), PtrVT);
+    SDValue OffsetSym = DAG.getMCSymbol(FrameAllocSym, PtrVT);
     SDValue OffsetVal =
         DAG.getNode(ISD::FRAME_ALLOC_RECOVER, sdl, PtrVT, OffsetSym);
 
@@ -7509,6 +7500,31 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
   const int64_t N = Clusters.size();
   const unsigned MinJumpTableSize = TLI.getMinimumJumpTableEntries();
 
+  // TotalCases[i]: Total nbr of cases in Clusters[0..i].
+  SmallVector<unsigned, 8> TotalCases(N);
+
+  for (unsigned i = 0; i < N; ++i) {
+    APInt Hi = Clusters[i].High->getValue();
+    APInt Lo = Clusters[i].Low->getValue();
+    TotalCases[i] = (Hi - Lo).getLimitedValue() + 1;
+    if (i != 0)
+      TotalCases[i] += TotalCases[i - 1];
+  }
+
+  if (N >= MinJumpTableSize && isDense(Clusters, &TotalCases[0], 0, N - 1)) {
+    // Cheap case: the whole range might be suitable for jump table.
+    CaseCluster JTCluster;
+    if (buildJumpTable(Clusters, 0, N - 1, SI, DefaultMBB, JTCluster)) {
+      Clusters[0] = JTCluster;
+      Clusters.resize(1);
+      return;
+    }
+  }
+
+  // The algorithm below is not suitable for -O0.
+  if (TM.getOptLevel() == CodeGenOpt::None)
+    return;
+
   // Split Clusters into minimum number of dense partitions. The algorithm uses
   // the same idea as Kannan & Proebsting "Correction to 'Producing Good Code
   // for the Case Statement'" (1994), but builds the MinPartitions array in
@@ -7522,16 +7538,6 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
   SmallVector<unsigned, 8> LastElement(N);
   // NumTables[i]: nbr of >= MinJumpTableSize partitions from Clusters[i..N-1].
   SmallVector<unsigned, 8> NumTables(N);
-  // TotalCases[i]: Total nbr of cases in Clusters[0..i].
-  SmallVector<unsigned, 8> TotalCases(N);
-
-  for (unsigned i = 0; i < N; ++i) {
-    APInt Hi = Clusters[i].High->getValue();
-    APInt Lo = Clusters[i].Low->getValue();
-    TotalCases[i] = (Hi - Lo).getLimitedValue() + 1;
-    if (i != 0)
-      TotalCases[i] += TotalCases[i - 1];
-  }
 
   // Base case: There is only one way to partition Clusters[N-1].
   MinPartitions[N - 1] = 1;
@@ -7718,6 +7724,10 @@ void SelectionDAGBuilder::findBitTestClusters(CaseClusterVector &Clusters,
   for (unsigned i = 1; i < Clusters.size(); ++i)
     assert(Clusters[i-1].High->getValue().slt(Clusters[i].Low->getValue()));
 #endif
+
+  // The algorithm below is not suitable for -O0.
+  if (TM.getOptLevel() == CodeGenOpt::None)
+    return;
 
   // If target does not have legal shift left, do not emit bit tests at all.
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
@@ -7982,6 +7992,18 @@ void SelectionDAGBuilder::lowerWorkItem(SwitchWorkListItem W, Value *Cond,
   }
 }
 
+unsigned SelectionDAGBuilder::caseClusterRank(const CaseCluster &CC,
+                                              CaseClusterIt First,
+                                              CaseClusterIt Last) {
+  return std::count_if(First, Last + 1, [&](const CaseCluster &X) {
+    if (X.Weight != CC.Weight)
+      return X.Weight > CC.Weight;
+
+    // Ties are broken by comparing the case value.
+    return X.Low->getValue().slt(CC.Low->getValue());
+  });
+}
+
 void SelectionDAGBuilder::splitWorkItem(SwitchWorkList &WorkList,
                                         const SwitchWorkListItem &W,
                                         Value *Cond,
@@ -8011,6 +8033,48 @@ void SelectionDAGBuilder::splitWorkItem(SwitchWorkList &WorkList,
       RightWeight += (--FirstRight)->Weight;
     I++;
   }
+
+  for (;;) {
+    // Our binary search tree differs from a typical BST in that ours can have up
+    // to three values in each leaf. The pivot selection above doesn't take that
+    // into account, which means the tree might require more nodes and be less
+    // efficient. We compensate for this here.
+
+    unsigned NumLeft = LastLeft - W.FirstCluster + 1;
+    unsigned NumRight = W.LastCluster - FirstRight + 1;
+
+    if (std::min(NumLeft, NumRight) < 3 && std::max(NumLeft, NumRight) > 3) {
+      // If one side has less than 3 clusters, and the other has more than 3,
+      // consider taking a cluster from the other side.
+
+      if (NumLeft < NumRight) {
+        // Consider moving the first cluster on the right to the left side.
+        CaseCluster &CC = *FirstRight;
+        unsigned RightSideRank = caseClusterRank(CC, FirstRight, W.LastCluster);
+        unsigned LeftSideRank = caseClusterRank(CC, W.FirstCluster, LastLeft);
+        if (LeftSideRank <= RightSideRank) {
+          // Moving the cluster to the left does not demote it.
+          ++LastLeft;
+          ++FirstRight;
+          continue;
+        }
+      } else {
+        assert(NumRight < NumLeft);
+        // Consider moving the last element on the left to the right side.
+        CaseCluster &CC = *LastLeft;
+        unsigned LeftSideRank = caseClusterRank(CC, W.FirstCluster, LastLeft);
+        unsigned RightSideRank = caseClusterRank(CC, FirstRight, W.LastCluster);
+        if (RightSideRank <= LeftSideRank) {
+          // Moving the cluster to the right does not demot it.
+          --LastLeft;
+          --FirstRight;
+          continue;
+        }
+      }
+    }
+    break;
+  }
+
   assert(LastLeft + 1 == FirstRight);
   assert(LastLeft >= W.FirstCluster);
   assert(FirstRight <= W.LastCluster);
@@ -8134,11 +8198,8 @@ void SelectionDAGBuilder::visitSwitch(const SwitchInst &SI) {
     return;
   }
 
-  if (TM.getOptLevel() != CodeGenOpt::None) {
-    findJumpTables(Clusters, &SI, DefaultMBB);
-    findBitTestClusters(Clusters, &SI);
-  }
-
+  findJumpTables(Clusters, &SI, DefaultMBB);
+  findBitTestClusters(Clusters, &SI);
 
   DEBUG({
     dbgs() << "Case clusters: ";

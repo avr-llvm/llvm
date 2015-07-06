@@ -1574,13 +1574,9 @@ void Record::checkName() {
 }
 
 DefInit *Record::getDefInit() {
-  static DenseMap<Record *, std::unique_ptr<DefInit>> ThePool;
-  if (TheInit)
-    return TheInit;
-
-  std::unique_ptr<DefInit> &I = ThePool[this];
-  if (!I) I.reset(new DefInit(this, new RecordRecTy(this)));
-  return I.get();
+  if (!TheInit)
+    TheInit.reset(new DefInit(this, new RecordRecTy(this)));
+  return TheInit.get();
 }
 
 const std::string &Record::getName() const {
@@ -1652,7 +1648,7 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, const Record &R) {
   }
 
   OS << " {";
-  const std::vector<Record*> &SC = R.getSuperClasses();
+  ArrayRef<Record *> SC = R.getSuperClasses();
   if (!SC.empty()) {
     OS << "\t//";
     for (const Record *Super : SC)

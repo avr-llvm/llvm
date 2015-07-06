@@ -583,7 +583,8 @@ SDValue SITargetLowering::LowerFormalArguments(
     if (VA.isMemLoc()) {
       VT = Ins[i].VT;
       EVT MemVT = Splits[i].VT;
-      const unsigned Offset = 36 + VA.getLocMemOffset();
+      const unsigned Offset = Subtarget->getExplicitKernelArgOffset() +
+                              VA.getLocMemOffset();
       // The first 36 bytes of the input buffer contains information about
       // thread group and global sizes.
       SDValue Arg = LowerParameter(DAG, VT, MemVT,  DL, DAG.getRoot(),
@@ -2211,7 +2212,7 @@ SDValue SITargetLowering::CreateLiveInRegister(SelectionDAG &DAG,
 
 std::pair<unsigned, const TargetRegisterClass *>
 SITargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
-                                               const std::string &Constraint,
+                                               StringRef Constraint,
                                                MVT VT) const {
   if (Constraint == "r") {
     switch(VT.SimpleTy) {
@@ -2232,8 +2233,9 @@ SITargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
     }
 
     if (RC) {
-      unsigned Idx = std::atoi(Constraint.substr(2).c_str());
-      if (Idx < RC->getNumRegs())
+      uint32_t Idx;
+      bool Failed = Constraint.substr(2).getAsInteger(10, Idx);
+      if (!Failed && Idx < RC->getNumRegs())
         return std::make_pair(RC->getRegister(Idx), RC);
     }
   }

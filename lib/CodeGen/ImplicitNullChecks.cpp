@@ -61,10 +61,10 @@ class ImplicitNullChecks : public MachineFunctionPass {
     // The block the check resides in.
     MachineBasicBlock *CheckBlock;
 
-    // The block branched to if the the pointer is non-null.
+    // The block branched to if the pointer is non-null.
     MachineBasicBlock *NotNullSucc;
 
-    // The block branched to if the the pointer is null.
+    // The block branched to if the pointer is null.
     MachineBasicBlock *NullSucc;
 
     NullCheck()
@@ -123,6 +123,13 @@ bool ImplicitNullChecks::runOnMachineFunction(MachineFunction &MF) {
 bool ImplicitNullChecks::analyzeBlockForNullChecks(
     MachineBasicBlock &MBB, SmallVectorImpl<NullCheck> &NullCheckList) {
   typedef TargetInstrInfo::MachineBranchPredicate MachineBranchPredicate;
+
+  MDNode *BranchMD =
+      MBB.getBasicBlock()
+          ? MBB.getBasicBlock()->getTerminator()->getMetadata("make.implicit")
+          : nullptr;
+  if (!BranchMD)
+    return false;
 
   MachineBranchPredicate MBP;
 

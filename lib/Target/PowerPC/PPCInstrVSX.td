@@ -457,22 +457,34 @@ let Uses = [RM] in {
 
   defm XVCMPEQDP : XX3Form_Rcr<60, 99,
                              (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
-                             "xvcmpeqdp", "$XT, $XA, $XB", IIC_VecFPCompare, []>;
+                             "xvcmpeqdp", "$XT, $XA, $XB", IIC_VecFPCompare,
+                             [(set v2i64:$XT,
+                                (int_ppc_vsx_xvcmpeqdp v2f64:$XA, v2f64:$XB))]>;
   defm XVCMPEQSP : XX3Form_Rcr<60, 67,
                              (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
-                             "xvcmpeqsp", "$XT, $XA, $XB", IIC_VecFPCompare, []>;
+                             "xvcmpeqsp", "$XT, $XA, $XB", IIC_VecFPCompare,
+                             [(set v4i32:$XT,
+                                (int_ppc_vsx_xvcmpeqsp v4f32:$XA, v4f32:$XB))]>;
   defm XVCMPGEDP : XX3Form_Rcr<60, 115,
                              (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
-                             "xvcmpgedp", "$XT, $XA, $XB", IIC_VecFPCompare, []>;
+                             "xvcmpgedp", "$XT, $XA, $XB", IIC_VecFPCompare,
+                             [(set v2i64:$XT,
+                                (int_ppc_vsx_xvcmpgedp v2f64:$XA, v2f64:$XB))]>;
   defm XVCMPGESP : XX3Form_Rcr<60, 83,
                              (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
-                             "xvcmpgesp", "$XT, $XA, $XB", IIC_VecFPCompare, []>;
+                             "xvcmpgesp", "$XT, $XA, $XB", IIC_VecFPCompare,
+                             [(set v4i32:$XT,
+                                (int_ppc_vsx_xvcmpgesp v4f32:$XA, v4f32:$XB))]>;
   defm XVCMPGTDP : XX3Form_Rcr<60, 107,
                              (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
-                             "xvcmpgtdp", "$XT, $XA, $XB", IIC_VecFPCompare, []>;
+                             "xvcmpgtdp", "$XT, $XA, $XB", IIC_VecFPCompare,
+                             [(set v2i64:$XT,
+                                (int_ppc_vsx_xvcmpgtdp v2f64:$XA, v2f64:$XB))]>;
   defm XVCMPGTSP : XX3Form_Rcr<60, 75,
                              (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
-                             "xvcmpgtsp", "$XT, $XA, $XB", IIC_VecFPCompare, []>;
+                             "xvcmpgtsp", "$XT, $XA, $XB", IIC_VecFPCompare,
+                             [(set v4i32:$XT,
+                                (int_ppc_vsx_xvcmpgtsp v4f32:$XA, v4f32:$XB))]>;
 
   // Move Instructions
   def XSABSDP : XX2Form<60, 345,
@@ -976,6 +988,12 @@ def : Pat<(int_ppc_vsx_xvdivsp v4f32:$A, v4f32:$B),
           (XVDIVSP $A, $B)>;
 def : Pat<(int_ppc_vsx_xvdivdp v2f64:$A, v2f64:$B),
           (XVDIVDP $A, $B)>;
+
+// Recip. square root estimate
+def : Pat<(int_ppc_vsx_xvrsqrtesp v4f32:$A),
+          (XVRSQRTESP $A)>;
+def : Pat<(int_ppc_vsx_xvrsqrtedp v2f64:$A),
+          (XVRSQRTEDP $A)>;
 
 } // AddedComplexity
 } // HasVSX

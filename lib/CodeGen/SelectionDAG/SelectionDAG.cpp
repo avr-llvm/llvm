@@ -187,8 +187,7 @@ bool ISD::isBuildVectorOfConstantSDNodes(const SDNode *N) {
   if (N->getOpcode() != ISD::BUILD_VECTOR)
     return false;
 
-  for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i) {
-    SDValue Op = N->getOperand(i);
+  for (const SDValue &Op : N->op_values()) {
     if (Op.getOpcode() == ISD::UNDEF)
       continue;
     if (!isa<ConstantSDNode>(Op))
@@ -203,8 +202,7 @@ bool ISD::isBuildVectorOfConstantFPSDNodes(const SDNode *N) {
   if (N->getOpcode() != ISD::BUILD_VECTOR)
     return false;
 
-  for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i) {
-    SDValue Op = N->getOperand(i);
+  for (const SDValue &Op : N->op_values()) {
     if (Op.getOpcode() == ISD::UNDEF)
       continue;
     if (!isa<ConstantFPSDNode>(Op))
@@ -244,8 +242,8 @@ bool ISD::allOperandsUndef(const SDNode *N) {
   if (N->getNumOperands() == 0)
     return false;
 
-  for (unsigned i = 0, e = N->getNumOperands(); i != e ; ++i)
-    if (N->getOperand(i).getOpcode() != ISD::UNDEF)
+  for (const SDValue &Op : N->op_values())
+    if (Op.getOpcode() != ISD::UNDEF)
       return false;
 
   return true;
@@ -427,12 +425,12 @@ static void AddNodeIDNode(FoldingSetNodeID &ID, unsigned short OpC,
   AddNodeIDOperands(ID, OpList);
 }
 
-/// AddNodeIDCustom - If this is an SDNode with special info, add this info to
-/// the NodeID data.
+/// If this is an SDNode with special info, add this info to the NodeID data.
 static void AddNodeIDCustom(FoldingSetNodeID &ID, const SDNode *N) {
   switch (N->getOpcode()) {
   case ISD::TargetExternalSymbol:
   case ISD::ExternalSymbol:
+  case ISD::MCSymbol:
     llvm_unreachable("Should only be used on nodes with operands");
   default: break;  // Normal nodes don't need extra info.
   case ISD::TargetConstant:
@@ -797,6 +795,11 @@ bool SelectionDAG::RemoveNodeFromCSEMaps(SDNode *N) {
                                                     ESN->getTargetFlags()));
     break;
   }
+  case ISD::MCSymbol: {
+    auto *MCSN = cast<MCSymbolSDNode>(N);
+    Erased = MCSymbols.erase(MCSN->getMCSymbol());
+    break;
+  }
   case ISD::VALUETYPE: {
     EVT VT = cast<VTSDNode>(N)->getVT();
     if (VT.isExtended()) {
@@ -1014,6 +1017,7 @@ void SelectionDAG::clear() {
   ExtendedValueTypeNodes.clear();
   ExternalSymbols.clear();
   TargetExternalSymbols.clear();
+  MCSymbols.clear();
   std::fill(CondCodeNodes.begin(), CondCodeNodes.end(),
             static_cast<CondCodeSDNode*>(nullptr));
   std::fill(ValueTypeNodes.begin(), ValueTypeNodes.end(),
@@ -1465,6 +1469,15 @@ SDValue SelectionDAG::getExternalSymbol(const char *Sym, EVT VT) {
   SDNode *&N = ExternalSymbols[Sym];
   if (N) return SDValue(N, 0);
   N = new (NodeAllocator) ExternalSymbolSDNode(false, Sym, 0, VT);
+  InsertNode(N);
+  return SDValue(N, 0);
+}
+
+SDValue SelectionDAG::getMCSymbol(MCSymbol *Sym, EVT VT) {
+  SDNode *&N = MCSymbols[Sym];
+  if (N)
+    return SDValue(N, 0);
+  N = new (NodeAllocator) MCSymbolSDNode(Sym, VT);
   InsertNode(N);
   return SDValue(N, 0);
 }
@@ -4025,10 +4038,10 @@ static bool isMemSrcFromString(SDValue Src, StringRef &Str) {
   return getConstantStringInfo(G->getGlobal(), Str, SrcDelta, false);
 }
 
-/// FindOptimalMemOpLowering - Determines the optimial series memory ops
-/// to replace the memset / memcpy. Return true if the number of memory ops
-/// is below the threshold. It returns the types of the sequence of
-/// memory ops to perform memset / memcpy by reference.
+/// Determines the optimal series of memory ops to replace the memset / memcpy.
+/// Return true if the number of memory ops is below the threshold (Limit).
+/// It returns the types of the sequence of memory ops to perform
+/// memset / memcpy by reference.
 static bool FindOptimalMemOpLowering(std::vector<EVT> &MemOps,
                                      unsigned Limit, uint64_t Size,
                                      unsigned DstAlign, unsigned SrcAlign,
@@ -6659,8 +6672,8 @@ bool SDNode::isOnlyUserOf(SDNode *N) const {
 /// isOperand - Return true if this node is an operand of N.
 ///
 bool SDValue::isOperandOf(SDNode *N) const {
-  for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i)
-    if (*this == N->getOperand(i))
+  for (const SDValue &Op : N->op_values())
+    if (*this == Op)
       return true;
   return false;
 }
@@ -6728,8 +6741,8 @@ SDNode::hasPredecessorHelper(const SDNode *N,
   // Haven't visited N yet. Continue the search.
   while (!Worklist.empty()) {
     const SDNode *M = Worklist.pop_back_val();
-    for (unsigned i = 0, e = M->getNumOperands(); i != e; ++i) {
-      SDNode *Op = M->getOperand(i).getNode();
+    for (const SDValue &OpV : M->op_values()) {
+      SDNode *Op = OpV.getNode();
       if (Visited.insert(Op).second)
         Worklist.push_back(Op);
       if (Op == N)
@@ -7078,8 +7091,8 @@ BuildVectorSDNode::getConstantFPSplatNode(BitVector *UndefElements) const {
 }
 
 bool BuildVectorSDNode::isConstant() const {
-  for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
-    unsigned Opc = getOperand(i).getOpcode();
+  for (const SDValue &Op : op_values()) {
+    unsigned Opc = Op.getOpcode();
     if (Opc != ISD::UNDEF && Opc != ISD::Constant && Opc != ISD::ConstantFP)
       return false;
   }
@@ -7120,8 +7133,8 @@ static void checkForCyclesHelper(const SDNode *N,
     abort();
   }
 
-  for(unsigned i = 0, e = N->getNumOperands(); i != e; ++i)
-    checkForCyclesHelper(N->getOperand(i).getNode(), Visited, Checked, DAG);
+  for (const SDValue &Op : N->op_values())
+    checkForCyclesHelper(Op.getNode(), Visited, Checked, DAG);
 
   Checked.insert(N);
   Visited.erase(N);
