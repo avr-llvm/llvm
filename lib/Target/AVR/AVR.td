@@ -31,7 +31,11 @@ include "llvm/Target/Target.td"
 // this by simply setting the same dummy member for all feature sets, which is
 // then ignored.
 class FeatureSet<string name, string desc, list<SubtargetFeature> i>
-  : SubtargetFeature<name, "m_FeatureSetDummy", "true", desc, i> { }
+  : SubtargetFeature<name, "m_FeatureSetDummy", "true", desc, i>;
+
+// A family of microcontrollers, defining a set of supported features.
+class Family<string name, list<SubtargetFeature> i>
+  : FeatureSet<name, !strconcat("The device is a part of the ", name, " family"), i>;
 
 // The device has SRAM, and supports the bare minimum of SRAM-relevant instructions.
 // These are:
@@ -95,11 +99,11 @@ def FeatureSPMX           : SubtargetFeature<"spmx", "m_hasSPMX", "true",
 
 // The device supports the `DES k` instruction.
 def FeatureDES            : SubtargetFeature<"des", "m_hasDES", "true",
-                                  "The device supports the `DES k` instruction">;
+                                  "The device supports the `DES k` encryption instruction">;
 
 // The device supports the Read-Write-Modify instructions XCH, LAS, LAC, and LAT.
 def FeatureRMW            : SubtargetFeature<"rmw", "m_supportsRMW", "true",
-                                  "The device supports the read-write-modify instructions XCH, LAS, LAC, LAT">;
+                                  "The device supports the read-write-modify instructions: XCH, LAS, LAC, LAT">;
 
 // The device supports the `[F]MUL[S][U]` family of instructions.
 def FeatureMultiplication : SubtargetFeature<"mul", "m_supportsMultiplication", "true",
@@ -107,7 +111,7 @@ def FeatureMultiplication : SubtargetFeature<"mul", "m_supportsMultiplication", 
 
 // The device supports the `BREAK` instruction.
 def FeatureBREAK          : SubtargetFeature<"break", "m_hasBREAK", "true",
-                                  "The device supports the `BREAK` instruction">;
+                                  "The device supports the `BREAK` debugging instruction">;
 
 // The device has instruction encodings specific to the Tiny core.
 def FeatureTinyEncoding   : SubtargetFeature<"tinyencoding", "m_hasTinyEncoding", "true",
@@ -119,49 +123,48 @@ def FeatureTinyEncoding   : SubtargetFeature<"tinyencoding", "m_hasTinyEncoding"
 //===----------------------------------------------------------------------===//
 
 // The device has at least the bare minimum that **every** single AVR device should have.
-def FamilyAVR0           : FeatureSet<"avr0", "The device is an AVR", []>;
+def FamilyAVR0           : Family<"avr0", []>;
 
-def FamilyAVR1           : FeatureSet<"avr1", "The device is a part of the avr1 family",
-                                 [FamilyAVR0, FeatureLPM]>;
+def FamilyAVR1           : Family<"avr1", [FamilyAVR0, FeatureLPM]>;
 
-def FamilyAVR2           : FeatureSet<"avr2", "The device is a part of the avr2 family",
+def FamilyAVR2           : Family<"avr2",
                                  [FamilyAVR1, FeatureIJMPCALL, FeatureADDSUBIW, FeatureSRAM]>;
 
-def FamilyAVR25          : FeatureSet<"avr25", "The device is a part of the avr25 family",
+def FamilyAVR25          : Family<"avr25",
                                  [FamilyAVR2, FeatureMOVW, FeatureLPMX, FeatureSPM, FeatureBREAK]>;
 
-def FamilyAVR3           : FeatureSet<"avr3", "The device is a part of the avr3 family",
+def FamilyAVR3           : Family<"avr3",
                                  [FamilyAVR2, FeatureJMPCALL]>;
 
-def FamilyAVR31          : FeatureSet<"avr31", "The device is a part of the avr31 family",
+def FamilyAVR31          : Family<"avr31",
                                  [FamilyAVR3, FeatureELPM]>;
 
-def FamilyAVR35          : FeatureSet<"avr35", "The device is a part of the avr35 family",
+def FamilyAVR35          : Family<"avr35",
                                  [FamilyAVR3, FeatureMOVW, FeatureLPMX, FeatureSPM, FeatureBREAK]>;
 
-def FamilyAVR4           : FeatureSet<"avr4", "The device is a part of the avr4 family",
+def FamilyAVR4           : Family<"avr4",
                                  [FamilyAVR2, FeatureMultiplication, FeatureMOVW,
                                   FeatureLPMX, FeatureSPM,  FeatureBREAK]>;
 
-def FamilyAVR5           : FeatureSet<"avr5", "The device is a part of the avr5 family",
+def FamilyAVR5           : Family<"avr5",
                                  [FamilyAVR3, FeatureMultiplication, FeatureMOVW,
                                   FeatureLPMX, FeatureSPM, FeatureBREAK]>;
 
-def FamilyAVR51          : FeatureSet<"avr51", "The device is part of the avr52 family",
+def FamilyAVR51          : Family<"avr51",
                                  [FamilyAVR5, FeatureELPM, FeatureELPMX]>;
 
-def FamilyAVR6           : FeatureSet<"avr6", "The device is part of the avr6 family",
+def FamilyAVR6           : Family<"avr6",
                                  [FamilyAVR0, FeatureLPM, FeatureLPMX, FeatureSRAM,
                                   FeatureJMPCALL, FeatureMultiplication, FeatureELPM,
                                   FeatureELPMX, FeatureSPM, FeatureBREAK, FeatureEIJMPCALL, FeatureMOVW]>;
 
-def FamilyAVRTiny        : FeatureSet<"avrtiny", "The device is a part of the tiny family",
+def FamilyAVRTiny        : Family<"avrtiny",
                                  [FamilyAVR0, FeatureBREAK, FeatureSRAM, FeatureTinyEncoding]>;
 
-def FamilyXMEGA          : FeatureSet<"xmega", "The device is a part of the XMEGA family",
+def FamilyXMEGA          : Family<"xmega",
                                  [FamilyAVR51, FeatureEIJMPCALL, FeatureSPMX, FeatureDES]>;
 
-def FamilyXMEGAU         : FeatureSet<"xmegau", "The device is part of the XMEGAU family",
+def FamilyXMEGAU         : Family<"xmegau",
                                   [FamilyXMEGA, FeatureRMW]>;
 
 //===----------------------------------------------------------------------===//
