@@ -36,8 +36,17 @@ public:
   AVRAsmBackend(const Target &T, Triple::OSType OSType)
       : MCAsmBackend(), OSType(OSType) {}
 
+  /**
+   * Adjusts a fixup value before it is applied.
+   */
+  uint64_t adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
+                            MCContext *Ctx = nullptr) const;
+
   MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override;
 
+  /**
+   * Applies a fixup to a piece of data.
+   */
   void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
                   uint64_t Value, bool IsPCRel) const override;
 

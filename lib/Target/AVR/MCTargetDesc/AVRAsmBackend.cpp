@@ -28,51 +28,57 @@
 #include "MCTargetDesc/AVRFixupKinds.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 
+namespace {
+  using namespace llvm;
+
+  /**
+   * Fixes up a PC-relative branch target so that it is a valid
+   * machine operand.
+   */
+  uint64_t adjustFixupRelCondbr(unsigned size, const MCFixup &Fixup,
+                                uint64_t Value, MCContext *Ctx = nullptr) {
+
+    // We now check if Value can fit in the specified size.
+    // The value is rightshifted by one, giving us one extra bit of precision.
+    if (!isIntN(size+1, Value) && Ctx != nullptr)
+      Ctx->reportFatalError(Fixup.getLoc(), "out of range conditional branch target");
+
+    Value -= 2;
+
+    Value = AVR::fixups::adjustRelativeBranchTarget(Value);
+    Value &= 0xfff;
+
+    return Value;
+  }
+
+  // TODO: On some targets, the program counter is 16-bits with 128KB progmem maximum.
+  //       On other targets, the counter is 22-bits with 8MB progmem maximum.
+  //       It might be a good idea to check whether the value fits into the size depending
+  //       on what the current target is, instead of the maximum - 22 bits.
+  uint64_t adjustFixupCall(unsigned size, const MCFixup &Fixup,
+                           uint64_t Value, MCContext *Ctx = nullptr) {
+    // We have one extra bit of precision because the value is rightshifted by one.
+    if(!isIntN(size, Value) && Ctx != nullptr)
+      Ctx->reportFatalError(Fixup.getLoc(), "out of range call target");
+
+    Value = AVR::fixups::adjustBranchTarget(Value);
+    return Value;
+  }
+}
+
+
 namespace llvm {
 
-inline unsigned adjustFixupRelCondbr(unsigned size,
-                                     const MCFixup &Fixup,
-                                     uint64_t Value,
-                                     MCContext *Ctx = nullptr)
-{
-  // We now check if Value can fit in the specified size.
-  // The value is rightshifted by one, giving us one extra bit of precision.
-  if (!isIntN(size+1, Value) && Ctx != nullptr)
-    Ctx->reportFatalError(Fixup.getLoc(), "out of range conditional branch target");
-
-  Value -= 2;
-    
-  Value = AVR::fixups::adjustRelativeBranchTarget(Value);
-  
-  return Value;
-}
-
-// TODO: On some targets, the program counter is 16-bits with 128KB progmem maximum.
-//       On other targets, the counter is 22-bits with 8MB progmem maximum.
-//       It might be a good idea to check whether the value fits into the size depending
-//       on what the current target is, instead of the maximum - 22 bits.
-inline unsigned adjustFixupCall(const MCFixup &Fixup,
-                                uint64_t Value,
-                                MCContext *Ctx = nullptr)
-{
-  // TODO: set this depending on instruction
-  const auto CALL_TARGET_SIZE = 22;
-
-  // We have one extra bit of precision because the value is rightshifted by one.
-  if(!isIntN(CALL_TARGET_SIZE+1, Value) && Ctx != nullptr)
-    Ctx->reportFatalError(Fixup.getLoc(), "out of range call target");
-
-  Value = AVR::fixups::adjustBranchTarget(Value);
-  return Value;
-}
-
 // Prepare value for the target space for it
-inline unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
-                                 MCContext *Ctx = nullptr) {
+uint64_t AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
+                                         MCContext *Ctx) const {
+  // the size in bits
+  uint64_t size = AVRAsmBackend::getFixupKindInfo(Fixup.getKind()).TargetSize;
+
   switch ((unsigned)Fixup.getKind()) {
-    case AVR::fixup_7_pcrel:  return adjustFixupRelCondbr(7, Fixup, Value, Ctx);
-    case AVR::fixup_13_pcrel: return adjustFixupRelCondbr(13, Fixup, Value, Ctx);
-    case AVR::fixup_call:     return adjustFixupCall(Fixup, Value, Ctx);
+    case AVR::fixup_7_pcrel:
+    case AVR::fixup_13_pcrel: return adjustFixupRelCondbr(size, Fixup, Value, Ctx);
+    case AVR::fixup_call:     return adjustFixupCall(size, Fixup, Value, Ctx);
 
     case AVR::fixup_lo8_ldi:
     case AVR::fixup_hi8_ldi:
@@ -91,7 +97,6 @@ inline unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
   }
 }
 
-
 MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_pwrite_stream &OS) const {
   return createAVRELFObjectWriter(OS, MCELFObjectTargetWriter::getOSABI(OSType));
 }
@@ -100,15 +105,16 @@ MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_pwrite_stream &OS) const {
 /// data fragment, at the offset specified by the fixup and following the
 /// fixup kind as appropriate.
 void AVRAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
-                                unsigned DataSize, uint64_t Value,
-                                bool IsPCRel) const {
+                               unsigned DataSize, uint64_t Value,
+                               bool IsPCRel) const {
   
-  unsigned NumBytes = 1;//getFixupKindNumBytes(Fixup.getKind());
-  if (!Value)
+  if(Value == 0)
     return; // Doesn't change encoding.
+
   MCFixupKindInfo Info = getFixupKindInfo(Fixup.getKind());
-  // Apply any target-specific value adjustments.
-  Value = adjustFixupValue(Fixup, Value);
+
+  auto NumBits = Info.TargetSize;
+  auto NumBytes = (NumBits / 8) + ((NumBits % 8) == 0 ? 0 : 1);
 
   // Shift the value into position.
   Value <<= Info.TargetOffset;
@@ -118,7 +124,7 @@ void AVRAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
 
   // For each byte of the fragment that the fixup touches, mask in the
   // bits from the fixup value.
-  for (unsigned i = 0; i != NumBytes; ++i)
+  for (unsigned i = 0; i<NumBytes; ++i)
     Data[Offset + i] |= uint8_t((Value >> (i * 8)) & 0xff);
 }
 
@@ -192,8 +198,6 @@ getFixupKindInfo(MCFixupKind Kind) const {
 /// WriteNopData - Write an (optimal) nop sequence of Count bytes
 /// to the given output. If the target cannot generate such a sequence,
 /// it should return an error.
-///
-/// \return - True on success.
 bool AVRAsmBackend::writeNopData(uint64_t Count, MCObjectWriter *OW) const {
   // If the count is not 2-byte aligned, we must be writing data into the text
   // section (otherwise we have unaligned instructions, and thus have far
