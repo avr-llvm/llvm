@@ -1482,7 +1482,7 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
 //===----------------------------------------------------------------------===//
 
 AVRTargetLowering::ConstraintType
-AVRTargetLowering::getConstraintType(const std::string &Constraint) const
+AVRTargetLowering::getConstraintType(StringRef Constraint) const
 {
   if (Constraint.size() == 1)
   {
@@ -1525,7 +1525,7 @@ AVRTargetLowering::getConstraintType(const std::string &Constraint) const
 }
 
 unsigned
-AVRTargetLowering::getInlineAsmMemConstraint(const std::string &ConstraintCode) const {
+AVRTargetLowering::getInlineAsmMemConstraint(StringRef ConstraintCode) const {
   // Not sure if this is actually the right thing to do, but we got to do
   // *something* [agnat]
   switch (ConstraintCode[0]) {
@@ -1672,7 +1672,7 @@ AVRTargetLowering::getSingleConstraintMatchWeight(AsmOperandInfo &info,
 
 std::pair<unsigned, const TargetRegisterClass *>
 AVRTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
-                                                const std::string &Constraint,
+                                                StringRef Constraint,
                                                 MVT VT) const
 {
   auto STI = static_cast<const AVRTargetMachine&>(this->getTargetMachine()).getSubtargetImpl();

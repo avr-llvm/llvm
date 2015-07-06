@@ -125,7 +125,7 @@ public:
 
   /// Inline Asm support.
   /// Implementation of TargetLowering hooks.
-  ConstraintType getConstraintType(const std::string &Constraint) const override;
+  ConstraintType getConstraintType(StringRef Constraint) const override;
 
   ConstraintWeight
   getSingleConstraintMatchWeight(AsmOperandInfo &info,
@@ -133,11 +133,11 @@ public:
 
   std::pair<unsigned, const TargetRegisterClass *>
   getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
-                               const std::string &Constraint,
+                               StringRef Constraint,
                                MVT VT) const override;
 
   unsigned
-  getInlineAsmMemConstraint(const std::string &ConstraintCode) const override;
+  getInlineAsmMemConstraint(StringRef ConstraintCode) const override;
 
   void LowerAsmOperandForConstraint(SDValue Op, std::string &Constraint,
                                     std::vector<SDValue> &Ops,
