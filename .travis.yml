@@ -1,8 +1,8 @@
 language: cpp
 
 compiler:
-  - gcc
   - clang
+  - gcc
 
 # Attempt to get the right GCC/Clang versions
 before_script:
@@ -10,6 +10,7 @@ before_script:
   - sudo add-apt-repository -y ppa:kubuntu-ppa/backports
   - sudo apt-get update -qq
   - sudo apt-get install cmake
+  - sudo apt-get install gcc-avr binutils-avr avr-libc
   - if [ "$CXX" = "clang++" ]; then sudo apt-get install -qq libstdc++-4.8-dev; fi
   - if [ "$CXX" = "g++" ]; then sudo apt-get install -qq g++-4.8; fi
   - if [ "$CXX" = "g++" ]; then export CXX="g++-4.8" CC="gcc-4.8"; fi
@@ -18,4 +19,7 @@ script:
   - mkdir build && cd build
   - cmake -DLLVM_TARGETS_TO_BUILD="AVR" .. 
   - make -j3
-  - bin/llvm-lit -v `find ../test -type d -name AVR`
+  - export PATH=$(pwd)/bin:$PATH
+  - cd ../
+  - llvm-lit -v `find ./test -type d -name AVR`
+  - ./utils/AVR/validate-mc-against-gcc.sh ./test/MC/AVR
