@@ -111,7 +111,7 @@ AVRMCCodeEmitter::encodeRelCondBrTarget(const MCInst &MI, unsigned OpNo,
   // take the size of the current instruction away.
   // with labels, this is implicitly handled.
   auto target = MO.getImm();
-  AVR::fixups::adjustRelativeBranchTarget(target);
+  AVR::fixups::adjustBranchTarget(target);
   return target;
 }
 

@@ -28,44 +28,105 @@
 #include "MCTargetDesc/AVRFixupKinds.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 
-namespace {
+namespace adjust {
 
 using namespace llvm;
 
-/**
- * Fixes up a PC-relative branch target so that it is a valid
- * machine operand.
- */
+template<typename T>
 void
-adjustFixupRelCondbr(unsigned size, const MCFixup &Fixup, uint64_t & Value,
-                     MCContext *Ctx = nullptr)
-{
-
-  // We now check if Value can fit in the specified size.
-  // The value is rightshifted by one, giving us one extra bit of precision.
-  if (!isIntN(size+1, Value) && Ctx != nullptr)
-    Ctx->reportFatalError(Fixup.getLoc(), "out of range conditional branch target");
-
-  Value -= 2;
-
-  AVR::fixups::adjustRelativeBranchTarget(Value);
-  Value &= 0xfff;
-
-}
-
-// TODO: On some targets, the program counter is 16-bits with 128KB progmem maximum.
-//       On other targets, the counter is 22-bits with 8MB progmem maximum.
-//       It might be a good idea to check whether the value fits into the size depending
-//       on what the current target is, instead of the maximum - 22 bits.
-void
-adjustFixupCall(unsigned size, const MCFixup &Fixup, uint64_t & Value,
-                MCContext *Ctx = nullptr)
+adjustBranch(unsigned Size, const MCFixup &Fixup,
+             T &Value, MCContext *Ctx = nullptr)
 {
   // We have one extra bit of precision because the value is rightshifted by one.
-  if(!isIntN(size, Value) && Ctx != nullptr)
-    Ctx->reportFatalError(Fixup.getLoc(), "out of range call target");
+  if(!isIntN(Size+1, Value) && Ctx != nullptr)
+    Ctx->reportFatalError(Fixup.getLoc(), "out of range branch target");
 
+  // Rightshifts the value by one.
   AVR::fixups::adjustBranchTarget(Value);
+}
+
+template<typename T>
+void
+adjustRelativeBranch(unsigned Size, const MCFixup &Fixup,
+                     T &Value, MCContext *Ctx = nullptr)
+{
+  // For relative branches, we must subtract the size of
+  // the current instruction.
+  Value -= 2;
+
+  adjustBranch(Size, Fixup, Value, Ctx);
+}
+/*
+ * 22-bit absolute fixup.
+ *
+ * Resolves to:
+ * 1001 kkkk 010k kkkk kkkk kkkk 111k kkkk
+ * Offset of 0 (so the result is left shifted by 3 bits before application).
+*/
+template<typename T>
+void fixup_call(unsigned Size, const MCFixup &Fixup,
+                T &Value, MCContext *Ctx = nullptr)
+{
+  return adjustBranch(Size, Fixup, Value, Ctx);
+}
+
+/**
+ * 7-bit PC-relative fixup.
+ *
+ * Resolves to:
+ * 0000 00kk kkkk k000
+ * Offset of 0 (so the result is left shifted by 3 bits before application).
+ */
+template<typename T>
+void
+fixup_7_pcrel(unsigned Size, const MCFixup &Fixup, T &Value,
+              MCContext *Ctx = nullptr)
+{
+  adjustRelativeBranch(Size, Fixup, Value, Ctx);
+
+  // FIXME:
+  // Because the value may be negative, we must mask out the sign bits
+  Value &= 0xfff; // not correct.
+
+}
+/**
+ * 12-bit PC-relative fixup.
+ * Yes, the fixup is 12 bits even though the name says otherwise.
+ *
+ * Resolves to:
+ * 0000 kkkk kkkk kkkk
+ * Offset of 0 (so the result isn't left-shifted before application).
+ */
+
+template<typename T>
+void
+fixup_13_pcrel(unsigned Size, const MCFixup &Fixup,
+               T &Value, MCContext *Ctx = nullptr)
+{
+  adjustRelativeBranch(Size, Fixup, Value, Ctx);
+
+  // Because the value may be negative, we must mask out the sign bits
+  Value &= 0xfff; // not correct.
+}
+/**
+ * Adjusts a value to fix up the immediate of an `LDI Rd, K` instruction.
+ *
+ * Resolves to:
+ * 0000 KKKK 0000 KKKK
+ * Offset of 0 (so the result isn't left-shifted before application).
+ */
+template<typename T>
+void
+fixupLDI(unsigned size, const MCFixup &Fixup,
+         T &Value, MCContext *Ctx = nullptr)
+{
+  if(!isIntN(size, Value) && Ctx != nullptr)
+    Ctx->reportFatalError(Fixup.getLoc(), "out of range immediate to LDI");
+
+  T upper = Value & 0xf0;
+  T lower = Value & 0x0f;
+
+  Value = (upper << 4) | lower;
 }
 
 } // end of anonymous namespace
@@ -82,9 +143,9 @@ AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t & Value,
   uint64_t size = AVRAsmBackend::getFixupKindInfo(Fixup.getKind()).TargetSize;
 
   switch ((unsigned)Fixup.getKind()) {
-    case AVR::fixup_7_pcrel:
-    case AVR::fixup_13_pcrel: adjustFixupRelCondbr(size, Fixup, Value, Ctx); break;
-    case AVR::fixup_call:     adjustFixupCall(size, Fixup, Value, Ctx); break;
+    case AVR::fixup_7_pcrel:  adjust::fixup_7_pcrel(size, Fixup, Value, Ctx); break;
+    case AVR::fixup_13_pcrel: adjust::fixup_13_pcrel(size, Fixup, Value, Ctx); break;
+    case AVR::fixup_call:     adjust::fixup_call(size, Fixup, Value, Ctx); break;
 
     case AVR::fixup_lo8_ldi:
     case AVR::fixup_hi8_ldi:
@@ -92,7 +153,7 @@ AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t & Value,
     case AVR::fixup_ms8_ldi:
     case AVR::fixup_lo8_ldi_pm:
     case AVR::fixup_hi8_ldi_pm:
-    case AVR::fixup_hh8_ldi_pm:
+    case AVR::fixup_hh8_ldi_pm: adjust::fixupLDI(size, Fixup, Value, Ctx); break;
 
     case FK_Data_2:
     case FK_GPRel_4:
