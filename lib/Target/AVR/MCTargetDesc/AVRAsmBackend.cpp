@@ -152,6 +152,7 @@ AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t & Value,
     case AVR::fixup_13_pcrel: adjust::fixup_13_pcrel(size, Fixup, Value, Ctx); break;
     case AVR::fixup_call:     adjust::fixup_call(size, Fixup, Value, Ctx); break;
 
+    case AVR::fixup_ldi:
     case AVR::fixup_lo8_ldi:
     case AVR::fixup_hi8_ldi:
     case AVR::fixup_hh8_ldi:

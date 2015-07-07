@@ -263,7 +263,9 @@ AVRMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
 
   // Get byte count of instruction
   unsigned Size = Desc.getSize();
-  if (!Size) llvm_unreachable("instruction size is zero");
+
+  assert(Size > 0 && "Instruction size cannot be zero");
+
   uint64_t BinaryOpCode = getBinaryCodeForInstr(MI, Fixups, STI);
   emitInstruction(BinaryOpCode, Size, STI, OS);
 }
