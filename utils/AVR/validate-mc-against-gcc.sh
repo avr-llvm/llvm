@@ -42,6 +42,10 @@ function assemble_with_gcc {
     INFILE=$1
     OUTFILE=$2
 
+    if [ "$(basename $INFILE)" == "inst-lds.s" ]; then
+        return 1
+    fi
+
     avr-as -mall-opcodes -mmcu=$MCU $INFILE -o $OUTFILE 1>/dev/null 2>&1
     return $?
 }
@@ -138,10 +142,14 @@ function check_src_dir {
         fi
     done
 
-    echo "Broken tests:"
-    for broken_test in $broken_tests; do
-        echo " - $(basename $broken_test)"
-    done
+    if [[ ! -z "${broken_tests// }" ]]; then
+        echo "Broken tests:"
+        for broken_test in $broken_tests; do
+            echo " - $(basename $broken_test)"
+        done
+    else
+        echo "Machine code verification successful"
+    fi
 
     return $failed
 }
@@ -150,8 +158,9 @@ check_fatal_error "avr-gcc --version" "AVR-GCC not found in \$PATH"
 check_fatal_error "llvm-mc -version" "AVR-LLVM not found in \$PATH (or has a lower precedence than system LLVM)"
 
 mkdir -p $TMP_DIR
+
 check_src_dir $1
 status=$?
-echo End status: $status
+
 echo $0: Output placed in $TMP_DIR
 exit $status
