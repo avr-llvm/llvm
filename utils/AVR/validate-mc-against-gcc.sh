@@ -6,6 +6,7 @@
 
 TRIPLE=avr-atmel-none
 TMP_DIR=/tmp/$(basename $0 .sh)-$RANDOM
+MCU=atmega328p
 
 # print_usage()
 function print_usage {
@@ -32,7 +33,7 @@ function assemble_with_llvm {
     INFILE=$1
     OUTFILE=$2
 
-    llvm-mc --triple $TRIPLE -mattr=special -filetype=obj $INFILE -o $OUTFILE
+    llvm-mc --triple $TRIPLE -mcpu=$MCU -mattr=special -filetype=obj $INFILE -o $OUTFILE
     return $?
 }
 
@@ -41,7 +42,7 @@ function assemble_with_gcc {
     INFILE=$1
     OUTFILE=$2
 
-    avr-as --mall-opcodes $INFILE -o $OUTFILE
+    avr-as -mrmw -mmcu=$MCU $INFILE -o $OUTFILE
     return $?
 }
 
@@ -50,7 +51,7 @@ function link {
     INFILE=$1
     OUTFILE=$2
 
-    avr-gcc $INFILE -o $OUTFILE
+    avr-gcc -mmcu=$MCU $INFILE -o $OUTFILE -Wl,--unresolved-symbols=ignore-in-object-files
     return $?
 }
 
@@ -74,6 +75,8 @@ function compare {
     if [ $status -ne 0 ]; then
         >&2 echo "$0: error: $1 and $2 are not the same"
     fi
+
+    return $status
 }
 
 # check_src_file(file)
@@ -89,18 +92,29 @@ function check_src_file {
     LLVM_EXE_OUT=$TMP_DIR/$BASENAME.llvm
     LLVM_DUMP_OUT=$TMP_DIR/$BASENAME.llvm.dump
 
+    status=1
+
     assemble_with_gcc $SRC_FILE $GCC_OBJ_OUT && \
     assemble_with_llvm $SRC_FILE $LLVM_OBJ_OUT && \
     link $GCC_OBJ_OUT $GCC_EXE_OUT && \
     link $LLVM_OBJ_OUT $LLVM_EXE_OUT && \
     dump $GCC_EXE_OUT $GCC_DUMP_OUT && \
     dump $LLVM_EXE_OUT $LLVM_DUMP_OUT && \
-    compare $GCC_DUMP_OUT $LLVM_DUMP_OUT
+    status=0
+
+    if [ $status -ne 0 ]; then
+        # don't fail if we couldn't compile the program.
+        return 0
+    else
+        compare $GCC_DUMP_OUT $LLVM_DUMP_OUT
+        return $?
+    fi
 }
 
 # check_src_dir(dir)
 function check_src_dir {
     SRC_DIR=$1
+    failed=0
 
     if [[ -z "$1" ]]; then
         echo "$0: error: Expected a source directory"
@@ -111,7 +125,14 @@ function check_src_dir {
 
     for ASM_FILE in $ASM_FILES; do
         check_src_file $ASM_FILE
+        status=$?
+
+        if [ $status -ne 0 ]; then
+            failed=1
+        fi
     done
+
+    return $failed
 }
 
 check_fatal_error "avr-gcc --version" "AVR-GCC not found in \$PATH"
@@ -119,4 +140,7 @@ check_fatal_error "llvm-mc -version" "AVR-LLVM not found in \$PATH (or has a low
 
 mkdir -p $TMP_DIR
 check_src_dir $1
+status=$?
+echo End status: $status
 echo $0: Output placed in $TMP_DIR
+exit $status
