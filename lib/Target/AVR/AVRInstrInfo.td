@@ -760,7 +760,7 @@ let isCall = 1 in
   // SP is marked as a use to prevent stack-pointer assignments that appear
   // immediately before calls from potentially appearing dead.
   let Uses = [SP, R31R30] in
-  def EICALL : F16<0b1001010000011001,
+  def EICALL : F16<0b1001010100011001,
                    (outs),
                    (ins variable_ops),
                    "eicall",
