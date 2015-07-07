@@ -61,13 +61,20 @@ adjustRelativeBranch(unsigned Size, const MCFixup &Fixup,
  *
  * Resolves to:
  * 1001 kkkk 010k kkkk kkkk kkkk 111k kkkk
+ *
  * Offset of 0 (so the result is left shifted by 3 bits before application).
 */
 template<typename T>
 void fixup_call(unsigned Size, const MCFixup &Fixup,
                 T &Value, MCContext *Ctx = nullptr)
 {
-  return adjustBranch(Size, Fixup, Value, Ctx);
+  adjustBranch(Size, Fixup, Value, Ctx);
+
+  auto top = Value & (0xf<<14); // the top four bits
+  auto middle = Value & (0x1ffff<<5); // the middle 13 bits
+  auto bottom = Value & 0x1f; // end bottom 5 bits
+
+  Value = (top<<6) | (middle<<3) | (bottom<<0);
 }
 
 /**
@@ -84,10 +91,8 @@ fixup_7_pcrel(unsigned Size, const MCFixup &Fixup, T &Value,
 {
   adjustRelativeBranch(Size, Fixup, Value, Ctx);
 
-  // FIXME:
   // Because the value may be negative, we must mask out the sign bits
-  Value &= 0xfff; // not correct.
-
+  Value &= 0x7f;
 }
 /**
  * 12-bit PC-relative fixup.
@@ -106,7 +111,7 @@ fixup_13_pcrel(unsigned Size, const MCFixup &Fixup,
   adjustRelativeBranch(Size, Fixup, Value, Ctx);
 
   // Because the value may be negative, we must mask out the sign bits
-  Value &= 0xfff; // not correct.
+  Value &= 0xfff;
 }
 /**
  * Adjusts a value to fix up the immediate of an `LDI Rd, K` instruction.
