@@ -182,13 +182,13 @@ void
 AVRAsmBackend::applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
                           uint64_t Value, bool IsPCRel) const
 {
-  
   if(Value == 0)
     return; // Doesn't change encoding.
 
   MCFixupKindInfo Info = getFixupKindInfo(Fixup.getKind());
 
-  auto NumBits = Info.TargetSize;
+  // The number of bits in the fixup mask
+  auto NumBits = Info.TargetSize + Info.TargetOffset;
   auto NumBytes = (NumBits / 8) + ((NumBits % 8) == 0 ? 0 : 1);
 
   // Shift the value into position.
@@ -199,8 +199,10 @@ AVRAsmBackend::applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
 
   // For each byte of the fragment that the fixup touches, mask in the
   // bits from the fixup value.
-  for (unsigned i = 0; i<NumBytes; ++i)
-    Data[Offset + i] |= uint8_t((Value >> (i * 8)) & 0xff);
+  for (unsigned i = 0; i<NumBytes; ++i) {
+    uint8_t mask = (((Value >> (i * 8)) & 0xff));
+    Data[Offset + i] |= mask;
+  }
 }
 
 MCFixupKindInfo const&
