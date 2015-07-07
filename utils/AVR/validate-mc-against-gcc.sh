@@ -42,7 +42,7 @@ function assemble_with_gcc {
     INFILE=$1
     OUTFILE=$2
 
-    avr-as -mrmw -mmcu=$MCU $INFILE -o $OUTFILE
+    avr-as -mall-opcodes -mmcu=$MCU $INFILE -o $OUTFILE 1>/dev/null 2>&1
     return $?
 }
 
@@ -51,7 +51,7 @@ function link {
     INFILE=$1
     OUTFILE=$2
 
-    avr-gcc -mmcu=$MCU $INFILE -o $OUTFILE -Wl,--unresolved-symbols=ignore-in-object-files
+    avr-gcc -mmcu=$MCU $INFILE -o $OUTFILE -Wl,--unresolved-symbols=ignore-in-object-files 1>/dev/null 2>&1
     return $?
 }
 
@@ -68,12 +68,16 @@ function dump {
 
 # compare(file1, file2)
 function compare {
-    cmp $1 $2
+    cmp $1 $2 > /dev/null
 
     local status=$?
 
     if [ $status -ne 0 ]; then
-        >&2 echo "$0: error: $1 and $2 are not the same"
+        >&2 echo
+        >&2 echo "$0: error: $(basename $1) and $(basename $2) are not the same"
+        >&2 echo "diff $(basename $1) $(basename $2)"
+        >&2 diff $1 $2
+        >&2 echo
     fi
 
     return $status
@@ -115,6 +119,7 @@ function check_src_file {
 function check_src_dir {
     SRC_DIR=$1
     failed=0
+    broken_tests=
 
     if [[ -z "$1" ]]; then
         echo "$0: error: Expected a source directory"
@@ -129,7 +134,13 @@ function check_src_dir {
 
         if [ $status -ne 0 ]; then
             failed=1
+            broken_tests="$ASM_FILE $broken_tests"
         fi
+    done
+
+    echo "Broken tests:"
+    for broken_test in $broken_tests; do
+        echo " - $(basename $broken_test)"
     done
 
     return $failed
