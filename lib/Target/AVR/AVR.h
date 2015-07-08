@@ -51,7 +51,12 @@ isProgramMemoryAddress(T * V) {
 inline
 bool
 isProgramMemoryAccess(MemSDNode const* N) {
-  return isProgramMemoryAddress(N->getMemOperand()->getValue());
+  auto V = N->getMemOperand()->getValue();
+
+  if(V)
+      return isProgramMemoryAddress(V);
+  else
+      return false;
 }
 
 }  // end of namespace AVR
