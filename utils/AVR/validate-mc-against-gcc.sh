@@ -8,6 +8,20 @@ TRIPLE=avr-atmel-none
 TMP_DIR=/tmp/$(basename $0 .sh)-$RANDOM
 MCU=atmega328p
 
+# Whether we should throw out or keep the generated
+# object/dump files
+KEEP_OUTPUT=0
+
+# log(msg)
+function log {
+    echo "$(basename $0): $1"
+}
+
+# error(msg)
+function log_error {
+    >&2 log "error: $1"
+}
+
 # print_usage()
 function print_usage {
     echo
@@ -23,7 +37,7 @@ function check_fatal_error {
     local status=$?
 
     if [ $status -ne 0 ]; then
-        >&2 echo "$0: error: $MSG"
+        log_error "$MSG"
         exit
     fi
 }
@@ -78,8 +92,8 @@ function compare {
 
     if [ $status -ne 0 ]; then
         >&2 echo
-        >&2 echo "$0: error: $(basename $1) and $(basename $2) are not the same"
-        >&2 echo "diff $(basename $1) $(basename $2)"
+        log_error "$(basename $1) and $(basename $2) are not the same"
+        log_error "diff $(basename $1) $(basename $2)"
         >&2 diff $1 $2
         >&2 echo
     fi
@@ -126,7 +140,7 @@ function check_src_dir {
     broken_tests=
 
     if [[ -z "$1" ]]; then
-        echo "$0: error: Expected a source directory"
+        log_error "Expected a source directory"
         print_usage
     fi
 
@@ -148,7 +162,7 @@ function check_src_dir {
             echo " - $(basename $broken_test)"
         done
     else
-        echo "Machine code verification successful"
+        log "Machine code verification successful!"
     fi
 
     return $failed
@@ -162,5 +176,11 @@ mkdir -p $TMP_DIR
 check_src_dir $1
 status=$?
 
-echo $0: Output placed in $TMP_DIR
+if [ $KEEP_OUTPUT -eq 0 ]; then
+    rm -rf $TMP_DIR
+else
+    log "Output placed in $TMP_DIR"
+fi
+
+
 exit $status
