@@ -12,10 +12,8 @@ foo:
   sbiw r30, 63
   sbiw Z,   47
 
-  sbiw r24,     1
-  sbiw r25:r24, 2
-  sbiw r27:r26, 3
-
+  sbiw r24, 1
+  sbiw r24, 2
 
 ; CHECK: sbiw r26,  54                 ; encoding: [0xd6,0x97]
 ; CHECK: sbiw r26,  63                 ; encoding: [0xdf,0x97]
@@ -28,4 +26,3 @@ foo:
 
 ; CHECK: sbiw r24,  1                  ; encoding: [0x01,0x97]
 ; CHECK: sbiw r24,  2                  ; encoding: [0x02,0x97]
-; CHECK: sbiw r26,  3                  ; encoding: [0x13,0x97]
