@@ -29,6 +29,9 @@ struct MCFixupKindInfo;
 class Target;
 class MCObjectWriter;
 
+/**
+ * Utilities for manipulating generated AVR machine code.
+ */
 class AVRAsmBackend : public MCAsmBackend {
 
 

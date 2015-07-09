@@ -30,8 +30,9 @@
 # include "AVRGenSubtargetInfo.inc"
 
 namespace llvm {
+
 /*!
- * Holds information about an AVR subtarget.
+ * A specific implementation of AVR.
  */
 class AVRSubtarget : public AVRGenSubtargetInfo
 {

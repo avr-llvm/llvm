@@ -27,6 +27,10 @@
 
 namespace llvm {
 
+/**
+ * Expands "placeholder" instructions marked as pseudo into
+ * actual AVR instructions.
+ */
 class AVRExpandPseudo : public MachineFunctionPass {
 public:
   static char ID;
@@ -56,6 +60,8 @@ private:
     return BuildMI(MBB, MBBI, MBBI->getDebugLoc(), TII->get(Opcode), DstReg);
   }
 
+  /// Splits a register into a lo:hi register pair.
+  /// \param Reg A 16-bit register to split.
   void splitRegs(unsigned Reg, unsigned &LoReg, unsigned &HiReg) {
     LoReg = TRI->getSubReg(Reg, AVR::sub_lo);
     HiReg = TRI->getSubReg(Reg, AVR::sub_hi);

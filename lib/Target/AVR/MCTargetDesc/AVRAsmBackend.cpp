@@ -32,6 +32,9 @@ namespace adjust {
 
 using namespace llvm;
 
+/**
+ * Adjusts the value of a branch target before fixup application.
+ */
 template<typename T>
 void
 adjustBranch(unsigned Size, const MCFixup &Fixup,
@@ -45,6 +48,9 @@ adjustBranch(unsigned Size, const MCFixup &Fixup,
   AVR::fixups::adjustBranchTarget(Value);
 }
 
+/**
+ * Adjusts the value of a relative branch target before fixup application.
+ */
 template<typename T>
 void
 adjustRelativeBranch(unsigned Size, const MCFixup &Fixup,
@@ -220,6 +226,8 @@ AVRAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_16",              0,      16,   0 },
     { "fixup_16_pm",           0,      16,   0 },
 
+    { "fixup_ldi",             0,      8,    0 },
+
     { "fixup_lo8_ldi",         0,      8,    0 },
     { "fixup_hi8_ldi",         0,      8,    0 },
     { "fixup_hh8_ldi",         0,      8,    0 },
@@ -237,7 +245,6 @@ AVRAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_hh8_ldi_pm_neg",  0,      8,    0 },
 
     { "fixup_call",            0,      22,   0 },
-    { "fixup_ldi",             0,      8,    0 },
 
     { "fixup_6",               0,      6,    0 },
     { "fixup_6_adiw",          0,      6,    0 },

@@ -27,8 +27,9 @@ namespace llvm {
 
 namespace AVRCC {
 
-/*! AVR specific condition code.
- * These correspond to `AVR_*_COND` in `AVRInstrInfo.td.
+/*!
+ * AVR specific condition codes.
+ * These correspond to `AVR_*_COND` in `AVRInstrInfo.td`.
  * They must be kept in synch.
  */
 enum CondCodes {
@@ -63,6 +64,9 @@ enum TOF {
 
 } // end of namespace AVRII
 
+/**
+ * Utilities related to the AVR instruction set.
+ */
 class AVRInstrInfo : public AVRGenInstrInfo
 {
 public:

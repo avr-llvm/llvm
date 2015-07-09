@@ -36,30 +36,34 @@
 
 namespace llvm {
 
-// The encoding of the LD/ST family of instructions is inconsistent w.r.t
-// the pointer register and the addressing mode.
-//
-// The permutations of the format are as followed:
-// ld Rd, X    `1001 000d dddd 1100`
-// ld Rd, X+   `1001 000d dddd 1101`
-// ld Rd, -X   `1001 000d dddd 1110`
-//
-// ld Rd, Y    `1000 000d dddd 1000`
-// ld Rd, Y+   `1001 000d dddd 1001`
-// ld Rd, -Y   `1001 000d dddd 1010`
-
-// ld Rd, Z    `1000 000d dddd 0000`
-// ld Rd, Z+   `1001 000d dddd 0001`
-// ld Rd, -Z   `1001 000d dddd 0010`
-//                 ^
-//                 |
-// Note this one inconsistent bit - it is 1 sometimes and 0 at other times.
-// There is no logical pattern. Looking at a truth table, the following
-// formula can be derived to fit the pattern:
-// 
-// inconsistent_bit = is_predec OR is_postinc OR is_reg_x
-//
-// We manually set this bit in the post encoder method.
+/**
+ * Performs a post-encoding step on a `LD` or `ST` instruction.
+ *
+ * The encoding of the LD/ST family of instructions is inconsistent w.r.t
+ * the pointer register and the addressing mode.
+ *
+ * The permutations of the format are as followed:
+ * ld Rd, X    `1001 000d dddd 1100`
+ * ld Rd, X+   `1001 000d dddd 1101`
+ * ld Rd, -X   `1001 000d dddd 1110`
+ *
+ * ld Rd, Y    `1000 000d dddd 1000`
+ * ld Rd, Y+   `1001 000d dddd 1001`
+ * ld Rd, -Y   `1001 000d dddd 1010`
+ *
+ * ld Rd, Z    `1000 000d dddd 0000`
+ * ld Rd, Z+   `1001 000d dddd 0001`
+ * ld Rd, -Z   `1001 000d dddd 0010`
+ *                 ^
+ *                 |
+ * Note this one inconsistent bit - it is 1 sometimes and 0 at other times.
+ * There is no logical pattern. Looking at a truth table, the following
+ * formula can be derived to fit the pattern:
+ * ```
+ * inconsistent_bit = is_predec OR is_postinc OR is_reg_x
+ * ```
+ * We manually set this bit in the post encoder method.
+ */
 unsigned
 AVRMCCodeEmitter::loadStorePostEncoder(const MCInst &MI,
                                        unsigned EncodedValue,

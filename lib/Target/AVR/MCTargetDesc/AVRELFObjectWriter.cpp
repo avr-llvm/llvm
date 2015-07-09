@@ -23,11 +23,14 @@
 
 namespace llvm {
 
+/**
+ * Writes AVR machine code as an ELF32 object file.
+ */
 class AVRELFObjectWriter : public MCELFObjectTargetWriter {
 public:
   AVRELFObjectWriter(uint8_t OSABI);
 
-  virtual ~AVRELFObjectWriter();
+  virtual ~AVRELFObjectWriter() { }
 
   unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
                         bool IsPCRel) const override;
@@ -41,8 +44,6 @@ AVRELFObjectWriter::AVRELFObjectWriter(uint8_t OSABI)
   : MCELFObjectTargetWriter(false, OSABI, ELF::EM_AVR,
                             true,
                             false) {}
-
-AVRELFObjectWriter::~AVRELFObjectWriter() {}
 
 unsigned AVRELFObjectWriter::GetRelocType(const MCValue &Target,
                                            const MCFixup &Fixup,

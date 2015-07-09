@@ -18,28 +18,38 @@
 
 namespace llvm {
 
+/**
+ * A expression in AVR machine code.
+ */
 class AVRMCExpr : public MCTargetExpr {
 public:
+  /// Specifies the type of an expression.
   enum VariantKind {
     VK_AVR_None,
 
-    VK_AVR_HI8,        // hi8()
-    VK_AVR_LO8,        // lo8()
-    VK_AVR_HH8,        // hlo8() and hh8()
-    VK_AVR_HHI8,       // hhi8()
+    VK_AVR_HI8,      ///< Corresponds to `hi8()`.
+    VK_AVR_LO8,      ///< Corresponds to `lo8()`.
+    VK_AVR_HH8,      ///< Corresponds to `hlo8() and hh8()`.
+    VK_AVR_HHI8,     ///< Corresponds to `hhi8()`.
 
-    VK_AVR_PM_LO8,     // pm_lo8()
-    VK_AVR_PM_HI8,     // pm_hi8()
-    VK_AVR_PM_HH8      // pm_hh8()
+    VK_AVR_PM_LO8,   ///< Corresponds to `pm_lo8()`.
+    VK_AVR_PM_HI8,   ///< Corresponds to `pm_hi8()`.
+    VK_AVR_PM_HH8    ///< Corresponds to `pm_hh8()`.
   };
 public:
+  /// Creates an AVR machine code expression.
   static const AVRMCExpr *create(VariantKind Kind, const MCExpr *Expr,
                                  MCContext &Ctx);
 
+  /// Gets the type of the expression.
   VariantKind getKind() const { return Kind; }
+  /// Gets the name of the expression.
   char const* getName() const;
   const MCExpr *getSubExpr() const { return Expr; }
+  /// Gets the fixup which corresponds to the expression.
   AVR::Fixups getFixupKind() const;
+  /// Evaluates the fixup as a constant value.
+  bool evaluateAsConstant(int64_t & Result) const;
   
 public: // MCTargetExpr
   void printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const override;
@@ -53,9 +63,7 @@ public: // MCTargetExpr
     return getSubExpr()->findAssociatedSection();
   }
 
-  void fixELFSymbolsInTLSFixups(MCAssembler &Asm) const {}
-
-  bool evaluateAsConstant(int64_t & Result) const;
+  void fixELFSymbolsInTLSFixups(MCAssembler &Asm) const override {}
 
   static bool classof(const MCExpr *E) {
     return E->getKind() == MCExpr::Target;

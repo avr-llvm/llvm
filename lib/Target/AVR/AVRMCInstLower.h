@@ -24,6 +24,9 @@ class MCInst;
 class MCOperand;
 class MCSymbol;
 
+/**
+ * Lowers `MachineInstr` objects into `MCInst` objects.
+ */
 class LLVM_LIBRARY_VISIBILITY AVRMCInstLower
 {
 public:

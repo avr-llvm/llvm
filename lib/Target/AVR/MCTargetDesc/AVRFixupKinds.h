@@ -16,30 +16,57 @@
 
 namespace llvm { namespace AVR {
 
-// Although most of the current fixup types reflect a unique relocation
-// one can have multiple fixup types for a given relocation and thus need
-// to be uniquely named.
-//
-// This table *must* be in the same order of
-// MCFixupKindInfo Infos[AVR::NumTargetFixupKinds]
-// in AVRAsmBackend.cpp.
-//
+/// The set of supported fixups.
+///
+/// Although most of the current fixup types reflect a unique relocation
+/// one can have multiple fixup types for a given relocation and thus need
+/// to be uniquely named.
+///
+/// \note This table *must* be in the same order of
+///       MCFixupKindInfo Infos[AVR::NumTargetFixupKinds]
+///       in `AVRAsmBackend.cpp`.
+///
 // TODO: Document each fixup
 enum Fixups {
+  /// A 32-bit AVR fixup.
   fixup_32 = FirstTargetFixupKind,
 
+  /// A 7-bit PC-relative fixup for the family of conditional
+  /// branches which take 7-bit targets (BRNE,BRGT,etc).
   fixup_7_pcrel,
+  /// A 12-bit PC-relative fixup for the family of branches
+  /// which take 12-bit targets (RJMP,RCALL,etc).
+  /// \note Although the fixup is labelled as 13 bits, it
+  ///       is actually only encoded in 12. The reason for
+  ///       The nonmenclature is that AVR branch targets are
+  ///       rightshifted by 1, because instructions are always
+  ///       aligned to 2 bytes, so the 0'th bit is always 0.
+  ///       This way there is 13-bits of precision.
   fixup_13_pcrel,
 
   fixup_16,
   fixup_16_pm,
 
+  /// @name LDIFixups
+  /// These fixup the immediate value of an instruction of the format
+  /// `FRdK` (16-bit instruction taking a GPR and an 8-bit immediate).
+  /// @{
+
+  /// Replaces the 8-bit immediate with another value.
+  fixup_ldi,
+
+  /// Replaces the immediate with the lower 8 bits of a value (bits 0-7).
   fixup_lo8_ldi,
+  /// Replaces the immediate with the upper 8 bits of a value (bits 8-15).
   fixup_hi8_ldi,
+  /// Replaces the immediate with the upper,upper 8 bits of a value (bits 16-23).
   fixup_hh8_ldi,
 
+  /// Replaces the immediate with the lower 8 bits of a negated value (bits 0-7).
   fixup_lo8_ldi_neg,
+  /// Replaces the immediate with the upper 8 bits of a negated value (bits 8-15).
   fixup_hi8_ldi_neg,
+  /// Replaces the immediate with the upper,upper 8 bits of a value negated (bits 16-23).
   fixup_hh8_ldi_neg,
 
   fixup_lo8_ldi_pm,
@@ -49,9 +76,10 @@ enum Fixups {
   fixup_lo8_ldi_pm_neg,
   fixup_hi8_ldi_pm_neg,
   fixup_hh8_ldi_pm_neg,
+  /// @}
 
+  /// A 22-bit fixup for the target of a `CALL k` or `JMP k` instruction.
   fixup_call,
-  fixup_ldi,
 
   fixup_6,
   fixup_6_adiw,
@@ -82,7 +110,13 @@ enum Fixups {
 
 namespace fixups {
 
-template <typename T> inline void adjustBranchTarget(T & val) {
+/// Adjusts the value of a branch target.
+/// All branch targets in AVR are rightshifted by 1 to take advantage
+/// of the fact that all instructions are aligned to addresses of size
+/// 2, so bit 0 of an address is always 0. This gives us another bit
+/// of precision.
+/// \param[in,out] The target to adjust.
+template <typename T> inline void adjustBranchTarget(T &val) {
   val >>= 1;
 }
 

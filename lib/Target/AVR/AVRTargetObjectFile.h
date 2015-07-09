@@ -16,15 +16,18 @@
 
 namespace llvm {
 
+/**
+ * Lowering for an AVR ELF32 object file.
+ */
 class AVRTargetObjectFile : public TargetLoweringObjectFileELF {
   typedef TargetLoweringObjectFileELF Base;
 public:
   void Initialize(MCContext &ctx, const TargetMachine &TM) override;
 
   MCSection *SelectSectionForGlobal(const GlobalValue *GV,
-                                          SectionKind Kind,
-                                          Mangler &Mang,
-                                          const TargetMachine &TM) const override;
+                                    SectionKind Kind,
+                                    Mangler &Mang,
+                                    const TargetMachine &TM) const override;
 private:
   MCSection *ProgmemDataSection;
 };

@@ -20,9 +20,13 @@
 
 namespace llvm {
 
+/**
+ * Utilities for creating function call frames.
+ */
 class AVRFrameLowering : public TargetFrameLowering {
 public:
   explicit AVRFrameLowering();
+
 public: // TargetFrameLowering
   void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;

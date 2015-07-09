@@ -37,6 +37,9 @@
 
 namespace llvm {
 
+/**
+ * Parses AVR assembly from a stream.
+ */
 class AVRAsmParser : public MCTargetAsmParser {
   MCSubtargetInfo &STI;
   MCAsmParser &Parser;
@@ -78,9 +81,9 @@ class AVRAsmParser : public MCTargetAsmParser {
   }
 
   bool emit(MCInst & Instruction, SMLoc const& Loc, MCStreamer & Out) const;
-  bool InvalidOperand(SMLoc const& Loc, OperandVector const& Operands,
+  bool invalidOperand(SMLoc const& Loc, OperandVector const& Operands,
                       uint64_t const& ErrorInfo);
-  bool MissingFeature(SMLoc const& Loc, uint64_t const& ErrorInfo);
+  bool missingFeature(SMLoc const& Loc, uint64_t const& ErrorInfo);
 public:
   AVRAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,
                 const MCInstrInfo &MII, const MCTargetOptions &Options)
@@ -97,6 +100,9 @@ public:
 
 };
 
+/**
+ * An parsed AVR assembly operand.
+ */
 class AVROperand : public MCParsedAsmOperand {
   typedef MCParsedAsmOperand Base;
   enum KindTy {
@@ -213,7 +219,7 @@ static unsigned MatchRegisterName(StringRef Name);
 static unsigned MatchRegisterAltName(StringRef Name);
 
 bool
-AVRAsmParser::InvalidOperand(SMLoc const& Loc, OperandVector const& Operands,
+AVRAsmParser::invalidOperand(SMLoc const& Loc, OperandVector const& Operands,
                              uint64_t const& ErrorInfo)
 {
   SMLoc ErrorLoc = Loc;
@@ -237,7 +243,7 @@ AVRAsmParser::InvalidOperand(SMLoc const& Loc, OperandVector const& Operands,
 }
 
 bool
-AVRAsmParser::MissingFeature(llvm::SMLoc const& Loc, uint64_t const& ErrorInfo) {
+AVRAsmParser::missingFeature(llvm::SMLoc const& Loc, uint64_t const& ErrorInfo) {
   return Error(Loc, "instruction requires a CPU feature not currently enabled");
 }
 
@@ -262,8 +268,8 @@ AVRAsmParser::MatchAndEmitInstruction(SMLoc Loc,
   switch (MatchResult) {
     case Match_Success:        return emit(Inst, Loc, Out);
 
-    case Match_MissingFeature: return MissingFeature(Loc, ErrorInfo);
-    case Match_InvalidOperand: return InvalidOperand(Loc, Operands, ErrorInfo);
+    case Match_MissingFeature: return missingFeature(Loc, ErrorInfo);
+    case Match_InvalidOperand: return invalidOperand(Loc, Operands, ErrorInfo);
     case Match_MnemonicFail:   return Error(Loc, "invalid instruction");
   }
   return true;

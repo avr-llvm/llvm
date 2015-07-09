@@ -21,6 +21,7 @@
 # include "MCTargetDesc/AVRMCTargetDesc.h"
 
 namespace llvm {
+
 /*!
  * Prints AVR instructions to a textual stream.
  */

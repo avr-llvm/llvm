@@ -31,6 +31,12 @@ STATISTIC(NumExpanded, "Number of branches expanded to long format");
 
 namespace llvm {
 
+/// Ensures branch targets can fit inside the instruction
+/// they reside in.
+///
+/// If a branch target is too large for the instruction it
+/// is being used with, this pass replaces it with a larger,
+/// equivalent instruction which can fit the target.
 class AVRBSel : public MachineFunctionPass
 {
 public:
@@ -39,20 +45,19 @@ public:
 
   bool runOnMachineFunction(MachineFunction &Fn) override;
 
-  const char *getPassName() const override
-  {
+  const char *getPassName() const override {
     return "AVR Branch Selector";
   }
 
 private:
-  /// BlockSizes - The sizes of the basic blocks in the function.
+  /// The sizes of the basic blocks in the function.
   std::vector<unsigned> BlockSizes;
 };
 
 char AVRBSel::ID = 0;
 
 
-/// isCondBranch - Returns true if the passed opcode is a conditional branch.
+/// Checks whether the passed opcode is a conditional branch.
 static bool isCondBranch(int Opcode)
 {
   switch (Opcode)

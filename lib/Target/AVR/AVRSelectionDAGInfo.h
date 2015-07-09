@@ -22,6 +22,9 @@ namespace llvm {
 
 class AVRTargetMachine;
 
+/**
+ * Holds information about the AVR instruction selection DAG.
+ */
 class AVRSelectionDAGInfo : public TargetSelectionDAGInfo {
 public:
   explicit AVRSelectionDAGInfo(const DataLayout &DL);

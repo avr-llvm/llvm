@@ -29,6 +29,9 @@
 
 namespace llvm {
 
+/**
+ * Lowers LLVM IR (in DAG form) to AVR MC instructions (in DAG form).
+ */
 class AVRDAGToDAGISel : public SelectionDAGISel {
 public:
   AVRDAGToDAGISel(AVRTargetMachine &tm, CodeGenOpt::Level OptLevel) :
@@ -210,8 +213,7 @@ unsigned AVRDAGToDAGISel::SelectIndexedProgMemLoad(const LoadSDNode *LD, MVT VT)
   return Opcode;
 }
 
-/// SelectInlineAsmMemoryOperand - Implement addressing mode selection for
-/// inline asm expressions.
+/// Implement addressing mode selection for inline asm expressions.
 bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
                                                    unsigned ConstraintCode,
                                                    std::vector<SDValue> &OutOps)
