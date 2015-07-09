@@ -133,6 +133,7 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setOperationAction(ISD::UMUL_LOHI, MVT::i16, Expand);
 
   setMinFunctionAlignment(1);
+  setMinimumJumpTableEntries(INT_MAX);
 }
 
 const char *AVRTargetLowering::getTargetNodeName(unsigned Opcode) const
