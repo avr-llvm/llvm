@@ -47,26 +47,27 @@ enum Fixups {
   fixup_16,
   fixup_16_pm,
 
-  /// @name LDIFixups
-  /// These fixup the immediate value of an instruction of the format
-  /// `FRdK` (16-bit instruction taking a GPR and an 8-bit immediate).
-  /// @{
-
   /// Replaces the 8-bit immediate with another value.
   fixup_ldi,
 
-  /// Replaces the immediate with the lower 8 bits of a value (bits 0-7).
+  /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
+  /// with the lower 8 bits of a value (bits 0-7).
   fixup_lo8_ldi,
-  /// Replaces the immediate with the upper 8 bits of a value (bits 8-15).
+  /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
+  /// with the upper 8 bits of a value (bits 8-15).
   fixup_hi8_ldi,
-  /// Replaces the immediate with the upper,upper 8 bits of a value (bits 16-23).
+  /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
+  /// with the upper, upper 8 bits of a value (bits 16-23).
   fixup_hh8_ldi,
 
-  /// Replaces the immediate with the lower 8 bits of a negated value (bits 0-7).
+  /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
+  /// with the lower 8 bits of a negated value (bits 0-7).
   fixup_lo8_ldi_neg,
-  /// Replaces the immediate with the upper 8 bits of a negated value (bits 8-15).
+  /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
+  /// with the upper 8 bits of a negated value (bits 8-15).
   fixup_hi8_ldi_neg,
-  /// Replaces the immediate with the upper,upper 8 bits of a value negated (bits 16-23).
+  /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
+  /// with the upper,upper 8 bits of a value negated (bits 16-23).
   fixup_hh8_ldi_neg,
 
   fixup_lo8_ldi_pm,
@@ -76,7 +77,6 @@ enum Fixups {
   fixup_lo8_ldi_pm_neg,
   fixup_hi8_ldi_pm_neg,
   fixup_hh8_ldi_pm_neg,
-  /// @}
 
   /// A 22-bit fixup for the target of a `CALL k` or `JMP k` instruction.
   fixup_call,
