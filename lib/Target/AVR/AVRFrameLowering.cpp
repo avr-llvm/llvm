@@ -466,8 +466,10 @@ processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
   }
 }
 
-/// AVRFrameAnalyzer - Create the Frame Analyzer pass. Scan the function for
-/// allocas and used arguments that are passed through the stack.
+/// The frame analyzer pass.
+///
+/// Scans the function for allocas and used arguments
+/// that are passed through the stack.
 struct AVRFrameAnalyzer : public MachineFunctionPass
 {
   static char ID;
@@ -549,10 +551,10 @@ struct AVRFrameAnalyzer : public MachineFunctionPass
 
 char AVRFrameAnalyzer::ID = 0;
 
-/// createAVRFrameAnalyzerPass - returns an instance of the frame analyzer pass.
+/// Creates instance of the frame analyzer pass.
 FunctionPass * createAVRFrameAnalyzerPass() { return new AVRFrameAnalyzer(); }
 
-/// AVRDynAllocaSR - Create the Dynalloca Stack Pointer Save/Restore pass.
+/// Create the Dynalloca Stack Pointer Save/Restore pass.
 /// Insert a copy of SP before allocating the dynamic stack memory and restore
 /// it in function exit to restore the original SP state. This avoids the need
 /// of reserving a register pair for a frame pointer.

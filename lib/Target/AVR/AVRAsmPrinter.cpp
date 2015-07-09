@@ -35,6 +35,9 @@
 
 namespace llvm {
 
+/**
+ * An assembly code printer.
+ */
 class AVRAsmPrinter : public AsmPrinter
 {
   MCRegisterInfo MRI;

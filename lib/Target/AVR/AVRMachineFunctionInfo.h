@@ -20,8 +20,8 @@
 
 namespace llvm {
 
-/*!
- * Contains private AVR-specific information for each MachineFunction.
+/**
+ * Contains AVR-specific information for each MachineFunction.
  */
 class AVRMachineFunctionInfo : public MachineFunctionInfo
 {

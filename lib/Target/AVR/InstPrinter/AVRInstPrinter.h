@@ -22,7 +22,7 @@
 
 namespace llvm {
 
-/*!
+/**!
  * Prints AVR instructions to a textual stream.
  */
 class AVRInstPrinter : public MCInstPrinter {
