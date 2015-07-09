@@ -22,7 +22,7 @@
 # include "AVRGenRegisterInfo.inc"
 
 namespace llvm {
-/**!
+/**
  * Utilities relating to AVR registers.
  */
 class AVRRegisterInfo : public AVRGenRegisterInfo

@@ -31,7 +31,7 @@
 
 namespace llvm {
 
-/**!
+/**
  * A specific implementation of AVR.
  */
 class AVRSubtarget : public AVRGenSubtargetInfo
