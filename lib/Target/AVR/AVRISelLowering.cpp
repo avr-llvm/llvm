@@ -110,7 +110,7 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setOperationAction(ISD::VAARG, MVT::Other, Expand);
   setOperationAction(ISD::VACOPY, MVT::Other, Expand);
 
-
+  // Division/remainder
   setOperationAction(ISD::UDIV, MVT::i8, Expand);
   setOperationAction(ISD::UDIV, MVT::i16, Expand);
   setOperationAction(ISD::UREM, MVT::i8, Expand);
@@ -131,6 +131,8 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   // Expand 16 bit multiplications.
   setOperationAction(ISD::SMUL_LOHI, MVT::i16, Expand);
   setOperationAction(ISD::UMUL_LOHI, MVT::i16, Expand);
+  setOperationAction(ISD::MULHS, MVT::i16, Expand);
+  setOperationAction(ISD::MULHU, MVT::i16, Expand);
 
   setMinFunctionAlignment(1);
   setMinimumJumpTableEntries(INT_MAX);
