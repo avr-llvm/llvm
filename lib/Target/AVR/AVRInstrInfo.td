@@ -1175,7 +1175,7 @@ isReMaterializable = 1 in
   // Expands to:
   // ldd Rd,   P+q
   // ldd Rd+1, P+q+1
-  let Constraints = "@earlyclobber $dst" in
+  let Constraints = "@earlyclobber $p" in
   def LDDWRdPtrQ : Pseudo<(outs DREGS:$dst),
                           (ins PTRDISPREGS:$p, i16imm:$q),
                           "lddw\t$dst, $p+$q",
