@@ -141,19 +141,43 @@ AVRMCCodeEmitter::encodeLDSTPtrReg(const MCInst &MI, unsigned OpNo,
   return encoding;
 }
 
+/// Encodes a `memri` operand.
+/// The operand is 7-bits.
+/// * The lower 6 bits is the immediate
+/// * The upper bit is the pointer register bit (Z=0,Y=1)
 unsigned
-AVRMCCodeEmitter::encodeI8ImmCom(const MCInst &MI, unsigned OpNo,
-                                 SmallVectorImpl<MCFixup> &Fixups,
-                                 const MCSubtargetInfo &STI) const
+AVRMCCodeEmitter::encodeMemri(const MCInst &MI, unsigned OpNo,
+                              SmallVectorImpl<MCFixup> &Fixups,
+                              const MCSubtargetInfo &STI) const
 {
-  // the operand should be a pointer register.
+  auto RegOp = MI.getOperand(OpNo);
+  auto ImmOp = MI.getOperand(OpNo+1);
+
+  assert(RegOp.isReg() && "Expected register operand");
+  assert(ImmOp.isImm() && "Expected immediate operand");
+
+  uint8_t RegBit = 0;
+  int8_t ImmBits = ImmOp.getImm();
+
+  switch(RegOp.getReg()) {
+    default: llvm_unreachable("Expected either Y or Z register");
+    case AVR::R31R30: RegBit = 0; break; // Z register
+    case AVR::R29R28: RegBit = 1; break; // Y register
+  }
+
+  return (RegBit<<6) | ImmBits;
+}
+
+unsigned
+AVRMCCodeEmitter::encodeComplement(const MCInst &MI, unsigned OpNo,
+                                   SmallVectorImpl<MCFixup> &Fixups,
+                                   const MCSubtargetInfo &STI) const
+{
+  // The operand should be a pointer register.
   assert(MI.getOperand(OpNo).isImm());
+  auto imm = MI.getOperand(OpNo).getImm();
 
-  auto immediateValue = MI.getOperand(OpNo).getImm();
-
-  auto compliment = 0xff - immediateValue;
-
-  return compliment;
+  return (~0) - imm;
 }
 
 unsigned

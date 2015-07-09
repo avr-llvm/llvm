@@ -1,5 +1,4 @@
 ; RUN: llc -mattr=sram < %s -march=avr | FileCheck %s
-; XFAIL: *
 
 ;TODO: test returning byval structs
 

@@ -61,6 +61,7 @@ class AVRAsmParser : public MCTargetAsmParser {
   
   bool ParseDirective(AsmToken directiveID) override;
 
+  OperandMatchResultTy parseMemriOperand(OperandVector &Operands);
 
   bool parseOperand(OperandVector &Operands);
   int  parseRegisterName(unsigned (*matchFn)(StringRef));
@@ -68,7 +69,6 @@ class AVRAsmParser : public MCTargetAsmParser {
   int  parseRegister();
   bool tryParseRegisterOperand(OperandVector &Operands);
   bool tryParseExpression(OperandVector & Operands);
-  void appendToken(OperandVector & Operands);
   void eatComma();
 
   // Handles target specific special cases. See definition for notes.
@@ -108,32 +108,42 @@ class AVROperand : public MCParsedAsmOperand {
   enum KindTy {
     k_Immediate,
     k_Register,
-    k_Token
+    k_Token,
+    k_Memri
   } Kind;
 
 public:
   AVROperand(StringRef Tok, SMLoc const& S)
     : Base(), Kind(k_Token), Tok(Tok), Start(S), End(S) {}
   AVROperand(unsigned  Reg, SMLoc const& S, SMLoc const& E)
-    : Base(), Kind(k_Register), Reg(Reg), Start(S), End(E) {}
+    : Base(), Kind(k_Register), RegImm({Reg,nullptr}), Start(S), End(E) {}
   AVROperand(MCExpr const* Imm, SMLoc const& S, SMLoc const& E)
-    : Base(), Kind(k_Immediate), Imm(Imm), Start(S), End(E) {}
+    : Base(), Kind(k_Immediate), RegImm({0,Imm}), Start(S), End(E) {}
+  AVROperand(unsigned Reg, MCExpr const* Imm, SMLoc const& S, SMLoc const& E)
+    : Base(), Kind(k_Memri), RegImm({Reg,Imm}), Start(S), End(E) { }
 
   union {
     StringRef      Tok;
-    unsigned       Reg;
-    MCExpr const*  Imm;
+
+    struct {
+      unsigned       Reg;
+      MCExpr const*  Imm;
+    } RegImm;
   };
 
   SMLoc Start, End;
 
 public:
+  /// Adds the contained register operand to an instruction.
   void addRegOperands(MCInst &Inst, unsigned N) const {
+    assert(Kind == k_Register && "Unexpected operand kind");
     assert(N == 1 && "Invalid number of operands!");
+
     Inst.addOperand(MCOperand::createReg(getReg()));
   }
 
-  void addExpr(MCInst &Inst, const MCExpr *Expr) const{
+  /// Adds an MCExpr operand to an instruction.
+  void addExpr(MCInst &Inst, const MCExpr *Expr) const {
     // Add as immediate when possible.  Null MCExpr = 0.
     if (Expr == 0)
       Inst.addOperand(MCOperand::createImm(0));
@@ -143,16 +153,29 @@ public:
       Inst.addOperand(MCOperand::createExpr(Expr));
   }
 
+  /// Adds the contained immediate  operand to an instruction.
   void addImmOperands(MCInst &Inst, unsigned N) const {
+    assert(Kind == k_Immediate && "Unexpected operand kind");
     assert(N == 1 && "Invalid number of operands!");
+
     const MCExpr *Expr = getImm();
     addExpr(Inst,Expr);
+  }
+
+  /// Adds the contained reg+imm operand to an instruction.
+  void addMemriOperands(MCInst &Inst, unsigned N) const {
+    assert(Kind == k_Memri && "Unexpected operand kind");
+    assert(N == 2 && "Invalid number of operands");
+
+    Inst.addOperand(MCOperand::createReg(getReg()));
+    addExpr(Inst, getImm());
   }
 
   bool isReg()   const { return Kind == k_Register; }
   bool isImm()   const { return Kind == k_Immediate; }
   bool isToken() const { return Kind == k_Token; }
-  bool isMem()   const { return false; }
+  bool isMem()   const { return Kind == k_Memri; }
+  bool isMemri() const { return Kind == k_Memri; }
 
   StringRef getToken() const {
     assert(Kind == k_Token && "Invalid access!");
@@ -160,13 +183,14 @@ public:
   }
 
   unsigned getReg() const {
-    assert((Kind == k_Register) && "Invalid access!");
-    return Reg;
+    assert((Kind == k_Register || Kind == k_Memri) && "Invalid access!");
+
+    return RegImm.Reg;
   }
 
   const MCExpr *getImm() const {
-    assert((Kind == k_Immediate) && "Invalid access!");
-    return Imm;
+    assert((Kind == k_Immediate || Kind == k_Memri) && "Invalid access!");
+    return RegImm.Imm;
   }
 
   static
@@ -187,18 +211,36 @@ public:
     return make_unique<AVROperand>(Val, S, E);
   }
 
-  void makeToken(StringRef Token) { Kind = k_Token;     Tok = Token; }
-  void makeReg(unsigned RegNo)    { Kind = k_Register;  Reg = RegNo; }
-  void makeImm(MCExpr const* Ex)  { Kind = k_Immediate; Imm = Ex;    }
+  static
+  std::unique_ptr<AVROperand>
+  CreateMemri(unsigned RegNum, const MCExpr *Val,
+              SMLoc S, SMLoc E) {
+    return make_unique<AVROperand>(RegNum, Val, S, E);
+  }
+
+  void makeToken(StringRef Token) { Kind = k_Token; Tok = Token; }
+  void makeReg(unsigned RegNo)    { Kind = k_Register;  RegImm = {RegNo,nullptr}; }
+  void makeImm(MCExpr const* Ex)  { Kind = k_Immediate; RegImm = {0,Ex}; }
+  void makeMemri(unsigned RegNo,
+                 MCExpr const* Imm) {
+    Kind = k_Memri;
+    RegImm = {RegNo,Imm};
+  }
 
   SMLoc getStartLoc() const { return Start; }
   SMLoc getEndLoc()   const { return End;   }
 
   virtual void print(raw_ostream & O) const {
     switch(Kind) {
-      case k_Token:     O << "Token: \"" << Tok << "\"";                break;
-      case k_Register:  O << "Register: " << Reg;                       break;
-      case k_Immediate: O << "Immediate: \"" << *Imm << "\""; break;
+      case k_Token:     O << "Token: \"" << getToken() << "\"";    break;
+      case k_Register:  O << "Register: " << getReg();             break;
+      case k_Immediate: O << "Immediate: \"" << *getImm() << "\""; break;
+      case k_Memri: {
+        // only manually print the size for non-negative values,
+        // as the sign is inserted automatically.
+        O << "Memri: \"" << getReg() << '+' << *getImm() << "\"";
+        break;
+      }
     }
     O << "\n";
   }
@@ -341,11 +383,6 @@ AVRAsmParser::tryParseRegisterOperand(OperandVector &Operands){
   Operands.push_back(AVROperand::CreateReg(RegNo, T.getLoc(), T.getEndLoc()));
   Parser.Lex(); // Eat register token.
 
-  // If the next token is a sign, add it.
-  AsmToken const& Sign = Parser.getTok();
-  if (Sign.getKind() == AsmToken::Plus || Sign.getKind() == AsmToken::Minus) {
-    appendToken(Operands);
-  }
   return false;
 }
 
@@ -382,13 +419,6 @@ AVRAsmParser::tryParseExpression(OperandVector & Operands) {
   return false;
 }
 
-void
-AVRAsmParser::appendToken(OperandVector & Operands) {
-  AsmToken const& T(Parser.getTok());
-  Operands.push_back(AVROperand::CreateToken(T.getString(), T.getLoc()));
-  Parser.Lex();
-}
-
 bool
 AVRAsmParser::parseOperand(OperandVector &Operands) {
   DEBUG(dbgs() << "parseOperand\n");
@@ -398,11 +428,11 @@ AVRAsmParser::parseOperand(OperandVector &Operands) {
       return Error(Parser.getTok().getLoc(), "unexpected token in operand");
 
     case AsmToken::Identifier:
+      // Try to parse a register, if it fails,
+      // fall through to the next case.
       if(!tryParseRegisterOperand(Operands)) {
         return false;
       }
-      return tryParseExpression(Operands);
-
     case AsmToken::LParen:
     case AsmToken::Integer:
       return tryParseExpression(Operands);
@@ -414,16 +444,56 @@ AVRAsmParser::parseOperand(OperandVector &Operands) {
 
     case AsmToken::Plus:
     case AsmToken::Minus: {
-      if (Parser.getLexer().peekTok().getKind() == AsmToken::Integer) {
-        return tryParseExpression(Operands);
+      // if the sign preceeds a number, parse the number,
+      // otherwise treat the sign a an independent token.
+      switch(getLexer().peekTok().getKind()) {
+        default: { // treat the token as an independent token.
+          Operands.push_back(AVROperand::CreateToken(Parser.getTok().getString(),
+                                                     Parser.getTok().getLoc()));
+          Parser.Lex(); // eat the token.
+          return false;
+        }
+        case AsmToken::Integer:
+        case AsmToken::BigNum:
+        case AsmToken::Real:  return tryParseExpression(Operands);
       }
-      appendToken(Operands);
-      return false;
     }
   }
   
   // Could not parse operand
   return true;
+}
+
+AVRAsmParser::OperandMatchResultTy
+AVRAsmParser::parseMemriOperand(OperandVector &Operands) {
+  DEBUG(dbgs() << "parseMemriOperand()\n");
+
+  SMLoc E, S;
+  MCExpr const* Expression;
+  int RegNo;
+
+  // Parse register.
+  {
+    RegNo = parseRegister();
+
+    if (RegNo == AVR::NoRegister)
+      return MatchOperand_ParseFail;
+
+    S = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+    Parser.Lex(); // Eat register token.
+  }
+
+  // Parse immediate;
+  {
+    if (getParser().parseExpression(Expression))
+      return MatchOperand_ParseFail;
+   
+    E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+  }
+
+  Operands.push_back(AVROperand::CreateMemri(RegNo, Expression, S, E));
+
+  return MatchOperand_Success;
 }
 
 bool
@@ -449,18 +519,31 @@ bool
 AVRAsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Mnemonic,
                                SMLoc NameLoc, OperandVector & Operands)
 {
-
   Operands.push_back(AVROperand::CreateToken(Mnemonic, NameLoc));
+
   bool first = true;
   while (getLexer().isNot(AsmToken::EndOfStatement)) {
     if(!first) eatComma();
+    first = false;
+
+    auto MatchResult = MatchOperandParserImpl(Operands, Mnemonic);
+
+    // Check if TableGen can parse this operand for us.
+    if(MatchResult == MatchOperand_Success) {
+      continue;
+    } else if(MatchResult == MatchOperand_ParseFail) {
+      SMLoc Loc = getLexer().getLoc();
+      Parser.eatToEndOfStatement();
+
+      // TODO: give a better error message.
+      return Error(Loc, "failed to parse reg+imm");
+    }
 
     if (parseOperand(Operands)) {
       SMLoc Loc = getLexer().getLoc();
       Parser.eatToEndOfStatement();
       return Error(Loc, "unexpected token in argument list");
     }
-    first = false;
   }
   Parser.Lex(); // Consume the EndOfStatement
   return false;

@@ -156,22 +156,21 @@ class FRd<bits<4> opcode, bits<7> f, dag outs, dag ins, string asmstr,
 class FSTDLDD<bit type, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
-  bits<2> ptr; // the pointer register
+  bits<7> memri;
   bits<5> reg; // the GP register
-  bits<6> imm; // the displacement
 
   let Inst{15-14} = 0b10;
-  let Inst{13} = imm{5};
+  let Inst{13} = memri{5};
   let Inst{12} = 0;
 
-  let Inst{11-10} = imm{4-3};
+  let Inst{11-10} = memri{4-3};
   let Inst{9} = type;
   let Inst{8} = reg{4};
 
   let Inst{7-4} = reg{3-0};
 
-  let Inst{3} = ptr{1};
-  let Inst{2-0} = imm{2-0};
+  let Inst{3} = memri{6};
+  let Inst{2-0} = memri{2-0};
 }
 
 //===---------------------------------------------------------------------===//

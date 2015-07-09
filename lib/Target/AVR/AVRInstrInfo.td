@@ -133,12 +133,23 @@ def iobitposn8 : PatLeaf<(imm),
   return isPowerOf2_32(uint8_t(~N->getZExtValue()));
 }], iobitposn8_XFORM>;
 
-def AVRMemAsmOperand : AsmOperandClass {
-  let Name = "Mem";
-  let ParserMethod = "parseMemOperand";
+def MemriAsmOperand : AsmOperandClass {
+  let Name = "Memri";
+  let ParserMethod = "parseMemriOperand";
 }
 
-// Address operand for SP+imm used by STD{W}SPQRr
+/// Address operand for `reg+imm` used by STD and LDD.
+def memri : Operand<iPTR>
+{
+  let MIOperandInfo = (ops PTRDISPREGS, i16imm);
+
+  let PrintMethod = "printMemri";
+  let EncoderMethod = "encodeMemri";
+
+  let ParserMatchClass = MemriAsmOperand;
+}
+
+// Address operand for `SP+imm` used by STD{W}SPQRr
 def memspi : Operand<iPTR>
 {
   let MIOperandInfo = (ops GPRSP, i16imm);
@@ -146,7 +157,7 @@ def memspi : Operand<iPTR>
 
 def i8imm_com : Operand<i8>
 {
-  let EncoderMethod = "encodeI8ImmCom";
+  let EncoderMethod = "encodeComplement";
 
   let MIOperandInfo = (ops i8imm);
 }
@@ -1165,9 +1176,9 @@ isReMaterializable = 1 in
 {
   def LDDRdPtrQ : FSTDLDD<0,
                           (outs GPR8:$reg),
-                          (ins LDDSTDPtrReg:$ptr, i16imm:$imm),
-                          "ldd\t$reg, $ptr+$imm",
-                          [(set GPR8:$reg, (load (add addr:$ptr, imm:$imm)))]>,
+                          (ins memri:$memri),
+                          "ldd\t$reg, $memri",
+                          [(set GPR8:$reg, (load addr:$memri))]>,
                   Requires<[HasSRAM]>;
 
   // LDDW Rd+1:Rd, P+q
@@ -1175,11 +1186,10 @@ isReMaterializable = 1 in
   // Expands to:
   // ldd Rd,   P+q
   // ldd Rd+1, P+q+1
-  let Constraints = "@earlyclobber $p" in
   def LDDWRdPtrQ : Pseudo<(outs DREGS:$dst),
-                          (ins PTRDISPREGS:$p, i16imm:$q),
-                          "lddw\t$dst, $p+$q",
-                          [(set DREGS:$dst, (load (add addr:$p, imm:$q)))]>,
+                          (ins memri:$memri),
+                          "lddw\t$dst, $memri",
+                          [(set DREGS:$dst, (load addr:$memri))]>,
                    Requires<[HasSRAM]>;
 
   //:FIXME: remove this once PR13375 gets fixed
@@ -1187,8 +1197,8 @@ isReMaterializable = 1 in
   let mayLoad = 1,
   hasSideEffects = 0 in
   def LDDWRdYQ : Pseudo<(outs DREGS:$dst),
-                        (ins PTRDISPREGS:$p, i16imm:$q),
-                        "lddw\t$dst, $p+$q",
+                        (ins memri:$memri),
+                        "lddw\t$dst, $memri",
                         []>,
                  Requires<[HasSRAM]>;
 }
@@ -1299,9 +1309,9 @@ let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
 // displacement of q. Does not modify P.
 def STDPtrQRr : FSTDLDD<1,
                         (outs),
-                        (ins LDDSTDPtrReg:$ptr, i16imm:$imm, GPR8:$reg),
-                        "std\t$ptr+$imm, $reg",
-                        [(store GPR8:$reg, (add addr:$ptr, imm:$imm))]>,
+                        (ins memri:$memri, GPR8:$reg),
+                        "std\t$memri, $reg",
+                        [(store GPR8:$reg, addr:$memri)]>,
                 Requires<[HasSRAM]>;
 
 // STDW P+q, Rr+1:Rr
@@ -1312,9 +1322,9 @@ def STDPtrQRr : FSTDLDD<1,
 // std P+q,   Rr
 // std P+q+1, Rr+1
 def STDWPtrQRr : Pseudo<(outs),
-                        (ins PTRDISPREGS:$p, i16imm:$q, DREGS:$src),
-                        "stdw\t$p+$q, $src",
-                        [(store DREGS:$src, (add addr:$p, imm:$q))]>,
+                        (ins memri:$memri, DREGS:$src),
+                        "stdw\t$memri, $src",
+                        [(store DREGS:$src, addr:$memri)]>,
                  Requires<[HasSRAM]>;
 
 

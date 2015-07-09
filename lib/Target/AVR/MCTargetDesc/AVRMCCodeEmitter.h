@@ -67,9 +67,15 @@ private:
                             SmallVectorImpl<MCFixup> &Fixups,
                             const MCSubtargetInfo &STI) const;
 
-  unsigned encodeI8ImmCom(const MCInst &MI, unsigned OpNo,
-                          SmallVectorImpl<MCFixup> &Fixups,
-                          const MCSubtargetInfo &STI) const;
+  /// Encodes a `register+immediate` operand for `LDD`/`STD`.
+  unsigned encodeMemri(const MCInst &MI, unsigned OpNo,
+                       SmallVectorImpl<MCFixup> &Fixups,
+                       const MCSubtargetInfo &STI) const;
+
+  /// Takes the compliment of a number (~0 - val).
+  unsigned encodeComplement(const MCInst &MI, unsigned OpNo,
+                            SmallVectorImpl<MCFixup> &Fixups,
+                            const MCSubtargetInfo &STI) const;
 
   /// Gets the encoding of the target for the `CALL k` instruction.
   unsigned encodeCallTarget(const MCInst &MI, unsigned OpNo,

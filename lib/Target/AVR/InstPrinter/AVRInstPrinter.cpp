@@ -120,10 +120,10 @@ void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 }
 
 
-/// print_pcrel_imm - This is used to print an immediate value that ends up
+/// This is used to print an immediate value that ends up
 /// being encoded as a pc-relative value.
 void AVRInstPrinter::printPCRelImm(const MCInst *MI, unsigned OpNo,
-                                     raw_ostream &O)
+                                   raw_ostream &O)
 {
   const MCOperand &Op = MI->getOperand(OpNo);
 
@@ -143,6 +143,29 @@ void AVRInstPrinter::printPCRelImm(const MCInst *MI, unsigned OpNo,
 
   assert(Op.isExpr() && "Unknown pcrel immediate operand");
   O << *Op.getExpr();
+}
+
+void AVRInstPrinter::printMemri(const MCInst *MI, unsigned OpNo,
+                                raw_ostream &O)
+{
+  const MCOperand &RegOp = MI->getOperand(OpNo);
+  const MCOperand &ImmOp = MI->getOperand(OpNo+1);
+
+  assert(RegOp.isReg() && "Expected a register");
+  assert(ImmOp.isImm() && "Expected an immediate value");
+
+  // Print the register.
+  printOperand(MI, OpNo, O);
+
+  // Print the immediate.
+  {
+    auto Imm = ImmOp.getImm();
+
+    if(Imm >= 0)
+      O << '+';
+
+    O << Imm;
+  }
 }
 
 } // end of namespace llvm
