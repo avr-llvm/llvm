@@ -50,15 +50,46 @@ AVRMCExpr::printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const {
 bool
 AVRMCExpr::evaluateAsConstant(int64_t & Result) const {
   MCValue Value;
+  auto Expr = getInnerExpr();
+  bool isRelocatable = Expr->evaluateAsRelocatable(Value, nullptr, nullptr);
 
-  if (!getSubExpr()->evaluateAsRelocatable(Value, nullptr, nullptr))
+  if (!isRelocatable)
     return false;
 
-  if (!Value.isAbsolute())
+  if (Value.isAbsolute()) {
+    Result = evaluateAsInt64(Value.getConstant());
+    return true;
+  } else {
     return false;
+  }
+}
 
-  Result = evaluateAsInt64(Value.getConstant());
-  return true;
+bool
+AVRMCExpr::isSubExprNegated() const {
+  if(getSubExpr()->getKind() == MCExpr::Unary) {
+      auto Expr = static_cast<const MCUnaryExpr*>(getSubExpr());
+
+      return Expr->getOpcode() == MCUnaryExpr::Minus;
+  } else {
+    return false;
+  }
+}
+
+const MCExpr *AVRMCExpr::getInnerExpr() const {
+  auto Expr = getSubExpr();
+
+  switch(Expr->getKind())
+  {
+    default: break;
+    case MCExpr::Unary: {
+      auto E = static_cast<const MCUnaryExpr*>(getSubExpr());
+
+      if(E->getOpcode() == MCUnaryExpr::Minus)
+        Expr = E->getSubExpr();
+    }
+  }
+
+  return Expr;
 }
 
 bool
@@ -67,16 +98,15 @@ AVRMCExpr::evaluateAsRelocatableImpl(MCValue &Result,
                                      const MCFixup *Fixup) const
 {
   MCValue Value;
-  if (!getSubExpr()->evaluateAsRelocatable(Value, Layout, Fixup))
+  auto Expr = getInnerExpr();
+  bool isRelocatable = Expr->evaluateAsRelocatable(Value, Layout, Fixup);
+
+  if (!isRelocatable)
     return false;
 
   if (Value.isAbsolute()) {
     Result = MCValue::get(evaluateAsInt64(Value.getConstant()));
   } else {
-
-    if (!getSubExpr()->evaluateAsRelocatable(Value, Layout, Fixup))
-      return false;
-
     if (!Layout)
       return false;
 
@@ -100,6 +130,10 @@ AVRMCExpr::evaluateAsRelocatableImpl(MCValue &Result,
 int64_t
 AVRMCExpr::evaluateAsInt64(int64_t Value) const {
   uint64_t v = static_cast<uint64_t>(Value);
+
+  if(isSubExprNegated())
+    v *= -1;
+
   switch (Kind) {
     case AVRMCExpr::VK_AVR_LO8:              break;
     case AVRMCExpr::VK_AVR_HI8:    v >>= 8;  break;
@@ -117,16 +151,24 @@ AVRMCExpr::evaluateAsInt64(int64_t Value) const {
 AVR::Fixups
 AVRMCExpr::getFixupKind() const {
   auto kind = AVR::Fixups(-1);
+  auto isNegative = isSubExprNegated();
 
   switch (getKind()) {
-    case VK_AVR_LO8:    kind = AVR::fixup_lo8_ldi; break;
-    case VK_AVR_HI8:    kind = AVR::fixup_hi8_ldi; break;
-    case VK_AVR_HH8:    kind = AVR::fixup_hh8_ldi; break;
-    case VK_AVR_HHI8:   kind = AVR::fixup_ms8_ldi; break;
+    case VK_AVR_LO8:
+      kind = isNegative ? AVR::fixup_lo8_ldi_neg : AVR::fixup_lo8_ldi; break;
+    case VK_AVR_HI8:
+      kind = isNegative ? AVR::fixup_hi8_ldi_neg : AVR::fixup_hi8_ldi; break;
+    case VK_AVR_HH8:
+      kind = isNegative ? AVR::fixup_hh8_ldi_neg : AVR::fixup_hh8_ldi; break;
+    case VK_AVR_HHI8:
+      kind = isNegative ? AVR::fixup_ms8_ldi_neg : AVR::fixup_ms8_ldi; break;
 
-    case VK_AVR_PM_LO8: kind = AVR::fixup_lo8_ldi_pm; break;
-    case VK_AVR_PM_HI8: kind = AVR::fixup_hi8_ldi_pm; break;
-    case VK_AVR_PM_HH8: kind = AVR::fixup_hh8_ldi_pm; break;
+    case VK_AVR_PM_LO8:
+      kind = isNegative ? AVR::fixup_lo8_ldi_pm_neg : AVR::fixup_lo8_ldi_pm; break;
+    case VK_AVR_PM_HI8:
+      kind = isNegative ? AVR::fixup_hi8_ldi_pm_neg : AVR::fixup_hi8_ldi_pm; break;
+    case VK_AVR_PM_HH8:
+      kind = isNegative ? AVR::fixup_hh8_ldi_pm_neg : AVR::fixup_hh8_ldi_pm; break;
 
     case VK_AVR_None: llvm_unreachable("Uninitialized expression");
   }

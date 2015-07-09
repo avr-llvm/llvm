@@ -119,28 +119,70 @@ fixup_13_pcrel(unsigned Size, const MCFixup &Fixup,
   // Because the value may be negative, we must mask out the sign bits
   Value &= 0xfff;
 }
-/**
- * Adjusts a value to fix up the immediate of an `LDI Rd, K` instruction.
- *
- * Resolves to:
- * 0000 KKKK 0000 KKKK
- * Offset of 0 (so the result isn't left-shifted before application).
- */
-template<typename T>
-void
-fixupLDI(unsigned size, const MCFixup &Fixup,
-         T &Value, MCContext *Ctx = nullptr)
+
+/// Fixups relating to the LDI instruction.
+namespace ldi
 {
-  if(!isIntN(size, Value) && Ctx != nullptr)
-    Ctx->reportFatalError(Fixup.getLoc(), "out of range immediate to LDI");
+  /**
+   * Adjusts a value to fix up the immediate of an `LDI Rd, K` instruction.
+   *
+   * Resolves to:
+   * 0000 KKKK 0000 KKKK
+   * Offset of 0 (so the result isn't left-shifted before application).
+   */
+  template<typename T>
+  void
+  fixup(unsigned Size, const MCFixup &Fixup,
+        T &Value, MCContext *Ctx = nullptr)
+  {
+    if(!isIntN(Size, Value) && Ctx != nullptr)
+      Ctx->reportFatalError(Fixup.getLoc(), "out of range immediate to LDI");
 
-  T upper = Value & 0xf0;
-  T lower = Value & 0x0f;
+    T upper = Value & 0xf0;
+    T lower = Value & 0x0f;
 
-  Value = (upper << 4) | lower;
-}
+    Value = (upper << 4) | lower;
+  }
 
-} // end of anonymous namespace
+  template<typename T>
+  void neg(T &Value) {
+    Value *= -1;
+  }
+
+  template<typename T>
+  void lo8(unsigned Size, const MCFixup &Fixup,
+           T &Value, MCContext *Ctx = nullptr)
+  {
+    Value &= 0xff;
+    ldi::fixup(Size, Fixup, Value, Ctx);
+  }
+
+  template<typename T>
+  void hi8(unsigned Size, const MCFixup &Fixup,
+           T &Value, MCContext *Ctx = nullptr)
+  {
+    Value = (Value & 0xff00)>>8;
+    ldi::fixup(Size, Fixup, Value, Ctx);
+  }
+
+  template<typename T>
+  void hh8(unsigned Size, const MCFixup &Fixup,
+           T &Value, MCContext *Ctx = nullptr)
+  {
+    Value = (Value & 0xff0000)>>16;
+    ldi::fixup(Size, Fixup, Value, Ctx);
+  }
+
+  template<typename T>
+  void ms8(unsigned Size, const MCFixup &Fixup,
+           T &Value, MCContext *Ctx = nullptr)
+  {
+    Value = (Value & 0xff000000)>>24;
+    ldi::fixup(Size, Fixup, Value, Ctx);
+  }
+
+} // end of ldi namespace
+} // end of adjust namespace
 
 
 namespace llvm {
@@ -150,22 +192,30 @@ void
 AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t & Value,
                                 MCContext *Ctx) const
 {
-  // the size in bits
-  uint64_t size = AVRAsmBackend::getFixupKindInfo(Fixup.getKind()).TargetSize;
+
+  // the Size in bits
+  uint64_t Size = AVRAsmBackend::getFixupKindInfo(Fixup.getKind()).TargetSize;
 
   switch ((unsigned)Fixup.getKind()) {
-    case AVR::fixup_7_pcrel:  adjust::fixup_7_pcrel(size, Fixup, Value, Ctx); break;
-    case AVR::fixup_13_pcrel: adjust::fixup_13_pcrel(size, Fixup, Value, Ctx); break;
-    case AVR::fixup_call:     adjust::fixup_call(size, Fixup, Value, Ctx); break;
+    case AVR::fixup_7_pcrel:  adjust::fixup_7_pcrel(Size, Fixup, Value, Ctx); break;
+    case AVR::fixup_13_pcrel: adjust::fixup_13_pcrel(Size, Fixup, Value, Ctx); break;
+    case AVR::fixup_call:     adjust::fixup_call(Size, Fixup, Value, Ctx); break;
 
-    case AVR::fixup_ldi:
-    case AVR::fixup_lo8_ldi:
-    case AVR::fixup_hi8_ldi:
-    case AVR::fixup_hh8_ldi:
-    case AVR::fixup_ms8_ldi:
+    case AVR::fixup_ldi:         adjust::ldi::fixup(Size, Fixup, Value, Ctx); break;
+    case AVR::fixup_lo8_ldi:     adjust::ldi::lo8(Size, Fixup, Value, Ctx); break;
+    case AVR::fixup_hi8_ldi:     adjust::ldi::hi8(Size, Fixup, Value, Ctx); break;
+    case AVR::fixup_hh8_ldi:     adjust::ldi::hh8(Size, Fixup, Value, Ctx); break;
+    case AVR::fixup_ms8_ldi:     adjust::ldi::ms8(Size, Fixup, Value, Ctx); break;
+    case AVR::fixup_lo8_ldi_neg: adjust::ldi::neg(Value); adjust::ldi::lo8(Size, Fixup, Value, Ctx); break;
+    case AVR::fixup_hi8_ldi_neg: adjust::ldi::neg(Value); adjust::ldi::hi8(Size, Fixup, Value, Ctx); break;
+    case AVR::fixup_hh8_ldi_neg: adjust::ldi::neg(Value); adjust::ldi::hh8(Size, Fixup, Value, Ctx); break;
     case AVR::fixup_lo8_ldi_pm:
     case AVR::fixup_hi8_ldi_pm:
-    case AVR::fixup_hh8_ldi_pm: adjust::fixupLDI(size, Fixup, Value, Ctx); break;
+    case AVR::fixup_hh8_ldi_pm:
+    case AVR::fixup_lo8_ldi_pm_neg:
+    case AVR::fixup_hi8_ldi_pm_neg:
+    case AVR::fixup_hh8_ldi_pm_neg:
+      llvm_unreachable("program memory fixups are unimplemented");
 
     case FK_Data_2:
     case FK_GPRel_4:

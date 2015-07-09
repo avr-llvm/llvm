@@ -45,11 +45,16 @@ public:
   VariantKind getKind() const { return Kind; }
   /// Gets the name of the expression.
   char const* getName() const;
-  const MCExpr *getSubExpr() const { return Expr; }
+  const MCExpr *getSubExpr() const { return SubExpr; }
   /// Gets the fixup which corresponds to the expression.
   AVR::Fixups getFixupKind() const;
   /// Evaluates the fixup as a constant value.
   bool evaluateAsConstant(int64_t & Result) const;
+
+  /// Checks whether the sub expression is negated.
+  bool isSubExprNegated() const;
+  /// Gets the innermost expression.
+  const MCExpr *getInnerExpr() const;
   
 public: // MCTargetExpr
   void printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const override;
@@ -76,10 +81,10 @@ private:
   int64_t evaluateAsInt64(int64_t Value) const;
 
   const VariantKind Kind;
-  const MCExpr *Expr;
+  const MCExpr *SubExpr;
 private:
   explicit AVRMCExpr(VariantKind _Kind, const MCExpr *_Expr) :
-    Kind(_Kind), Expr(_Expr) {}
+    Kind(_Kind), SubExpr(_Expr) {}
   ~AVRMCExpr() {}
 };
 
