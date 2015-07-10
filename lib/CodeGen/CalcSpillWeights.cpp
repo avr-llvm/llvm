@@ -180,7 +180,20 @@ VirtRegAuxInfo::calculateSpillWeightAndHint(LiveInterval &li) {
 
   // Mark li as unspillable if all live ranges are tiny.
   if (li.isZeroLength(LIS.getSlotIndexes())) {
-    li.markNotSpillable();
+     // HACK HACK: This is a workaround until PR14879 gets fixed!
+     // This code allows us to compile memory intensive functions when only the Z
+     // register is available, otherwise we get the "Ran out of registers ..."
+     // assertion inside the regalloc.
+     // Here we avoid marking as not spillable live intervals that use the
+     // PTRDISPREGS class and have a size greater than 8, smaller ones
+     // get filtered out, generating better code.
+     if (strcmp(MF.getSubtarget().getRegisterInfo()->getRegClassName(mri.getRegClass(li.reg)), "PTRDISPREGS") == 0 &&
+         li.getSize() > 8) {
+             totalWeight *= 10000.0F;
+             li.weight = normalizeSpillWeight(totalWeight, li.getSize(), numInstr);
+         } else {
+             li.markNotSpillable();
+     }
     return;
   }
 
