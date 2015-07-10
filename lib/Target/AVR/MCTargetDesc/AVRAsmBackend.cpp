@@ -16,6 +16,7 @@
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCValue.h"
 #include "llvm/MC/MCDirectives.h"
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCFixupKindInfo.h"
@@ -56,8 +57,6 @@ void
 adjustRelativeBranch(unsigned Size, const MCFixup &Fixup,
                      T &Value, MCContext *Ctx = nullptr)
 {
-  // For relative branches, we must subtract the size of
-  // the current instruction.
   Value -= 2;
 
   adjustBranch(Size, Fixup, Value, Ctx);
@@ -354,6 +353,14 @@ AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
                                  uint64_t &Value,
                                  bool &IsResolved)
 {
+  // Parsed LLVM-generated temporary labels are already
+  // adjusted for instruction size, but normal labels aren't.
+  //
+  // To handle both cases, we simply un-adjust the temporary label
+  // case so it acts like all other labels.
+  if(Target.getSymA()->getSymbol().isTemporary())
+    Value += 2;
+
   adjustFixupValue(Fixup, Value, &Asm.getContext());
 }
 

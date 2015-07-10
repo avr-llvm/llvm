@@ -435,11 +435,7 @@ AVRAsmParser::parseOperand(OperandVector &Operands) {
       }
     case AsmToken::LParen:
     case AsmToken::Integer:
-      return tryParseExpression(Operands);
-
     case AsmToken::Dot:
-      // Parse the '.[+-]offset' syntax for PC-relative call.
-      Parser.Lex(); // Eat `.`
       return tryParseExpression(Operands);
 
     case AsmToken::Plus:
