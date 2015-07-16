@@ -13,12 +13,19 @@ end:
   rjmp .-4
   rjmp .-6
 
-; CHECK: foo:
-; CHECK: rjmp  .+2                   ; encoding: [0x01,0xc0]
-; CHECK: rjmp  .-2                   ; encoding: [0xff,0xcf]
-; CHECK: rjmp  foo                   ; encoding: [A,0b1100AAAA]
-; CHECK: rjmp  .+8                   ; encoding: [0x04,0xc0]
-; CHECK: rjmp  end                   ; encoding: [A,0b1100AAAA]
-; CHECK: rjmp  .+0                   ; encoding: [0x00,0xc0]
-; CHECJ: rjmp  .-4                   ; encoding: [0xfe,0xcf]
-; CHECK: rjmp  .-6                   ; encoding: [0xfd,0xcf]
+; CHECK: rjmp    .Ltmp0+2                ; encoding: [A,0b1100AAAA]
+; CHECK:                                 ;   fixup A - offset: 0, value: .Ltmp0+2, kind: fixup_13_pcrel
+; CHECK: rjmp    .Ltmp1-2                ; encoding: [A,0b1100AAAA]
+; CHECK:                                 ;   fixup A - offset: 0, value: .Ltmp1-2, kind: fixup_13_pcrel
+; CHECK: rjmp    foo                     ; encoding: [A,0b1100AAAA]
+; CHECK:                                 ;   fixup A - offset: 0, value: foo, kind: fixup_13_pcrel
+; CHECK: rjmp    .Ltmp2+8                ; encoding: [A,0b1100AAAA]
+; CHECK:                                 ;   fixup A - offset: 0, value: .Ltmp2+8, kind: fixup_13_pcrel
+; CHECK: rjmp    end                     ; encoding: [A,0b1100AAAA]
+; CHECK:                                 ;   fixup A - offset: 0, value: end, kind: fixup_13_pcrel
+; CHECK: rjmp    .Ltmp3+0                ; encoding: [A,0b1100AAAA]
+; CHECK:                                 ;   fixup A - offset: 0, value: .Ltmp3+0, kind: fixup_13_pcrel
+; CHECK: rjmp    .Ltmp4-4                ; encoding: [A,0b1100AAAA]
+; CHECK:                                 ;   fixup A - offset: 0, value: .Ltmp4-4, kind: fixup_13_pcrel
+; CHECK: rjmp    .Ltmp5-6                ; encoding: [A,0b1100AAAA]
+; CHECK:                                 ;   fixup A - offset: 0, value: .Ltmp5-6, kind: fixup_13_pcrel
