@@ -56,6 +56,9 @@ tools/llgo
 tools/polly
 # Sphinx build tree, if building in-source dir.
 docs/_build
+# AVR on-target test suite library
+utils/AVR/avrlit/libavrlit/lufa
+utils/AVR/avrlit/libavrlit/*/_build
 
 #==============================================================================#
 # Files created in tree by the Go bindings.
