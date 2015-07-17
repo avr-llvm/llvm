@@ -180,6 +180,9 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn)
           }
         }
 
+        if(isCondBranch(Opc))
+          BranchSize -= 2; // take the size of the current instruction.
+
         assert(!(BranchSize & 1)
                && "BranchSize should have an even number of bytes");
         // If this branch is in range, ignore it.
@@ -214,9 +217,10 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn)
               PI->getOperand(0).setImm(4);
             }
           }
-        }
-        else
-        {
+        } else {
+
+          assert(isCondBranch(Opc) && "opcode should be a conditional branch");
+
           unsigned BrCCOffs;
           // Determine if we can reach the destination block with a rjmp,
           // otherwise a jmp instruction is needed.
