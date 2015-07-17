@@ -162,13 +162,13 @@ def i8imm_com : Operand<i8>
   let MIOperandInfo = (ops i8imm);
 }
 
-def rel_condbr_7_target : Operand<OtherVT>
+def relbrtarget_7 : Operand<OtherVT>
 {
     let PrintMethod   = "printPCRelImm";
     let EncoderMethod = "encodeRelCondBrTarget<AVR::fixup_7_pcrel>";
 }
 
-def rel_condbr_13_target : Operand<OtherVT>
+def brtarget_13 : Operand<OtherVT>
 {
     let PrintMethod   = "printPCRelImm";
     let EncoderMethod = "encodeRelCondBrTarget<AVR::fixup_13_pcrel>";
@@ -714,7 +714,7 @@ isTerminator = 1 in
 {
   def RJMPk : FBRk<0,
                    (outs),
-                   (ins rel_condbr_13_target:$target),
+                   (ins brtarget_13:$target),
                    "rjmp\t$target",
                    [(br bb:$target)]>;
 
@@ -754,7 +754,7 @@ let isCall = 1 in
   let Uses = [SP] in
   def RCALLk : FBRk<1,
                     (outs),
-                    (ins rel_condbr_13_target:$target),
+                    (ins brtarget_13:$target),
                     "rcall\t$target",
                     []>;
 
@@ -917,7 +917,7 @@ isTerminator = 1 in
     // Branch if `s` flag in status register is set.
     def BRBSsk : FSK<0,
                      (outs),
-                     (ins i8imm:$s, rel_condbr_7_target:$k),
+                     (ins i8imm:$s, relbrtarget_7:$k),
                      "brbs\t$s, $k",
                      []>;
 
@@ -925,7 +925,7 @@ isTerminator = 1 in
     // Branch if `s` flag in status register is clear.
     def BRBCsk : FSK<1,
                      (outs),
-                     (ins i8imm:$s, rel_condbr_7_target:$k),
+                     (ins i8imm:$s, relbrtarget_7:$k),
                      "brbc\t$s, $k",
                      []>;
   }
@@ -934,43 +934,43 @@ isTerminator = 1 in
 
 // BRCS k
 // Branch if carry flag is set
-def : InstAlias<"brcs\t$k", (BRBSsk 0, rel_condbr_7_target:$k)>;
+def : InstAlias<"brcs\t$k", (BRBSsk 0, relbrtarget_7:$k)>;
 
 // BRCC k
 // Branch if carry flag is clear
-def : InstAlias<"brcc\t$k", (BRBCsk 0, rel_condbr_7_target:$k)>;
+def : InstAlias<"brcc\t$k", (BRBCsk 0, relbrtarget_7:$k)>;
 
 // BRHS k
 // Branch if half carry flag is set
-def : InstAlias<"brhs\t$k", (BRBSsk 5, rel_condbr_7_target:$k)>;
+def : InstAlias<"brhs\t$k", (BRBSsk 5, relbrtarget_7:$k)>;
 
 // BRHC k
 // Branch if half carry flag is clear
-def : InstAlias<"brhc\t$k", (BRBCsk 5, rel_condbr_7_target:$k)>;
+def : InstAlias<"brhc\t$k", (BRBCsk 5, relbrtarget_7:$k)>;
 
 // BRTS k
 // Branch if the T flag is set
-def : InstAlias<"brts\t$k", (BRBSsk 6, rel_condbr_7_target:$k)>;
+def : InstAlias<"brts\t$k", (BRBSsk 6, relbrtarget_7:$k)>;
 
 // BRTC k
 // Branch if the T flag is clear
-def : InstAlias<"brtc\t$k", (BRBCsk 6, rel_condbr_7_target:$k)>;
+def : InstAlias<"brtc\t$k", (BRBCsk 6, relbrtarget_7:$k)>;
 
 // BRVS k
 // Branch if the overflow flag is set
-def : InstAlias<"brvs\t$k", (BRBSsk 3, rel_condbr_7_target:$k)>;
+def : InstAlias<"brvs\t$k", (BRBSsk 3, relbrtarget_7:$k)>;
 
 // BRVC k
 // Branch if the overflow flag is clear
-def : InstAlias<"brvc\t$k", (BRBCsk 3, rel_condbr_7_target:$k)>;
+def : InstAlias<"brvc\t$k", (BRBCsk 3, relbrtarget_7:$k)>;
 
 // BRIE k
 // Branch if the global interrupt flag is enabled
-def : InstAlias<"brie\t$k", (BRBSsk 7, rel_condbr_7_target:$k)>;
+def : InstAlias<"brie\t$k", (BRBSsk 7, relbrtarget_7:$k)>;
 
 // BRID k
 // Branch if the global interrupt flag is disabled
-def : InstAlias<"brid\t$k", (BRBCsk 7, rel_condbr_7_target:$k)>;
+def : InstAlias<"brid\t$k", (BRBCsk 7, relbrtarget_7:$k)>;
 
 //===----------------------------------------------------------------------===//
 // PC-relative conditional branches
@@ -984,14 +984,14 @@ Uses = [SREG] in
   def BREQk : FBRsk<0,
                     0b001,
                     (outs),
-                    (ins rel_condbr_7_target:$target),
+                    (ins relbrtarget_7:$target),
                     "breq\t$target",
                     [(AVRbrcond bb:$target, AVR_COND_EQ)]>;
 
   def BRNEk : FBRsk<1,
                     0b001,
                     (outs),
-                    (ins rel_condbr_7_target:$target),
+                    (ins relbrtarget_7:$target),
                     "brne\t$target",
                     [(AVRbrcond bb:$target, AVR_COND_NE)]>;
 
@@ -999,42 +999,42 @@ Uses = [SREG] in
   def BRSHk : FBRsk<1,
                     0b000,
                     (outs),
-                    (ins rel_condbr_7_target:$target),
+                    (ins relbrtarget_7:$target),
                     "brsh\t$target",
                     [(AVRbrcond bb:$target, AVR_COND_SH)]>;
 
   def BRLOk : FBRsk<0,
                     0b000,
                     (outs),
-                    (ins rel_condbr_7_target:$target),
+                    (ins relbrtarget_7:$target),
                     "brlo\t$target",
                     [(AVRbrcond bb:$target, AVR_COND_LO)]>;
 
   def BRMIk : FBRsk<0,
                     0b010,
                     (outs),
-                    (ins rel_condbr_7_target:$target),
+                    (ins relbrtarget_7:$target),
                     "brmi\t$target",
                     [(AVRbrcond bb:$target, AVR_COND_MI)]>;
 
   def BRPLk : FBRsk<1,
                     0b010,
                     (outs),
-                    (ins rel_condbr_7_target:$target),
+                    (ins relbrtarget_7:$target),
                     "brpl\t$target",
                     [(AVRbrcond bb:$target, AVR_COND_PL)]>;
 
   def BRGEk : FBRsk<1,
                     0b100,
                     (outs),
-                    (ins rel_condbr_7_target:$target),
+                    (ins relbrtarget_7:$target),
                     "brge\t$target",
                     [(AVRbrcond bb:$target, AVR_COND_GE)]>;
 
   def BRLTk : FBRsk<0,
                     0b100,
                     (outs),
-                    (ins rel_condbr_7_target:$target),
+                    (ins relbrtarget_7:$target),
                     "brlt\t$target",
                     [(AVRbrcond bb:$target, AVR_COND_LT)]>;
 }
