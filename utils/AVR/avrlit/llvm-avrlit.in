@@ -8,6 +8,9 @@
 #
 #===-----------------------------------------------------------------------===#
 
+POLL_DELAY = 0.1
+MAX_RETRIES = 100
+
 import sys, os, textwrap, subprocess, time, serial
 from optparse import OptionParser, OptionGroup
 
@@ -16,6 +19,8 @@ llvm_root = "@LLVM_SOURCE_DIR@"
 avrlit_dir = os.path.join(llvm_root, "utils", "AVR", "avrlit", "libavrlit")
 
 parser = OptionParser("usage: %prog [options] {ll-and-cpp-files}...")
+
+#=== Build Test Executable ------------------------------------------------===#
 
 def writeMakefile(name, cpp, ll):
   fields = {
@@ -47,7 +52,7 @@ def writeMakefile(name, cpp, ll):
     sources = cpp + ll
     compile_cpp = ('avr-g++ -Os -mmcu=$(MCU) {cflags} -I$(AVRLITD) -c $< '
                    '-ffunction-sections -o $@').format(**fields)
-    compile_ll  = 'llc -mtriple=avr-atmel-none $< -filetype=obj -o $@'
+    compile_ll  = 'llc -mtriple=avr-atmel-none -mcpu=$(MCU) $< -filetype=obj -o $@'
     for src in sources:
       (file, ext) = os.path.splitext(os.path.basename(src))
       obj = file + '.$(AVRLIT_BOARD).o'
@@ -84,50 +89,76 @@ def buildTestExecutable(sources, board):
 
   return os.path.join(name, '{}.{}.hex'.format(name, board))
 
-#===============================================================================
+def waitWhilePortExists(port):
+  retries = 0
+  while os.path.exists(port):
+    time.sleep(POLL_DELAY)
+    retries += 1
+    if retries == MAX_RETRIES:
+      raise Exception('Device \'{}\' did not go offline within {} seconds.'
+                      . format(port, retries * POLL_DELAY))
+
+def waitUntilPortExists(port):
+  retries = 0
+  while not os.path.exists(port):
+    time.sleep(POLL_DELAY)
+    retries += 1
+    if retries == MAX_RETRIES:
+      raise Exception('Device \'{}\' is not available after {} seconds.'
+                      . format(port, retries * POLL_DELAY))
+
+#=== Leonardo -------------------------------------------------------------===#
 
 def resetLeonardo(port):
   serial.Serial(port, 1200).close()
-  while os.path.exists(port):
-    time.sleep(0.1)
-  while not os.path.exists(port):
-    time.sleep(0.1)
-  
+  waitWhilePortExists(port)
+
 def uploadLeonardo(executable, port):
   resetLeonardo(port)
+  waitUntilPortExists(port)
   subprocess.check_call(['avrdude', '-patmega32u4', '-cavr109',
                                      '-P', port, '-b57600', '-q', '-q',
                                      '-D', '-Uflash:w:{}:i'.format(executable)],
                                      stderr=subprocess.STDOUT) # doesn't work :-/
+  waitWhilePortExists(port)
+
+#=== Run Executable -------------------------------------------------------===#
 
 def runExecutable(executable, port, board):
   uploadLeonardo(executable, port)
-  while os.path.exists(port):
-    time.sleep(0.1)
+  waitUntilPortExists(port)
   retries = 0
   while True:
     try:
       test = serial.Serial(port, 57600, timeout=1)
       break
     except OSError as e:
-      print(e)
-      time.sleep(0.1)
-      if ++retries == 50:
+      time.sleep(POLL_DELAY)
+      retries += 1
+      if retries == 5:
         raise
 
   done = False
-  passed = True;
+  passed = True
+  timeouts = 0
   while not done:
     line = test.readline().strip()
+    if not line:
+      timeouts += 1
+      if timeouts == 2:
+        print("FAIL: Test hangs.")
+        passed = False
+        done = True
+      continue
     print(line)
     if line.startswith(b'FAIL:'):
-      passed = False;
+      passed = False
     if line == '--':
       done = True
   test.close()
-  return passed;
+  return passed
 
-#===============================================================================
+#=== Main -----------------------------------------------------------------===#
 
 (opts, files) = parser.parse_args()
 if not 'AVRLIT_PORT' in os.environ:
