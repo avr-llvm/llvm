@@ -27,7 +27,7 @@ def writeMakefile(name, cpp, ll):
     'avrlit_dir': avrlit_dir,
     'testname'  : name,
     'prog'      : os.path.basename(sys.argv[0]),
-    'cflags'    : '-std=c++11',
+    'cflags'    : '-std=c++11 -Werror',
   }
   with open(os.path.join(name, "Makefile"), "w") as makefile:
     makefile.write(textwrap.dedent('''
