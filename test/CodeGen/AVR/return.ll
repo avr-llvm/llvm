@@ -1,6 +1,7 @@
 ; RUN: llc -mattr=sram < %s -march=avr | FileCheck %s
 
 ;TODO: test returning byval structs
+; TODO: test naked functions
 
 define void @return_void() {
 ; CHECK: return_void:{{[a-zA-Z0-9 #@]*}}
@@ -66,16 +67,8 @@ define i32 @return32_arg(i32 %x) {
 
 define i32 @return32_arg2(i32 %x, i32 %y, i32 %z) {
 ; CHECK-LABEL: return32_arg2:
-; CHECK: push r14
-; CHECK: push r15
-; CHECK: push r16
-; CHECK: push r17
 ; CHECK: movw r22, r14
 ; CHECK: movw r24, r16
-; CHECK: pop r17
-; CHECK: pop r16
-; CHECK: pop r15
-; CHECK: pop r14
     ret i32 %z
 }
 

@@ -100,7 +100,8 @@ void AVRFrameLowering::emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB)
   unsigned FrameSize = MFI->getStackSize() - AFI->getCalleeSavedFrameSize();
 
   // Skip the callee-saved push instructions.
-  while ((MBBI != MBB.end())
+  while ((MBBI != MBB.end()) &&
+         MBBI->getFlag(MachineInstr::FrameSetup)
          && (MBBI->getOpcode() == AVR::PUSHRr
              || MBBI->getOpcode() == AVR::PUSHWRr))
   {
@@ -468,7 +469,6 @@ determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
     SavedRegs.set(AVR::R28);
   }
 }
-
 /// The frame analyzer pass.
 ///
 /// Scans the function for allocas and used arguments

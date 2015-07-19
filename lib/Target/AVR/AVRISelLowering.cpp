@@ -1285,21 +1285,28 @@ AVRTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
                                    SDLoc dl, SelectionDAG &DAG,
                                    SmallVectorImpl<SDValue> &InVals) const
 {
+  bool ShouldReverseVals;
+
   // Assign locations to each value returned by this call.
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
                  RVLocs, *DAG.getContext());
 
+  // Handle runtime calling convs.
   if(CallConv == CallingConv::AVR_RT_MUL ||
-     CallConv == CallingConv::AVR_RT_DIV)
+     CallConv == CallingConv::AVR_RT_DIV) {
     CCInfo.AnalyzeCallResult(Ins, RetCC_AVR_RT);
-  else
+
+    ShouldReverseVals = false;
+  } else {
     CCInfo.AnalyzeCallResult(Ins, RetCC_AVR);
 
-  // Reverse splitted return values to get the "big endian" format required
-  // to agree with the calling convention ABI.
-  if (RVLocs.size() > 1)
-  {
+    // Reverse splitted return values to get the "big endian" format required
+    // to agree with the calling convention ABI.
+    ShouldReverseVals = (RVLocs.size() > 1);
+  }
+
+  if(ShouldReverseVals) {
     std::reverse(RVLocs.begin(), RVLocs.end());
   }
 
