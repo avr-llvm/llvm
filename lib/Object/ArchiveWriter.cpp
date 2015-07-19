@@ -34,8 +34,6 @@
 
 using namespace llvm;
 
-NewArchiveIterator::NewArchiveIterator() {}
-
 NewArchiveIterator::NewArchiveIterator(object::Archive::child_iterator I,
                                        StringRef Name)
     : IsNewMember(false), Name(Name), OldI(I) {}
@@ -93,8 +91,12 @@ static void printWithSpacePadding(raw_fd_ostream &OS, T Data, unsigned Size,
   }
 }
 
-static void print32BE(raw_ostream &Out, uint32_t Val) {
-  support::endian::Writer<support::big>(Out).write(Val);
+static void print32(raw_ostream &Out, object::Archive::Kind Kind,
+                    uint32_t Val) {
+  if (Kind == object::Archive::K_GNU)
+    support::endian::Writer<support::big>(Out).write(Val);
+  else
+    support::endian::Writer<support::little>(Out).write(Val);
 }
 
 static void printRestOfMemberHeader(raw_fd_ostream &Out,
@@ -109,30 +111,57 @@ static void printRestOfMemberHeader(raw_fd_ostream &Out,
   Out << "`\n";
 }
 
-static void printMemberHeader(raw_fd_ostream &Out, StringRef Name,
-                              const sys::TimeValue &ModTime, unsigned UID,
-                              unsigned GID, unsigned Perms, unsigned Size) {
+static void printGNUSmallMemberHeader(raw_fd_ostream &Out, StringRef Name,
+                                      const sys::TimeValue &ModTime,
+                                      unsigned UID, unsigned GID,
+                                      unsigned Perms, unsigned Size) {
   printWithSpacePadding(Out, Twine(Name) + "/", 16);
   printRestOfMemberHeader(Out, ModTime, UID, GID, Perms, Size);
 }
 
-static void printMemberHeader(raw_fd_ostream &Out, unsigned NameOffset,
-                              const sys::TimeValue &ModTime, unsigned UID,
-                              unsigned GID, unsigned Perms, unsigned Size) {
+static void printBSDMemberHeader(raw_fd_ostream &Out, StringRef Name,
+                                 const sys::TimeValue &ModTime, unsigned UID,
+                                 unsigned GID, unsigned Perms, unsigned Size) {
+  uint64_t PosAfterHeader = Out.tell() + 60 + Name.size();
+  // Pad so that even 64 bit object files are aligned.
+  unsigned Pad = OffsetToAlignment(PosAfterHeader, 8);
+  unsigned NameWithPadding = Name.size() + Pad;
+  printWithSpacePadding(Out, Twine("#1/") + Twine(NameWithPadding), 16);
+  printRestOfMemberHeader(Out, ModTime, UID, GID, Perms,
+                          NameWithPadding + Size);
+  Out << Name;
+  assert(PosAfterHeader == Out.tell());
+  while (Pad--)
+    Out.write(uint8_t(0));
+}
+
+static bool useStringTable(bool Thin, StringRef Name) {
+  return Thin || Name.size() >= 16;
+}
+
+static void
+printMemberHeader(raw_fd_ostream &Out, object::Archive::Kind Kind, bool Thin,
+                  StringRef Name,
+                  std::vector<unsigned>::iterator &StringMapIndexIter,
+                  const sys::TimeValue &ModTime, unsigned UID, unsigned GID,
+                  unsigned Perms, unsigned Size) {
+  if (Kind == object::Archive::K_BSD)
+    return printBSDMemberHeader(Out, Name, ModTime, UID, GID, Perms, Size);
+  if (!useStringTable(Thin, Name))
+    return printGNUSmallMemberHeader(Out, Name, ModTime, UID, GID, Perms, Size);
   Out << '/';
-  printWithSpacePadding(Out, NameOffset, 15);
+  printWithSpacePadding(Out, *StringMapIndexIter++, 15);
   printRestOfMemberHeader(Out, ModTime, UID, GID, Perms, Size);
 }
 
 static void writeStringTable(raw_fd_ostream &Out,
                              ArrayRef<NewArchiveIterator> Members,
-                             std::vector<unsigned> &StringMapIndexes) {
+                             std::vector<unsigned> &StringMapIndexes,
+                             bool Thin) {
   unsigned StartOffset = 0;
-  for (ArrayRef<NewArchiveIterator>::iterator I = Members.begin(),
-                                              E = Members.end();
-       I != E; ++I) {
-    StringRef Name = I->getName();
-    if (Name.size() < 16)
+  for (const NewArchiveIterator &I : Members) {
+    StringRef Name = I.getName();
+    if (!useStringTable(Thin, Name))
       continue;
     if (StartOffset == 0) {
       printWithSpacePadding(Out, "//", 58);
@@ -152,20 +181,26 @@ static void writeStringTable(raw_fd_ostream &Out,
   Out.seek(Pos);
 }
 
+static sys::TimeValue now(bool Deterministic) {
+  if (!Deterministic)
+    return sys::TimeValue::now();
+  sys::TimeValue TV;
+  TV.fromEpochTime(0);
+  return TV;
+}
+
 // Returns the offset of the first reference to a member offset.
 static ErrorOr<unsigned>
-writeSymbolTable(raw_fd_ostream &Out, ArrayRef<NewArchiveIterator> Members,
+writeSymbolTable(raw_fd_ostream &Out, object::Archive::Kind Kind,
+                 ArrayRef<NewArchiveIterator> Members,
                  ArrayRef<MemoryBufferRef> Buffers,
-                 std::vector<unsigned> &MemberOffsetRefs) {
-  unsigned StartOffset = 0;
-  unsigned MemberNum = 0;
-  std::string NameBuf;
-  raw_string_ostream NameOS(NameBuf);
-  unsigned NumSyms = 0;
+                 std::vector<unsigned> &MemberOffsetRefs, bool Deterministic) {
+  unsigned HeaderStartOffset = 0;
+  unsigned BodyStartOffset = 0;
+  SmallString<128> NameBuf;
+  raw_svector_ostream NameOS(NameBuf);
   LLVMContext Context;
-  for (ArrayRef<NewArchiveIterator>::iterator I = Members.begin(),
-                                              E = Members.end();
-       I != E; ++I, ++MemberNum) {
+  for (unsigned MemberNum = 0, N = Members.size(); MemberNum < N; ++MemberNum) {
     MemoryBufferRef MemberBuffer = Buffers[MemberNum];
     ErrorOr<std::unique_ptr<object::SymbolicFile>> ObjOrErr =
         object::SymbolicFile::createSymbolicFile(
@@ -174,10 +209,14 @@ writeSymbolTable(raw_fd_ostream &Out, ArrayRef<NewArchiveIterator> Members,
       continue;  // FIXME: check only for "not an object file" errors.
     object::SymbolicFile &Obj = *ObjOrErr.get();
 
-    if (!StartOffset) {
-      printMemberHeader(Out, "", sys::TimeValue::now(), 0, 0, 0, 0);
-      StartOffset = Out.tell();
-      print32BE(Out, 0);
+    if (!HeaderStartOffset) {
+      HeaderStartOffset = Out.tell();
+      if (Kind == object::Archive::K_GNU)
+        printGNUSmallMemberHeader(Out, "", now(Deterministic), 0, 0, 0, 0);
+      else
+        printBSDMemberHeader(Out, "__.SYMDEF", now(Deterministic), 0, 0, 0, 0);
+      BodyStartOffset = Out.tell();
+      print32(Out, Kind, 0); // number of entries or bytes
     }
 
     for (const object::BasicSymbolRef &S : Obj.symbols()) {
@@ -188,35 +227,55 @@ writeSymbolTable(raw_fd_ostream &Out, ArrayRef<NewArchiveIterator> Members,
         continue;
       if (Symflags & object::SymbolRef::SF_Undefined)
         continue;
+
+      unsigned NameOffset = NameOS.tell();
       if (auto EC = S.printName(NameOS))
         return EC;
       NameOS << '\0';
-      ++NumSyms;
       MemberOffsetRefs.push_back(MemberNum);
-      print32BE(Out, 0);
+      if (Kind == object::Archive::K_BSD)
+        print32(Out, Kind, NameOffset);
+      print32(Out, Kind, 0); // member offset
     }
   }
-  Out << NameOS.str();
 
-  if (StartOffset == 0)
+  if (HeaderStartOffset == 0)
     return 0;
 
-  if (Out.tell() % 2)
-    Out << '\0';
+  StringRef StringTable = NameOS.str();
+  if (Kind == object::Archive::K_BSD)
+    print32(Out, Kind, StringTable.size()); // byte count of the string table
+  Out << StringTable;
 
+  // ld64 requires the next member header to start at an offset that is
+  // 4 bytes aligned.
+  unsigned Pad = OffsetToAlignment(Out.tell(), 4);
+  while (Pad--)
+    Out.write(uint8_t(0));
+
+  // Patch up the size of the symbol table now that we know how big it is.
   unsigned Pos = Out.tell();
-  Out.seek(StartOffset - 12);
-  printWithSpacePadding(Out, Pos - StartOffset, 10);
-  Out.seek(StartOffset);
-  print32BE(Out, NumSyms);
+  const unsigned MemberHeaderSize = 60;
+  Out.seek(HeaderStartOffset + 48); // offset of the size field.
+  printWithSpacePadding(Out, Pos - MemberHeaderSize - HeaderStartOffset, 10);
+
+  // Patch up the number of symbols.
+  Out.seek(BodyStartOffset);
+  unsigned NumSyms = MemberOffsetRefs.size();
+  if (Kind == object::Archive::K_GNU)
+    print32(Out, Kind, NumSyms);
+  else
+    print32(Out, Kind, NumSyms * 8);
+
   Out.seek(Pos);
-  return StartOffset + 4;
+  return BodyStartOffset + 4;
 }
 
 std::pair<StringRef, std::error_code>
 llvm::writeArchive(StringRef ArcName,
                    std::vector<NewArchiveIterator> &NewMembers,
-                   bool WriteSymtab) {
+                   bool WriteSymtab, object::Archive::Kind Kind,
+                   bool Deterministic, bool Thin) {
   SmallString<128> TmpArchive;
   int TmpArchiveFD;
   if (auto EC = sys::fs::createUniqueFile(ArcName + ".temp-archive-%%%%%%%.a",
@@ -225,7 +284,10 @@ llvm::writeArchive(StringRef ArcName,
 
   tool_output_file Output(TmpArchive, TmpArchiveFD);
   raw_fd_ostream &Out = Output.os();
-  Out << "!<arch>\n";
+  if (Thin)
+    Out << "!<thin>\n";
+  else
+    Out << "!<arch>\n";
 
   std::vector<unsigned> MemberOffsetRefs;
 
@@ -256,6 +318,9 @@ llvm::writeArchive(StringRef ArcName,
       MemberRef = Buffers.back()->getMemBufferRef();
     } else {
       object::Archive::child_iterator OldMember = Member.getOld();
+      assert(!Thin ||
+             OldMember->getParent()->isThin() &&
+                 "Thin archives cannot refers to member of other archives");
       ErrorOr<MemoryBufferRef> MemberBufferOrErr =
           OldMember->getMemoryBufferRef();
       if (auto EC = MemberBufferOrErr.getError())
@@ -267,59 +332,64 @@ llvm::writeArchive(StringRef ArcName,
 
   unsigned MemberReferenceOffset = 0;
   if (WriteSymtab) {
-    ErrorOr<unsigned> MemberReferenceOffsetOrErr =
-        writeSymbolTable(Out, NewMembers, Members, MemberOffsetRefs);
+    ErrorOr<unsigned> MemberReferenceOffsetOrErr = writeSymbolTable(
+        Out, Kind, NewMembers, Members, MemberOffsetRefs, Deterministic);
     if (auto EC = MemberReferenceOffsetOrErr.getError())
       return std::make_pair(ArcName, EC);
     MemberReferenceOffset = MemberReferenceOffsetOrErr.get();
   }
 
   std::vector<unsigned> StringMapIndexes;
-  writeStringTable(Out, NewMembers, StringMapIndexes);
+  if (Kind != object::Archive::K_BSD)
+    writeStringTable(Out, NewMembers, StringMapIndexes, Thin);
 
   unsigned MemberNum = 0;
-  unsigned LongNameMemberNum = 0;
   unsigned NewMemberNum = 0;
+  std::vector<unsigned>::iterator StringMapIndexIter = StringMapIndexes.begin();
   std::vector<unsigned> MemberOffset;
-  for (std::vector<NewArchiveIterator>::iterator I = NewMembers.begin(),
-                                                 E = NewMembers.end();
-       I != E; ++I, ++MemberNum) {
+  for (const NewArchiveIterator &I : NewMembers) {
+    MemoryBufferRef File = Members[MemberNum++];
 
     unsigned Pos = Out.tell();
     MemberOffset.push_back(Pos);
 
-    MemoryBufferRef File = Members[MemberNum];
-    if (I->isNewMember()) {
-      StringRef FileName = I->getNew();
+    sys::TimeValue ModTime;
+    unsigned UID;
+    unsigned GID;
+    unsigned Perms;
+    if (Deterministic) {
+      ModTime.fromEpochTime(0);
+      UID = 0;
+      GID = 0;
+      Perms = 0644;
+    } else if (I.isNewMember()) {
       const sys::fs::file_status &Status = NewMemberStatus[NewMemberNum];
-      NewMemberNum++;
-
-      StringRef Name = sys::path::filename(FileName);
-      if (Name.size() < 16)
-        printMemberHeader(Out, Name, Status.getLastModificationTime(),
-                          Status.getUser(), Status.getGroup(),
-                          Status.permissions(), Status.getSize());
-      else
-        printMemberHeader(Out, StringMapIndexes[LongNameMemberNum++],
-                          Status.getLastModificationTime(), Status.getUser(),
-                          Status.getGroup(), Status.permissions(),
-                          Status.getSize());
+      ModTime = Status.getLastModificationTime();
+      UID = Status.getUser();
+      GID = Status.getGroup();
+      Perms = Status.permissions();
     } else {
-      object::Archive::child_iterator OldMember = I->getOld();
-      StringRef Name = I->getName();
-
-      if (Name.size() < 16)
-        printMemberHeader(Out, Name, OldMember->getLastModified(),
-                          OldMember->getUID(), OldMember->getGID(),
-                          OldMember->getAccessMode(), OldMember->getSize());
-      else
-        printMemberHeader(Out, StringMapIndexes[LongNameMemberNum++],
-                          OldMember->getLastModified(), OldMember->getUID(),
-                          OldMember->getGID(), OldMember->getAccessMode(),
-                          OldMember->getSize());
+      object::Archive::child_iterator OldMember = I.getOld();
+      ModTime = OldMember->getLastModified();
+      UID = OldMember->getUID();
+      GID = OldMember->getGID();
+      Perms = OldMember->getAccessMode();
     }
 
-    Out << File.getBuffer();
+    if (I.isNewMember()) {
+      StringRef FileName = I.getNew();
+      const sys::fs::file_status &Status = NewMemberStatus[NewMemberNum++];
+      printMemberHeader(Out, Kind, Thin, sys::path::filename(FileName),
+                        StringMapIndexIter, ModTime, UID, GID, Perms,
+                        Status.getSize());
+    } else {
+      object::Archive::child_iterator OldMember = I.getOld();
+      printMemberHeader(Out, Kind, Thin, I.getName(), StringMapIndexIter,
+                        ModTime, UID, GID, Perms, OldMember->getSize());
+    }
+
+    if (!Thin)
+      Out << File.getBuffer();
 
     if (Out.tell() % 2)
       Out << '\n';
@@ -327,8 +397,11 @@ llvm::writeArchive(StringRef ArcName,
 
   if (MemberReferenceOffset) {
     Out.seek(MemberReferenceOffset);
-    for (unsigned MemberNum : MemberOffsetRefs)
-      print32BE(Out, MemberOffset[MemberNum]);
+    for (unsigned MemberNum : MemberOffsetRefs) {
+      if (Kind == object::Archive::K_BSD)
+        Out.seek(Out.tell() + 4); // skip over the string offset
+      print32(Out, Kind, MemberOffset[MemberNum]);
+    }
   }
 
   Output.keep();

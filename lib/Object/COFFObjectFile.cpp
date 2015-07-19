@@ -154,13 +154,8 @@ ErrorOr<StringRef> COFFObjectFile::getSymbolName(DataRefImpl Ref) const {
   return Result;
 }
 
-uint64_t COFFObjectFile::getSymbolValue(DataRefImpl Ref) const {
-  COFFSymbolRef Sym = getCOFFSymbol(Ref);
-
-  if (Sym.isAnyUndefined() || Sym.isCommon())
-    return UnknownAddress;
-
-  return Sym.getValue();
+uint64_t COFFObjectFile::getSymbolValueImpl(DataRefImpl Ref) const {
+  return getCOFFSymbol(Ref).getValue();
 }
 
 ErrorOr<uint64_t> COFFObjectFile::getSymbolAddress(DataRefImpl Ref) const {
@@ -361,6 +356,8 @@ getFirstReloc(const coff_section *Sec, MemoryBufferRef M, const uint8_t *Base) {
 relocation_iterator COFFObjectFile::section_rel_begin(DataRefImpl Ref) const {
   const coff_section *Sec = toSec(Ref);
   const coff_relocation *begin = getFirstReloc(Sec, Data, base());
+  if (begin && Sec->VirtualAddress != 0)
+    report_fatal_error("Sections with relocations should have an address of 0");
   DataRefImpl Ret;
   Ret.p = reinterpret_cast<uintptr_t>(begin);
   return relocation_iterator(RelocationRef(Ret, this));
@@ -954,10 +951,6 @@ const coff_relocation *COFFObjectFile::toRel(DataRefImpl Rel) const {
 void COFFObjectFile::moveRelocationNext(DataRefImpl &Rel) const {
   Rel.p = reinterpret_cast<uintptr_t>(
             reinterpret_cast<const coff_relocation*>(Rel.p) + 1);
-}
-
-ErrorOr<uint64_t> COFFObjectFile::getRelocationAddress(DataRefImpl Rel) const {
-  report_fatal_error("getRelocationAddress not implemented in COFFObjectFile");
 }
 
 uint64_t COFFObjectFile::getRelocationOffset(DataRefImpl Rel) const {

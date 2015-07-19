@@ -102,9 +102,6 @@ cl::list<std::string>
                        cl::desc("Prints the specified segment,section for "
                                 "Mach-O objects (requires -macho)"));
 
-cl::opt<bool> llvm::Raw("raw",
-                        cl::desc("Have -section dump the raw binary contents"));
-
 cl::opt<bool>
     llvm::InfoPlist("info-plist",
                     cl::desc("Print the info plist section as strings for "
@@ -1046,11 +1043,6 @@ static void DumpSectionContents(StringRef Filename, MachOObjectFile *O,
         uint32_t sect_size = BytesStr.size();
         uint64_t sect_addr = Section.getAddress();
 
-        if (Raw) {
-          outs().write(BytesStr.data(), BytesStr.size());
-          continue;
-        }
-
         outs() << "Contents of (" << SegName << "," << SectName
                << ") section\n";
 
@@ -1179,8 +1171,7 @@ static void ProcessMachO(StringRef Filename, MachOObjectFile *MachOOF,
   // UniversalHeaders or ArchiveHeaders.
   if (Disassemble || PrivateHeaders || ExportsTrie || Rebase || Bind ||
       LazyBind || WeakBind || IndirectSymbols || DataInCode || LinkOptHints ||
-      DylibsUsed || DylibId || ObjcMetaData ||
-      (DumpSections.size() != 0 && !Raw)) {
+      DylibsUsed || DylibId || ObjcMetaData || (DumpSections.size() != 0)) {
     outs() << Filename;
     if (!ArchiveMemberName.empty())
       outs() << '(' << ArchiveMemberName << ')';
@@ -2413,7 +2404,7 @@ static const char *get_pointer_32(uint32_t Address, uint32_t &offset,
 // symbol is passed, look up that address in the info's AddrMap.
 static const char *get_symbol_64(uint32_t sect_offset, SectionRef S,
                                  DisassembleInfo *info, uint64_t &n_value,
-                                 uint64_t ReferenceValue = UnknownAddress) {
+                                 uint64_t ReferenceValue = 0) {
   n_value = 0;
   if (!info->verbose)
     return nullptr;
@@ -2446,8 +2437,6 @@ static const char *get_symbol_64(uint32_t sect_offset, SectionRef S,
   const char *SymbolName = nullptr;
   if (reloc_found && isExtern) {
     n_value = Symbol.getValue();
-    if (n_value == UnknownAddress)
-      n_value = 0;
     ErrorOr<StringRef> NameOrError = Symbol.getName();
     if (std::error_code EC = NameOrError.getError())
       report_fatal_error(EC.message());
@@ -2469,8 +2458,7 @@ static const char *get_symbol_64(uint32_t sect_offset, SectionRef S,
 
   // We did not find an external relocation entry so look up the ReferenceValue
   // as an address of a symbol and if found return that symbol's name.
-  if (ReferenceValue != UnknownAddress)
-    SymbolName = GuessSymbolName(ReferenceValue, info->AddrMap);
+  SymbolName = GuessSymbolName(ReferenceValue, info->AddrMap);
 
   return SymbolName;
 }

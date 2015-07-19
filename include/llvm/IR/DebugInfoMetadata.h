@@ -574,6 +574,7 @@ public:
   bool isStaticMember() const { return getFlags() & FlagStaticMember; }
   bool isLValueReference() const { return getFlags() & FlagLValueReference; }
   bool isRValueReference() const { return getFlags() & FlagRValueReference; }
+  bool isExternalTypeRef() const { return getFlags() & FlagExternalTypeRef; }
 
   DITypeRef getRef() const { return DITypeRef::get(this); }
 
@@ -1085,10 +1086,10 @@ public:
   /// deleted on a uniquing collision.  In practice, uniquing collisions on \a
   /// DICompileUnit should be fairly rare.
   /// @{
-  void replaceEnumTypes(DISubprogramArray N) {
+  void replaceEnumTypes(DICompositeTypeArray N) {
     replaceOperandWith(4, N.get());
   }
-  void replaceRetainedTypes(DISubprogramArray N) {
+  void replaceRetainedTypes(DITypeArray N) {
     replaceOperandWith(5, N.get());
   }
   void replaceSubprograms(DISubprogramArray N) {
@@ -1097,7 +1098,7 @@ public:
   void replaceGlobalVariables(DIGlobalVariableArray N) {
     replaceOperandWith(7, N.get());
   }
-  void replaceImportedEntities(DIGlobalVariableArray N) {
+  void replaceImportedEntities(DIImportedEntityArray N) {
     replaceOperandWith(8, N.get());
   }
   /// @}
