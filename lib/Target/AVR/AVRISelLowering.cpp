@@ -314,7 +314,7 @@ SDValue AVRTargetLowering::LowerDivRem(SDValue Op, SelectionDAG &DAG) const
   }
 
   SDValue Callee = DAG.getExternalSymbol(getLibcallName(LC),
-                                         getPointerTy());
+                                         getPointerTy(DAG.getDataLayout()));
 
   Type *RetTy = (Type*)StructType::get(Ty, Ty, nullptr);
 
@@ -332,23 +332,26 @@ SDValue AVRTargetLowering::LowerDivRem(SDValue Op, SelectionDAG &DAG) const
 SDValue
 AVRTargetLowering::LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const
 {
+  auto DL = DAG.getDataLayout();
+
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   int64_t Offset = cast<GlobalAddressSDNode>(Op)->getOffset();
 
   // Create the TargetGlobalAddress node, folding in the constant offset.
-  SDValue Result = DAG.getTargetGlobalAddress(GV, SDLoc(Op), getPointerTy(),
+  SDValue Result = DAG.getTargetGlobalAddress(GV, SDLoc(Op), getPointerTy(DL),
                                               Offset);
-  return DAG.getNode(AVRISD::Wrapper, SDLoc(Op), getPointerTy(), Result);
+  return DAG.getNode(AVRISD::Wrapper, SDLoc(Op), getPointerTy(DL), Result);
 }
 
 SDValue
 AVRTargetLowering::LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const
 {
+  auto DL = DAG.getDataLayout();
   const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
 
-  SDValue Result = DAG.getTargetBlockAddress(BA, getPointerTy());
+  SDValue Result = DAG.getTargetBlockAddress(BA, getPointerTy(DL));
 
-  return DAG.getNode(AVRISD::Wrapper, SDLoc(Op), getPointerTy(), Result);
+  return DAG.getNode(AVRISD::Wrapper, SDLoc(Op), getPointerTy(DL), Result);
 }
 
 /// IntCCToAVRCC - Convert a DAG integer condition code to an AVR CC.
@@ -633,13 +636,14 @@ SDValue AVRTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const
   const MachineFunction &MF = DAG.getMachineFunction();
   const AVRMachineFunctionInfo *AFI = MF.getInfo<AVRMachineFunctionInfo>();
   const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
-  SDLoc DL(Op);
+  auto DL = DAG.getDataLayout();
+  SDLoc dl(Op);
 
   // Vastart just stores the address of the VarArgsFrameIndex slot into the
   // memory location argument.
-  SDValue FI = DAG.getFrameIndex(AFI->getVarArgsFrameIndex(), getPointerTy());
+  SDValue FI = DAG.getFrameIndex(AFI->getVarArgsFrameIndex(), getPointerTy(DL));
 
-  return DAG.getStore(Op.getOperand(0), DL, FI, Op.getOperand(1),
+  return DAG.getStore(Op.getOperand(0), dl, FI, Op.getOperand(1),
                       MachinePointerInfo(SV), false, false, 0);
 }
 
@@ -675,7 +679,7 @@ SDValue AVRTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const
   return SDValue();
 }
 
-/// ReplaceNodeResults - Replace a node with an illegal result type
+/// Replace a node with an illegal result type
 /// with a new node built out of custom code.
 void AVRTargetLowering::ReplaceNodeResults(SDNode *N,
                                            SmallVectorImpl<SDValue> &Results,
@@ -704,9 +708,10 @@ void AVRTargetLowering::ReplaceNodeResults(SDNode *N,
   }
 }
 
-/// isLegalAddressingMode - Return true if the addressing mode represented
+/// Return true if the addressing mode represented
 /// by AM is legal for this target, for a load/store of the specified type.
-bool AVRTargetLowering::isLegalAddressingMode(const AddrMode &AM,
+bool AVRTargetLowering::isLegalAddressingMode(const DataLayout &DL,
+                                              const AddrMode &AM,
                                               Type *Ty,
                                               unsigned AS) const
 {
@@ -734,7 +739,7 @@ bool AVRTargetLowering::isLegalAddressingMode(const AddrMode &AM,
   return false;
 }
 
-/// getPreIndexedAddressParts - returns true by value, base pointer and
+/// Returns true by value, base pointer and
 /// offset pointer and addressing mode by reference if the node's address
 /// can be legally represented as pre-indexed load / store address.
 bool AVRTargetLowering::getPreIndexedAddressParts(SDNode *N, SDValue &Base,
@@ -788,7 +793,7 @@ bool AVRTargetLowering::getPreIndexedAddressParts(SDNode *N, SDValue &Base,
   return false;
 }
 
-/// getPostIndexedAddressParts - returns true by value, base pointer and
+/// Returns true by value, base pointer and
 /// offset pointer and addressing mode by reference if this node can be
 /// combined with a load / store to form a post-indexed load / store.
 bool AVRTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
@@ -847,7 +852,7 @@ bool AVRTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
   return false;
 }
 
-/// isOffsetFoldingLegal - Return true if folding a constant offset
+/// Return true if folding a constant offset
 /// with the given GlobalAddress is legal.  It is frequently not legal in
 /// PIC relocation models.
 bool
@@ -999,13 +1004,14 @@ LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
 {
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
+  auto DL = DAG.getDataLayout();
 
   // Assign locations to all of the incoming arguments.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
                  ArgLocs, *DAG.getContext());
 
-  analyzeArguments(MF.getFunction(), getDataLayout(), 0, &Ins, CallConv, ArgLocs, CCInfo, false,
+  analyzeArguments(MF.getFunction(), &DL, 0, &Ins, CallConv, ArgLocs, CCInfo, false,
                    isVarArg);
 
   SDValue ArgValue;
@@ -1071,7 +1077,7 @@ LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
 
       // Create the SelectionDAG nodes corresponding to a load
       // from this parameter.
-      SDValue FIN = DAG.getFrameIndex(FI, getPointerTy());
+      SDValue FIN = DAG.getFrameIndex(FI, getPointerTy(DL));
       InVals.push_back(DAG.getLoad(LocVT, dl, Chain, FIN,
                                    MachinePointerInfo::getFixedStack(FI), false,
                                    false, false, 0));
@@ -1127,15 +1133,15 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     const GlobalValue *GV = G->getGlobal();
 
     F = cast<Function>(GV);
-    Callee = DAG.getTargetGlobalAddress(GV, DL, getPointerTy());
+    Callee = DAG.getTargetGlobalAddress(GV, DL, getPointerTy(DAG.getDataLayout()));
   }
   else if (const ExternalSymbolSDNode *ES =
              dyn_cast<ExternalSymbolSDNode>(Callee))
   {
-    Callee = DAG.getTargetExternalSymbol(ES->getSymbol(), getPointerTy());
+    Callee = DAG.getTargetExternalSymbol(ES->getSymbol(), getPointerTy(DAG.getDataLayout()));
   }
 
-  analyzeArguments(F, getDataLayout(), &Outs, 0, CallConv, ArgLocs, CCInfo, true, isVarArg);
+  analyzeArguments(F, &DAG.getDataLayout(), &Outs, 0, CallConv, ArgLocs, CCInfo, true, isVarArg);
 
   // Get a count of how many bytes are to be pushed on the stack.
   unsigned NumBytes = CCInfo.getNextStackOffset();
@@ -1203,8 +1209,8 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       assert(VA.isMemLoc());
 
       // SP points to one stack slot further so add one to adjust it.
-      SDValue PtrOff = DAG.getNode(ISD::ADD, DL, getPointerTy(),
-                                   DAG.getRegister(AVR::SP, getPointerTy()),
+      SDValue PtrOff = DAG.getNode(ISD::ADD, DL, getPointerTy(DAG.getDataLayout()),
+                                   DAG.getRegister(AVR::SP, getPointerTy(DAG.getDataLayout())),
                                    DAG.getIntPtrConstant(VA.getLocMemOffset()
                                                          + 1, DL));
 
@@ -1269,7 +1275,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                          InVals);
 }
 
-/// LowerCallResult - Lower the result values of a call into the
+/// Lower the result values of a call into the
 /// appropriate copies out of appropriate physical registers.
 ///
 SDValue

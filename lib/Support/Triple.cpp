@@ -1184,6 +1184,7 @@ Triple Triple::getBigEndianArchVariant() const {
   case Triple::amdgcn:
   case Triple::amdil64:
   case Triple::amdil:
+  case Triple::avr:
   case Triple::hexagon:
   case Triple::hsail64:
   case Triple::hsail:
@@ -1256,6 +1257,7 @@ Triple Triple::getLittleEndianArchVariant() const {
   case Triple::amdil64:
   case Triple::amdil:
   case Triple::arm:
+  case Triple::avr:
   case Triple::bpfel:
   case Triple::hexagon:
   case Triple::hsail64:

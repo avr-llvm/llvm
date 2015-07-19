@@ -32,7 +32,7 @@ AVRSubtarget::AVRSubtarget(const Triple &TT, const std::string &CPU,
   InstrInfo(),
   FrameLowering(),
   TLInfo(TM),
-  TSInfo(*TM.getDataLayout()),
+  TSInfo(),
   
   // Subtarget features
   m_hasSRAM(),

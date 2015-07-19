@@ -20,7 +20,6 @@ add_llvm_target(AVRCodeGen
   AVRISelLowering.cpp
   AVRMCInstLower.cpp
   AVRRegisterInfo.cpp
-  AVRSelectionDAGInfo.cpp
   AVRSubtarget.cpp
   AVRTargetMachine.cpp
   AVRTargetObjectFile.cpp

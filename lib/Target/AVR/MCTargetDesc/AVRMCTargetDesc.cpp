@@ -43,7 +43,7 @@ static MCInstrInfo *createAVRMCInstrInfo()
   return X;
 }
 
-static MCRegisterInfo *createAVRMCRegisterInfo(StringRef TT)
+static MCRegisterInfo *createAVRMCRegisterInfo(const Triple &TT)
 {
   MCRegisterInfo *X = new MCRegisterInfo();
   InitAVRMCRegisterInfo(X, 0);
@@ -54,13 +54,10 @@ static MCRegisterInfo *createAVRMCRegisterInfo(StringRef TT)
 static MCSubtargetInfo *createAVRMCSubtargetInfo(const Triple &TT, StringRef CPU,
                                                  StringRef FS)
 {
-  MCSubtargetInfo *X = new MCSubtargetInfo();
-  InitAVRMCSubtargetInfo(X, TT, CPU, FS);
-
-  return X;
+  return createAVRMCSubtargetInfoImpl(TT, CPU, FS);
 }
 
-static MCCodeGenInfo *createAVRMCCodeGenInfo(StringRef TT, Reloc::Model RM,
+static MCCodeGenInfo *createAVRMCCodeGenInfo(const Triple &TT, Reloc::Model RM,
                                              CodeModel::Model CM,
                                              CodeGenOpt::Level OL)
 {

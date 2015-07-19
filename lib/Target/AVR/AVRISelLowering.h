@@ -93,7 +93,8 @@ public:
    * by AM is legal for this target, for a load/store
    * of the specified type.
    */
-  bool isLegalAddressingMode(const AddrMode &AM, Type *Ty,
+  bool isLegalAddressingMode(const DataLayout &DL,
+                             const AddrMode &AM, Type *Ty,
                              unsigned AS) const override;
 
   /*!

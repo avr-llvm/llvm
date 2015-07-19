@@ -456,13 +456,16 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 }
 
 void AVRFrameLowering::
-processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
-                                     RegScavenger *RS) const
+determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
+                     RegScavenger *RS) const
 {
+  TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
+
   // Spill register Y when it is used as the frame pointer.
-  if (hasFP(MF))
-  {
-    MF.getRegInfo().setPhysRegUsed(AVR::R29R28);
+  if (hasFP(MF)) {
+    SavedRegs.set(AVR::R29R28);
+    SavedRegs.set(AVR::R29);
+    SavedRegs.set(AVR::R28);
   }
 }
 
