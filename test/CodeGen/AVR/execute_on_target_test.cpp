@@ -1,4 +1,4 @@
-// RUN: llvm-avrlit %s %p/add.ll %p/and.ll %p/xor.ll %p/call.ll
+// RUN: llvm-avrlit %s %p/add.ll %p/and.ll %p/xor.ll %p/call.ll %p/div.ll
 
 #include <avrlit.h>
 
@@ -100,7 +100,6 @@ void test_and(test & t) {
 }
 
 //=== call.ll =================================================================
-
 
 namespace {
   i8  i8_args[11];
@@ -227,6 +226,40 @@ void test_call(test & t) {
 
 }
 
+//=== div.ll ==================================================================
+
+extern "C" {
+  i8 udiv8(i8, i8);
+  i8 sdiv8(i8, i8);
+  i8 udiv16(i16, i16);
+  i8 sdiv16(i16, i16);
+}
+
+//#define XFAIL 4
+#define XFAIL 0
+
+void test_div(test & t) {
+  t.plan(7 + XFAIL, PSTR("DIV"));
+
+  t.ok(_(udiv8(3, 150) == 150 / 3));
+  t.ok(_(udiv8(4, 200) == 200 / 4));
+  t.ok(_(udiv8(3, 200) == 200 / 3));
+
+  t.ok(_(sdiv8(3, 90) == 90 / 3));
+  t.ok(_(sdiv8(3, 60) == 60 / 3));
+  t.ok(_(sdiv8(7, -66) == i8(-66 / 7)));
+
+  t.ok(_(udiv16(3, 300) == 300 / 3));
+  t.os() << "==== " << dec(udiv16(3, 34567)) << " " << dec(34567 / 3) << "\n";
+#if XFAIL // these fail... 
+  t.ok(_(udiv16(3, 34567) == 34567 / 3));
+  t.ok(_(udiv16(2, 0xbfff) == 0xbfff / 2));
+
+  t.ok(_(sdiv16(1234, 4321) == 4321 / 1234));
+  t.ok(_(sdiv16(1234, -4321) ==  i16(-4321/ 1234)));
+#endif
+}
+
 //=== xor.ll ==================================================================
 extern "C" {
   i8  xor8_reg_reg(i8, i8);
@@ -258,6 +291,6 @@ void test_xor(test & t) {
 //=== Test Suite ==============================================================
 
 AVRLIT_TEST_SUITE() {
-  run(test_add, test_and, test_call, test_xor);
+  run(test_add, test_and, test_call, test_div, test_xor);
 }
 
