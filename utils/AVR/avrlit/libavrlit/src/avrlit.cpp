@@ -39,12 +39,7 @@ ostream::print(pstr const& str) {
 
 ostream get_cdc_stream() { return ostream((ostream::USB_ClassInfo_CDC_Device_t*)&cdc); }
 
-struct dec {
-  explicit dec(int n) { itoa(n, buf_, 10); }
-  operator char const*() { return buf_; }
-private:
-  char buf_[6];
-};
+dec::dec(int n) { itoa(n, buf_, 10); }
 
 void
 test::ok(bool is_ok, char const* expr, char const* file, unsigned line) {

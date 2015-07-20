@@ -59,6 +59,13 @@ operator << (avrlit::ostream & os, avrlit::pstr const& str) {
 
 namespace avrlit {
 
+struct dec {
+  explicit dec(int n);
+  operator char const*() { return buf_; }
+private:
+  char buf_[6];
+};
+
 class test {
   public:
     explicit test(ostream const& os) :
@@ -66,6 +73,8 @@ class test {
     ~test() { summarize(); }
     void ok(bool result, char const* expression, char const* file, unsigned line);
     void plan(unsigned count, char const * name = nullptr);
+
+    ostream & os() { return os_; }
   private:
     void summarize();
     ostream os_;
