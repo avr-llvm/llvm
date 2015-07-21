@@ -151,9 +151,10 @@ run(F... tests) {
 
 } // end of namespace avrlit
 
-# define AVRLIT_TEST_SUITE() int main()
+# define AVRLIT_TEST_SUITE() \
+namespace { char const*const PROGMEM avrlit_test_suite_file = __FILE__; }
 
-# define AVRLIT_TEST_EXPRESSION(x) x, PSTR(#x), PSTR(__FILE__), __LINE__
+# define AVRLIT_TEST_EXPRESSION(x) x, PSTR(#x), avrlit_test_suite_file, __LINE__
 
 # define _(x)       AVRLIT_TEST_EXPRESSION(x)
 

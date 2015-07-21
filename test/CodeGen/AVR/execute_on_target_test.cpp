@@ -4,6 +4,8 @@
 
 using namespace avrlit;
 
+AVRLIT_TEST_SUITE();
+
 //=== add.ll ==================================================================
 extern "C" {
   i8  add8_reg_reg(i8, i8);
@@ -320,8 +322,7 @@ void test_xor(test & t) {
 }
 
 //=== Test Suite ==============================================================
-
-AVRLIT_TEST_SUITE() {
+int main() {
   run(test_add, test_and, test_call, test_div, test_rem, test_xor);
 }
 
