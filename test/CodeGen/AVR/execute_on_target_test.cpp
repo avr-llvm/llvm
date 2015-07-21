@@ -1,4 +1,4 @@
-// RUN: llvm-avrlit %s %p/add.ll %p/and.ll %p/xor.ll %p/call.ll %p/div.ll
+// RUN: llvm-avrlit %s %p/add.ll %p/and.ll %p/xor.ll %p/call.ll %p/div.ll %p/rem.ll
 
 #include <avrlit.h>
 
@@ -56,14 +56,14 @@ void test_add(test & t) {
 
 //=== and.ll ==================================================================
 extern "C" {
-  i8  and8_reg_reg(i8, i8);
-  i8  and8_reg_imm(i8);
-  i16 and16_reg_reg(i16, i16);
-  i16 and16_reg_imm(i16);
-  i32 and32_reg_reg(i32, i32);
-  i32 and32_reg_imm(i32);
-  i64 and64_reg_reg(i64, i64);
-  i64 and64_reg_imm(i64);
+  u8  and8_reg_reg(u8, u8);
+  u8  and8_reg_imm(u8);
+  u16 and16_reg_reg(u16, u16);
+  u16 and16_reg_imm(u16);
+  u32 and32_reg_reg(u32, u32);
+  u32 and32_reg_imm(u32);
+  u64 and64_reg_reg(u64, u64);
+  u64 and64_reg_imm(u64);
 }
 
 void test_and(test & t) {
@@ -229,17 +229,16 @@ void test_call(test & t) {
 //=== div.ll ==================================================================
 
 extern "C" {
-  i8 udiv8(i8, i8);
+  u8 udiv8(u8, u8);
   i8 sdiv8(i8, i8);
-  i8 udiv16(i16, i16);
+  u8 udiv16(u16, u16);
   i8 sdiv16(i16, i16);
 }
 
-//#define XFAIL 4
+//#define XFAIL 2
 #define XFAIL 0
-
 void test_div(test & t) {
-  t.plan(7 + XFAIL, PSTR("DIV"));
+  t.plan(10 + XFAIL, PSTR("DIV"));
 
   t.ok(_(udiv8(150, 3) == 150 / 3));
   t.ok(_(udiv8(200, 4) == 200 / 4));
@@ -247,25 +246,63 @@ void test_div(test & t) {
 
   t.ok(_(sdiv8(90, 3) == 90 / 3));
   t.ok(_(sdiv8(60, 3) == 60 / 3));
-  t.ok(_(sdiv8(-66, 7) == i8(-66 / 7)));
+  t.ok(_(sdiv8(-66, 7) == -66 / 7));
 
   t.ok(_(udiv16(300, 3) == 300 / 3));
-  t.os() << "==== " << dec(udiv16(34567, 3)) << " " << dec(34567 / 3) << "\n";
+  t.ok(_(udiv16(400, 3) == 400 / 3));
 #if XFAIL // these fail... 
-  t.ok(_(udiv16(34567, 3) == 34567 / 3));
-  t.ok(_(udiv16(0xbfff, 2) == 0xbfff / 2));
+  t.ok(_(udiv16(34567, 3) == 34567u / 3));
+  t.os() << "==== " << dec(udiv16(34567, 3)) << " " << dec(34567 / 3) << "\n";
+  t.ok(_(udiv16(0xbfff, 2) == 0xbfffu / 2));
+  t.os() << "==== " << dec(udiv16(0xbfff, 2)) << " " << dec(0xbfff / 2) << "\n";
+#endif
 
   t.ok(_(sdiv16(4321, 1234) == 4321 / 1234));
-  t.ok(_(sdiv16(-4321, 1234) ==  i16(-4321 / 1234)));
-#endif
+  t.ok(_(sdiv16(-4321, 1234) ==  -4321 / 1234));
+}
+#undef XFAIL
+
+//=== rem.ll ==================================================================
+
+extern "C" {
+  u8 urem8(u8, u8);
+  i8 srem8(i8, i8);
+  u16 urem16(u16, u16);
+  i16 srem16(i16, i16);
+}
+
+void test_rem(test & t) {
+  t.plan(17, PSTR("REM"));
+
+  t.ok(_(urem8(123, 5) == 123 % 5));
+  t.ok(_(urem8(15, 5) == 15 % 5));
+  t.ok(_(urem8(123, 124) == 123 % 124));
+  t.ok(_(urem8(0, 15) == 0 % 15));
+  t.ok(_(urem8(255, 1) == 255 % 1));
+  t.ok(_(urem8(255, 15) == 255 % 15));
+
+  t.ok(_(srem8(-123, 15) == -123 % 15));
+  t.ok(_(srem8(23, -3) == 23 % -3));
+  t.ok(_(srem8(127, 3) == 127 % 3));
+  t.ok(_(srem8(23, 3) == 23 % 3));
+
+  t.ok(_(urem16(23, 3) == 23 % 3));
+  t.ok(_(urem16(1234, 123) == 1234 % 123));
+  t.ok(_(urem16(12345, 123) == 12345 % 123));
+  t.ok(_(urem16(0xffff, 123) == 0xffff % 123));
+
+  t.ok(_(srem16(64, 3) == 64 % 3));
+  t.ok(_(srem16(-1234, -23) == -1234 % -23));
+  t.ok(_(srem16(-12345, 2345) == -12345 % 2345));
 }
 
 //=== xor.ll ==================================================================
+
 extern "C" {
-  i8  xor8_reg_reg(i8, i8);
-  i16 xor16_reg_reg(i16, i16);
-  i32 xor32_reg_reg(i32, i32);
-  i64 xor64_reg_reg(i64, i64);
+  u8  xor8_reg_reg(u8, u8);
+  u16 xor16_reg_reg(u16, u16);
+  u32 xor32_reg_reg(u32, u32);
+  u64 xor64_reg_reg(u64, u64);
 }
 
 void test_xor(test & t) {
@@ -291,6 +328,6 @@ void test_xor(test & t) {
 //=== Test Suite ==============================================================
 
 AVRLIT_TEST_SUITE() {
-  run(test_add, test_and, test_call, test_div, test_xor);
+  run(test_add, test_and, test_call, test_div, test_rem, test_xor);
 }
 
