@@ -231,14 +231,12 @@ void test_call(test & t) {
 extern "C" {
   u8 udiv8(u8, u8);
   i8 sdiv8(i8, i8);
-  u8 udiv16(u16, u16);
-  i8 sdiv16(i16, i16);
+  u16 udiv16(u16, u16);
+  i16 sdiv16(i16, i16);
 }
 
-//#define XFAIL 2
-#define XFAIL 0
 void test_div(test & t) {
-  t.plan(10 + XFAIL, PSTR("DIV"));
+  t.plan(13, PSTR("DIV"));
 
   t.ok(_(udiv8(150, 3) == 150 / 3));
   t.ok(_(udiv8(200, 4) == 200 / 4));
@@ -250,17 +248,13 @@ void test_div(test & t) {
 
   t.ok(_(udiv16(300, 3) == 300 / 3));
   t.ok(_(udiv16(400, 3) == 400 / 3));
-#if XFAIL // these fail... 
+  t.ok(_(udiv16(4000, 3) == 4000u / 3));
   t.ok(_(udiv16(34567, 3) == 34567u / 3));
-  t.os() << "==== " << dec(udiv16(34567, 3)) << " " << dec(34567 / 3) << "\n";
   t.ok(_(udiv16(0xbfff, 2) == 0xbfffu / 2));
-  t.os() << "==== " << dec(udiv16(0xbfff, 2)) << " " << dec(0xbfff / 2) << "\n";
-#endif
 
   t.ok(_(sdiv16(4321, 1234) == 4321 / 1234));
   t.ok(_(sdiv16(-4321, 1234) ==  -4321 / 1234));
 }
-#undef XFAIL
 
 //=== rem.ll ==================================================================
 

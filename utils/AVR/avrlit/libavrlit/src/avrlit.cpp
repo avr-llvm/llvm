@@ -40,6 +40,7 @@ ostream::print(pstr const& str) {
 ostream get_cdc_stream() { return ostream((ostream::USB_ClassInfo_CDC_Device_t*)&cdc); }
 
 dec::dec(int n) { itoa(n, buf_, 10); }
+dec::dec(unsigned int n) { utoa(n, buf_, 10); }
 
 void
 test::ok(bool is_ok, char const* expr, char const* file, unsigned line) {

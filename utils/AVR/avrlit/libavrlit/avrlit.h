@@ -66,6 +66,7 @@ namespace avrlit {
 
 struct dec {
   explicit dec(int n);
+  explicit dec(unsigned int n);
   operator char const*() { return buf_; }
 private:
   char buf_[6];
