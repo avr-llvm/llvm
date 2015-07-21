@@ -24,7 +24,7 @@ define i8 @sdiv8(i8 %a, i8 %b) {
 define i16 @udiv16(i16 %a, i16 %b) {
 ; CHECK-LABEL: udiv16:
 ; CHECK: call __udivmodhi4
-; CHECL: movw r24, r22
+; CHECK: movw r24, r22
 ; CHECK: ret
   %quot = udiv i16 %a, %b
   ret i16 %quot
@@ -34,7 +34,7 @@ define i16 @udiv16(i16 %a, i16 %b) {
 define i16 @sdiv16(i16 %a, i16 %b) {
 ; CHECK-LABEL: sdiv16:
 ; CHECK: call __divmodhi4
-; CHECL: movw r24, r22
+; CHECK: movw r24, r22
 ; CHECK: ret
   %quot = sdiv i16 %a, %b
   ret i16 %quot
