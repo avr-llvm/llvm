@@ -122,13 +122,13 @@ public:
   AVROperand(unsigned Reg, MCExpr const* Imm, SMLoc const& S, SMLoc const& E)
     : Base(), Kind(k_Memri), RegImm({Reg,Imm}), Start(S), End(E) { }
 
+  struct RegisterImmediate {
+    unsigned       Reg;
+    MCExpr const*  Imm;
+  };
   union {
     StringRef      Tok;
-
-    struct {
-      unsigned       Reg;
-      MCExpr const*  Imm;
-    } RegImm;
+    RegisterImmediate RegImm;
   };
 
   SMLoc Start, End;
