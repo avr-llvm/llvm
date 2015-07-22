@@ -54,10 +54,8 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
 {
   OutMI.setOpcode(MI->getOpcode());
 
-  for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i)
-  {
+  for (MachineOperand const& MO : MI->operands()) {
     MCOperand MCOp;
-    const MachineOperand &MO = MI->getOperand(i);
 
     switch (MO.getType())
     {

@@ -303,11 +303,9 @@ SDValue AVRTargetLowering::LowerDivRem(SDValue Op, SelectionDAG &DAG) const
 
   TargetLowering::ArgListTy Args;
   TargetLowering::ArgListEntry Entry;
-  for (unsigned i = 0, e = Op->getNumOperands(); i != e; ++i) {
-    EVT ArgVT = Op->getOperand(i).getValueType();
-    Type *ArgTy = ArgVT.getTypeForEVT(*DAG.getContext());
-    Entry.Node = Op->getOperand(i);
-    Entry.Ty = ArgTy;
+  for (SDValue const& Value : Op->op_values()) {
+    Entry.Node = Value;
+    Entry.Ty = Value.getValueType().getTypeForEVT(*DAG.getContext());
     Entry.isSExt = isSigned;
     Entry.isZExt = !isSigned;
     Args.push_back(Entry);
@@ -873,10 +871,8 @@ AVRTargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const
 static void parseFunctionArgs(const Function *F, const DataLayout *TD,
                               SmallVectorImpl<unsigned> &Out)
 {
-  for (Function::const_arg_iterator I = F->arg_begin(), E = F->arg_end();
-       I != E; ++I)
-  {
-    unsigned Bytes = TD->getTypeSizeInBits(I->getType()) / 8;
+  for (Argument const& Arg : F->args()) {
+    unsigned Bytes = TD->getTypeSizeInBits(Arg.getType()) / 8;
     Out.push_back(((Bytes == 1) || (Bytes == 2)) ? 1 : Bytes / 2);
   }
 }
@@ -1015,13 +1011,10 @@ LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
                    isVarArg);
 
   SDValue ArgValue;
-  for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i)
-  {
-    CCValAssign &VA = ArgLocs[i];
+  for (CCValAssign & VA : ArgLocs) {
 
     // Arguments stored on registers.
-    if (VA.isRegLoc())
-    {
+    if (VA.isRegLoc()) {
       EVT RegVT = VA.getLocVT();
       const TargetRegisterClass *RC;
       if (RegVT == MVT::i8) {
@@ -1063,9 +1056,7 @@ LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
       }
 
       InVals.push_back(ArgValue);
-    }
-    else
-    {
+    } else {
       // Sanity check.
       assert(VA.isMemLoc());
 
@@ -1224,10 +1215,8 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // flag operands which copy the outgoing args into registers.  The InFlag in
   // necessary since all emited instructions must be stuck together.
   SDValue InFlag;
-  for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i)
-  {
-    Chain = DAG.getCopyToReg(Chain, DL, RegsToPass[i].first,
-                             RegsToPass[i].second, InFlag);
+  for (auto Reg : RegsToPass) {
+    Chain = DAG.getCopyToReg(Chain, DL, Reg.first, Reg.second, InFlag);
     InFlag = Chain.getValue(1);
   }
 
@@ -1239,10 +1228,8 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   // Add argument registers to the end of the list so that they are known live
   // into the call.
-  for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i)
-  {
-    Ops.push_back(DAG.getRegister(RegsToPass[i].first,
-                                  RegsToPass[i].second.getValueType()));
+  for (auto Reg : RegsToPass) {
+    Ops.push_back(DAG.getRegister(Reg.first, Reg.second.getValueType()));
   }
 
   // Add a register mask operand representing the call-preserved registers.
@@ -1311,10 +1298,9 @@ AVRTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
   }
 
   // Copy all of the result registers out of their specified physreg.
-  for (unsigned i = 0, e = RVLocs.size(); i != e; ++i)
-  {
-    Chain = DAG.getCopyFromReg(Chain, dl, RVLocs[i].getLocReg(),
-                               RVLocs[i].getValVT(), InFlag).getValue(1);
+  for (CCValAssign const& RVLoc : RVLocs) {
+    Chain = DAG.getCopyFromReg(Chain, dl, RVLoc.getLocReg(),
+                               RVLoc.getValVT(), InFlag).getValue(1);
     InFlag = Chain.getValue(2);
     InVals.push_back(Chain.getValue(0));
   }
@@ -1341,8 +1327,7 @@ AVRTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                  RVLocs, *DAG.getContext());
 
   // Analize return values.
-  if(CallConv == CallingConv::AVR_RT_MUL ||
-     CallConv == CallingConv::AVR_RT_DIV)
+  if(CallConv == CallingConv::AVR_RT_MUL || CallConv == CallingConv::AVR_RT_DIV)
     CCInfo.AnalyzeReturn(Outs, RetCC_AVR_RT);
   else
     CCInfo.AnalyzeReturn(Outs, RetCC_AVR);
