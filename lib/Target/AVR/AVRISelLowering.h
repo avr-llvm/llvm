@@ -73,7 +73,9 @@ class AVRTargetLowering : public TargetLowering
 public:
   explicit AVRTargetLowering(AVRTargetMachine &TM);
 public:
-  MVT getScalarShiftAmountTy(EVT LHSTy) const { return MVT::i8; }
+  MVT getScalarShiftAmountTy(const DataLayout &, EVT LHSTy) const override {
+    return MVT::i8;
+  }
   const char *getTargetNodeName(unsigned Opcode) const override;
 
   /*!
