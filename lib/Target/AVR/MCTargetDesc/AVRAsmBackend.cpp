@@ -134,7 +134,8 @@ namespace ldi
   fixup(unsigned Size, const MCFixup &Fixup,
         T &Value, MCContext *Ctx = nullptr)
   {
-    if(!isIntN(Size, Value) && Ctx != nullptr)
+    // make sure there are no bits above 0xff
+    if((Value & ~0xff) != 0)
       Ctx->reportFatalError(Fixup.getLoc(), "out of range immediate to LDI");
 
     T upper = Value & 0xf0;
