@@ -135,7 +135,7 @@ namespace ldi
         T &Value, MCContext *Ctx = nullptr)
   {
     // make sure there are no bits above 0xff
-    if((Value & ~0xff) != 0)
+    if((Value & ~0xff) != 0 && Ctx != nullptr)
       Ctx->reportFatalError(Fixup.getLoc(), "out of range immediate to LDI");
 
     T upper = Value & 0xf0;
