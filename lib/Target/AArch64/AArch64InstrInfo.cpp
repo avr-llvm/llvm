@@ -533,6 +533,14 @@ void AArch64InstrInfo::insertSelect(MachineBasicBlock &MBB,
       CC);
 }
 
+/// Returns true if a MOVi32imm or MOVi64imm can be expanded to an  ORRxx.
+static bool canBeExpandedToORR(const MachineInstr *MI, unsigned BitSize) {
+  uint64_t Imm = MI->getOperand(1).getImm();
+  uint64_t UImm = Imm << (64 - BitSize) >> (64 - BitSize);
+  uint64_t Encoding;
+  return AArch64_AM::processLogicalImmediate(UImm, BitSize, Encoding);
+}
+
 // FIXME: this implementation should be micro-architecture dependent, so a
 // micro-architecture target hook should be introduced here in future.
 bool AArch64InstrInfo::isAsCheapAsAMove(const MachineInstr *MI) const {
@@ -573,6 +581,12 @@ bool AArch64InstrInfo::isAsCheapAsAMove(const MachineInstr *MI) const {
   case AArch64::ORRWrr:
   case AArch64::ORRXrr:
     return true;
+  // If MOVi32imm or MOVi64imm can be expanded into ORRWri or
+  // ORRXri, it is as cheap as MOV
+  case AArch64::MOVi32imm:
+    return canBeExpandedToORR(MI, 32);
+  case AArch64::MOVi64imm:
+    return canBeExpandedToORR(MI, 64);
   }
 
   llvm_unreachable("Unknown opcode to check as cheap as a move!");
@@ -1445,23 +1459,43 @@ bool AArch64InstrInfo::shouldClusterLoads(MachineInstr *FirstLdSt,
 
 bool AArch64InstrInfo::shouldScheduleAdjacent(MachineInstr *First,
                                               MachineInstr *Second) const {
-  // Cyclone can fuse CMN, CMP followed by Bcc.
-
-  // FIXME: B0 can also fuse:
-  // AND, BIC, ORN, ORR, or EOR (optional S) followed by Bcc or CBZ or CBNZ.
-  if (Second->getOpcode() != AArch64::Bcc)
-    return false;
-  switch (First->getOpcode()) {
-  default:
-    return false;
-  case AArch64::SUBSWri:
-  case AArch64::ADDSWri:
-  case AArch64::ANDSWri:
-  case AArch64::SUBSXri:
-  case AArch64::ADDSXri:
-  case AArch64::ANDSXri:
-    return true;
+  if (Subtarget.isCyclone()) {
+    // Cyclone can fuse CMN, CMP, TST followed by Bcc.
+    unsigned SecondOpcode = Second->getOpcode();
+    if (SecondOpcode == AArch64::Bcc) {
+      switch (First->getOpcode()) {
+      default:
+        return false;
+      case AArch64::SUBSWri:
+      case AArch64::ADDSWri:
+      case AArch64::ANDSWri:
+      case AArch64::SUBSXri:
+      case AArch64::ADDSXri:
+      case AArch64::ANDSXri:
+        return true;
+      }
+    }
+    // Cyclone B0 also supports ALU operations followed by CBZ/CBNZ.
+    if (SecondOpcode == AArch64::CBNZW || SecondOpcode == AArch64::CBNZX ||
+        SecondOpcode == AArch64::CBZW || SecondOpcode == AArch64::CBZX) {
+      switch (First->getOpcode()) {
+      default:
+        return false;
+      case AArch64::ADDWri:
+      case AArch64::ADDXri:
+      case AArch64::ANDWri:
+      case AArch64::ANDXri:
+      case AArch64::EORWri:
+      case AArch64::EORXri:
+      case AArch64::ORRWri:
+      case AArch64::ORRXri:
+      case AArch64::SUBWri:
+      case AArch64::SUBXri:
+        return true;
+      }
+    }
   }
+  return false;
 }
 
 MachineInstr *AArch64InstrInfo::emitFrameIndexDebugValue(

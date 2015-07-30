@@ -354,7 +354,7 @@ def S_CMP_LE_U32 : SOPC_32 <0x0000000b, "s_cmp_le_u32">;
 // SOPK Instructions
 //===----------------------------------------------------------------------===//
 
-let isReMaterializable = 1 in {
+let isReMaterializable = 1, isMoveImm = 1 in {
 defm S_MOVK_I32 : SOPK_32 <sopk<0x00>, "s_movk_i32", []>;
 } // End isReMaterializable = 1
 let Uses = [SCC] in {
@@ -2910,9 +2910,6 @@ defm : MUBUFLoad_Pattern <BUFFER_LOAD_SBYTE_ADDR64, i32, sextloadi8_constant>;
 defm : MUBUFLoad_Pattern <BUFFER_LOAD_UBYTE_ADDR64, i32, az_extloadi8_constant>;
 defm : MUBUFLoad_Pattern <BUFFER_LOAD_SSHORT_ADDR64, i32, sextloadi16_constant>;
 defm : MUBUFLoad_Pattern <BUFFER_LOAD_USHORT_ADDR64, i32, az_extloadi16_constant>;
-defm : MUBUFLoad_Pattern <BUFFER_LOAD_DWORD_ADDR64, i32, constant_load>;
-defm : MUBUFLoad_Pattern <BUFFER_LOAD_DWORDX2_ADDR64, v2i32, constant_load>;
-defm : MUBUFLoad_Pattern <BUFFER_LOAD_DWORDX4_ADDR64, v4i32, constant_load>;
 } // End Predicates = [isSICI]
 
 class MUBUFScratchLoadPat <MUBUF Instr, ValueType vt, PatFrag ld> : Pat <
@@ -3273,13 +3270,13 @@ def : Pat <
   (f64 (fadd (f64 (VOP3Mods f64:$x, i32:$mods)),
              (f64 (fneg (f64 (ffloor (f64 (VOP3Mods f64:$x, i32:$mods)))))))),
   (V_CNDMASK_B64_PSEUDO
-      $x,
       (V_MIN_F64
           SRCMODS.NONE,
           (V_FRACT_F64_e64 $mods, $x, DSTCLAMP.NONE, DSTOMOD.NONE),
           SRCMODS.NONE,
           (V_MOV_B64_PSEUDO 0x3fefffffffffffff),
           DSTCLAMP.NONE, DSTOMOD.NONE),
+      $x,
       (V_CMP_CLASS_F64_e64 SRCMODS.NONE, $x, 3/*NaN*/))
 >;
 
@@ -3291,13 +3288,13 @@ def : Pat <
       $x,
       SRCMODS.NEG,
       (V_CNDMASK_B64_PSEUDO
-         $x,
          (V_MIN_F64
              SRCMODS.NONE,
              (V_FRACT_F64_e64 $mods, $x, DSTCLAMP.NONE, DSTOMOD.NONE),
              SRCMODS.NONE,
              (V_MOV_B64_PSEUDO 0x3fefffffffffffff),
              DSTCLAMP.NONE, DSTOMOD.NONE),
+         $x,
          (V_CMP_CLASS_F64_e64 SRCMODS.NONE, $x, 3/*NaN*/)),
       DSTCLAMP.NONE, DSTOMOD.NONE)
 >;

@@ -123,6 +123,7 @@ int llvm::runOrcLazyJIT(std::unique_ptr<Module> M, int ArgC, char* ArgV[]) {
   EngineBuilder EB;
   EB.setOptLevel(getOptLevel());
   auto TM = std::unique_ptr<TargetMachine>(EB.selectTarget());
+  M->setDataLayout(TM->createDataLayout());
   auto &Context = getGlobalContext();
   auto CallbackMgrBuilder =
     OrcLazyJIT::createCallbackManagerBuilder(Triple(TM->getTargetTriple()));
@@ -136,7 +137,8 @@ int llvm::runOrcLazyJIT(std::unique_ptr<Module> M, int ArgC, char* ArgV[]) {
   }
 
   // Everything looks good. Build the JIT.
-  OrcLazyJIT J(std::move(TM), Context, CallbackMgrBuilder);
+  auto &DL = M->getDataLayout();
+  OrcLazyJIT J(std::move(TM), DL, Context, CallbackMgrBuilder);
 
   // Add the module, look up main and run it.
   auto MainHandle = J.addModule(std::move(M));

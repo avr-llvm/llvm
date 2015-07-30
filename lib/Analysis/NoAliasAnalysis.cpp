@@ -46,33 +46,30 @@ namespace {
       return MayAlias;
     }
 
-    ModRefBehavior getModRefBehavior(ImmutableCallSite CS) override {
-      return UnknownModRefBehavior;
+    FunctionModRefBehavior getModRefBehavior(ImmutableCallSite CS) override {
+      return FMRB_UnknownModRefBehavior;
     }
-    ModRefBehavior getModRefBehavior(const Function *F) override {
-      return UnknownModRefBehavior;
+    FunctionModRefBehavior getModRefBehavior(const Function *F) override {
+      return FMRB_UnknownModRefBehavior;
     }
 
     bool pointsToConstantMemory(const MemoryLocation &Loc,
                                 bool OrLocal) override {
       return false;
     }
-    ModRefResult getArgModRefInfo(ImmutableCallSite CS,
-                                  unsigned ArgIdx) override {
-      return ModRef;
+    ModRefInfo getArgModRefInfo(ImmutableCallSite CS,
+                                unsigned ArgIdx) override {
+      return MRI_ModRef;
     }
 
-    ModRefResult getModRefInfo(ImmutableCallSite CS,
-                               const MemoryLocation &Loc) override {
-      return ModRef;
+    ModRefInfo getModRefInfo(ImmutableCallSite CS,
+                             const MemoryLocation &Loc) override {
+      return MRI_ModRef;
     }
-    ModRefResult getModRefInfo(ImmutableCallSite CS1,
-                               ImmutableCallSite CS2) override {
-      return ModRef;
+    ModRefInfo getModRefInfo(ImmutableCallSite CS1,
+                             ImmutableCallSite CS2) override {
+      return MRI_ModRef;
     }
-
-    void deleteValue(Value *V) override {}
-    void addEscapingUse(Use &U) override {}
 
     /// getAdjustedAnalysisPointer - This method is used when a pass implements
     /// an analysis interface through multiple inheritance.  If needed, it

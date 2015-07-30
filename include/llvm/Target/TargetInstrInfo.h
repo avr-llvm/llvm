@@ -819,10 +819,6 @@ protected:
   }
 
 public:
-  /// Returns true for the specified load / store if folding is possible.
-  virtual bool canFoldMemoryOperand(const MachineInstr *MI,
-                                    ArrayRef<unsigned> Ops) const;
-
   /// unfoldMemoryOperand - Separate a single instruction which folded a load or
   /// a store or a load and a store into two or more instruction. If this is
   /// possible, returns true as well as the new instructions by reference.
@@ -1264,6 +1260,16 @@ public:
     // The default lookahead is small to prevent unprofitable quadratic
     // behavior.
     return 5;
+  }
+
+  /// Return an array that contains the ids of the target indices (used for the
+  /// TargetIndex machine operand) and their names.
+  ///
+  /// MIR Serialization is able to serialize only the target indices that are
+  /// defined by this method.
+  virtual ArrayRef<std::pair<int, const char *>>
+  getSerializableTargetIndices() const {
+    return None;
   }
 
 private:

@@ -113,22 +113,36 @@ struct {
 // FIXME: TableGen this.
 struct {
   const char *Name;
-  ARM::ArchExtKind ID;
+  unsigned ID;
 } ARCHExtNames[] = {
-  { "invalid",  ARM::AEK_INVALID },
-  { "crc",      ARM::AEK_CRC },
-  { "crypto",   ARM::AEK_CRYPTO },
-  { "fp",       ARM::AEK_FP },
-  { "idiv",     ARM::AEK_HWDIV },
-  { "mp",       ARM::AEK_MP },
-  { "simd",     ARM::AEK_SIMD },
-  { "sec",      ARM::AEK_SEC },
-  { "virt",     ARM::AEK_VIRT },
-  { "os",       ARM::AEK_OS },
-  { "iwmmxt",   ARM::AEK_IWMMXT },
-  { "iwmmxt2",  ARM::AEK_IWMMXT2 },
-  { "maverick", ARM::AEK_MAVERICK },
-  { "xscale",   ARM::AEK_XSCALE }
+  { "invalid",   ARM::AEK_INVALID },
+  { "none",      ARM::AEK_NONE },
+  { "crc",       ARM::AEK_CRC },
+  { "crypto",    ARM::AEK_CRYPTO },
+  { "fp",        ARM::AEK_FP },
+  { "idiv",     (ARM::AEK_HWDIVARM | ARM::AEK_HWDIV) },
+  { "mp",        ARM::AEK_MP },
+  { "simd",      ARM::AEK_SIMD },
+  { "sec",       ARM::AEK_SEC },
+  { "virt",      ARM::AEK_VIRT },
+  { "os",        ARM::AEK_OS },
+  { "iwmmxt",    ARM::AEK_IWMMXT },
+  { "iwmmxt2",   ARM::AEK_IWMMXT2 },
+  { "maverick",  ARM::AEK_MAVERICK },
+  { "xscale",    ARM::AEK_XSCALE }
+};
+// List of HWDiv names (use getHWDivSynonym) and which architectural
+// features they correspond to (use getHWDivFeatures).
+// FIXME: TableGen this.
+struct {
+  const char *Name;
+  unsigned ID;
+} HWDivNames[] = {
+  { "invalid",    ARM::AEK_INVALID },
+  { "none",       ARM::AEK_NONE },
+  { "thumb",      ARM::AEK_HWDIV },
+  { "arm",        ARM::AEK_HWDIVARM },
+  { "arm,thumb", (ARM::AEK_HWDIVARM | ARM::AEK_HWDIV) }
 };
 // List of CPU names and their arches.
 // The same CPU can have multiple arches and can be default on multiple arches.
@@ -203,9 +217,7 @@ struct {
   { "cortex-r7",     ARM::AK_ARMV7R,   ARM::FK_VFPV3_D16_FP16, false },
   { "sc300",         ARM::AK_ARMV7M,   ARM::FK_NONE,           false },
   { "cortex-m3",     ARM::AK_ARMV7M,   ARM::FK_NONE,           true },
-  { "cortex-m4",     ARM::AK_ARMV7EM,  ARM::FK_NONE,           true },
-  // FIXME cortex-m4f missing from ARM.td
-  { "cortex-m4f",    ARM::AK_ARMV7EM,  ARM::FK_FPV4_SP_D16,          false },
+  { "cortex-m4",     ARM::AK_ARMV7EM,  ARM::FK_FPV4_SP_D16,    true },
   { "cortex-m7",     ARM::AK_ARMV7EM,  ARM::FK_FPV5_D16,             false },
   { "cortex-a53",    ARM::AK_ARMV8A,   ARM::FK_CRYPTO_NEON_FP_ARMV8, true },
   { "cortex-a57",    ARM::AK_ARMV8A,   ARM::FK_CRYPTO_NEON_FP_ARMV8, false },
@@ -266,6 +278,25 @@ unsigned ARMTargetParser::getDefaultFPU(StringRef CPU) {
       return C.DefaultFPU;
   }
   return ARM::FK_INVALID;
+}
+
+bool ARMTargetParser::getHWDivFeatures(unsigned HWDivKind,
+                                       std::vector<const char *> &Features) {
+
+  if (HWDivKind == ARM::AEK_INVALID)
+    return false;
+
+   if (HWDivKind & ARM::AEK_HWDIVARM)
+    Features.push_back("+hwdiv-arm");
+  else
+    Features.push_back("-hwdiv-arm");
+
+  if (HWDivKind & ARM::AEK_HWDIV)
+    Features.push_back("+hwdiv");
+  else
+    Features.push_back("-hwdiv");
+
+  return true;
 }
 
 bool ARMTargetParser::getFPUFeatures(unsigned FPUKind,
@@ -374,9 +405,19 @@ unsigned ARMTargetParser::getArchAttr(unsigned ArchKind) {
 }
 
 const char *ARMTargetParser::getArchExtName(unsigned ArchExtKind) {
-  if (ArchExtKind >= ARM::AEK_LAST)
-    return nullptr;
-  return ARCHExtNames[ArchExtKind].Name;
+  for (const auto AE : ARCHExtNames) {
+    if (ArchExtKind == AE.ID)
+      return AE.Name;
+  }
+  return nullptr;
+}
+
+const char *ARMTargetParser::getHWDivName(unsigned HWDivKind) {
+  for (const auto D : HWDivNames) {
+    if (HWDivKind == D.ID)
+      return D.Name;
+  }
+  return nullptr;
 }
 
 const char *ARMTargetParser::getDefaultCPU(StringRef Arch) {
@@ -395,6 +436,12 @@ const char *ARMTargetParser::getDefaultCPU(StringRef Arch) {
 // ======================================================= //
 // Parsers
 // ======================================================= //
+
+StringRef ARMTargetParser::getHWDivSynonym(StringRef HWDiv) {
+  return StringSwitch<StringRef>(HWDiv)
+    .Case("thumb,arm", "arm,thumb")
+    .Default(HWDiv);
+}
 
 StringRef ARMTargetParser::getFPUSynonym(StringRef FPU) {
   return StringSwitch<StringRef>(FPU)
@@ -479,6 +526,15 @@ StringRef ARMTargetParser::getCanonicalArchName(StringRef Arch) {
   return A;
 }
 
+unsigned ARMTargetParser::parseHWDiv(StringRef HWDiv) {
+  StringRef Syn = getHWDivSynonym(HWDiv);
+  for (const auto D : HWDivNames) {
+    if (Syn == D.Name)
+      return D.ID;
+  }
+  return ARM::AEK_INVALID;
+}
+
 unsigned ARMTargetParser::parseFPU(StringRef FPU) {
   StringRef Syn = getFPUSynonym(FPU);
   for (const auto F : FPUNames) {
@@ -558,6 +614,7 @@ unsigned ARMTargetParser::parseArchProfile(StringRef Arch) {
     return ARM::PK_R;
   case ARM::AK_ARMV7:
   case ARM::AK_ARMV7A:
+  case ARM::AK_ARMV7L:
   case ARM::AK_ARMV8A:
   case ARM::AK_ARMV8_1A:
     return ARM::PK_A;

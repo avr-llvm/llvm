@@ -128,7 +128,7 @@ MachineModuleInfoMachO &X86MCInstLower::getMachOMMI() const {
 /// operand to an MCSymbol.
 MCSymbol *X86MCInstLower::
 GetSymbolFromOperand(const MachineOperand &MO) const {
-  const DataLayout *DL = TM.getDataLayout();
+  const DataLayout &DL = MF.getDataLayout();
   assert((MO.isGlobal() || MO.isSymbol() || MO.isMBB()) && "Isn't a symbol reference");
 
   MCSymbol *Sym = nullptr;
@@ -151,7 +151,7 @@ GetSymbolFromOperand(const MachineOperand &MO) const {
   }
 
   if (!Suffix.empty())
-    Name += DL->getPrivateGlobalPrefix();
+    Name += DL.getPrivateGlobalPrefix();
 
   unsigned PrefixLen = Name.size();
 
@@ -159,7 +159,7 @@ GetSymbolFromOperand(const MachineOperand &MO) const {
     const GlobalValue *GV = MO.getGlobal();
     AsmPrinter.getNameWithPrefix(Name, GV);
   } else if (MO.isSymbol()) {
-    Mangler::getNameWithPrefix(Name, MO.getSymbolName(), *DL);
+    Mangler::getNameWithPrefix(Name, MO.getSymbolName(), DL);
   } else if (MO.isMBB()) {
     assert(Suffix.empty());
     Sym = MO.getMBB()->getSymbol();
@@ -875,7 +875,10 @@ void X86AsmPrinter::LowerFAULTING_LOAD_OP(const MachineInstr &MI,
 
   MCInst LoadMI;
   LoadMI.setOpcode(LoadOpcode);
-  LoadMI.addOperand(MCOperand::createReg(LoadDefRegister));
+
+  if (LoadDefRegister != X86::NoRegister)
+    LoadMI.addOperand(MCOperand::createReg(LoadDefRegister));
+
   for (auto I = MI.operands_begin() + LoadOperandsBeginIdx,
             E = MI.operands_end();
        I != E; ++I)

@@ -27,7 +27,7 @@ class ELFDumper {
 
   const object::ELFFile<ELFT> &Obj;
 
-  std::error_code dumpSymbol(const Elf_Sym *Sym, bool IsDynamic,
+  std::error_code dumpSymbol(const Elf_Sym *Sym, StringRef StrTable,
                              ELFYAML::Symbol &S);
   std::error_code dumpCommonSection(const Elf_Shdr *Shdr, ELFYAML::Section &S);
   std::error_code dumpCommonRelocationSection(const Elf_Shdr *Shdr,
@@ -122,18 +122,24 @@ ErrorOr<ELFYAML::Object *> ELFDumper<ELFT>::dump() {
   }
 
   // Dump symbols
+  const Elf_Shdr *Symtab = Obj.getDotSymtabSec();
+  ErrorOr<StringRef> StrTableOrErr = Obj.getStringTableForSymtab(*Symtab);
+  if (std::error_code EC = StrTableOrErr.getError())
+    return EC;
+  StringRef StrTable = *StrTableOrErr;
+
   bool IsFirstSym = true;
-  for (auto SI = Obj.symbol_begin(), SE = Obj.symbol_end(); SI != SE; ++SI) {
+  for (const Elf_Sym &Sym : Obj.symbols()) {
     if (IsFirstSym) {
       IsFirstSym = false;
       continue;
     }
 
     ELFYAML::Symbol S;
-    if (std::error_code EC = ELFDumper<ELFT>::dumpSymbol(SI, false, S))
+    if (std::error_code EC = ELFDumper<ELFT>::dumpSymbol(&Sym, StrTable, S))
       return EC;
 
-    switch (SI->getBinding())
+    switch (Sym.getBinding())
     {
     case ELF::STB_LOCAL:
       Y->Symbols.Local.push_back(S);
@@ -153,14 +159,15 @@ ErrorOr<ELFYAML::Object *> ELFDumper<ELFT>::dump() {
 }
 
 template <class ELFT>
-std::error_code ELFDumper<ELFT>::dumpSymbol(const Elf_Sym *Sym, bool IsDynamic,
+std::error_code ELFDumper<ELFT>::dumpSymbol(const Elf_Sym *Sym,
+                                            StringRef StrTable,
                                             ELFYAML::Symbol &S) {
   S.Type = Sym->getType();
   S.Value = Sym->st_value;
   S.Size = Sym->st_size;
   S.Other = Sym->st_other;
 
-  ErrorOr<StringRef> NameOrErr = Obj.getSymbolName(Sym, IsDynamic);
+  ErrorOr<StringRef> NameOrErr = Sym->getName(StrTable);
   if (std::error_code EC = NameOrErr.getError())
     return EC;
   S.Name = NameOrErr.get();
@@ -331,14 +338,12 @@ ErrorOr<ELFYAML::Group *> ELFDumper<ELFT>::dumpGroup(const Elf_Shdr *Shdr) {
   if (std::error_code EC = dumpCommonSection(Shdr, *S))
     return EC;
   // Get sh_info which is the signature.
-  const Elf_Sym *symbol = Obj.getSymbol(Shdr->sh_info);
-  ErrorOr<const Elf_Shdr *> Symtab = Obj.getSection(Shdr->sh_link);
-  if (std::error_code EC = Symtab.getError())
+  ErrorOr<const Elf_Shdr *> SymtabOrErr = Obj.getSection(Shdr->sh_link);
+  if (std::error_code EC = SymtabOrErr.getError())
     return EC;
-  ErrorOr<const Elf_Shdr *> StrTabSec = Obj.getSection((*Symtab)->sh_link);
-  if (std::error_code EC = StrTabSec.getError())
-    return EC;
-  ErrorOr<StringRef> StrTabOrErr = Obj.getStringTable(*StrTabSec);
+  const Elf_Shdr *Symtab = *SymtabOrErr;
+  const Elf_Sym *symbol = Obj.getSymbol(Symtab, Shdr->sh_info);
+  ErrorOr<StringRef> StrTabOrErr = Obj.getStringTableForSymtab(*Symtab);
   if (std::error_code EC = StrTabOrErr.getError())
     return EC;
   StringRef StrTab = *StrTabOrErr;

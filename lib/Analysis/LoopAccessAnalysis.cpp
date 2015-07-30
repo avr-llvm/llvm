@@ -127,9 +127,42 @@ void RuntimePointerChecking::insert(Loop *Lp, Value *Ptr, bool WritePtr,
   const SCEVAddRecExpr *AR = dyn_cast<SCEVAddRecExpr>(Sc);
   assert(AR && "Invalid addrec expression");
   const SCEV *Ex = SE->getBackedgeTakenCount(Lp);
+
+  const SCEV *ScStart = AR->getStart();
   const SCEV *ScEnd = AR->evaluateAtIteration(Ex, *SE);
-  Pointers.emplace_back(Ptr, AR->getStart(), ScEnd, WritePtr, DepSetId, ASId,
-                        Sc);
+  const SCEV *Step = AR->getStepRecurrence(*SE);
+
+  // For expressions with negative step, the upper bound is ScStart and the
+  // lower bound is ScEnd.
+  if (const SCEVConstant *CStep = dyn_cast<const SCEVConstant>(Step)) {
+    if (CStep->getValue()->isNegative())
+      std::swap(ScStart, ScEnd);
+  } else {
+    // Fallback case: the step is not constant, but the we can still
+    // get the upper and lower bounds of the interval by using min/max
+    // expressions.
+    ScStart = SE->getUMinExpr(ScStart, ScEnd);
+    ScEnd = SE->getUMaxExpr(AR->getStart(), ScEnd);
+  }
+
+  Pointers.emplace_back(Ptr, ScStart, ScEnd, WritePtr, DepSetId, ASId, Sc);
+}
+
+SmallVector<RuntimePointerChecking::PointerCheck, 4>
+RuntimePointerChecking::generateChecks(
+    const SmallVectorImpl<int> *PtrPartition) const {
+  SmallVector<PointerCheck, 4> Checks;
+
+  for (unsigned I = 0; I < CheckingGroups.size(); ++I) {
+    for (unsigned J = I + 1; J < CheckingGroups.size(); ++J) {
+      const RuntimePointerChecking::CheckingPtrGroup &CGI = CheckingGroups[I];
+      const RuntimePointerChecking::CheckingPtrGroup &CGJ = CheckingGroups[J];
+
+      if (needsChecking(CGI, CGJ, PtrPartition))
+        Checks.push_back(std::make_pair(&CGI, &CGJ));
+    }
+  }
+  return Checks;
 }
 
 bool RuntimePointerChecking::needsChecking(
@@ -204,8 +237,31 @@ void RuntimePointerChecking::groupChecks(
 
   CheckingGroups.clear();
 
+  // If we need to check two pointers to the same underlying object
+  // with a non-constant difference, we shouldn't perform any pointer
+  // grouping with those pointers. This is because we can easily get
+  // into cases where the resulting check would return false, even when
+  // the accesses are safe.
+  //
+  // The following example shows this:
+  // for (i = 0; i < 1000; ++i)
+  //   a[5000 + i * m] = a[i] + a[i + 9000]
+  //
+  // Here grouping gives a check of (5000, 5000 + 1000 * m) against
+  // (0, 10000) which is always false. However, if m is 1, there is no
+  // dependence. Not grouping the checks for a[i] and a[i + 9000] allows
+  // us to perform an accurate check in this case.
+  //
+  // The above case requires that we have an UnknownDependence between
+  // accesses to the same underlying object. This cannot happen unless
+  // ShouldRetryWithRuntimeCheck is set, and therefore UseDependencies
+  // is also false. In this case we will use the fallback path and create
+  // separate checking groups for all pointers.
+ 
   // If we don't have the dependency partitions, construct a new
-  // checking pointer group for each pointer.
+  // checking pointer group for each pointer. This is also required
+  // for correctness, because in this case we can have checking between
+  // pointers to the same underlying object.
   if (!UseDependencies) {
     for (unsigned I = 0; I < Pointers.size(); ++I)
       CheckingGroups.push_back(CheckingPtrGroup(I, *this));
@@ -280,6 +336,13 @@ void RuntimePointerChecking::groupChecks(
   }
 }
 
+bool RuntimePointerChecking::arePointersInSamePartition(
+    const SmallVectorImpl<int> &PtrToPartition, unsigned PtrIdx1,
+    unsigned PtrIdx2) {
+  return (PtrToPartition[PtrIdx1] != -1 &&
+          PtrToPartition[PtrIdx1] == PtrToPartition[PtrIdx2]);
+}
+
 bool RuntimePointerChecking::needsChecking(
     unsigned I, unsigned J, const SmallVectorImpl<int> *PtrPartition) const {
   const PointerInfo &PointerI = Pointers[I];
@@ -298,13 +361,29 @@ bool RuntimePointerChecking::needsChecking(
     return false;
 
   // If PtrPartition is set omit checks between pointers of the same partition.
-  // Partition number -1 means that the pointer is used in multiple partitions.
-  // In this case we can't omit the check.
-  if (PtrPartition && (*PtrPartition)[I] != -1 &&
-      (*PtrPartition)[I] == (*PtrPartition)[J])
+  if (PtrPartition && arePointersInSamePartition(*PtrPartition, I, J))
     return false;
 
   return true;
+}
+
+void RuntimePointerChecking::printChecks(
+    raw_ostream &OS, const SmallVectorImpl<PointerCheck> &Checks,
+    unsigned Depth) const {
+  unsigned N = 0;
+  for (const auto &Check : Checks) {
+    const auto &First = Check.first->Members, &Second = Check.second->Members;
+
+    OS.indent(Depth) << "Check " << N++ << ":\n";
+
+    OS.indent(Depth + 2) << "Comparing group (" << Check.first << "):\n";
+    for (unsigned K = 0; K < First.size(); ++K)
+      OS.indent(Depth + 2) << *Pointers[First[K]].PointerValue << "\n";
+
+    OS.indent(Depth + 2) << "Against group (" << Check.second << "):\n";
+    for (unsigned K = 0; K < Second.size(); ++K)
+      OS.indent(Depth + 2) << *Pointers[Second[K]].PointerValue << "\n";
+  }
 }
 
 void RuntimePointerChecking::print(
@@ -312,43 +391,17 @@ void RuntimePointerChecking::print(
     const SmallVectorImpl<int> *PtrPartition) const {
 
   OS.indent(Depth) << "Run-time memory checks:\n";
-
-  unsigned N = 0;
-  for (unsigned I = 0; I < CheckingGroups.size(); ++I)
-    for (unsigned J = I + 1; J < CheckingGroups.size(); ++J)
-      if (needsChecking(CheckingGroups[I], CheckingGroups[J], PtrPartition)) {
-        OS.indent(Depth) << "Check " << N++ << ":\n";
-        OS.indent(Depth + 2) << "Comparing group " << I << ":\n";
-
-        for (unsigned K = 0; K < CheckingGroups[I].Members.size(); ++K) {
-          OS.indent(Depth + 2)
-              << *Pointers[CheckingGroups[I].Members[K]].PointerValue << "\n";
-          if (PtrPartition)
-            OS << " (Partition: "
-               << (*PtrPartition)[CheckingGroups[I].Members[K]] << ")"
-               << "\n";
-        }
-
-        OS.indent(Depth + 2) << "Against group " << J << ":\n";
-
-        for (unsigned K = 0; K < CheckingGroups[J].Members.size(); ++K) {
-          OS.indent(Depth + 2)
-              << *Pointers[CheckingGroups[J].Members[K]].PointerValue << "\n";
-          if (PtrPartition)
-            OS << " (Partition: "
-               << (*PtrPartition)[CheckingGroups[J].Members[K]] << ")"
-               << "\n";
-        }
-      }
+  printChecks(OS, generateChecks(PtrPartition), Depth);
 
   OS.indent(Depth) << "Grouped accesses:\n";
   for (unsigned I = 0; I < CheckingGroups.size(); ++I) {
-    OS.indent(Depth + 2) << "Group " << I << ":\n";
-    OS.indent(Depth + 4) << "(Low: " << *CheckingGroups[I].Low
-                         << " High: " << *CheckingGroups[I].High << ")\n";
-    for (unsigned J = 0; J < CheckingGroups[I].Members.size(); ++J) {
-      OS.indent(Depth + 6) << "Member: "
-                           << *Pointers[CheckingGroups[I].Members[J]].Expr
+    const auto &CG = CheckingGroups[I];
+
+    OS.indent(Depth + 2) << "Group " << &CG << ":\n";
+    OS.indent(Depth + 4) << "(Low: " << *CG.Low << " High: " << *CG.High
+                         << ")\n";
+    for (unsigned J = 0; J < CG.Members.size(); ++J) {
+      OS.indent(Depth + 6) << "Member: " << *Pointers[CG.Members[J]].Expr
                            << "\n";
     }
   }
@@ -1566,86 +1619,108 @@ static Instruction *getFirstInst(Instruction *FirstInst, Value *V,
   return nullptr;
 }
 
-std::pair<Instruction *, Instruction *> LoopAccessInfo::addRuntimeCheck(
-    Instruction *Loc, const SmallVectorImpl<int> *PtrPartition) const {
-  if (!PtrRtChecking.Need)
-    return std::make_pair(nullptr, nullptr);
+/// \brief IR Values for the lower and upper bounds of a pointer evolution.
+struct PointerBounds {
+  Value *Start;
+  Value *End;
+};
 
-  SmallVector<TrackingVH<Value>, 2> Starts;
-  SmallVector<TrackingVH<Value>, 2> Ends;
+/// \brief Expand code for the lower and upper bound of the pointer group \p CG
+/// in \p TheLoop.  \return the values for the bounds.
+static PointerBounds
+expandBounds(const RuntimePointerChecking::CheckingPtrGroup *CG, Loop *TheLoop,
+             Instruction *Loc, SCEVExpander &Exp, ScalarEvolution *SE,
+             const RuntimePointerChecking &PtrRtChecking) {
+  Value *Ptr = PtrRtChecking.Pointers[CG->Members[0]].PointerValue;
+  const SCEV *Sc = SE->getSCEV(Ptr);
+
+  if (SE->isLoopInvariant(Sc, TheLoop)) {
+    DEBUG(dbgs() << "LAA: Adding RT check for a loop invariant ptr:" << *Ptr
+                 << "\n");
+    return {Ptr, Ptr};
+  } else {
+    unsigned AS = Ptr->getType()->getPointerAddressSpace();
+    LLVMContext &Ctx = Loc->getContext();
+
+    // Use this type for pointer arithmetic.
+    Type *PtrArithTy = Type::getInt8PtrTy(Ctx, AS);
+    Value *Start = nullptr, *End = nullptr;
+
+    DEBUG(dbgs() << "LAA: Adding RT check for range:\n");
+    Start = Exp.expandCodeFor(CG->Low, PtrArithTy, Loc);
+    End = Exp.expandCodeFor(CG->High, PtrArithTy, Loc);
+    DEBUG(dbgs() << "Start: " << *CG->Low << " End: " << *CG->High << "\n");
+    return {Start, End};
+  }
+}
+
+/// \brief Turns a collection of checks into a collection of expanded upper and
+/// lower bounds for both pointers in the check.
+static SmallVector<std::pair<PointerBounds, PointerBounds>, 4> expandBounds(
+    const SmallVectorImpl<RuntimePointerChecking::PointerCheck> &PointerChecks,
+    Loop *L, Instruction *Loc, ScalarEvolution *SE, SCEVExpander &Exp,
+    const RuntimePointerChecking &PtrRtChecking) {
+  SmallVector<std::pair<PointerBounds, PointerBounds>, 4> ChecksWithBounds;
+
+  // Here we're relying on the SCEV Expander's cache to only emit code for the
+  // same bounds once.
+  std::transform(
+      PointerChecks.begin(), PointerChecks.end(),
+      std::back_inserter(ChecksWithBounds),
+      [&](const RuntimePointerChecking::PointerCheck &Check) {
+        PointerBounds
+          First = expandBounds(Check.first, L, Loc, Exp, SE, PtrRtChecking),
+          Second = expandBounds(Check.second, L, Loc, Exp, SE, PtrRtChecking);
+        return std::make_pair(First, Second);
+      });
+
+  return ChecksWithBounds;
+}
+
+std::pair<Instruction *, Instruction *> LoopAccessInfo::addRuntimeCheck(
+    Instruction *Loc,
+    const SmallVectorImpl<RuntimePointerChecking::PointerCheck> &PointerChecks)
+    const {
+
+  SCEVExpander Exp(*SE, DL, "induction");
+  auto ExpandedChecks =
+      expandBounds(PointerChecks, TheLoop, Loc, SE, Exp, PtrRtChecking);
 
   LLVMContext &Ctx = Loc->getContext();
-  SCEVExpander Exp(*SE, DL, "induction");
   Instruction *FirstInst = nullptr;
-
-  for (unsigned i = 0; i < PtrRtChecking.CheckingGroups.size(); ++i) {
-    const RuntimePointerChecking::CheckingPtrGroup &CG =
-        PtrRtChecking.CheckingGroups[i];
-    Value *Ptr = PtrRtChecking.Pointers[CG.Members[0]].PointerValue;
-    const SCEV *Sc = SE->getSCEV(Ptr);
-
-    if (SE->isLoopInvariant(Sc, TheLoop)) {
-      DEBUG(dbgs() << "LAA: Adding RT check for a loop invariant ptr:" << *Ptr
-                   << "\n");
-      Starts.push_back(Ptr);
-      Ends.push_back(Ptr);
-    } else {
-      unsigned AS = Ptr->getType()->getPointerAddressSpace();
-
-      // Use this type for pointer arithmetic.
-      Type *PtrArithTy = Type::getInt8PtrTy(Ctx, AS);
-      Value *Start = nullptr, *End = nullptr;
-
-      DEBUG(dbgs() << "LAA: Adding RT check for range:\n");
-      Start = Exp.expandCodeFor(CG.Low, PtrArithTy, Loc);
-      End = Exp.expandCodeFor(CG.High, PtrArithTy, Loc);
-      DEBUG(dbgs() << "Start: " << *CG.Low << " End: " << *CG.High << "\n");
-      Starts.push_back(Start);
-      Ends.push_back(End);
-    }
-  }
-
   IRBuilder<> ChkBuilder(Loc);
   // Our instructions might fold to a constant.
   Value *MemoryRuntimeCheck = nullptr;
-  for (unsigned i = 0; i < PtrRtChecking.CheckingGroups.size(); ++i) {
-    for (unsigned j = i + 1; j < PtrRtChecking.CheckingGroups.size(); ++j) {
-      const RuntimePointerChecking::CheckingPtrGroup &CGI =
-          PtrRtChecking.CheckingGroups[i];
-      const RuntimePointerChecking::CheckingPtrGroup &CGJ =
-          PtrRtChecking.CheckingGroups[j];
 
-      if (!PtrRtChecking.needsChecking(CGI, CGJ, PtrPartition))
-        continue;
+  for (const auto &Check : ExpandedChecks) {
+    const PointerBounds &A = Check.first, &B = Check.second;
+    unsigned AS0 = A.Start->getType()->getPointerAddressSpace();
+    unsigned AS1 = B.Start->getType()->getPointerAddressSpace();
 
-      unsigned AS0 = Starts[i]->getType()->getPointerAddressSpace();
-      unsigned AS1 = Starts[j]->getType()->getPointerAddressSpace();
+    assert((AS0 == B.End->getType()->getPointerAddressSpace()) &&
+           (AS1 == A.End->getType()->getPointerAddressSpace()) &&
+           "Trying to bounds check pointers with different address spaces");
 
-      assert((AS0 == Ends[j]->getType()->getPointerAddressSpace()) &&
-             (AS1 == Ends[i]->getType()->getPointerAddressSpace()) &&
-             "Trying to bounds check pointers with different address spaces");
+    Type *PtrArithTy0 = Type::getInt8PtrTy(Ctx, AS0);
+    Type *PtrArithTy1 = Type::getInt8PtrTy(Ctx, AS1);
 
-      Type *PtrArithTy0 = Type::getInt8PtrTy(Ctx, AS0);
-      Type *PtrArithTy1 = Type::getInt8PtrTy(Ctx, AS1);
+    Value *Start0 = ChkBuilder.CreateBitCast(A.Start, PtrArithTy0, "bc");
+    Value *Start1 = ChkBuilder.CreateBitCast(B.Start, PtrArithTy1, "bc");
+    Value *End0 =   ChkBuilder.CreateBitCast(A.End,   PtrArithTy1, "bc");
+    Value *End1 =   ChkBuilder.CreateBitCast(B.End,   PtrArithTy0, "bc");
 
-      Value *Start0 = ChkBuilder.CreateBitCast(Starts[i], PtrArithTy0, "bc");
-      Value *Start1 = ChkBuilder.CreateBitCast(Starts[j], PtrArithTy1, "bc");
-      Value *End0 =   ChkBuilder.CreateBitCast(Ends[i],   PtrArithTy1, "bc");
-      Value *End1 =   ChkBuilder.CreateBitCast(Ends[j],   PtrArithTy0, "bc");
-
-      Value *Cmp0 = ChkBuilder.CreateICmpULE(Start0, End1, "bound0");
-      FirstInst = getFirstInst(FirstInst, Cmp0, Loc);
-      Value *Cmp1 = ChkBuilder.CreateICmpULE(Start1, End0, "bound1");
-      FirstInst = getFirstInst(FirstInst, Cmp1, Loc);
-      Value *IsConflict = ChkBuilder.CreateAnd(Cmp0, Cmp1, "found.conflict");
+    Value *Cmp0 = ChkBuilder.CreateICmpULE(Start0, End1, "bound0");
+    FirstInst = getFirstInst(FirstInst, Cmp0, Loc);
+    Value *Cmp1 = ChkBuilder.CreateICmpULE(Start1, End0, "bound1");
+    FirstInst = getFirstInst(FirstInst, Cmp1, Loc);
+    Value *IsConflict = ChkBuilder.CreateAnd(Cmp0, Cmp1, "found.conflict");
+    FirstInst = getFirstInst(FirstInst, IsConflict, Loc);
+    if (MemoryRuntimeCheck) {
+      IsConflict =
+          ChkBuilder.CreateOr(MemoryRuntimeCheck, IsConflict, "conflict.rdx");
       FirstInst = getFirstInst(FirstInst, IsConflict, Loc);
-      if (MemoryRuntimeCheck) {
-        IsConflict = ChkBuilder.CreateOr(MemoryRuntimeCheck, IsConflict,
-                                         "conflict.rdx");
-        FirstInst = getFirstInst(FirstInst, IsConflict, Loc);
-      }
-      MemoryRuntimeCheck = IsConflict;
     }
+    MemoryRuntimeCheck = IsConflict;
   }
 
   if (!MemoryRuntimeCheck)
@@ -1659,6 +1734,14 @@ std::pair<Instruction *, Instruction *> LoopAccessInfo::addRuntimeCheck(
   ChkBuilder.Insert(Check, "memcheck.conflict");
   FirstInst = getFirstInst(FirstInst, Check, Loc);
   return std::make_pair(FirstInst, Check);
+}
+
+std::pair<Instruction *, Instruction *> LoopAccessInfo::addRuntimeCheck(
+    Instruction *Loc, const SmallVectorImpl<int> *PtrPartition) const {
+  if (!PtrRtChecking.Need)
+    return std::make_pair(nullptr, nullptr);
+
+  return addRuntimeCheck(Loc, PtrRtChecking.generateChecks(PtrPartition));
 }
 
 LoopAccessInfo::LoopAccessInfo(Loop *L, ScalarEvolution *SE,

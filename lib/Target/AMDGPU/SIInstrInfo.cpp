@@ -1045,18 +1045,6 @@ bool SIInstrInfo::FoldImmediate(MachineInstr *UseMI, MachineInstr *DefMI,
   return false;
 }
 
-bool
-SIInstrInfo::isTriviallyReMaterializable(const MachineInstr *MI,
-                                         AliasAnalysis *AA) const {
-  switch(MI->getOpcode()) {
-  default: return AMDGPUInstrInfo::isTriviallyReMaterializable(MI, AA);
-  case AMDGPU::S_MOV_B32:
-  case AMDGPU::S_MOV_B64:
-  case AMDGPU::V_MOV_B32_e32:
-    return MI->getOperand(1).isImm();
-  }
-}
-
 static bool offsetsDoNotOverlap(int WidthA, int OffsetA,
                                 int WidthB, int OffsetB) {
   int LowOffset = OffsetA < OffsetB ? OffsetA : OffsetB;
@@ -2068,13 +2056,13 @@ void SIInstrInfo::splitSMRD(MachineInstr *MI,
 
 void SIInstrInfo::moveSMRDToVALU(MachineInstr *MI, MachineRegisterInfo &MRI) const {
   MachineBasicBlock *MBB = MI->getParent();
-  switch (MI->getOpcode()) {
-    case AMDGPU::S_LOAD_DWORD_IMM:
-    case AMDGPU::S_LOAD_DWORD_SGPR:
-    case AMDGPU::S_LOAD_DWORDX2_IMM:
-    case AMDGPU::S_LOAD_DWORDX2_SGPR:
-    case AMDGPU::S_LOAD_DWORDX4_IMM:
-    case AMDGPU::S_LOAD_DWORDX4_SGPR: {
+  int DstIdx = AMDGPU::getNamedOperandIdx(MI->getOpcode(), AMDGPU::OpName::dst);
+  assert(DstIdx != -1);
+  unsigned DstRCID = get(MI->getOpcode()).OpInfo[DstIdx].RegClass;
+  switch(RI.getRegClass(DstRCID)->getSize()) {
+    case 4:
+    case 8:
+    case 16: {
       unsigned NewOpcode = getVALUOp(*MI);
       unsigned RegOffset;
       unsigned ImmOffset;
@@ -2146,8 +2134,7 @@ void SIInstrInfo::moveSMRDToVALU(MachineInstr *MI, MachineRegisterInfo &MRI) con
       MRI.replaceRegWith(DstReg, NewDstReg);
       break;
     }
-    case AMDGPU::S_LOAD_DWORDX8_IMM:
-    case AMDGPU::S_LOAD_DWORDX8_SGPR: {
+    case 32: {
       MachineInstr *Lo, *Hi;
       splitSMRD(MI, &AMDGPU::SReg_128RegClass, AMDGPU::S_LOAD_DWORDX4_IMM,
                 AMDGPU::S_LOAD_DWORDX4_SGPR, Lo, Hi);
@@ -2157,8 +2144,7 @@ void SIInstrInfo::moveSMRDToVALU(MachineInstr *MI, MachineRegisterInfo &MRI) con
       break;
     }
 
-    case AMDGPU::S_LOAD_DWORDX16_IMM:
-    case AMDGPU::S_LOAD_DWORDX16_SGPR: {
+    case 64: {
       MachineInstr *Lo, *Hi;
       splitSMRD(MI, &AMDGPU::SReg_256RegClass, AMDGPU::S_LOAD_DWORDX8_IMM,
                 AMDGPU::S_LOAD_DWORDX8_SGPR, Lo, Hi);

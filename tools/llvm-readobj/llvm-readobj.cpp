@@ -188,18 +188,19 @@ namespace opts {
 
 } // namespace opts
 
-static int ReturnValue = EXIT_SUCCESS;
-
 namespace llvm {
 
-bool error(std::error_code EC) {
-  if (!EC)
-    return false;
-
-  ReturnValue = EXIT_FAILURE;
-  outs() << "\nError reading file: " << EC.message() << ".\n";
+void reportError(Twine Msg) {
+  outs() << Msg << "\n";
   outs().flush();
-  return true;
+  exit(1);
+}
+
+void error(std::error_code EC) {
+  if (!EC)
+    return;
+
+  reportError(Twine("\nError reading file: ") + EC.message() + ".");
 }
 
 bool relocAddressLess(RelocationRef a, RelocationRef b) {
@@ -212,17 +213,14 @@ static void reportError(StringRef Input, std::error_code EC) {
   if (Input == "-")
     Input = "<stdin>";
 
-  errs() << Input << ": " << EC.message() << "\n";
-  errs().flush();
-  ReturnValue = EXIT_FAILURE;
+  reportError(Twine(Input) + ": " + EC.message());
 }
 
 static void reportError(StringRef Input, StringRef Message) {
   if (Input == "-")
     Input = "<stdin>";
 
-  errs() << Input << ": " << Message << "\n";
-  ReturnValue = EXIT_FAILURE;
+  reportError(Twine(Input) + ": " + Message);
 }
 
 static bool isMipsArch(unsigned Arch) {
@@ -253,18 +251,6 @@ static std::error_code createDumper(const ObjectFile *Obj, StreamWriter &Writer,
   return readobj_error::unsupported_obj_file_format;
 }
 
-static StringRef getLoadName(const ObjectFile *Obj) {
-  if (auto *ELF = dyn_cast<ELF32LEObjectFile>(Obj))
-    return ELF->getLoadName();
-  if (auto *ELF = dyn_cast<ELF64LEObjectFile>(Obj))
-    return ELF->getLoadName();
-  if (auto *ELF = dyn_cast<ELF32BEObjectFile>(Obj))
-    return ELF->getLoadName();
-  if (auto *ELF = dyn_cast<ELF64BEObjectFile>(Obj))
-    return ELF->getLoadName();
-  llvm_unreachable("Not ELF");
-}
-
 /// @brief Dumps the specified object file.
 static void dumpObject(const ObjectFile *Obj) {
   StreamWriter Writer(outs());
@@ -281,8 +267,7 @@ static void dumpObject(const ObjectFile *Obj) {
          << Triple::getArchTypeName((llvm::Triple::ArchType)Obj->getArch())
          << "\n";
   outs() << "AddressSize: " << (8*Obj->getBytesInAddress()) << "bit\n";
-  if (Obj->isELF())
-    outs() << "LoadName: " << getLoadName(Obj) << "\n";
+  Dumper->printLoadName();
 
   if (opts::FileHeaders)
     Dumper->printFileHeaders();
@@ -317,15 +302,16 @@ static void dumpObject(const ObjectFile *Obj) {
     if (opts::MipsReginfo)
       Dumper->printMipsReginfo();
   }
-  if (opts::COFFImports)
-    Dumper->printCOFFImports();
-  if (opts::COFFExports)
-    Dumper->printCOFFExports();
-  if (opts::COFFDirectives)
-    Dumper->printCOFFDirectives();
-  if (opts::COFFBaseRelocs)
-    Dumper->printCOFFBaseReloc();
-
+  if (Obj->isCOFF()) {
+    if (opts::COFFImports)
+      Dumper->printCOFFImports();
+    if (opts::COFFExports)
+      Dumper->printCOFFExports();
+    if (opts::COFFDirectives)
+      Dumper->printCOFFDirectives();
+    if (opts::COFFBaseRelocs)
+      Dumper->printCOFFBaseReloc();
+  }
   if (opts::PrintStackMap)
     Dumper->printStackMap();
 }
@@ -407,5 +393,5 @@ int main(int argc, const char *argv[]) {
   std::for_each(opts::InputFilenames.begin(), opts::InputFilenames.end(),
                 dumpInput);
 
-  return ReturnValue;
+  return 0;
 }

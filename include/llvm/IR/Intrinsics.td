@@ -455,6 +455,7 @@ let Properties = [IntrNoMem] in {
 def int_eh_sjlj_functioncontext : Intrinsic<[], [llvm_ptr_ty]>;
 def int_eh_sjlj_setjmp          : Intrinsic<[llvm_i32_ty], [llvm_ptr_ty]>;
 def int_eh_sjlj_longjmp         : Intrinsic<[], [llvm_ptr_ty], [IntrNoReturn]>;
+def int_eh_sjlj_setup_dispatch  : Intrinsic<[], []>;
 
 //===---------------- Generic Variable Attribute Intrinsics----------------===//
 //
@@ -604,6 +605,12 @@ def int_convertuu  : Intrinsic<[llvm_anyint_ty],
 // maps to void __clear_cache() on supporting platforms
 def int_clear_cache : Intrinsic<[], [llvm_ptr_ty, llvm_ptr_ty],
                                 [], "llvm.clear_cache">;
+
+// Calculate the Absolute Differences of the two input vectors.
+def int_sabsdiff : Intrinsic<[llvm_anyvector_ty],
+                        [ LLVMMatchType<0>, LLVMMatchType<0> ], [IntrNoMem]>;
+def int_uabsdiff : Intrinsic<[llvm_anyvector_ty],
+                        [ LLVMMatchType<0>, LLVMMatchType<0> ], [IntrNoMem]>;
 
 //===-------------------------- Masked Intrinsics -------------------------===//
 //

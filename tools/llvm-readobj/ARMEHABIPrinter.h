@@ -310,8 +310,7 @@ class PrinterContext {
 
   typedef typename object::ELFFile<ET>::Elf_Sym Elf_Sym;
   typedef typename object::ELFFile<ET>::Elf_Shdr Elf_Shdr;
-
-  typedef typename object::ELFFile<ET>::Elf_Rel_Iter Elf_Rel_iterator;
+  typedef typename object::ELFFile<ET>::Elf_Rel Elf_Rel;
 
   static const size_t IndexTableEntrySize;
 
@@ -345,10 +344,15 @@ template <typename ET>
 ErrorOr<StringRef>
 PrinterContext<ET>::FunctionAtAddress(unsigned Section,
                                       uint64_t Address) const {
+  const Elf_Shdr *Symtab = ELF->getDotSymtabSec();
+  ErrorOr<StringRef> StrTableOrErr = ELF->getStringTableForSymtab(*Symtab);
+  error(StrTableOrErr.getError());
+  StringRef StrTable = *StrTableOrErr;
+
   for (const Elf_Sym &Sym : ELF->symbols())
     if (Sym.st_shndx == Section && Sym.st_value == Address &&
         Sym.getType() == ELF::STT_FUNC)
-      return ELF->getSymbolName(&Sym, false);
+      return Sym.getName(StrTable);
   return readobj_error::unknown_symbol;
 }
 
@@ -366,12 +370,11 @@ PrinterContext<ET>::FindExceptionTable(unsigned IndexSectionIndex,
 
   for (const Elf_Shdr &Sec : ELF->sections()) {
     if (Sec.sh_type == ELF::SHT_REL && Sec.sh_info == IndexSectionIndex) {
-      for (Elf_Rel_iterator RI = ELF->rel_begin(&Sec), RE = ELF->rel_end(&Sec);
-           RI != RE; ++RI) {
-        if (RI->r_offset == static_cast<unsigned>(IndexTableOffset)) {
+      for (const Elf_Rel &R : ELF->rels(&Sec)) {
+        if (R.r_offset == static_cast<unsigned>(IndexTableOffset)) {
           typename object::ELFFile<ET>::Elf_Rela RelA;
-          RelA.r_offset = RI->r_offset;
-          RelA.r_info = RI->r_info;
+          RelA.r_offset = R.r_offset;
+          RelA.r_info = R.r_info;
           RelA.r_addend = 0;
 
           std::pair<const Elf_Shdr *, const Elf_Sym *> Symbol =

@@ -60,12 +60,20 @@ STATISTIC(NumSTRD2STM,  "Number of strd instructions turned back into stm");
 STATISTIC(NumLDRD2LDR,  "Number of ldrd instructions turned back into ldr's");
 STATISTIC(NumSTRD2STR,  "Number of strd instructions turned back into str's");
 
+namespace llvm {
+void initializeARMLoadStoreOptPass(PassRegistry &);
+}
+
+#define ARM_LOAD_STORE_OPT_NAME "ARM load / store optimization pass"
+
 namespace {
   /// Post- register allocation pass the combine load / store instructions to
   /// form ldm / stm instructions.
   struct ARMLoadStoreOpt : public MachineFunctionPass {
     static char ID;
-    ARMLoadStoreOpt() : MachineFunctionPass(ID) {}
+    ARMLoadStoreOpt() : MachineFunctionPass(ID) {
+      initializeARMLoadStoreOptPass(*PassRegistry::getPassRegistry());
+    }
 
     const MachineFunction *MF;
     const TargetInstrInfo *TII;
@@ -84,7 +92,7 @@ namespace {
     bool runOnMachineFunction(MachineFunction &Fn) override;
 
     const char *getPassName() const override {
-      return "ARM load / store optimization pass";
+      return ARM_LOAD_STORE_OPT_NAME;
     }
 
   private:
@@ -147,6 +155,8 @@ namespace {
   };
   char ARMLoadStoreOpt::ID = 0;
 }
+
+INITIALIZE_PASS(ARMLoadStoreOpt, "arm-load-store-opt", ARM_LOAD_STORE_OPT_NAME, false, false)
 
 static bool definesCPSR(const MachineInstr *MI) {
   for (const auto &MO : MI->operands()) {
@@ -786,6 +796,7 @@ MachineInstr *ARMLoadStoreOpt::MergeOpsUpdate(const MergeCandidate &Cand) {
   SmallVector<std::pair<unsigned, bool>, 8> Regs;
   SmallVector<unsigned, 4> ImpDefs;
   DenseSet<unsigned> KilledRegs;
+  DenseSet<unsigned> UsedRegs;
   // Determine list of registers and list of implicit super-register defs.
   for (const MachineInstr *MI : Cand.Instrs) {
     const MachineOperand &MO = getLoadStoreRegOp(*MI);
@@ -794,6 +805,7 @@ MachineInstr *ARMLoadStoreOpt::MergeOpsUpdate(const MergeCandidate &Cand) {
     if (IsKill)
       KilledRegs.insert(Reg);
     Regs.push_back(std::make_pair(Reg, IsKill));
+    UsedRegs.insert(Reg);
 
     if (IsLoad) {
       // Collect any implicit defs of super-registers, after merging we can't
@@ -883,7 +895,7 @@ MachineInstr *ARMLoadStoreOpt::MergeOpsUpdate(const MergeCandidate &Cand) {
       for (MachineOperand &MO : MI.uses()) {
         if (!MO.isReg() || !MO.isKill())
           continue;
-        if (KilledRegs.count(MO.getReg()))
+        if (UsedRegs.count(MO.getReg()))
           MO.setIsKill(false);
       }
     }
@@ -933,6 +945,11 @@ void ARMLoadStoreOpt::FormCandidates(const MemOpQueue &MemOps) {
     if (STI->isSwift() && !isNotVFP && (PRegNum % 2) == 1)
       CanMergeToLSMulti = false;
 
+    // LDRD/STRD do not allow SP/PC. LDM/STM do not support it or have it
+    // deprecated; LDM to PC is fine but cannot happen here.
+    if (PReg == ARM::SP || PReg == ARM::PC)
+      CanMergeToLSMulti = CanMergeToLSDouble = false;
+
     // Merge following instructions where possible.
     for (unsigned I = SIndex+1; I < EIndex; ++I, ++Count) {
       int NewOffset = MemOps[I].Offset;
@@ -940,16 +957,15 @@ void ARMLoadStoreOpt::FormCandidates(const MemOpQueue &MemOps) {
         break;
       const MachineOperand &MO = getLoadStoreRegOp(*MemOps[I].MI);
       unsigned Reg = MO.getReg();
-      unsigned RegNum = MO.isUndef() ? UINT_MAX : TRI->getEncodingValue(Reg);
+      if (Reg == ARM::SP || Reg == ARM::PC)
+        break;
 
       // See if the current load/store may be part of a multi load/store.
+      unsigned RegNum = MO.isUndef() ? UINT_MAX : TRI->getEncodingValue(Reg);
       bool PartOfLSMulti = CanMergeToLSMulti;
       if (PartOfLSMulti) {
-        // Cannot load from SP
-        if (Reg == ARM::SP)
-          PartOfLSMulti = false;
         // Register numbers must be in ascending order.
-        else if (RegNum <= PRegNum)
+        if (RegNum <= PRegNum)
           PartOfLSMulti = false;
         // For VFP / NEON load/store multiples, the registers must be
         // consecutive and within the limit on the number of registers per
@@ -1864,7 +1880,7 @@ namespace {
 }
 
 bool ARMPreAllocLoadStoreOpt::runOnMachineFunction(MachineFunction &Fn) {
-  TD = Fn.getTarget().getDataLayout();
+  TD = &Fn.getDataLayout();
   STI = &static_cast<const ARMSubtarget &>(Fn.getSubtarget());
   TII = STI->getInstrInfo();
   TRI = STI->getRegisterInfo();
@@ -2291,3 +2307,4 @@ FunctionPass *llvm::createARMLoadStoreOptimizationPass(bool PreAlloc) {
     return new ARMPreAllocLoadStoreOpt();
   return new ARMLoadStoreOpt();
 }
+

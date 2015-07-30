@@ -338,6 +338,7 @@ namespace {
                                          unsigned HiOp);
     SDValue CombineConsecutiveLoads(SDNode *N, EVT VT);
     SDValue CombineExtLoad(SDNode *N);
+    SDValue combineRepeatedFPDivisors(SDNode *N);
     SDValue ConstantFoldBITCASTofBUILD_VECTOR(SDNode *, EVT);
     SDValue BuildSDIV(SDNode *N);
     SDValue BuildSDIVPow2(SDNode *N);
@@ -2191,8 +2192,7 @@ SDValue DAGCombiner::visitSDIV(SDNode *N) {
       return SDValue();
 
     // Target-specific implementation of sdiv x, pow2.
-    SDValue Res = BuildSDIVPow2(N);
-    if (Res.getNode())
+    if (SDValue Res = BuildSDIVPow2(N))
       return Res;
 
     unsigned lg2 = N1C->getAPIntValue().countTrailingZeros();
@@ -2228,10 +2228,9 @@ SDValue DAGCombiner::visitSDIV(SDNode *N) {
 
   // If integer divide is expensive and we satisfy the requirements, emit an
   // alternate sequence.
-  if (N1C && !TLI.isIntDivCheap()) {
-    SDValue Op = BuildSDIV(N);
-    if (Op.getNode()) return Op;
-  }
+  if (N1C && !TLI.isIntDivCheap())
+    if (SDValue Op = BuildSDIV(N))
+      return Op;
 
   // undef / X -> 0
   if (N0.getOpcode() == ISD::UNDEF)
@@ -2284,10 +2283,9 @@ SDValue DAGCombiner::visitUDIV(SDNode *N) {
     }
   }
   // fold (udiv x, c) -> alternate
-  if (N1C && !TLI.isIntDivCheap()) {
-    SDValue Op = BuildUDIV(N);
-    if (Op.getNode()) return Op;
-  }
+  if (N1C && !TLI.isIntDivCheap())
+    if (SDValue Op = BuildUDIV(N))
+      return Op;
 
   // undef / X -> 0
   if (N0.getOpcode() == ISD::UNDEF)
@@ -2531,8 +2529,8 @@ SDValue DAGCombiner::SimplifyNodeWithTwoResults(SDNode *N, unsigned LoOp,
 }
 
 SDValue DAGCombiner::visitSMUL_LOHI(SDNode *N) {
-  SDValue Res = SimplifyNodeWithTwoResults(N, ISD::MUL, ISD::MULHS);
-  if (Res.getNode()) return Res;
+  if (SDValue Res = SimplifyNodeWithTwoResults(N, ISD::MUL, ISD::MULHS))
+    return Res;
 
   EVT VT = N->getValueType(0);
   SDLoc DL(N);
@@ -2562,8 +2560,8 @@ SDValue DAGCombiner::visitSMUL_LOHI(SDNode *N) {
 }
 
 SDValue DAGCombiner::visitUMUL_LOHI(SDNode *N) {
-  SDValue Res = SimplifyNodeWithTwoResults(N, ISD::MUL, ISD::MULHU);
-  if (Res.getNode()) return Res;
+  if (SDValue Res = SimplifyNodeWithTwoResults(N, ISD::MUL, ISD::MULHU))
+    return Res;
 
   EVT VT = N->getValueType(0);
   SDLoc DL(N);
@@ -2613,15 +2611,15 @@ SDValue DAGCombiner::visitUMULO(SDNode *N) {
 }
 
 SDValue DAGCombiner::visitSDIVREM(SDNode *N) {
-  SDValue Res = SimplifyNodeWithTwoResults(N, ISD::SDIV, ISD::SREM);
-  if (Res.getNode()) return Res;
+  if (SDValue Res = SimplifyNodeWithTwoResults(N, ISD::SDIV, ISD::SREM))
+    return Res;
 
   return SDValue();
 }
 
 SDValue DAGCombiner::visitUDIVREM(SDNode *N) {
-  SDValue Res = SimplifyNodeWithTwoResults(N, ISD::UDIV, ISD::UREM);
-  if (Res.getNode()) return Res;
+  if (SDValue Res = SimplifyNodeWithTwoResults(N, ISD::UDIV, ISD::UREM))
+    return Res;
 
   return SDValue();
 }
@@ -3141,10 +3139,9 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
     return Combined;
 
   // Simplify: (and (op x...), (op y...))  -> (op (and x, y))
-  if (N0.getOpcode() == N1.getOpcode()) {
-    SDValue Tmp = SimplifyBinOpWithSameOpcodeHands(N);
-    if (Tmp.getNode()) return Tmp;
-  }
+  if (N0.getOpcode() == N1.getOpcode())
+    if (SDValue Tmp = SimplifyBinOpWithSameOpcodeHands(N))
+      return Tmp;
 
   // fold (and (sign_extend_inreg x, i16 to i32), 1) -> (and x, 1)
   // fold (and (sra)) -> (and (srl)) when possible.
@@ -3664,11 +3661,9 @@ SDValue DAGCombiner::visitOR(SDNode *N) {
     return Combined;
 
   // Recognize halfword bswaps as (bswap + rotl 16) or (bswap + shl 16)
-  SDValue BSwap = MatchBSwapHWord(N, N0, N1);
-  if (BSwap.getNode())
+  if (SDValue BSwap = MatchBSwapHWord(N, N0, N1))
     return BSwap;
-  BSwap = MatchBSwapHWordLow(N, N0, N1);
-  if (BSwap.getNode())
+  if (SDValue BSwap = MatchBSwapHWordLow(N, N0, N1))
     return BSwap;
 
   // reassociate or
@@ -3689,10 +3684,9 @@ SDValue DAGCombiner::visitOR(SDNode *N) {
     }
   }
   // Simplify: (or (op x...), (op y...))  -> (op (or x, y))
-  if (N0.getOpcode() == N1.getOpcode()) {
-    SDValue Tmp = SimplifyBinOpWithSameOpcodeHands(N);
-    if (Tmp.getNode()) return Tmp;
-  }
+  if (N0.getOpcode() == N1.getOpcode())
+    if (SDValue Tmp = SimplifyBinOpWithSameOpcodeHands(N))
+      return Tmp;
 
   // See if this is some rotate idiom.
   if (SDNode *Rot = MatchRotate(N0, N1, SDLoc(N)))
@@ -4111,10 +4105,9 @@ SDValue DAGCombiner::visitXOR(SDNode *N) {
   }
 
   // Simplify: xor (op x...), (op y...)  -> (op (xor x, y))
-  if (N0.getOpcode() == N1.getOpcode()) {
-    SDValue Tmp = SimplifyBinOpWithSameOpcodeHands(N);
-    if (Tmp.getNode()) return Tmp;
-  }
+  if (N0.getOpcode() == N1.getOpcode())
+    if (SDValue Tmp = SimplifyBinOpWithSameOpcodeHands(N))
+      return Tmp;
 
   // Simplify the expression using non-local knowledge.
   if (!VT.isVector() &&
@@ -4433,11 +4426,9 @@ SDValue DAGCombiner::visitSHL(SDNode *N) {
     return DAG.getNode(ISD::ADD, SDLoc(N), VT, Shl0, Shl1);
   }
 
-  if (N1C && !N1C->isOpaque()) {
-    SDValue NewSHL = visitShiftByConstant(N, N1C);
-    if (NewSHL.getNode())
+  if (N1C && !N1C->isOpaque())
+    if (SDValue NewSHL = visitShiftByConstant(N, N1C))
       return NewSHL;
-  }
 
   return SDValue();
 }
@@ -4582,11 +4573,9 @@ SDValue DAGCombiner::visitSRA(SDNode *N) {
   if (DAG.SignBitIsZero(N0))
     return DAG.getNode(ISD::SRL, SDLoc(N), VT, N0, N1);
 
-  if (N1C && !N1C->isOpaque()) {
-    SDValue NewSRA = visitShiftByConstant(N, N1C);
-    if (NewSRA.getNode())
+  if (N1C && !N1C->isOpaque())
+    if (SDValue NewSRA = visitShiftByConstant(N, N1C))
       return NewSRA;
-  }
 
   return SDValue();
 }
@@ -5836,8 +5825,7 @@ SDValue DAGCombiner::visitSIGN_EXTEND(SDNode *N) {
   if (N0.getOpcode() == ISD::TRUNCATE) {
     // fold (sext (truncate (load x))) -> (sext (smaller load x))
     // fold (sext (truncate (srl (load x), c))) -> (sext (smaller load (x+c/n)))
-    SDValue NarrowLoad = ReduceLoadWidth(N0.getNode());
-    if (NarrowLoad.getNode()) {
+    if (SDValue NarrowLoad = ReduceLoadWidth(N0.getNode())) {
       SDNode* oye = N0.getNode()->getOperand(0).getNode();
       if (NarrowLoad.getNode() != N0.getNode()) {
         CombineTo(N0.getNode(), NarrowLoad);
@@ -6119,8 +6107,7 @@ SDValue DAGCombiner::visitZERO_EXTEND(SDNode *N) {
   // fold (zext (truncate (load x))) -> (zext (smaller load x))
   // fold (zext (truncate (srl (load x), c))) -> (zext (small load (x+c/n)))
   if (N0.getOpcode() == ISD::TRUNCATE) {
-    SDValue NarrowLoad = ReduceLoadWidth(N0.getNode());
-    if (NarrowLoad.getNode()) {
+    if (SDValue NarrowLoad = ReduceLoadWidth(N0.getNode())) {
       SDNode* oye = N0.getNode()->getOperand(0).getNode();
       if (NarrowLoad.getNode() != N0.getNode()) {
         CombineTo(N0.getNode(), NarrowLoad);
@@ -6137,8 +6124,7 @@ SDValue DAGCombiner::visitZERO_EXTEND(SDNode *N) {
 
     // fold (zext (truncate (load x))) -> (zext (smaller load x))
     // fold (zext (truncate (srl (load x), c))) -> (zext (smaller load (x+c/n)))
-    SDValue NarrowLoad = ReduceLoadWidth(N0.getNode());
-    if (NarrowLoad.getNode()) {
+    if (SDValue NarrowLoad = ReduceLoadWidth(N0.getNode())) {
       SDNode* oye = N0.getNode()->getOperand(0).getNode();
       if (NarrowLoad.getNode() != N0.getNode()) {
         CombineTo(N0.getNode(), NarrowLoad);
@@ -6545,8 +6531,7 @@ SDValue DAGCombiner::GetDemandedBits(SDValue V, const APInt &Mask) {
       // Watch out for shift count overflow though.
       if (Amt >= Mask.getBitWidth()) break;
       APInt NewMask = Mask << Amt;
-      SDValue SimplifyLHS = GetDemandedBits(V.getOperand(0), NewMask);
-      if (SimplifyLHS.getNode())
+      if (SDValue SimplifyLHS = GetDemandedBits(V.getOperand(0), NewMask))
         return DAG.getNode(ISD::SRL, SDLoc(V), V.getValueType(),
                            SimplifyLHS, V.getOperand(1));
     }
@@ -6770,8 +6755,7 @@ SDValue DAGCombiner::visitSIGN_EXTEND_INREG(SDNode *N) {
 
   // fold (sext_in_reg (load x)) -> (smaller sextload x)
   // fold (sext_in_reg (srl (load x), c)) -> (smaller sextload (x+c/evtbits))
-  SDValue NarrowLoad = ReduceLoadWidth(N);
-  if (NarrowLoad.getNode())
+  if (SDValue NarrowLoad = ReduceLoadWidth(N))
     return NarrowLoad;
 
   // fold (sext_in_reg (srl X, 24), i8) -> (sra X, 24)
@@ -6998,9 +6982,9 @@ SDValue DAGCombiner::visitTRUNCATE(SDNode *N) {
   // fold (truncate (load x)) -> (smaller load x)
   // fold (truncate (srl (load x), c)) -> (smaller load (x+c/evtbits))
   if (!LegalTypes || TLI.isTypeDesirableForOp(N0.getOpcode(), VT)) {
-    SDValue Reduced = ReduceLoadWidth(N);
-    if (Reduced.getNode())
+    if (SDValue Reduced = ReduceLoadWidth(N))
       return Reduced;
+
     // Handle the case where the load remains an extending load even
     // after truncation.
     if (N0.hasOneUse() && ISD::isUNINDEXEDLoad(N0.getNode())) {
@@ -7239,11 +7223,9 @@ SDValue DAGCombiner::visitBITCAST(SDNode *N) {
   }
 
   // bitconvert(build_pair(ld, ld)) -> ld iff load locations are consecutive.
-  if (N0.getOpcode() == ISD::BUILD_PAIR) {
-    SDValue CombineLD = CombineConsecutiveLoads(N0.getNode(), VT);
-    if (CombineLD.getNode())
+  if (N0.getOpcode() == ISD::BUILD_PAIR)
+    if (SDValue CombineLD = CombineConsecutiveLoads(N0.getNode(), VT))
       return CombineLD;
-  }
 
   // Remove double bitcasts from shuffles - this is often a legacy of
   // XformToShuffleWithZero being used to combine bitmaskings (of
@@ -7256,10 +7238,10 @@ SDValue DAGCombiner::visitBITCAST(SDNode *N) {
     ShuffleVectorSDNode *SVN = cast<ShuffleVectorSDNode>(N0);
 
     // If operands are a bitcast, peek through if it casts the original VT.
-    // If operands are a UNDEF or constant, just bitcast back to original VT.
+    // If operands are a constant, just bitcast back to original VT.
     auto PeekThroughBitcast = [&](SDValue Op) {
       if (Op.getOpcode() == ISD::BITCAST &&
-          Op.getOperand(0)->getValueType(0) == VT)
+          Op.getOperand(0).getValueType() == VT)
         return SDValue(Op.getOperand(0));
       if (ISD::isBuildVectorOfConstantSDNodes(Op.getNode()) ||
           ISD::isBuildVectorOfConstantFPSDNodes(Op.getNode()))
@@ -8138,7 +8120,9 @@ SDValue DAGCombiner::visitFMUL(SDNode *N) {
     // Undo the fmul 2.0, x -> fadd x, x transformation, since if it occurs
     // during an early run of DAGCombiner can prevent folding with fmuls
     // inserted during lowering.
-    if (N0.getOpcode() == ISD::FADD && N0.getOperand(0) == N0.getOperand(1)) {
+    if (N0.getOpcode() == ISD::FADD &&
+        (N0.getOperand(0) == N0.getOperand(1)) &&
+        N0.hasOneUse()) {
       const SDValue Two = DAG.getConstantFP(2.0, DL, VT);
       SDValue MulConsts = DAG.getNode(ISD::FMUL, DL, VT, Two, N1);
       return DAG.getNode(ISD::FMUL, DL, VT, N0.getOperand(0), MulConsts);
@@ -8252,6 +8236,66 @@ SDValue DAGCombiner::visitFMA(SDNode *N) {
   return SDValue();
 }
 
+// Combine multiple FDIVs with the same divisor into multiple FMULs by the
+// reciprocal.
+// E.g., (a / D; b / D;) -> (recip = 1.0 / D; a * recip; b * recip)
+// Notice that this is not always beneficial. One reason is different target
+// may have different costs for FDIV and FMUL, so sometimes the cost of two
+// FDIVs may be lower than the cost of one FDIV and two FMULs. Another reason
+// is the critical path is increased from "one FDIV" to "one FDIV + one FMUL".
+SDValue DAGCombiner::combineRepeatedFPDivisors(SDNode *N) {
+  if (!DAG.getTarget().Options.UnsafeFPMath)
+    return SDValue();
+  
+  // Skip if current node is a reciprocal.
+  SDValue N0 = N->getOperand(0);
+  ConstantFPSDNode *N0CFP = dyn_cast<ConstantFPSDNode>(N0);
+  if (N0CFP && N0CFP->isExactlyValue(1.0))
+    return SDValue();
+  
+  // Exit early if the target does not want this transform or if there can't
+  // possibly be enough uses of the divisor to make the transform worthwhile.
+  SDValue N1 = N->getOperand(1);
+  unsigned MinUses = TLI.combineRepeatedFPDivisors();
+  if (!MinUses || N1->use_size() < MinUses)
+    return SDValue();
+
+  // Find all FDIV users of the same divisor.
+  // Use a set because duplicates may be present in the user list.
+  SetVector<SDNode *> Users;
+  for (auto *U : N1->uses())
+    if (U->getOpcode() == ISD::FDIV && U->getOperand(1) == N1)
+      Users.insert(U);
+
+  // Now that we have the actual number of divisor uses, make sure it meets
+  // the minimum threshold specified by the target.
+  if (Users.size() < MinUses)
+    return SDValue();
+
+  EVT VT = N->getValueType(0);
+  SDLoc DL(N);
+  SDValue FPOne = DAG.getConstantFP(1.0, DL, VT);
+  // FIXME: This optimization requires some level of fast-math, so the
+  // created reciprocal node should at least have the 'allowReciprocal'
+  // fast-math-flag set.
+  SDValue Reciprocal = DAG.getNode(ISD::FDIV, DL, VT, FPOne, N1);
+
+  // Dividend / Divisor -> Dividend * Reciprocal
+  for (auto *U : Users) {
+    SDValue Dividend = U->getOperand(0);
+    if (Dividend != FPOne) {
+      SDValue NewNode = DAG.getNode(ISD::FMUL, SDLoc(U), VT, Dividend,
+                                    Reciprocal);
+      CombineTo(U, NewNode);
+    } else if (U != Reciprocal.getNode()) {
+      // In the absence of fast-math-flags, this user node is always the
+      // same node as Reciprocal, but with FMF they may be different nodes.
+      CombineTo(U, Reciprocal);
+    }
+  }
+  return SDValue(N, 0);  // N was replaced.
+}
+
 SDValue DAGCombiner::visitFDIV(SDNode *N) {
   SDValue N0 = N->getOperand(0);
   SDValue N1 = N->getOperand(1);
@@ -8352,48 +8396,8 @@ SDValue DAGCombiner::visitFDIV(SDNode *N) {
     }
   }
 
-  // Combine multiple FDIVs with the same divisor into multiple FMULs by the
-  // reciprocal.
-  // E.g., (a / D; b / D;) -> (recip = 1.0 / D; a * recip; b * recip)
-  // Notice that this is not always beneficial. One reason is different target
-  // may have different costs for FDIV and FMUL, so sometimes the cost of two
-  // FDIVs may be lower than the cost of one FDIV and two FMULs. Another reason
-  // is the critical path is increased from "one FDIV" to "one FDIV + one FMUL".
-  if (Options.UnsafeFPMath) {
-    // Skip if current node is a reciprocal.
-    if (N0CFP && N0CFP->isExactlyValue(1.0))
-      return SDValue();
-
-    SmallVector<SDNode *, 4> Users;
-    // Find all FDIV users of the same divisor.
-    for (auto *U : N1->uses()) {
-      if (U->getOpcode() == ISD::FDIV && U->getOperand(1) == N1)
-        Users.push_back(U);
-    }
-
-    if (TLI.combineRepeatedFPDivisors(Users.size())) {
-      SDValue FPOne = DAG.getConstantFP(1.0, DL, VT);
-      // FIXME: This optimization requires some level of fast-math, so the
-      // created reciprocal node should at least have the 'allowReciprocal'
-      // fast-math-flag set.
-      SDValue Reciprocal = DAG.getNode(ISD::FDIV, DL, VT, FPOne, N1);
-
-      // Dividend / Divisor -> Dividend * Reciprocal
-      for (auto *U : Users) {
-        SDValue Dividend = U->getOperand(0);
-        if (Dividend != FPOne) {
-          SDValue NewNode = DAG.getNode(ISD::FMUL, SDLoc(U), VT, Dividend,
-                                        Reciprocal);
-          CombineTo(U, NewNode);
-        } else if (U != Reciprocal.getNode()) {
-          // In the absence of fast-math-flags, this user node is always the
-          // same node as Reciprocal, but with FMF they may be different nodes.
-          CombineTo(U, Reciprocal);
-        }
-      }
-      return SDValue(N, 0);  // N was replaced.
-    }
-  }
+  if (SDValue CombineRepeatedDivisors = combineRepeatedFPDivisors(N))
+    return CombineRepeatedDivisors;
 
   return SDValue();
 }
@@ -10742,17 +10746,6 @@ bool DAGCombiner::MergeStoresOfConstantsOrVecElts(
   return true;
 }
 
-static bool allowableAlignment(const SelectionDAG &DAG,
-                               const TargetLowering &TLI, EVT EVTTy,
-                               unsigned AS, unsigned Align) {
-  if (TLI.allowsMisalignedMemoryAccesses(EVTTy, AS, Align))
-    return true;
-
-  Type *Ty = EVTTy.getTypeForEVT(*DAG.getContext());
-  unsigned ABIAlignment = DAG.getDataLayout().getPrefTypeAlignment(Ty);
-  return (Align >= ABIAlignment);
-}
-
 void DAGCombiner::getStoreMergeAndAliasCandidates(
     StoreSDNode* St, SmallVectorImpl<MemOpLink> &StoreNodes,
     SmallVectorImpl<LSBaseSDNode*> &AliasLoadNodes) {
@@ -10918,6 +10911,8 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
   LSBaseSDNode *FirstInChain = StoreNodes[0].MemNode;
   unsigned FirstStoreAS = FirstInChain->getAddressSpace();
   unsigned FirstStoreAlign = FirstInChain->getAlignment();
+  LLVMContext &Context = *DAG.getContext();
+  const DataLayout &DL = DAG.getDataLayout();
 
   // Store the constants into memory as one consecutive store.
   if (IsConstantSrc) {
@@ -10939,27 +10934,28 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
 
       // Find a legal type for the constant store.
       unsigned SizeInBits = (i+1) * ElementSizeBytes * 8;
-      EVT StoreTy = EVT::getIntegerVT(*DAG.getContext(), SizeInBits);
+      EVT StoreTy = EVT::getIntegerVT(Context, SizeInBits);
       if (TLI.isTypeLegal(StoreTy) &&
-          allowableAlignment(DAG, TLI, StoreTy, FirstStoreAS,
-                             FirstStoreAlign)) {
+          TLI.allowsMemoryAccess(Context, DL, StoreTy, FirstStoreAS,
+                                 FirstStoreAlign)) {
         LastLegalType = i+1;
       // Or check whether a truncstore is legal.
-      } else if (TLI.getTypeAction(*DAG.getContext(), StoreTy) ==
+      } else if (TLI.getTypeAction(Context, StoreTy) ==
                  TargetLowering::TypePromoteInteger) {
         EVT LegalizedStoredValueTy =
-          TLI.getTypeToTransformTo(*DAG.getContext(), StoredVal.getValueType());
+          TLI.getTypeToTransformTo(Context, StoredVal.getValueType());
         if (TLI.isTruncStoreLegal(LegalizedStoredValueTy, StoreTy) &&
-            allowableAlignment(DAG, TLI, LegalizedStoredValueTy, FirstStoreAS,
-                               FirstStoreAlign)) {
+            TLI.allowsMemoryAccess(Context, DL, LegalizedStoredValueTy,
+                                   FirstStoreAS, FirstStoreAlign)) {
           LastLegalType = i + 1;
         }
       }
 
       // Find a legal type for the vector store.
-      EVT Ty = EVT::getVectorVT(*DAG.getContext(), MemVT, i+1);
+      EVT Ty = EVT::getVectorVT(Context, MemVT, i+1);
       if (TLI.isTypeLegal(Ty) &&
-          allowableAlignment(DAG, TLI, Ty, FirstStoreAS, FirstStoreAlign)) {
+          TLI.allowsMemoryAccess(Context, DL, Ty, FirstStoreAS,
+                                 FirstStoreAlign)) {
         LastLegalVectorType = i + 1;
       }
     }
@@ -11003,9 +10999,10 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
         return false;
 
       // Find a legal type for the vector store.
-      EVT Ty = EVT::getVectorVT(*DAG.getContext(), MemVT, i+1);
+      EVT Ty = EVT::getVectorVT(Context, MemVT, i+1);
       if (TLI.isTypeLegal(Ty) &&
-          allowableAlignment(DAG, TLI, Ty, FirstStoreAS, FirstStoreAlign))
+          TLI.allowsMemoryAccess(Context, DL, Ty, FirstStoreAS,
+                                 FirstStoreAlign))
         NumElem = i + 1;
     }
 
@@ -11093,33 +11090,37 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
     LastConsecutiveLoad = i;
 
     // Find a legal type for the vector store.
-    EVT StoreTy = EVT::getVectorVT(*DAG.getContext(), MemVT, i+1);
+    EVT StoreTy = EVT::getVectorVT(Context, MemVT, i+1);
     if (TLI.isTypeLegal(StoreTy) &&
-        allowableAlignment(DAG, TLI, StoreTy, FirstStoreAS, FirstStoreAlign) &&
-        allowableAlignment(DAG, TLI, StoreTy, FirstLoadAS, FirstLoadAlign)) {
+        TLI.allowsMemoryAccess(Context, DL, StoreTy, FirstStoreAS,
+                               FirstStoreAlign) &&
+        TLI.allowsMemoryAccess(Context, DL, StoreTy, FirstLoadAS,
+                               FirstLoadAlign)) {
       LastLegalVectorType = i + 1;
     }
 
     // Find a legal type for the integer store.
     unsigned SizeInBits = (i+1) * ElementSizeBytes * 8;
-    StoreTy = EVT::getIntegerVT(*DAG.getContext(), SizeInBits);
+    StoreTy = EVT::getIntegerVT(Context, SizeInBits);
     if (TLI.isTypeLegal(StoreTy) &&
-        allowableAlignment(DAG, TLI, StoreTy, FirstStoreAS, FirstStoreAlign) &&
-        allowableAlignment(DAG, TLI, StoreTy, FirstLoadAS, FirstLoadAlign))
+        TLI.allowsMemoryAccess(Context, DL, StoreTy, FirstStoreAS,
+                               FirstStoreAlign) &&
+        TLI.allowsMemoryAccess(Context, DL, StoreTy, FirstLoadAS,
+                               FirstLoadAlign))
       LastLegalIntegerType = i + 1;
     // Or check whether a truncstore and extload is legal.
-    else if (TLI.getTypeAction(*DAG.getContext(), StoreTy) ==
+    else if (TLI.getTypeAction(Context, StoreTy) ==
              TargetLowering::TypePromoteInteger) {
       EVT LegalizedStoredValueTy =
-        TLI.getTypeToTransformTo(*DAG.getContext(), StoreTy);
+        TLI.getTypeToTransformTo(Context, StoreTy);
       if (TLI.isTruncStoreLegal(LegalizedStoredValueTy, StoreTy) &&
           TLI.isLoadExtLegal(ISD::ZEXTLOAD, LegalizedStoredValueTy, StoreTy) &&
           TLI.isLoadExtLegal(ISD::SEXTLOAD, LegalizedStoredValueTy, StoreTy) &&
           TLI.isLoadExtLegal(ISD::EXTLOAD, LegalizedStoredValueTy, StoreTy) &&
-          allowableAlignment(DAG, TLI, LegalizedStoredValueTy, FirstStoreAS,
-                             FirstStoreAlign) &&
-          allowableAlignment(DAG, TLI, LegalizedStoredValueTy, FirstLoadAS,
-                             FirstLoadAlign))
+          TLI.allowsMemoryAccess(Context, DL, LegalizedStoredValueTy,
+                                 FirstStoreAS, FirstStoreAlign) &&
+          TLI.allowsMemoryAccess(Context, DL, LegalizedStoredValueTy,
+                                 FirstLoadAS, FirstLoadAlign))
         LastLegalIntegerType = i+1;
     }
   }
@@ -11154,10 +11155,10 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
   // to memory.
   EVT JointMemOpVT;
   if (UseVectorTy) {
-    JointMemOpVT = EVT::getVectorVT(*DAG.getContext(), MemVT, NumElem);
+    JointMemOpVT = EVT::getVectorVT(Context, MemVT, NumElem);
   } else {
     unsigned SizeInBits = NumElem * ElementSizeBytes * 8;
-    JointMemOpVT = EVT::getIntegerVT(*DAG.getContext(), SizeInBits);
+    JointMemOpVT = EVT::getIntegerVT(Context, SizeInBits);
   }
 
   SDLoc LoadDL(LoadNodes[0].MemNode);

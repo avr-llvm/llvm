@@ -535,6 +535,7 @@ void X86AsmPrinter::EmitStartOfAsmFile(Module &M) {
           S, MCConstantExpr::create(int64_t(1), MMI->getContext()));
     }
   }
+  OutStreamer->EmitSyntaxDirective();
 }
 
 static void
@@ -565,10 +566,11 @@ MCSymbol *X86AsmPrinter::GetCPISymbol(unsigned CPID) const {
     const MachineConstantPoolEntry &CPE =
         MF->getConstantPool()->getConstants()[CPID];
     if (!CPE.isMachineConstantPoolEntry()) {
-      SectionKind Kind = CPE.getSectionKind(TM.getDataLayout());
+      const DataLayout &DL = MF->getDataLayout();
+      SectionKind Kind = CPE.getSectionKind(&DL);
       const Constant *C = CPE.Val.ConstVal;
       if (const MCSectionCOFF *S = dyn_cast<MCSectionCOFF>(
-            getObjFileLowering().getSectionForConstant(Kind, C))) {
+              getObjFileLowering().getSectionForConstant(DL, Kind, C))) {
         if (MCSymbol *Sym = S->getCOMDATSymbol()) {
           if (Sym->isUndefined())
             OutStreamer->EmitSymbolAttribute(Sym, MCSA_Global);

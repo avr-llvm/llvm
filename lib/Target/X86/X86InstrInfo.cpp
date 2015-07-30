@@ -332,6 +332,9 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::MUL8r,       X86::MUL8m,         TB_FOLDED_LOAD },
     { X86::PEXTRDrr,    X86::PEXTRDmr,      TB_FOLDED_STORE },
     { X86::PEXTRQrr,    X86::PEXTRQmr,      TB_FOLDED_STORE },
+    { X86::PUSH16r,     X86::PUSH16rmm,     TB_FOLDED_LOAD },
+    { X86::PUSH32r,     X86::PUSH32rmm,     TB_FOLDED_LOAD },
+    { X86::PUSH64r,     X86::PUSH64rmm,     TB_FOLDED_LOAD },
     { X86::SETAEr,      X86::SETAEm,        TB_FOLDED_STORE },
     { X86::SETAr,       X86::SETAm,         TB_FOLDED_STORE },
     { X86::SETBEr,      X86::SETBEm,        TB_FOLDED_STORE },
@@ -956,18 +959,9 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::DPPDrri,         X86::DPPDrmi,       TB_ALIGN_16 },
     { X86::DPPSrri,         X86::DPPSrmi,       TB_ALIGN_16 },
 
-    // FIXME: We should not be folding Fs* scalar loads into vector
-    // instructions because the vector instructions require vector-sized
-    // loads. Lowering should create vector-sized instructions (the Fv*
-    // variants below) to allow load folding.
-    { X86::FsANDNPDrr,      X86::FsANDNPDrm,    TB_ALIGN_16 },
-    { X86::FsANDNPSrr,      X86::FsANDNPSrm,    TB_ALIGN_16 },
-    { X86::FsANDPDrr,       X86::FsANDPDrm,     TB_ALIGN_16 },
-    { X86::FsANDPSrr,       X86::FsANDPSrm,     TB_ALIGN_16 },
-    { X86::FsORPDrr,        X86::FsORPDrm,      TB_ALIGN_16 },
-    { X86::FsORPSrr,        X86::FsORPSrm,      TB_ALIGN_16 },
-    { X86::FsXORPDrr,       X86::FsXORPDrm,     TB_ALIGN_16 },
-    { X86::FsXORPSrr,       X86::FsXORPSrm,     TB_ALIGN_16 },
+    // Do not fold Fs* scalar logical op loads because there are no scalar
+    // load variants for these instructions. When folded, the load is required
+    // to be 128-bits, so the load size would not match.
 
     { X86::FvANDNPDrr,      X86::FvANDNPDrm,    TB_ALIGN_16 },
     { X86::FvANDNPSrr,      X86::FvANDNPSrm,    TB_ALIGN_16 },
@@ -4878,10 +4872,14 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
   bool isCallRegIndirect = Subtarget.callRegIndirect();
   bool isTwoAddrFold = false;
 
-  // For CPUs that favor the register form of a call,
-  // do not fold loads into calls.
-  if (isCallRegIndirect &&
-    (MI->getOpcode() == X86::CALL32r || MI->getOpcode() == X86::CALL64r))
+  // For CPUs that favor the register form of a call or push,
+  // do not fold loads into calls or pushes, unless optimizing for size
+  // aggressively.
+  if (isCallRegIndirect && 
+      !MF.getFunction()->hasFnAttribute(Attribute::MinSize) &&
+      (MI->getOpcode() == X86::CALL32r || MI->getOpcode() == X86::CALL64r ||
+       MI->getOpcode() == X86::PUSH16r || MI->getOpcode() == X86::PUSH32r ||
+       MI->getOpcode() == X86::PUSH64r))
     return nullptr;
 
   unsigned NumOps = MI->getDesc().getNumOperands();
@@ -5467,62 +5465,6 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
   }
   return foldMemoryOperandImpl(MF, MI, Ops[0], MOs, InsertPt,
                                /*Size=*/0, Alignment, /*AllowCommute=*/true);
-}
-
-bool X86InstrInfo::canFoldMemoryOperand(const MachineInstr *MI,
-                                        ArrayRef<unsigned> Ops) const {
-  // Check switch flag
-  if (NoFusing) return 0;
-
-  if (Ops.size() == 2 && Ops[0] == 0 && Ops[1] == 1) {
-    switch (MI->getOpcode()) {
-    default: return false;
-    case X86::TEST8rr:
-    case X86::TEST16rr:
-    case X86::TEST32rr:
-    case X86::TEST64rr:
-      return true;
-    case X86::ADD32ri:
-      // FIXME: AsmPrinter doesn't know how to handle
-      // X86II::MO_GOT_ABSOLUTE_ADDRESS after folding.
-      if (MI->getOperand(2).getTargetFlags() == X86II::MO_GOT_ABSOLUTE_ADDRESS)
-        return false;
-      break;
-    }
-  }
-
-  if (Ops.size() != 1)
-    return false;
-
-  unsigned OpNum = Ops[0];
-  unsigned Opc = MI->getOpcode();
-  unsigned NumOps = MI->getDesc().getNumOperands();
-  bool isTwoAddr = NumOps > 1 &&
-    MI->getDesc().getOperandConstraint(1, MCOI::TIED_TO) != -1;
-
-  // Folding a memory location into the two-address part of a two-address
-  // instruction is different than folding it other places.  It requires
-  // replacing the *two* registers with the memory location.
-  const DenseMap<unsigned,
-                 std::pair<unsigned,unsigned> > *OpcodeTablePtr = nullptr;
-  if (isTwoAddr && NumOps >= 2 && OpNum < 2) {
-    OpcodeTablePtr = &RegOp2MemOpTable2Addr;
-  } else if (OpNum == 0) {
-    if (Opc == X86::MOV32r0)
-      return true;
-
-    OpcodeTablePtr = &RegOp2MemOpTable0;
-  } else if (OpNum == 1) {
-    OpcodeTablePtr = &RegOp2MemOpTable1;
-  } else if (OpNum == 2) {
-    OpcodeTablePtr = &RegOp2MemOpTable2;
-  } else if (OpNum == 3) {
-    OpcodeTablePtr = &RegOp2MemOpTable3;
-  }
-
-  if (OpcodeTablePtr && OpcodeTablePtr->count(Opc))
-    return true;
-  return TargetInstrInfo::canFoldMemoryOperand(MI, Ops);
 }
 
 bool X86InstrInfo::unfoldMemoryOperand(MachineFunction &MF, MachineInstr *MI,
@@ -6406,8 +6348,8 @@ static bool hasReassocSibling(const MachineInstr &Inst, bool &Commuted) {
 // TODO: There are many more machine instruction opcodes to match:
 //       1. Other data types (integer, vectors)
 //       2. Other math / logic operations (and, or)
-static bool isAssociativeAndCommutative(unsigned Opcode) {
-  switch (Opcode) {
+static bool isAssociativeAndCommutative(const MachineInstr &Inst) {
+  switch (Inst.getOpcode()) {
   case X86::ADDSDrr:
   case X86::ADDSSrr:
   case X86::VADDSDrr:
@@ -6416,7 +6358,7 @@ static bool isAssociativeAndCommutative(unsigned Opcode) {
   case X86::MULSSrr:
   case X86::VMULSDrr:
   case X86::VMULSSrr:
-    return true;
+    return Inst.getParent()->getParent()->getTarget().Options.UnsafeFPMath;
   default:
     return false;
   }
@@ -6432,7 +6374,7 @@ static bool isReassocCandidate(const MachineInstr &Inst, bool &Commuted) {
   // 2. The instruction must have virtual register definitions for its
   //    operands in the same basic block.
   // 3. The instruction must have a reassociable sibling.
-  if (isAssociativeAndCommutative(Inst.getOpcode()) &&
+  if (isAssociativeAndCommutative(Inst) &&
       hasVirtualRegDefsInBasicBlock(Inst, Inst.getParent()) &&
       hasReassocSibling(Inst, Commuted))
     return true;
@@ -6449,9 +6391,6 @@ static bool isReassocCandidate(const MachineInstr &Inst, bool &Commuted) {
 //    that pattern.
 bool X86InstrInfo::getMachineCombinerPatterns(MachineInstr &Root,
         SmallVectorImpl<MachineCombinerPattern::MC_PATTERN> &Patterns) const {
-  if (!Root.getParent()->getParent()->getTarget().Options.UnsafeFPMath)
-    return false;
-
   // TODO: There is nothing x86-specific here except the instruction type.
   // This logic could be hoisted into the machine combiner pass itself.
 

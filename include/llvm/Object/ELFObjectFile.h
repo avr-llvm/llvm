@@ -189,8 +189,6 @@ public:
   typedef typename ELFFile<ELFT>::Elf_Rela Elf_Rela;
   typedef typename ELFFile<ELFT>::Elf_Dyn Elf_Dyn;
 
-  typedef typename ELFFile<ELFT>::Elf_Dyn_Iter Elf_Dyn_Iter;
-
 protected:
   ELFFile<ELFT> EF;
 
@@ -273,9 +271,9 @@ protected:
     return DRI;
   }
 
-  DataRefImpl toDRI(Elf_Dyn_Iter Dyn) const {
+  DataRefImpl toDRI(const Elf_Dyn *Dyn) const {
     DataRefImpl DRI;
-    DRI.p = reinterpret_cast<uintptr_t>(Dyn.get());
+    DRI.p = reinterpret_cast<uintptr_t>(Dyn);
     return DRI;
   }
 
@@ -320,7 +318,6 @@ public:
   uint8_t getBytesInAddress() const override;
   StringRef getFileFormatName() const override;
   unsigned getArch() const override;
-  StringRef getLoadName() const;
 
   std::error_code getPlatformFlags(unsigned &Result) const override {
     Result = EF.getHeader()->e_flags;
@@ -779,19 +776,6 @@ section_iterator ELFObjectFile<ELFT>::section_begin() const {
 template <class ELFT>
 section_iterator ELFObjectFile<ELFT>::section_end() const {
   return section_iterator(SectionRef(toDRI(EF.section_end()), this));
-}
-
-template <class ELFT>
-StringRef ELFObjectFile<ELFT>::getLoadName() const {
-  Elf_Dyn_Iter DI = EF.dynamic_table_begin();
-  Elf_Dyn_Iter DE = EF.dynamic_table_end();
-
-  while (DI != DE && DI->getTag() != ELF::DT_SONAME)
-    ++DI;
-
-  if (DI != DE)
-    return EF.getDynamicString(DI->getVal());
-  return "";
 }
 
 template <class ELFT>

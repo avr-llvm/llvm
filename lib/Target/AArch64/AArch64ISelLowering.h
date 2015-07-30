@@ -58,6 +58,11 @@ enum NodeType : unsigned {
   SBCS,
   ANDS,
 
+  // Conditional compares. Operands: left,right,falsecc,cc,flags
+  CCMP,
+  CCMN,
+  FCCMP,
+
   // Floating point comparison
   FCMP,
 
@@ -217,8 +222,6 @@ class AArch64Subtarget;
 class AArch64TargetMachine;
 
 class AArch64TargetLowering : public TargetLowering {
-  bool RequireStrictAlign;
-
 public:
   explicit AArch64TargetLowering(const TargetMachine &TM,
                                  const AArch64Subtarget &STI);
@@ -239,14 +242,7 @@ public:
   /// unaligned memory accesses of the specified type.
   bool allowsMisalignedMemoryAccesses(EVT VT, unsigned AddrSpace = 0,
                                       unsigned Align = 1,
-                                      bool *Fast = nullptr) const override {
-    if (RequireStrictAlign)
-      return false;
-    // FIXME: True for Cyclone, but not necessary others.
-    if (Fast)
-      *Fast = true;
-    return true;
-  }
+                                      bool *Fast = nullptr) const override;
 
   /// LowerOperation - Provide custom lowering hooks for some operations.
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
@@ -392,6 +388,8 @@ private:
                           SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals,
                           bool isThisReturn, SDValue ThisVal) const;
 
+  SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
+
   bool isEligibleForTailCallOptimization(
       SDValue Callee, CallingConv::ID CalleeCC, bool isVarArg,
       bool isCalleeStructRet, bool isCallerStructRet,
@@ -470,7 +468,7 @@ private:
 
   SDValue BuildSDIVPow2(SDNode *N, const APInt &Divisor, SelectionDAG &DAG,
                         std::vector<SDNode *> *Created) const override;
-  bool combineRepeatedFPDivisors(unsigned NumUsers) const override;
+  unsigned combineRepeatedFPDivisors() const override;
 
   ConstraintType getConstraintType(StringRef Constraint) const override;
   unsigned getRegisterByName(const char* RegName, EVT VT,
@@ -516,6 +514,8 @@ private:
   bool functionArgumentNeedsConsecutiveRegisters(Type *Ty,
                                                  CallingConv::ID CallConv,
                                                  bool isVarArg) const override;
+
+  bool shouldNormalizeToSelectSequence(LLVMContext &, EVT) const override;
 };
 
 namespace AArch64 {

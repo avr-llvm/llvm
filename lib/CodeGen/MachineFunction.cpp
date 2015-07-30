@@ -85,6 +85,10 @@ MachineFunction::MachineFunction(const Function *F, const TargetMachine &TM,
 
   FunctionNumber = FunctionNum;
   JumpTableInfo = nullptr;
+
+  assert(TM.isCompatibleDataLayout(getDataLayout()) &&
+         "Can't create a MachineFunction using a Module with a "
+         "Target-incompatible DataLayout attached\n");
 }
 
 MachineFunction::~MachineFunction() {
@@ -320,6 +324,13 @@ MachineFunction::extractStoreMemRefs(MachineInstr::mmo_iterator Begin,
     }
   }
   return std::make_pair(Result, Result + Num);
+}
+
+const char *MachineFunction::createExternalSymbolName(StringRef Name) {
+  char *Dest = Allocator.Allocate<char>(Name.size() + 1);
+  std::copy(Name.begin(), Name.end(), Dest);
+  Dest[Name.size()] = 0;
+  return Dest;
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)

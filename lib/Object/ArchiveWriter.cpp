@@ -38,8 +38,8 @@ NewArchiveIterator::NewArchiveIterator(object::Archive::child_iterator I,
                                        StringRef Name)
     : IsNewMember(false), Name(Name), OldI(I) {}
 
-NewArchiveIterator::NewArchiveIterator(StringRef NewFilename, StringRef Name)
-    : IsNewMember(true), Name(Name), NewFilename(NewFilename) {}
+NewArchiveIterator::NewArchiveIterator(StringRef FileName)
+    : IsNewMember(true), Name(FileName) {}
 
 StringRef NewArchiveIterator::getName() const { return Name; }
 
@@ -52,14 +52,14 @@ object::Archive::child_iterator NewArchiveIterator::getOld() const {
 
 StringRef NewArchiveIterator::getNew() const {
   assert(IsNewMember);
-  return NewFilename;
+  return Name;
 }
 
 llvm::ErrorOr<int>
 NewArchiveIterator::getFD(sys::fs::file_status &NewStatus) const {
   assert(IsNewMember);
   int NewFD;
-  if (auto EC = sys::fs::openFileForRead(NewFilename, NewFD))
+  if (auto EC = sys::fs::openFileForRead(Name, NewFD))
     return EC;
   assert(NewFD != -1);
 
@@ -154,13 +154,36 @@ printMemberHeader(raw_fd_ostream &Out, object::Archive::Kind Kind, bool Thin,
   printRestOfMemberHeader(Out, ModTime, UID, GID, Perms, Size);
 }
 
-static void writeStringTable(raw_fd_ostream &Out,
+// Compute the relative path from From to To.
+static std::string computeRelativePath(StringRef From, StringRef To) {
+  if (sys::path::is_absolute(From) || sys::path::is_absolute(To))
+    return To;
+
+  StringRef DirFrom = sys::path::parent_path(From);
+  auto FromI = sys::path::begin(DirFrom);
+  auto ToI = sys::path::begin(To);
+  while (*FromI == *ToI) {
+    ++FromI;
+    ++ToI;
+  }
+
+  SmallString<128> Relative;
+  for (auto FromE = sys::path::end(DirFrom); FromI != FromE; ++FromI)
+    sys::path::append(Relative, "..");
+
+  for (auto ToE = sys::path::end(To); ToI != ToE; ++ToI)
+    sys::path::append(Relative, *ToI);
+
+  return Relative.str();
+}
+
+static void writeStringTable(raw_fd_ostream &Out, StringRef ArcName,
                              ArrayRef<NewArchiveIterator> Members,
                              std::vector<unsigned> &StringMapIndexes,
                              bool Thin) {
   unsigned StartOffset = 0;
   for (const NewArchiveIterator &I : Members) {
-    StringRef Name = I.getName();
+    StringRef Name = sys::path::filename(I.getName());
     if (!useStringTable(Thin, Name))
       continue;
     if (StartOffset == 0) {
@@ -169,7 +192,13 @@ static void writeStringTable(raw_fd_ostream &Out,
       StartOffset = Out.tell();
     }
     StringMapIndexes.push_back(Out.tell() - StartOffset);
-    Out << Name << "/\n";
+
+    if (Thin)
+      Out << computeRelativePath(ArcName, I.getName());
+    else
+      Out << Name;
+
+    Out << "/\n";
   }
   if (StartOffset == 0)
     return;
@@ -318,9 +347,8 @@ llvm::writeArchive(StringRef ArcName,
       MemberRef = Buffers.back()->getMemBufferRef();
     } else {
       object::Archive::child_iterator OldMember = Member.getOld();
-      assert(!Thin ||
-             OldMember->getParent()->isThin() &&
-                 "Thin archives cannot refers to member of other archives");
+      assert((!Thin || OldMember->getParent()->isThin()) &&
+             "Thin archives cannot refers to member of other archives");
       ErrorOr<MemoryBufferRef> MemberBufferOrErr =
           OldMember->getMemoryBufferRef();
       if (auto EC = MemberBufferOrErr.getError())
@@ -341,7 +369,7 @@ llvm::writeArchive(StringRef ArcName,
 
   std::vector<unsigned> StringMapIndexes;
   if (Kind != object::Archive::K_BSD)
-    writeStringTable(Out, NewMembers, StringMapIndexes, Thin);
+    writeStringTable(Out, ArcName, NewMembers, StringMapIndexes, Thin);
 
   unsigned MemberNum = 0;
   unsigned NewMemberNum = 0;

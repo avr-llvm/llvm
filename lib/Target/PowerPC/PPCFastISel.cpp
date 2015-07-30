@@ -164,7 +164,8 @@ class PPCFastISel final : public FastISel {
                            unsigned DestReg, bool IsZExt);
     unsigned PPCMaterializeFP(const ConstantFP *CFP, MVT VT);
     unsigned PPCMaterializeGV(const GlobalValue *GV, MVT VT);
-    unsigned PPCMaterializeInt(const Constant *C, MVT VT, bool UseSExt = true);
+    unsigned PPCMaterializeInt(const ConstantInt *CI, MVT VT,
+                               bool UseSExt = true);
     unsigned PPCMaterialize32BitInt(int64_t Imm,
                                     const TargetRegisterClass *RC);
     unsigned PPCMaterialize64BitInt(int64_t Imm,
@@ -1607,21 +1608,18 @@ bool PPCFastISel::SelectRet(const Instruction *I) {
     if (ValLocs.size() > 1)
       return false;
 
-    // Special case for returning a constant integer of any size.
-    // Materialize the constant as an i64 and copy it to the return
-    // register. We still need to worry about properly extending the sign. E.g:
-    // If the constant has only one bit, it means it is a boolean. Therefore
-    // we can't use PPCMaterializeInt because it extends the sign which will
-    // cause negations of the returned value to be incorrect as they are
-    // implemented as the flip of the least significant bit.
-    if (isa<ConstantInt>(*RV)) {
-      const Constant *C = cast<Constant>(RV);
-
+    // Special case for returning a constant integer of any size - materialize
+    // the constant as an i64 and copy it to the return register.
+    if (const ConstantInt *CI = dyn_cast<ConstantInt>(RV)) {
       CCValAssign &VA = ValLocs[0];
 
       unsigned RetReg = VA.getLocReg();
-      unsigned SrcReg = PPCMaterializeInt(C, MVT::i64,
-                                          VA.getLocInfo() == CCValAssign::SExt);
+      // We still need to worry about properly extending the sign. For example,
+      // we could have only a single bit or a constant that needs zero
+      // extension rather than sign extension. Make sure we pass the return
+      // value extension property to integer materialization.
+      unsigned SrcReg =
+          PPCMaterializeInt(CI, MVT::i64, VA.getLocInfo() == CCValAssign::SExt);
 
       BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
             TII.get(TargetOpcode::COPY), RetReg).addReg(SrcReg);
@@ -2085,12 +2083,11 @@ unsigned PPCFastISel::PPCMaterialize64BitInt(int64_t Imm,
 
 // Materialize an integer constant into a register, and return
 // the register number (or zero if we failed to handle it).
-unsigned PPCFastISel::PPCMaterializeInt(const Constant *C, MVT VT,
-                                                           bool UseSExt) {
+unsigned PPCFastISel::PPCMaterializeInt(const ConstantInt *CI, MVT VT,
+                                        bool UseSExt) {
   // If we're using CR bit registers for i1 values, handle that as a special
   // case first.
   if (VT == MVT::i1 && PPCSubTarget->useCRBits()) {
-    const ConstantInt *CI = cast<ConstantInt>(C);
     unsigned ImmReg = createResultReg(&PPC::CRBITRCRegClass);
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
             TII.get(CI->isZero() ? PPC::CRUNSET : PPC::CRSET), ImmReg);
@@ -2105,12 +2102,17 @@ unsigned PPCFastISel::PPCMaterializeInt(const Constant *C, MVT VT,
                                    &PPC::GPRCRegClass);
 
   // If the constant is in range, use a load-immediate.
-  const ConstantInt *CI = cast<ConstantInt>(C);
-  if (isInt<16>(CI->getSExtValue())) {
+  if (UseSExt && isInt<16>(CI->getSExtValue())) {
     unsigned Opc = (VT == MVT::i64) ? PPC::LI8 : PPC::LI;
     unsigned ImmReg = createResultReg(RC);
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(Opc), ImmReg)
-      .addImm( (UseSExt) ? CI->getSExtValue() : CI->getZExtValue() );
+        .addImm(CI->getSExtValue());
+    return ImmReg;
+  } else if (!UseSExt && isUInt<16>(CI->getZExtValue())) {
+    unsigned Opc = (VT == MVT::i64) ? PPC::LI8 : PPC::LI;
+    unsigned ImmReg = createResultReg(RC);
+    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(Opc), ImmReg)
+        .addImm(CI->getZExtValue());
     return ImmReg;
   }
 
@@ -2138,8 +2140,8 @@ unsigned PPCFastISel::fastMaterializeConstant(const Constant *C) {
     return PPCMaterializeFP(CFP, VT);
   else if (const GlobalValue *GV = dyn_cast<GlobalValue>(C))
     return PPCMaterializeGV(GV, VT);
-  else if (isa<ConstantInt>(C))
-    return PPCMaterializeInt(C, VT, VT != MVT::i1);
+  else if (const ConstantInt *CI = dyn_cast<ConstantInt>(C))
+    return PPCMaterializeInt(CI, VT, VT != MVT::i1);
 
   return 0;
 }

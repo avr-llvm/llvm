@@ -580,6 +580,7 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM,
 
       addRegisterClass(MVT::f64, &PPC::VSFRCRegClass);
 
+      addRegisterClass(MVT::v4i32, &PPC::VSRCRegClass);
       addRegisterClass(MVT::v4f32, &PPC::VSRCRegClass);
       addRegisterClass(MVT::v2f64, &PPC::VSRCRegClass);
 
@@ -939,9 +940,9 @@ static void getMaxByValAlign(Type *Ty, unsigned &MaxAlign,
     if (EltAlign > MaxAlign)
       MaxAlign = EltAlign;
   } else if (StructType *STy = dyn_cast<StructType>(Ty)) {
-    for (unsigned i = 0, e = STy->getNumElements(); i != e; ++i) {
+    for (auto *EltTy : STy->elements()) {
       unsigned EltAlign = 0;
-      getMaxByValAlign(STy->getElementType(i), EltAlign, MaxMaxAlign);
+      getMaxByValAlign(EltTy, EltAlign, MaxMaxAlign);
       if (EltAlign > MaxAlign)
         MaxAlign = EltAlign;
       if (MaxAlign == MaxMaxAlign)
@@ -1428,6 +1429,11 @@ int PPC::isVSLDOIShuffleMask(SDNode *N, unsigned ShuffleKind,
 bool PPC::isSplatShuffleMask(ShuffleVectorSDNode *N, unsigned EltSize) {
   assert(N->getValueType(0) == MVT::v16i8 &&
          (EltSize == 1 || EltSize == 2 || EltSize == 4));
+
+  // The consecutive indices need to specify an element, not part of two
+  // different elements.  So abandon ship early if this isn't the case.
+  if (N->getMaskElt(0) % EltSize != 0)
+    return false;
 
   // This is a splat operation if each element of the permute is the same, and
   // if the value doesn't reference the second vector.
@@ -2084,6 +2090,9 @@ SDValue PPCTargetLowering::LowerGlobalTLSAddress(SDValue Op,
   // large models could be added if users need it, at the cost of
   // additional complexity.
   GlobalAddressSDNode *GA = cast<GlobalAddressSDNode>(Op);
+  if (DAG.getTarget().Options.EmulatedTLS)
+    return LowerToTLSEmulatedModel(GA, DAG);
+
   SDLoc dl(GA);
   const GlobalValue *GV = GA->getGlobal();
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
@@ -9127,7 +9136,7 @@ SDValue PPCTargetLowering::getRecipEstimate(SDValue Operand,
   return SDValue();
 }
 
-bool PPCTargetLowering::combineRepeatedFPDivisors(unsigned NumUsers) const {
+unsigned PPCTargetLowering::combineRepeatedFPDivisors() const {
   // Note: This functionality is used only when unsafe-fp-math is enabled, and
   // on cores with reciprocal estimates (which are used when unsafe-fp-math is
   // enabled for division), this functionality is redundant with the default
@@ -9140,12 +9149,12 @@ bool PPCTargetLowering::combineRepeatedFPDivisors(unsigned NumUsers) const {
   // one FP pipeline) for three or more FDIVs (for generic OOO cores).
   switch (Subtarget.getDarwinDirective()) {
   default:
-    return NumUsers > 2;
+    return 3;
   case PPC::DIR_440:
   case PPC::DIR_A2:
   case PPC::DIR_E500mc:
   case PPC::DIR_E5500:
-    return NumUsers > 1;
+    return 2;
   }
 }
 

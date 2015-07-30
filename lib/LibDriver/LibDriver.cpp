@@ -135,14 +135,13 @@ int llvm::libDriverMain(llvm::ArrayRef<const char*> ArgsArr) {
       llvm::errs() << Arg->getValue() << ": no such file or directory\n";
       return 1;
     }
-    Members.emplace_back(Saver.save(*Path),
-                         llvm::sys::path::filename(Arg->getValue()));
+    Members.emplace_back(Saver.save(*Path));
   }
 
   std::pair<StringRef, std::error_code> Result =
       llvm::writeArchive(getOutputPath(&Args, Members[0]), Members,
                          /*WriteSymtab=*/true, object::Archive::K_GNU,
-                         /*Deterministic*/ true, /*Thin*/ false);
+                         /*Deterministic*/ true, Args.hasArg(OPT_llvmlibthin));
 
   if (Result.second) {
     if (Result.first.empty())

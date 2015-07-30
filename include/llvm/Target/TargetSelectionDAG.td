@@ -386,6 +386,8 @@ def smax       : SDNode<"ISD::SMAX"      , SDTIntBinOp>;
 def umin       : SDNode<"ISD::UMIN"      , SDTIntBinOp>;
 def umax       : SDNode<"ISD::UMAX"      , SDTIntBinOp>;
 
+def sabsdiff   : SDNode<"ISD::SABSDIFF"   , SDTIntBinOp>;
+def uabsdiff   : SDNode<"ISD::UABSDIFF"   , SDTIntBinOp>;
 def sext_inreg : SDNode<"ISD::SIGN_EXTEND_INREG", SDTExtInreg>;
 def bswap      : SDNode<"ISD::BSWAP"      , SDTIntUnaryOp>;
 def ctlz       : SDNode<"ISD::CTLZ"       , SDTIntUnaryOp>;
@@ -813,6 +815,21 @@ def truncstoref32 : PatFrag<(ops node:$val, node:$ptr),
 def truncstoref64 : PatFrag<(ops node:$val, node:$ptr),
                             (truncstore node:$val, node:$ptr), [{
   return cast<StoreSDNode>(N)->getMemoryVT() == MVT::f64;
+}]>;
+
+def truncstorevi8 : PatFrag<(ops node:$val, node:$ptr),
+                            (truncstore node:$val, node:$ptr), [{
+  return cast<StoreSDNode>(N)->getMemoryVT().getScalarType() == MVT::i8;
+}]>;
+
+def truncstorevi16 : PatFrag<(ops node:$val, node:$ptr),
+                             (truncstore node:$val, node:$ptr), [{
+  return cast<StoreSDNode>(N)->getMemoryVT().getScalarType() == MVT::i16;
+}]>;
+
+def truncstorevi32 : PatFrag<(ops node:$val, node:$ptr),
+                             (truncstore node:$val, node:$ptr), [{
+  return cast<StoreSDNode>(N)->getMemoryVT().getScalarType() == MVT::i32;
 }]>;
 
 // indexed store fragments.

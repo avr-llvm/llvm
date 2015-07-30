@@ -136,7 +136,8 @@ public:
   /// The contract for this function is the same as \c getOperationCost except
   /// that it supports an interface that provides extra information specific to
   /// the GEP operation.
-  unsigned getGEPCost(const Value *Ptr, ArrayRef<const Value *> Operands) const;
+  unsigned getGEPCost(Type *PointeeType, const Value *Ptr,
+                      ArrayRef<const Value *> Operands) const;
 
   /// \brief Estimate the cost of a function call when lowered.
   ///
@@ -330,6 +331,11 @@ public:
   /// by referencing its sub-register AX.
   bool isTruncateFree(Type *Ty1, Type *Ty2) const;
 
+  /// \brief Return true if it's free to zero extend a value of type Ty1 to type
+  /// Ty2. e.g. on x86-64, all instructions that define 32-bit values implicit
+  /// zero-extend the result out to 64 bits.
+  bool isZExtFree(Type *Ty1, Type *Ty2) const;
+
   /// \brief Return true if it is profitable to hoist instruction in the
   /// then/else to before if.
   bool isProfitableToHoist(Instruction *I) const;
@@ -521,8 +527,8 @@ public:
 
   /// \returns True if the two functions have compatible attributes for inlining
   /// purposes.
-  bool hasCompatibleFunctionAttributes(const Function *Caller,
-                                       const Function *Callee) const;
+  bool areInlineCompatible(const Function *Caller,
+                           const Function *Callee) const;
 
   /// @}
 
@@ -543,7 +549,7 @@ public:
   virtual ~Concept() = 0;
   virtual const DataLayout &getDataLayout() const = 0;
   virtual unsigned getOperationCost(unsigned Opcode, Type *Ty, Type *OpTy) = 0;
-  virtual unsigned getGEPCost(const Value *Ptr,
+  virtual unsigned getGEPCost(Type *PointeeType, const Value *Ptr,
                               ArrayRef<const Value *> Operands) = 0;
   virtual unsigned getCallCost(FunctionType *FTy, int NumArgs) = 0;
   virtual unsigned getCallCost(const Function *F, int NumArgs) = 0;
@@ -570,6 +576,7 @@ public:
                                    int64_t BaseOffset, bool HasBaseReg,
                                    int64_t Scale, unsigned AddrSpace) = 0;
   virtual bool isTruncateFree(Type *Ty1, Type *Ty2) = 0;
+  virtual bool isZExtFree(Type *Ty1, Type *Ty2) = 0;
   virtual bool isProfitableToHoist(Instruction *I) = 0;
   virtual bool isTypeLegal(Type *Ty) = 0;
   virtual unsigned getJumpBufAlignment() = 0;
@@ -624,8 +631,8 @@ public:
                                   MemIntrinsicInfo &Info) = 0;
   virtual Value *getOrCreateResultFromMemIntrinsic(IntrinsicInst *Inst,
                                                    Type *ExpectedType) = 0;
-  virtual bool hasCompatibleFunctionAttributes(const Function *Caller,
-                                               const Function *Callee) const = 0;
+  virtual bool areInlineCompatible(const Function *Caller,
+                                   const Function *Callee) const = 0;
 };
 
 template <typename T>
@@ -643,9 +650,9 @@ public:
   unsigned getOperationCost(unsigned Opcode, Type *Ty, Type *OpTy) override {
     return Impl.getOperationCost(Opcode, Ty, OpTy);
   }
-  unsigned getGEPCost(const Value *Ptr,
+  unsigned getGEPCost(Type *PointeeType, const Value *Ptr,
                       ArrayRef<const Value *> Operands) override {
-    return Impl.getGEPCost(Ptr, Operands);
+    return Impl.getGEPCost(PointeeType, Ptr, Operands);
   }
   unsigned getCallCost(FunctionType *FTy, int NumArgs) override {
     return Impl.getCallCost(FTy, NumArgs);
@@ -702,6 +709,9 @@ public:
   }
   bool isTruncateFree(Type *Ty1, Type *Ty2) override {
     return Impl.isTruncateFree(Ty1, Ty2);
+  }
+  bool isZExtFree(Type *Ty1, Type *Ty2) override {
+    return Impl.isZExtFree(Ty1, Ty2);
   }
   bool isProfitableToHoist(Instruction *I) override {
     return Impl.isProfitableToHoist(I);
@@ -815,9 +825,9 @@ public:
                                            Type *ExpectedType) override {
     return Impl.getOrCreateResultFromMemIntrinsic(Inst, ExpectedType);
   }
-  bool hasCompatibleFunctionAttributes(const Function *Caller,
-                                       const Function *Callee) const override {
-    return Impl.hasCompatibleFunctionAttributes(Caller, Callee);
+  bool areInlineCompatible(const Function *Caller,
+                           const Function *Callee) const override {
+    return Impl.areInlineCompatible(Caller, Callee);
   }
 };
 

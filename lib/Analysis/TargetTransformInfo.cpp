@@ -129,6 +129,10 @@ bool TargetTransformInfo::isTruncateFree(Type *Ty1, Type *Ty2) const {
   return TTIImpl->isTruncateFree(Ty1, Ty2);
 }
 
+bool TargetTransformInfo::isZExtFree(Type *Ty1, Type *Ty2) const {
+  return TTIImpl->isZExtFree(Ty1, Ty2);
+}
+
 bool TargetTransformInfo::isProfitableToHoist(Instruction *I) const {
   return TTIImpl->isProfitableToHoist(I);
 }
@@ -284,9 +288,9 @@ Value *TargetTransformInfo::getOrCreateResultFromMemIntrinsic(
   return TTIImpl->getOrCreateResultFromMemIntrinsic(Inst, ExpectedType);
 }
 
-bool TargetTransformInfo::hasCompatibleFunctionAttributes(
-    const Function *Caller, const Function *Callee) const {
-  return TTIImpl->hasCompatibleFunctionAttributes(Caller, Callee);
+bool TargetTransformInfo::areInlineCompatible(const Function *Caller,
+                                              const Function *Callee) const {
+  return TTIImpl->areInlineCompatible(Caller, Callee);
 }
 
 TargetTransformInfo::Concept::~Concept() {}

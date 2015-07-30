@@ -232,8 +232,7 @@ static UseListOrderStack predictUseListOrder(const Module *M) {
   // We want to visit the functions backward now so we can list function-local
   // constants in the last Function they're used in.  Module-level constants
   // have already been visited above.
-  for (auto I = M->rbegin(), E = M->rend(); I != E; ++I) {
-    const Function &F = *I;
+  for (const Function &F : make_range(M->rbegin(), M->rend())) {
     if (F.isDeclaration())
       continue;
     for (const BasicBlock &BB : F)
@@ -345,18 +344,8 @@ enum PrefixType {
   NoPrefix
 };
 
-/// PrintLLVMName - Turn the specified name into an 'LLVM name', which is either
-/// prefixed with % (if the string only contains simple characters) or is
-/// surrounded with ""'s (if it has special chars in it).  Print it out.
-static void PrintLLVMName(raw_ostream &OS, StringRef Name, PrefixType Prefix) {
+void llvm::printLLVMNameWithoutPrefix(raw_ostream &OS, StringRef Name) {
   assert(!Name.empty() && "Cannot get empty name!");
-  switch (Prefix) {
-  case NoPrefix: break;
-  case GlobalPrefix: OS << '@'; break;
-  case ComdatPrefix: OS << '$'; break;
-  case LabelPrefix:  break;
-  case LocalPrefix:  OS << '%'; break;
-  }
 
   // Scan the name to see if it needs quotes first.
   bool NeedsQuotes = isdigit(static_cast<unsigned char>(Name[0]));
@@ -388,9 +377,31 @@ static void PrintLLVMName(raw_ostream &OS, StringRef Name, PrefixType Prefix) {
   OS << '"';
 }
 
-/// PrintLLVMName - Turn the specified name into an 'LLVM name', which is either
-/// prefixed with % (if the string only contains simple characters) or is
-/// surrounded with ""'s (if it has special chars in it).  Print it out.
+/// Turn the specified name into an 'LLVM name', which is either prefixed with %
+/// (if the string only contains simple characters) or is surrounded with ""'s
+/// (if it has special chars in it). Print it out.
+static void PrintLLVMName(raw_ostream &OS, StringRef Name, PrefixType Prefix) {
+  switch (Prefix) {
+  case NoPrefix:
+    break;
+  case GlobalPrefix:
+    OS << '@';
+    break;
+  case ComdatPrefix:
+    OS << '$';
+    break;
+  case LabelPrefix:
+    break;
+  case LocalPrefix:
+    OS << '%';
+    break;
+  }
+  printLLVMNameWithoutPrefix(OS, Name);
+}
+
+/// Turn the specified name into an 'LLVM name', which is either prefixed with %
+/// (if the string only contains simple characters) or is surrounded with ""'s
+/// (if it has special chars in it). Print it out.
 static void PrintLLVMName(raw_ostream &OS, const Value *V) {
   PrintLLVMName(OS, V->getName(),
                 isa<GlobalValue>(V) ? GlobalPrefix : LocalPrefix);
@@ -691,6 +702,11 @@ void ModuleSlotTracker::incorporateFunction(const Function &F) {
     Machine->purgeFunction();
   Machine->incorporateFunction(&F);
   this->F = &F;
+}
+
+int ModuleSlotTracker::getLocalSlot(const Value *V) {
+  assert(F && "No function incorporated");
+  return Machine->getLocalSlot(V);
 }
 
 static SlotTracker *createSlotTracker(const Module *M) {
@@ -1326,10 +1342,7 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
     Out << " (";
 
     if (const GEPOperator *GEP = dyn_cast<GEPOperator>(CE)) {
-      TypePrinter.print(
-          cast<PointerType>(GEP->getPointerOperandType()->getScalarType())
-              ->getElementType(),
-          Out);
+      TypePrinter.print(GEP->getSourceElementType(), Out);
       Out << ", ";
     }
 

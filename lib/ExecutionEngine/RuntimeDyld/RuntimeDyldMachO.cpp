@@ -29,9 +29,9 @@ namespace {
 class LoadedMachOObjectInfo
     : public RuntimeDyld::LoadedObjectInfoHelper<LoadedMachOObjectInfo> {
 public:
-  LoadedMachOObjectInfo(RuntimeDyldImpl &RTDyld, unsigned BeginIdx,
-                        unsigned EndIdx)
-      : LoadedObjectInfoHelper(RTDyld, BeginIdx, EndIdx) {}
+  LoadedMachOObjectInfo(RuntimeDyldImpl &RTDyld,
+                        ObjSectionToIDMap ObjSecToIDMap)
+      : LoadedObjectInfoHelper(RTDyld, std::move(ObjSecToIDMap)) {}
 
   OwningBinary<ObjectFile>
   getObjectForDebug(const ObjectFile &Obj) const override {
@@ -49,6 +49,42 @@ int64_t RuntimeDyldMachO::memcpyAddend(const RelocationEntry &RE) const {
 
   return static_cast<int64_t>(readBytesUnaligned(Src, NumBytes));
 }
+
+relocation_iterator RuntimeDyldMachO::processScatteredVANILLA(
+                          unsigned SectionID, relocation_iterator RelI,
+                          const ObjectFile &BaseObjT,
+                          RuntimeDyldMachO::ObjSectionToIDMap &ObjSectionToID) {
+  const MachOObjectFile &Obj =
+    static_cast<const MachOObjectFile&>(BaseObjT);
+  MachO::any_relocation_info RE =
+    Obj.getRelocation(RelI->getRawDataRefImpl());
+
+  SectionEntry &Section = Sections[SectionID];
+  uint32_t RelocType = Obj.getAnyRelocationType(RE);
+  bool IsPCRel = Obj.getAnyRelocationPCRel(RE);
+  unsigned Size = Obj.getAnyRelocationLength(RE);
+  uint64_t Offset = RelI->getOffset();
+  uint8_t *LocalAddress = Section.Address + Offset;
+  unsigned NumBytes = 1 << Size;
+  int64_t Addend = readBytesUnaligned(LocalAddress, NumBytes);
+
+  unsigned SymbolBaseAddr = Obj.getScatteredRelocationValue(RE);
+  section_iterator TargetSI = getSectionByAddress(Obj, SymbolBaseAddr);
+  assert(TargetSI != Obj.section_end() && "Can't find section for symbol");
+  uint64_t SectionBaseAddr = TargetSI->getAddress();
+  SectionRef TargetSection = *TargetSI;
+  bool IsCode = TargetSection.isText();
+  uint32_t TargetSectionID =
+    findOrEmitSection(Obj, TargetSection, IsCode, ObjSectionToID);
+
+  Addend -= SectionBaseAddr;
+  RelocationEntry R(SectionID, Offset, RelocType, Addend, IsPCRel, Size);
+
+  addRelocationForSection(R, TargetSectionID);
+
+  return ++RelI;
+}
+
 
 RelocationValueRef RuntimeDyldMachO::getRelocationValueRef(
     const ObjectFile &BaseTObj, const relocation_iterator &RI,
@@ -298,10 +334,7 @@ RuntimeDyldMachO::create(Triple::ArchType Arch,
 
 std::unique_ptr<RuntimeDyld::LoadedObjectInfo>
 RuntimeDyldMachO::loadObject(const object::ObjectFile &O) {
-  unsigned SectionStartIdx, SectionEndIdx;
-  std::tie(SectionStartIdx, SectionEndIdx) = loadObjectImpl(O);
-  return llvm::make_unique<LoadedMachOObjectInfo>(*this, SectionStartIdx,
-                                                  SectionEndIdx);
+  return llvm::make_unique<LoadedMachOObjectInfo>(*this, loadObjectImpl(O));
 }
 
 } // end namespace llvm

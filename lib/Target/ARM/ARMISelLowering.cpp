@@ -142,6 +142,11 @@ void ARMTargetLowering::addTypeForNEON(MVT VT, MVT PromotedLdStVT,
   setOperationAction(ISD::SREM, VT, Expand);
   setOperationAction(ISD::UREM, VT, Expand);
   setOperationAction(ISD::FREM, VT, Expand);
+
+  if (VT.isInteger()) {
+    setOperationAction(ISD::SABSDIFF, VT, Legal);
+    setOperationAction(ISD::UABSDIFF, VT, Legal);
+  }
 }
 
 void ARMTargetLowering::addDRTypeForNEON(MVT VT) {
@@ -849,11 +854,11 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
 
   // We want to custom lower some of our intrinsics.
   setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::Other, Custom);
-  if (Subtarget->isTargetDarwin()) {
-    setOperationAction(ISD::EH_SJLJ_SETJMP, MVT::i32, Custom);
-    setOperationAction(ISD::EH_SJLJ_LONGJMP, MVT::Other, Custom);
+  setOperationAction(ISD::EH_SJLJ_SETJMP, MVT::i32, Custom);
+  setOperationAction(ISD::EH_SJLJ_LONGJMP, MVT::Other, Custom);
+  setOperationAction(ISD::EH_SJLJ_SETUP_DISPATCH, MVT::Other, Custom);
+  if (Subtarget->isTargetDarwin())
     setLibcallName(RTLIB::UNWIND_RESUME, "_Unwind_SjLj_Resume");
-  }
 
   setOperationAction(ISD::SETCC,     MVT::i32, Expand);
   setOperationAction(ISD::SETCC,     MVT::f32, Expand);
@@ -959,11 +964,11 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
 
   //// temporary - rewrite interface to use type
   MaxStoresPerMemset = 8;
-  MaxStoresPerMemsetOptSize = Subtarget->isTargetDarwin() ? 8 : 4;
+  MaxStoresPerMemsetOptSize = 4;
   MaxStoresPerMemcpy = 4; // For @llvm.memcpy -> sequence of stores
-  MaxStoresPerMemcpyOptSize = Subtarget->isTargetDarwin() ? 4 : 2;
+  MaxStoresPerMemcpyOptSize = 2;
   MaxStoresPerMemmove = 4; // For @llvm.memmove -> sequence of stores
-  MaxStoresPerMemmoveOptSize = Subtarget->isTargetDarwin() ? 4 : 2;
+  MaxStoresPerMemmoveOptSize = 2;
 
   // On ARM arguments smaller than 4 bytes are extended, so all arguments
   // are at least 4 bytes aligned.
@@ -1069,7 +1074,8 @@ const char *ARMTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case ARMISD::VMOVDRR:       return "ARMISD::VMOVDRR";
 
   case ARMISD::EH_SJLJ_SETJMP: return "ARMISD::EH_SJLJ_SETJMP";
-  case ARMISD::EH_SJLJ_LONGJMP:return "ARMISD::EH_SJLJ_LONGJMP";
+  case ARMISD::EH_SJLJ_LONGJMP: return "ARMISD::EH_SJLJ_LONGJMP";
+  case ARMISD::EH_SJLJ_SETUP_DISPATCH: return "ARMISD::EH_SJLJ_SETUP_DISPATCH";
 
   case ARMISD::TC_RETURN:     return "ARMISD::TC_RETURN";
 
@@ -2577,6 +2583,8 @@ ARMTargetLowering::LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const {
   assert(Subtarget->isTargetELF() &&
          "TLS not implemented for non-ELF targets");
   GlobalAddressSDNode *GA = cast<GlobalAddressSDNode>(Op);
+  if (DAG.getTarget().Options.EmulatedTLS)
+    return LowerToTLSEmulatedModel(GA, DAG);
 
   TLSModel::Model model = getTargetMachine().getTLSModel(GA->getGlobal());
 
@@ -2720,6 +2728,13 @@ ARMTargetLowering::LowerEH_SJLJ_LONGJMP(SDValue Op, SelectionDAG &DAG) const {
   SDLoc dl(Op);
   return DAG.getNode(ARMISD::EH_SJLJ_LONGJMP, dl, MVT::Other, Op.getOperand(0),
                      Op.getOperand(1), DAG.getConstant(0, dl, MVT::i32));
+}
+
+SDValue ARMTargetLowering::LowerEH_SJLJ_SETUP_DISPATCH(SDValue Op,
+                                                      SelectionDAG &DAG) const {
+  SDLoc dl(Op);
+  return DAG.getNode(ARMISD::EH_SJLJ_SETUP_DISPATCH, dl, MVT::Other,
+                     Op.getOperand(0));
 }
 
 SDValue
@@ -5030,18 +5045,50 @@ static bool isVTBLMask(ArrayRef<int> M, EVT VT) {
   return VT == MVT::v8i8 && M.size() == 8;
 }
 
+// Checks whether the shuffle mask represents a vector transpose (VTRN) by
+// checking that pairs of elements in the shuffle mask represent the same index
+// in each vector, incrementing the expected index by 2 at each step.
+// e.g. For v1,v2 of type v4i32 a valid shuffle mask is: [0, 4, 2, 6]
+//  v1={a,b,c,d} => x=shufflevector v1, v2 shufflemask => x={a,e,c,g}
+//  v2={e,f,g,h}
+// WhichResult gives the offset for each element in the mask based on which
+// of the two results it belongs to.
+//
+// The transpose can be represented either as:
+// result1 = shufflevector v1, v2, result1_shuffle_mask
+// result2 = shufflevector v1, v2, result2_shuffle_mask
+// where v1/v2 and the shuffle masks have the same number of elements
+// (here WhichResult (see below) indicates which result is being checked)
+//
+// or as:
+// results = shufflevector v1, v2, shuffle_mask
+// where both results are returned in one vector and the shuffle mask has twice
+// as many elements as v1/v2 (here WhichResult will always be 0 if true) here we
+// want to check the low half and high half of the shuffle mask as if it were
+// the other case
 static bool isVTRNMask(ArrayRef<int> M, EVT VT, unsigned &WhichResult) {
   unsigned EltSz = VT.getVectorElementType().getSizeInBits();
   if (EltSz == 64)
     return false;
 
   unsigned NumElts = VT.getVectorNumElements();
-  WhichResult = (M[0] == 0 ? 0 : 1);
-  for (unsigned i = 0; i < NumElts; i += 2) {
-    if ((M[i] >= 0 && (unsigned) M[i] != i + WhichResult) ||
-        (M[i+1] >= 0 && (unsigned) M[i+1] != i + NumElts + WhichResult))
-      return false;
+  if (M.size() != NumElts && M.size() != NumElts*2)
+    return false;
+
+  // If the mask is twice as long as the result then we need to check the upper
+  // and lower parts of the mask
+  for (unsigned i = 0; i < M.size(); i += NumElts) {
+    WhichResult = M[i] == 0 ? 0 : 1;
+    for (unsigned j = 0; j < NumElts; j += 2) {
+      if ((M[i+j] >= 0 && (unsigned) M[i+j] != j + WhichResult) ||
+          (M[i+j+1] >= 0 && (unsigned) M[i+j+1] != j + NumElts + WhichResult))
+        return false;
+    }
   }
+
+  if (M.size() == NumElts*2)
+    WhichResult = 0;
+
   return true;
 }
 
@@ -5054,27 +5101,51 @@ static bool isVTRN_v_undef_Mask(ArrayRef<int> M, EVT VT, unsigned &WhichResult){
     return false;
 
   unsigned NumElts = VT.getVectorNumElements();
-  WhichResult = (M[0] == 0 ? 0 : 1);
-  for (unsigned i = 0; i < NumElts; i += 2) {
-    if ((M[i] >= 0 && (unsigned) M[i] != i + WhichResult) ||
-        (M[i+1] >= 0 && (unsigned) M[i+1] != i + WhichResult))
-      return false;
+  if (M.size() != NumElts && M.size() != NumElts*2)
+    return false;
+
+  for (unsigned i = 0; i < M.size(); i += NumElts) {
+    WhichResult = M[i] == 0 ? 0 : 1;
+    for (unsigned j = 0; j < NumElts; j += 2) {
+      if ((M[i+j] >= 0 && (unsigned) M[i+j] != j + WhichResult) ||
+          (M[i+j+1] >= 0 && (unsigned) M[i+j+1] != j + WhichResult))
+        return false;
+    }
   }
+
+  if (M.size() == NumElts*2)
+    WhichResult = 0;
+
   return true;
 }
 
+// Checks whether the shuffle mask represents a vector unzip (VUZP) by checking
+// that the mask elements are either all even and in steps of size 2 or all odd
+// and in steps of size 2.
+// e.g. For v1,v2 of type v4i32 a valid shuffle mask is: [0, 2, 4, 6]
+//  v1={a,b,c,d} => x=shufflevector v1, v2 shufflemask => x={a,c,e,g}
+//  v2={e,f,g,h}
+// Requires similar checks to that of isVTRNMask with
+// respect the how results are returned.
 static bool isVUZPMask(ArrayRef<int> M, EVT VT, unsigned &WhichResult) {
   unsigned EltSz = VT.getVectorElementType().getSizeInBits();
   if (EltSz == 64)
     return false;
 
   unsigned NumElts = VT.getVectorNumElements();
-  WhichResult = (M[0] == 0 ? 0 : 1);
-  for (unsigned i = 0; i != NumElts; ++i) {
-    if (M[i] < 0) continue; // ignore UNDEF indices
-    if ((unsigned) M[i] != 2 * i + WhichResult)
-      return false;
+  if (M.size() != NumElts && M.size() != NumElts*2)
+    return false;
+
+  for (unsigned i = 0; i < M.size(); i += NumElts) {
+    WhichResult = M[i] == 0 ? 0 : 1;
+    for (unsigned j = 0; j < NumElts; ++j) {
+      if (M[i+j] >= 0 && (unsigned) M[i+j] != 2 * j + WhichResult)
+        return false;
+    }
   }
+
+  if (M.size() == NumElts*2)
+    WhichResult = 0;
 
   // VUZP.32 for 64-bit vectors is a pseudo-instruction alias for VTRN.32.
   if (VT.is64BitVector() && EltSz == 32)
@@ -5091,17 +5162,26 @@ static bool isVUZP_v_undef_Mask(ArrayRef<int> M, EVT VT, unsigned &WhichResult){
   if (EltSz == 64)
     return false;
 
-  unsigned Half = VT.getVectorNumElements() / 2;
-  WhichResult = (M[0] == 0 ? 0 : 1);
-  for (unsigned j = 0; j != 2; ++j) {
-    unsigned Idx = WhichResult;
-    for (unsigned i = 0; i != Half; ++i) {
-      int MIdx = M[i + j * Half];
-      if (MIdx >= 0 && (unsigned) MIdx != Idx)
-        return false;
-      Idx += 2;
+  unsigned NumElts = VT.getVectorNumElements();
+  if (M.size() != NumElts && M.size() != NumElts*2)
+    return false;
+
+  unsigned Half = NumElts / 2;
+  for (unsigned i = 0; i < M.size(); i += NumElts) {
+    WhichResult = M[i] == 0 ? 0 : 1;
+    for (unsigned j = 0; j < NumElts; j += Half) {
+      unsigned Idx = WhichResult;
+      for (unsigned k = 0; k < Half; ++k) {
+        int MIdx = M[i + j + k];
+        if (MIdx >= 0 && (unsigned) MIdx != Idx)
+          return false;
+        Idx += 2;
+      }
     }
   }
+
+  if (M.size() == NumElts*2)
+    WhichResult = 0;
 
   // VUZP.32 for 64-bit vectors is a pseudo-instruction alias for VTRN.32.
   if (VT.is64BitVector() && EltSz == 32)
@@ -5110,20 +5190,36 @@ static bool isVUZP_v_undef_Mask(ArrayRef<int> M, EVT VT, unsigned &WhichResult){
   return true;
 }
 
+// Checks whether the shuffle mask represents a vector zip (VZIP) by checking
+// that pairs of elements of the shufflemask represent the same index in each
+// vector incrementing sequentially through the vectors.
+// e.g. For v1,v2 of type v4i32 a valid shuffle mask is: [0, 4, 1, 5]
+//  v1={a,b,c,d} => x=shufflevector v1, v2 shufflemask => x={a,e,b,f}
+//  v2={e,f,g,h}
+// Requires similar checks to that of isVTRNMask with respect the how results
+// are returned.
 static bool isVZIPMask(ArrayRef<int> M, EVT VT, unsigned &WhichResult) {
   unsigned EltSz = VT.getVectorElementType().getSizeInBits();
   if (EltSz == 64)
     return false;
 
   unsigned NumElts = VT.getVectorNumElements();
-  WhichResult = (M[0] == 0 ? 0 : 1);
-  unsigned Idx = WhichResult * NumElts / 2;
-  for (unsigned i = 0; i != NumElts; i += 2) {
-    if ((M[i] >= 0 && (unsigned) M[i] != Idx) ||
-        (M[i+1] >= 0 && (unsigned) M[i+1] != Idx + NumElts))
-      return false;
-    Idx += 1;
+  if (M.size() != NumElts && M.size() != NumElts*2)
+    return false;
+
+  for (unsigned i = 0; i < M.size(); i += NumElts) {
+    WhichResult = M[i] == 0 ? 0 : 1;
+    unsigned Idx = WhichResult * NumElts / 2;
+    for (unsigned j = 0; j < NumElts; j += 2) {
+      if ((M[i+j] >= 0 && (unsigned) M[i+j] != Idx) ||
+          (M[i+j+1] >= 0 && (unsigned) M[i+j+1] != Idx + NumElts))
+        return false;
+      Idx += 1;
+    }
   }
+
+  if (M.size() == NumElts*2)
+    WhichResult = 0;
 
   // VZIP.32 for 64-bit vectors is a pseudo-instruction alias for VTRN.32.
   if (VT.is64BitVector() && EltSz == 32)
@@ -5141,14 +5237,22 @@ static bool isVZIP_v_undef_Mask(ArrayRef<int> M, EVT VT, unsigned &WhichResult){
     return false;
 
   unsigned NumElts = VT.getVectorNumElements();
-  WhichResult = (M[0] == 0 ? 0 : 1);
-  unsigned Idx = WhichResult * NumElts / 2;
-  for (unsigned i = 0; i != NumElts; i += 2) {
-    if ((M[i] >= 0 && (unsigned) M[i] != Idx) ||
-        (M[i+1] >= 0 && (unsigned) M[i+1] != Idx))
-      return false;
-    Idx += 1;
+  if (M.size() != NumElts && M.size() != NumElts*2)
+    return false;
+
+  for (unsigned i = 0; i < M.size(); i += NumElts) {
+    WhichResult = M[i] == 0 ? 0 : 1;
+    unsigned Idx = WhichResult * NumElts / 2;
+    for (unsigned j = 0; j < NumElts; j += 2) {
+      if ((M[i+j] >= 0 && (unsigned) M[i+j] != Idx) ||
+          (M[i+j+1] >= 0 && (unsigned) M[i+j+1] != Idx))
+        return false;
+      Idx += 1;
+    }
   }
+
+  if (M.size() == NumElts*2)
+    WhichResult = 0;
 
   // VZIP.32 for 64-bit vectors is a pseudo-instruction alias for VTRN.32.
   if (VT.is64BitVector() && EltSz == 32)
@@ -6573,6 +6677,7 @@ SDValue ARMTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
   case ISD::GLOBAL_OFFSET_TABLE: return LowerGLOBAL_OFFSET_TABLE(Op, DAG);
   case ISD::EH_SJLJ_SETJMP: return LowerEH_SJLJ_SETJMP(Op, DAG);
   case ISD::EH_SJLJ_LONGJMP: return LowerEH_SJLJ_LONGJMP(Op, DAG);
+  case ISD::EH_SJLJ_SETUP_DISPATCH: return LowerEH_SJLJ_SETUP_DISPATCH(Op, DAG);
   case ISD::INTRINSIC_WO_CHAIN: return LowerINTRINSIC_WO_CHAIN(Op, DAG,
                                                                Subtarget);
   case ISD::BITCAST:       return ExpandBITCAST(Op.getNode(), DAG);
@@ -7735,6 +7840,9 @@ ARMTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   case ARM::tInt_eh_sjlj_setjmp:
   case ARM::t2Int_eh_sjlj_setjmp:
   case ARM::t2Int_eh_sjlj_setjmp_nofp:
+    return BB;
+
+  case ARM::Int_eh_sjlj_setup_dispatch:
     EmitSjLjDispatchBlock(MI, BB);
     return BB;
 
@@ -9674,7 +9782,7 @@ static bool getVShiftImm(SDValue Op, unsigned ElementBits, int64_t &Cnt) {
 ///   0 <= Value <= ElementBits for a long left shift.
 static bool isVShiftLImm(SDValue Op, EVT VT, bool isLong, int64_t &Cnt) {
   assert(VT.isVector() && "vector shift count is not a vector type");
-  unsigned ElementBits = VT.getVectorElementType().getSizeInBits();
+  int64_t ElementBits = VT.getVectorElementType().getSizeInBits();
   if (! getVShiftImm(Op, ElementBits, Cnt))
     return false;
   return (Cnt >= 0 && (isLong ? Cnt-1 : Cnt) < ElementBits);
@@ -9689,12 +9797,16 @@ static bool isVShiftLImm(SDValue Op, EVT VT, bool isLong, int64_t &Cnt) {
 static bool isVShiftRImm(SDValue Op, EVT VT, bool isNarrow, bool isIntrinsic,
                          int64_t &Cnt) {
   assert(VT.isVector() && "vector shift count is not a vector type");
-  unsigned ElementBits = VT.getVectorElementType().getSizeInBits();
+  int64_t ElementBits = VT.getVectorElementType().getSizeInBits();
   if (! getVShiftImm(Op, ElementBits, Cnt))
     return false;
-  if (isIntrinsic)
+  if (!isIntrinsic)
+    return (Cnt >= 1 && Cnt <= (isNarrow ? ElementBits/2 : ElementBits));
+  if (Cnt >= -(isNarrow ? ElementBits/2 : ElementBits) && Cnt <= -1) {
     Cnt = -Cnt;
-  return (Cnt >= 1 && Cnt <= (isNarrow ? ElementBits/2 : ElementBits));
+    return true;
+  }
+  return false;
 }
 
 /// PerformIntrinsicCombine - ARM-specific DAG combining for intrinsics.
@@ -9704,6 +9816,15 @@ static SDValue PerformIntrinsicCombine(SDNode *N, SelectionDAG &DAG) {
   default:
     // Don't do anything for most intrinsics.
     break;
+
+  case Intrinsic::arm_neon_vabds:
+    if (!N->getValueType(0).isInteger())
+      return SDValue();
+    return DAG.getNode(ISD::SABSDIFF, SDLoc(N), N->getValueType(0),
+                       N->getOperand(1), N->getOperand(2));
+  case Intrinsic::arm_neon_vabdu:
+    return DAG.getNode(ISD::UABSDIFF, SDLoc(N), N->getValueType(0),
+                       N->getOperand(1), N->getOperand(2));
 
   // Vector shifts: check for immediate versions and lower them.
   // Note: This is done during DAG combining instead of DAG legalizing because

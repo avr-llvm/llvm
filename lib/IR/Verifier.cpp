@@ -302,7 +302,6 @@ private:
 #define HANDLE_SPECIALIZED_MDNODE_LEAF(CLASS) void visit##CLASS(const CLASS &N);
 #include "llvm/IR/Metadata.def"
   void visitDIScope(const DIScope &N);
-  void visitDIDerivedTypeBase(const DIDerivedTypeBase &N);
   void visitDIVariable(const DIVariable &N);
   void visitDILexicalBlockBase(const DILexicalBlockBase &N);
   void visitDITemplateParameter(const DITemplateParameter &N);
@@ -779,38 +778,9 @@ void Verifier::visitDIBasicType(const DIBasicType &N) {
          "invalid tag", &N);
 }
 
-void Verifier::visitDIDerivedTypeBase(const DIDerivedTypeBase &N) {
+void Verifier::visitDIDerivedType(const DIDerivedType &N) {
   // Common scope checks.
   visitDIScope(N);
-
-  Assert(isScopeRef(N, N.getScope()), "invalid scope", &N, N.getScope());
-  Assert(isTypeRef(N, N.getBaseType()), "invalid base type", &N,
-         N.getBaseType());
-
-  // FIXME: Sink this into the subclass verifies.
-  if (!N.getFile() || N.getFile()->getFilename().empty()) {
-    // Check whether the filename is allowed to be empty.
-    uint16_t Tag = N.getTag();
-    Assert(
-        Tag == dwarf::DW_TAG_const_type || Tag == dwarf::DW_TAG_volatile_type ||
-            Tag == dwarf::DW_TAG_pointer_type ||
-            Tag == dwarf::DW_TAG_ptr_to_member_type ||
-            Tag == dwarf::DW_TAG_reference_type ||
-            Tag == dwarf::DW_TAG_rvalue_reference_type ||
-            Tag == dwarf::DW_TAG_restrict_type ||
-            Tag == dwarf::DW_TAG_array_type ||
-            Tag == dwarf::DW_TAG_enumeration_type ||
-            Tag == dwarf::DW_TAG_subroutine_type ||
-            Tag == dwarf::DW_TAG_inheritance || Tag == dwarf::DW_TAG_friend ||
-            Tag == dwarf::DW_TAG_structure_type ||
-            Tag == dwarf::DW_TAG_member || Tag == dwarf::DW_TAG_typedef,
-        "derived/composite type requires a filename", &N, N.getFile());
-  }
-}
-
-void Verifier::visitDIDerivedType(const DIDerivedType &N) {
-  // Common derived type checks.
-  visitDIDerivedTypeBase(N);
 
   Assert(N.getTag() == dwarf::DW_TAG_typedef ||
              N.getTag() == dwarf::DW_TAG_pointer_type ||
@@ -828,6 +798,10 @@ void Verifier::visitDIDerivedType(const DIDerivedType &N) {
     Assert(isTypeRef(N, N.getExtraData()), "invalid pointer to member type", &N,
            N.getExtraData());
   }
+
+  Assert(isScopeRef(N, N.getScope()), "invalid scope", &N, N.getScope());
+  Assert(isTypeRef(N, N.getBaseType()), "invalid base type", &N,
+         N.getBaseType());
 }
 
 static bool hasConflictingReferenceFlags(unsigned Flags) {
@@ -845,16 +819,19 @@ void Verifier::visitTemplateParams(const MDNode &N, const Metadata &RawParams) {
 }
 
 void Verifier::visitDICompositeType(const DICompositeType &N) {
-  // Common derived type checks.
-  visitDIDerivedTypeBase(N);
+  // Common scope checks.
+  visitDIScope(N);
 
   Assert(N.getTag() == dwarf::DW_TAG_array_type ||
              N.getTag() == dwarf::DW_TAG_structure_type ||
              N.getTag() == dwarf::DW_TAG_union_type ||
              N.getTag() == dwarf::DW_TAG_enumeration_type ||
-             N.getTag() == dwarf::DW_TAG_subroutine_type ||
              N.getTag() == dwarf::DW_TAG_class_type,
          "invalid tag", &N);
+
+  Assert(isScopeRef(N, N.getScope()), "invalid scope", &N, N.getScope());
+  Assert(isTypeRef(N, N.getBaseType()), "invalid base type", &N,
+         N.getBaseType());
 
   Assert(!N.getRawElements() || isa<MDTuple>(N.getRawElements()),
          "invalid composite elements", &N, N.getRawElements());
@@ -866,6 +843,12 @@ void Verifier::visitDICompositeType(const DICompositeType &N) {
          &N);
   if (auto *Params = N.getRawTemplateParams())
     visitTemplateParams(N, *Params);
+
+  if (N.getTag() == dwarf::DW_TAG_class_type ||
+      N.getTag() == dwarf::DW_TAG_union_type) {
+    Assert(N.getFile() && !N.getFile()->getFilename().empty(),
+           "class/union requires a filename", &N, N.getFile());
+  }
 }
 
 void Verifier::visitDISubroutineType(const DISubroutineType &N) {
@@ -1080,6 +1063,8 @@ void Verifier::visitDILocalVariable(const DILocalVariable &N) {
          "invalid tag", &N);
   Assert(N.getRawScope() && isa<DILocalScope>(N.getRawScope()),
          "local variable requires a valid scope", &N, N.getRawScope());
+  Assert(bool(N.getArg()) == (N.getTag() == dwarf::DW_TAG_arg_variable),
+         "local variable should have arg iff it's a DW_TAG_arg_variable", &N);
 }
 
 void Verifier::visitDIExpression(const DIExpression &N) {
@@ -1558,12 +1543,6 @@ void Verifier::VerifyStatepoint(ImmutableCallSite CS) {
   Assert(PT && PT->getElementType()->isFunctionTy(),
          "gc.statepoint callee must be of function pointer type", &CI, Target);
   FunctionType *TargetFuncType = cast<FunctionType>(PT->getElementType());
-
-  if (NumPatchBytes)
-    Assert(isa<ConstantPointerNull>(Target->stripPointerCasts()),
-           "gc.statepoint must have null as call target if number of patchable "
-           "bytes is non zero",
-           &CI);
 
   const Value *NumCallArgsV = CS.getArgument(3);
   Assert(isa<ConstantInt>(NumCallArgsV),

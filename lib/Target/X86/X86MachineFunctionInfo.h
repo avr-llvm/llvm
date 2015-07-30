@@ -1,4 +1,4 @@
-//===-- X86MachineFuctionInfo.h - X86 machine function info -----*- C++ -*-===//
+//===-- X86MachineFunctionInfo.h - X86 machine function info ----*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -100,7 +100,7 @@ private:
 public:
   X86MachineFunctionInfo() = default;
 
-  explicit X86MachineFunctionInfo(MachineFunction &MF) {};
+  explicit X86MachineFunctionInfo(MachineFunction &MF) {}
 
   bool getForceFramePointer() const { return ForceFramePointer;}
   void setForceFramePointer(bool forceFP) { ForceFramePointer = forceFP; }

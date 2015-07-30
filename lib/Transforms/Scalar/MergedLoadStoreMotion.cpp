@@ -241,7 +241,7 @@ bool MergedLoadStoreMotion::isLoadHoistBarrierInRange(const Instruction& Start,
                                                       const Instruction& End,
                                                       LoadInst* LI) {
   MemoryLocation Loc = MemoryLocation::get(LI);
-  return AA->canInstructionRangeModRef(Start, End, Loc, AliasAnalysis::Mod);
+  return AA->canInstructionRangeModRef(Start, End, Loc, MRI_Mod);
 }
 
 ///
@@ -398,7 +398,7 @@ bool MergedLoadStoreMotion::mergeLoads(BasicBlock *BB) {
 bool MergedLoadStoreMotion::isStoreSinkBarrierInRange(const Instruction &Start,
                                                       const Instruction &End,
                                                       MemoryLocation Loc) {
-  return AA->canInstructionRangeModRef(Start, End, Loc, AliasAnalysis::ModRef);
+  return AA->canInstructionRangeModRef(Start, End, Loc, MRI_ModRef);
 }
 
 ///
@@ -446,15 +446,8 @@ PHINode *MergedLoadStoreMotion::getPHIOperand(BasicBlock *BB, StoreInst *S0,
                             BB->begin());
     NewPN->addIncoming(Opd1, S0->getParent());
     NewPN->addIncoming(Opd2, S1->getParent());
-    if (NewPN->getType()->getScalarType()->isPointerTy()) {
-      // AA needs to be informed when a PHI-use of the pointer value is added
-      for (unsigned I = 0, E = NewPN->getNumIncomingValues(); I != E; ++I) {
-        unsigned J = PHINode::getOperandNumForIncomingValue(I);
-        AA->addEscapingUse(NewPN->getOperandUse(J));
-      }
-      if (MD)
-        MD->invalidateCachedPointerInfo(NewPN);
-    }
+    if (MD && NewPN->getType()->getScalarType()->isPointerTy())
+      MD->invalidateCachedPointerInfo(NewPN);
   }
   return NewPN;
 }
