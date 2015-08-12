@@ -704,6 +704,14 @@ void AVRTargetLowering::ReplaceNodeResults(SDNode *N,
       }
       break;
     }
+  case ISD::UDIVREM:
+  case ISD::SDIVREM: {
+    llvm_unreachable("you have reached a bug - division/modulus "
+                     "greater than 16-bits is broken - see "
+                     "GitHub issue #149");
+
+    break;
+  }
   }
 }
 
