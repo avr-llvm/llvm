@@ -154,9 +154,7 @@ def FamilyAVR51          : Family<"avr51",
                                  [FamilyAVR5, FeatureELPM, FeatureELPMX]>;
 
 def FamilyAVR6           : Family<"avr6",
-                                 [FamilyAVR0, FeatureLPM, FeatureLPMX, FeatureSRAM,
-                                  FeatureJMPCALL, FeatureMultiplication, FeatureELPM,
-                                  FeatureELPMX, FeatureSPM, FeatureBREAK, FeatureEIJMPCALL, FeatureMOVW]>;
+                                 [FamilyAVR51]>;
 
 def FamilyAVRTiny        : Family<"avrtiny",
                                  [FamilyAVR0, FeatureBREAK, FeatureSRAM, FeatureTinyEncoding]>;
