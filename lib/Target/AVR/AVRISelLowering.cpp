@@ -73,6 +73,7 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
   setOperationAction(ISD::SHL, MVT::i16, Custom);
   setOperationAction(ISD::SRL, MVT::i16, Custom);
   setOperationAction(ISD::SHL_PARTS, MVT::i16, Expand);
+  setOperationAction(ISD::SRA_PARTS, MVT::i16, Expand);
   setOperationAction(ISD::SRL_PARTS, MVT::i16, Expand);
 
   setOperationAction(ISD::BR_CC, MVT::i8, Custom);
@@ -940,12 +941,10 @@ static void analyzeArguments(const Function *F, const DataLayout *TD,
 
   // Fill in the Args array which will contain original argument sizes.
   SmallVector<unsigned, 8> Args;
-  if (IsCall && !F)
-  {
+  if (IsCall) {
     parseExternFuncCallArgs(*Outs, Args);
-  }
-  else
-  {
+  } else {
+    assert(F != nullptr && "function should not be null");
     parseFunctionArgs(F, TD, Args);
   }
 
