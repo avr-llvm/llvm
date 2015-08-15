@@ -69,6 +69,7 @@ class AVRAsmParser : public MCTargetAsmParser {
   int  parseRegister();
   bool tryParseRegisterOperand(OperandVector &Operands);
   bool tryParseExpression(OperandVector & Operands);
+  bool tryParseRelocExpression(OperandVector &Operands);
   void eatComma();
 
   // Handles target specific special cases. See definition for notes.
@@ -388,35 +389,90 @@ AVRAsmParser::tryParseRegisterOperand(OperandVector &Operands){
 
 bool
 AVRAsmParser::tryParseExpression(OperandVector & Operands) {
-  AVRMCExpr::VariantKind ModifierKind = AVRMCExpr::VK_AVR_None;
   SMLoc S = Parser.getTok().getLoc();
 
-  // check if we have a target specific modifier (lo8, hi8, &c)
-  if (Parser.getTok().getKind() == AsmToken::Identifier &&
-      Parser.getLexer().peekTok().getKind() == AsmToken::LParen)
-  {
+  if(!tryParseRelocExpression(Operands))
+    return false;
 
-    StringRef ModifierName = Parser.getTok().getString();
-    ModifierKind = AVRMCExpr::getKindByName(ModifierName.str().c_str());
-    if (ModifierKind != AVRMCExpr::VK_AVR_None) {
-      Parser.Lex(); Parser.Lex(); // eat modifier name and parenthesis
-    }
+  if((Parser.getTok().getKind() == AsmToken::Plus ||
+      Parser.getTok().getKind() == AsmToken::Minus) &&
+     Parser.getLexer().peekTok().getKind() == AsmToken::Identifier) {
+    // don't handle this case - it should be split into two
+    // separate tokens.
+    return true;
   }
 
   // parse (potentially inner) expression
   MCExpr const* Expression;
   if (getParser().parseExpression(Expression)) return true;
 
-  // if we have a modifier wrap the inner expression
-  if (ModifierKind != AVRMCExpr::VK_AVR_None) {
-    assert(Parser.getTok().getKind() == AsmToken::RParen);
-    Parser.Lex(); // eat closing parenthesis
-    Expression = AVRMCExpr::create(ModifierKind, Expression, getContext());
-  }
-
   SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
   Operands.push_back(AVROperand::CreateImm(Expression, S, E));
   return false;
+}
+
+bool
+AVRAsmParser::tryParseRelocExpression(OperandVector &Operands) {
+
+  bool isNegated = false;
+  AVRMCExpr::VariantKind ModifierKind = AVRMCExpr::VK_AVR_None;
+  
+  SMLoc S = Parser.getTok().getLoc();
+
+  // check for sign
+  {
+    AsmToken tokens[2];
+    size_t ReadCount = Parser.getLexer().peekTokens(tokens, 2);
+
+    if(ReadCount == 2) {
+        if(tokens[0].getKind() == AsmToken::Identifier &&
+           tokens[1].getKind() == AsmToken::LParen) {
+
+        AsmToken::TokenKind CurTok = Parser.getLexer().getKind();
+        if(CurTok == AsmToken::Minus) {
+          isNegated = true;
+        } else {
+          assert(CurTok == AsmToken::Plus);
+          isNegated = false;
+        }
+
+        // Eat the sign
+        Parser.Lex();
+      }
+    }
+  }
+
+  // check if we have a target specific modifier (lo8, hi8, &c)
+  if (Parser.getTok().getKind() == AsmToken::Identifier &&
+      Parser.getLexer().peekTok().getKind() == AsmToken::LParen)
+  {
+    StringRef ModifierName = Parser.getTok().getString();
+    ModifierKind = AVRMCExpr::getKindByName(ModifierName.str().c_str());
+
+    if (ModifierKind != AVRMCExpr::VK_AVR_None) {
+      Parser.Lex(); Parser.Lex(); // eat modifier name and parenthesis
+    } else {
+      return Error(Parser.getTok().getLoc(), "unknown modifier");
+    }
+
+    MCExpr const* InnerExpression;
+    if (getParser().parseExpression(InnerExpression)) return true;
+
+    // if we have a modifier wrap the inner expression
+    assert(Parser.getTok().getKind() == AsmToken::RParen);
+    Parser.Lex(); // eat closing parenthesis
+    MCExpr const* Expression = AVRMCExpr::create(ModifierKind, InnerExpression,
+                                                 isNegated, getContext());
+
+    SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+    Operands.push_back(AVROperand::CreateImm(Expression, S, E));
+
+    return false;
+  } else {
+    // not a reloc expr
+    return true;
+  }
+
 }
 
 bool
@@ -443,16 +499,18 @@ AVRAsmParser::parseOperand(OperandVector &Operands) {
       // if the sign preceeds a number, parse the number,
       // otherwise treat the sign a an independent token.
       switch(getLexer().peekTok().getKind()) {
-        default: { // treat the token as an independent token.
-          Operands.push_back(AVROperand::CreateToken(Parser.getTok().getString(),
-                                                     Parser.getTok().getLoc()));
-          Parser.Lex(); // eat the token.
-          return false;
-        }
         case AsmToken::Integer:
         case AsmToken::BigNum:
-        case AsmToken::Real:  return tryParseExpression(Operands);
+        case AsmToken::Identifier:
+        case AsmToken::Real:
+          if(!tryParseExpression(Operands))
+            return false;
       }
+      // treat the token as an independent token.
+      Operands.push_back(AVROperand::CreateToken(Parser.getTok().getString(),
+                                                 Parser.getTok().getLoc()));
+      Parser.Lex(); // eat the token.
+      return false;
     }
   }
   

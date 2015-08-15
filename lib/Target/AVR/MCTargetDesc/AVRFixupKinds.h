@@ -59,6 +59,9 @@ enum Fixups {
   /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
   /// with the upper 8 bits of a 24-bit value (bits 16-23).
   fixup_hh8_ldi,
+  /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
+  /// with the upper 8 bits of a 32-bit value (bits 24-31).
+  fixup_ms8_ldi,
 
   /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
   /// with the lower 8 bits of a negated 16-bit value (bits 0-7).
@@ -69,6 +72,9 @@ enum Fixups {
   /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
   /// with the upper 8 bits of a negated negated 24-bit value (bits 16-23).
   fixup_hh8_ldi_neg,
+  /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
+  /// with the upper 8 bits of a negated negated 32-bit value (bits 24-31).
+  fixup_ms8_ldi_neg,
 
   /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
   /// with the lower 8 bits of a 16-bit program memory address value (bits 0-7).
@@ -96,8 +102,6 @@ enum Fixups {
   fixup_6,
   fixup_6_adiw,
 
-  fixup_ms8_ldi,
-  fixup_ms8_ldi_neg,
 
   fixup_lo8_ldi_gs,
   fixup_hi8_ldi_gs,

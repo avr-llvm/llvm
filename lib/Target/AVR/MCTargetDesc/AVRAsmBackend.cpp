@@ -189,7 +189,7 @@ namespace llvm {
 
 // Prepare value for the target space for it
 void
-AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t & Value,
+AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
                                 MCContext *Ctx) const
 {
 
@@ -197,6 +197,7 @@ AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t & Value,
   uint64_t Size = AVRAsmBackend::getFixupKindInfo(Fixup.getKind()).TargetSize;
 
   switch ((unsigned)Fixup.getKind()) {
+    default: llvm_unreachable("unhandled fixup");
     case AVR::fixup_7_pcrel:  adjust::fixup_7_pcrel(Size, Fixup, Value, Ctx); break;
     case AVR::fixup_13_pcrel: adjust::fixup_13_pcrel(Size, Fixup, Value, Ctx); break;
     case AVR::fixup_call:     adjust::fixup_call(Size, Fixup, Value, Ctx); break;
@@ -206,23 +207,27 @@ AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t & Value,
     case AVR::fixup_hi8_ldi:     adjust::ldi::hi8(Size, Fixup, Value, Ctx); break;
     case AVR::fixup_hh8_ldi:     adjust::ldi::hh8(Size, Fixup, Value, Ctx); break;
     case AVR::fixup_ms8_ldi:     adjust::ldi::ms8(Size, Fixup, Value, Ctx); break;
+
     case AVR::fixup_lo8_ldi_neg: adjust::ldi::neg(Value); adjust::ldi::lo8(Size, Fixup, Value, Ctx); break;
     case AVR::fixup_hi8_ldi_neg: adjust::ldi::neg(Value); adjust::ldi::hi8(Size, Fixup, Value, Ctx); break;
     case AVR::fixup_hh8_ldi_neg: adjust::ldi::neg(Value); adjust::ldi::hh8(Size, Fixup, Value, Ctx); break;
+    case AVR::fixup_ms8_ldi_neg: adjust::ldi::neg(Value); adjust::ldi::ms8(Size, Fixup, Value, Ctx); break;
+
     case AVR::fixup_lo8_ldi_pm:
     case AVR::fixup_hi8_ldi_pm:
     case AVR::fixup_hh8_ldi_pm:
+
     case AVR::fixup_lo8_ldi_pm_neg:
     case AVR::fixup_hi8_ldi_pm_neg:
     case AVR::fixup_hh8_ldi_pm_neg:
       llvm_unreachable("program memory fixups are unimplemented");
+      break;
 
     case FK_Data_2:
     case FK_GPRel_4:
     case FK_Data_4:
     case FK_Data_8:
       break;
-    default: llvm_unreachable("unhandled fixup");
   }
 }
 
@@ -281,10 +286,12 @@ AVRAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_lo8_ldi",         0,      8,    0 },
     { "fixup_hi8_ldi",         0,      8,    0 },
     { "fixup_hh8_ldi",         0,      8,    0 },
+    { "fixup_ms8_ldi",         0,      8,    0 },
 
     { "fixup_lo8_ldi_neg",     0,      8,    0 },
     { "fixup_hi8_ldi_neg",     0,      8,    0 },
     { "fixup_hh8_ldi_neg",     0,      8,    0 },
+    { "fixup_ms8_ldi_neg",     0,      8,    0 },
 		
     { "fixup_lo8_ldi_pm",      0,      8,    0 },
     { "fixup_hi8_ldi_pm",      0,      8,    0 },
@@ -299,8 +306,6 @@ AVRAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_6",               0,      6,    0 },
     { "fixup_6_adiw",          0,      6,    0 },
 
-    { "fixup_ms8_ldi",         0,      8,    0 },
-    { "fixup_ms8_ldi_neg",     0,      8,    0 },
 
     { "fixup_lo8_ldi_gs",      0,      8,    0 },
     { "fixup_hi8_ldi_gs",      0,      8,    0 },

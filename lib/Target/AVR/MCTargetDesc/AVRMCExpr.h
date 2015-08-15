@@ -39,7 +39,7 @@ public:
 public:
   /// Creates an AVR machine code expression.
   static const AVRMCExpr *create(VariantKind Kind, const MCExpr *Expr,
-                                 MCContext &Ctx);
+                                 bool isNegated, MCContext &Ctx);
 
   /// Gets the type of the expression.
   VariantKind getKind() const { return Kind; }
@@ -51,10 +51,9 @@ public:
   /// Evaluates the fixup as a constant value.
   bool evaluateAsConstant(int64_t & Result) const;
 
-  /// Checks whether the sub expression is negated.
-  bool isSubExprNegated() const;
-  /// Gets the innermost expression.
-  const MCExpr *getInnerExpr() const;
+  bool isNegated() const { return Negated; }
+  void setNegated(bool negated = true) { Negated = negated; }
+
   
 public: // MCTargetExpr
   void printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const override;
@@ -82,9 +81,10 @@ private:
 
   const VariantKind Kind;
   const MCExpr *SubExpr;
+  bool Negated;
 private:
-  explicit AVRMCExpr(VariantKind _Kind, const MCExpr *_Expr) :
-    Kind(_Kind), SubExpr(_Expr) {}
+  explicit AVRMCExpr(VariantKind _Kind, const MCExpr *_Expr, bool Negated) :
+    Kind(_Kind), SubExpr(_Expr), Negated(Negated) {}
   ~AVRMCExpr() {}
 };
 

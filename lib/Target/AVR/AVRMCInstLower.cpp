@@ -30,8 +30,10 @@ LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const
   unsigned char TF = MO.getTargetFlags();
   const MCExpr *Expr = MCSymbolRefExpr::create(Sym, Ctx);
 
+  bool IsNegated = false;
+
   if (TF & AVRII::MO_NEG) {
-    Expr = MCUnaryExpr::createMinus(Expr, Ctx);
+    IsNegated = true;
   }
 
   if (!MO.isJTI() && MO.getOffset()) {
@@ -40,9 +42,9 @@ LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const
   }
 
   if (TF & AVRII::MO_LO) {
-    Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_LO8, Expr, Ctx);
+    Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_LO8, Expr, IsNegated, Ctx);
   } else if (TF & AVRII::MO_HI) {
-    Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_HI8, Expr, Ctx);
+    Expr = AVRMCExpr::create(AVRMCExpr::VK_AVR_HI8, Expr, IsNegated, Ctx);
   } else if (TF != 0) {
     llvm_unreachable("Unknown target flag on symbol operand");
   }
