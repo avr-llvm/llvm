@@ -162,7 +162,18 @@ public:
   }
 
   /// Look ahead at the next token to be lexed.
-  virtual const AsmToken peekTok(bool ShouldSkipSpace = true) = 0;
+  const AsmToken peekTok(bool ShouldSkipSpace = true) {
+    AsmToken Buf;
+
+    size_t ReadCount = peekTokens(&Buf, 1, ShouldSkipSpace);
+    assert(ReadCount == 1);
+
+    return Buf;
+  }
+
+  /// Look ahead an arbitrary number of tokens.
+  virtual size_t peekTokens(AsmToken *Buf, size_t Size,
+                            bool ShouldSkipSpace = true) = 0;
 
   /// Get the current error location
   const SMLoc &getErrLoc() {

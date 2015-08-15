@@ -47,7 +47,8 @@ public:
   StringRef LexUntilEndOfStatement() override;
   StringRef LexUntilEndOfLine();
 
-  const AsmToken peekTok(bool ShouldSkipSpace = true) override;
+  size_t peekTokens(AsmToken *Buf, size_t Size,
+                    bool ShouldSkipSpace = true) override;
 
   bool isAtStartOfComment(const char *Ptr);
   bool isAtStatementSeparator(const char *Ptr);
