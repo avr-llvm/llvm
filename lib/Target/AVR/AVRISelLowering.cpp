@@ -1077,7 +1077,7 @@ LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
       // from this parameter.
       SDValue FIN = DAG.getFrameIndex(FI, getPointerTy(DL));
       InVals.push_back(DAG.getLoad(LocVT, dl, Chain, FIN,
-                                   MachinePointerInfo::getFixedStack(FI), false,
+                                   MachinePointerInfo::getFixedStack(MF, FI), false,
                                    false, false, 0));
     }
   }
@@ -1113,6 +1113,8 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   bool &isTailCall = CLI.IsTailCall;
   CallingConv::ID CallConv = CLI.CallConv;
   bool isVarArg = CLI.IsVarArg;
+
+  MachineFunction &MF = DAG.getMachineFunction();
 
   // AVR does not yet support tail call optimization.
   isTailCall = false;
@@ -1213,7 +1215,7 @@ AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                                                          + 1, DL));
 
       Chain = DAG.getStore(Chain, DL, Arg, PtrOff,
-                           MachinePointerInfo::getStack(VA.getLocMemOffset()),
+                           MachinePointerInfo::getStack(MF, VA.getLocMemOffset()),
                            false, false, 0);
     }
   }

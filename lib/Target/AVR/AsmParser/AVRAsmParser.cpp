@@ -422,7 +422,7 @@ AVRAsmParser::tryParseRelocExpression(OperandVector &Operands) {
   // check for sign
   {
     AsmToken tokens[2];
-    size_t ReadCount = Parser.getLexer().peekTokens(tokens, 2);
+    size_t ReadCount = Parser.getLexer().peekTokens(tokens);
 
     if(ReadCount == 2) {
         if(tokens[0].getKind() == AsmToken::Identifier &&
@@ -505,6 +505,8 @@ AVRAsmParser::parseOperand(OperandVector &Operands) {
         case AsmToken::Real:
           if(!tryParseExpression(Operands))
             return false;
+        default:
+          break;
       }
       // treat the token as an independent token.
       Operands.push_back(AVROperand::CreateToken(Parser.getTok().getString(),

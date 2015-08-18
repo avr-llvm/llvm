@@ -152,7 +152,7 @@ void AVRInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
   const MachineFrameInfo &MFI = *MF.getFrameInfo();
 
   MachineMemOperand *MMO =
-    MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(FrameIndex),
+    MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FrameIndex),
                             MachineMemOperand::MOStore,
                             MFI.getObjectSize(FrameIndex),
                             MFI.getObjectAlignment(FrameIndex));
@@ -192,7 +192,7 @@ void AVRInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
   const MachineFrameInfo &MFI = *MF.getFrameInfo();
 
   MachineMemOperand *MMO =
-    MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(FrameIndex),
+    MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FrameIndex),
                             MachineMemOperand::MOLoad,
                             MFI.getObjectSize(FrameIndex),
                             MFI.getObjectAlignment(FrameIndex));
