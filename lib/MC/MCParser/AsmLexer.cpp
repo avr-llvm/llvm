@@ -436,8 +436,7 @@ StringRef AsmLexer::LexUntilEndOfLine() {
   return StringRef(TokStart, CurPtr-TokStart);
 }
 
-size_t AsmLexer::peekTokens(AsmToken *Buf, size_t Size,
-                         bool ShouldSkipSpace) {
+const AsmToken AsmLexer::peekTok(bool ShouldSkipSpace) {
   const char *SavedTokStart = TokStart;
   const char *SavedCurPtr = CurPtr;
   bool SavedAtStartOfLine = isAtStartOfLine;
@@ -447,17 +446,8 @@ size_t AsmLexer::peekTokens(AsmToken *Buf, size_t Size,
   SMLoc SavedErrLoc = getErrLoc();
 
   SkipSpace = ShouldSkipSpace;
+  AsmToken Token = LexToken();
 
-  size_t ReadCount;
-  for(ReadCount = 0; ReadCount<Size; ++ReadCount) {
-    AsmToken Token = LexToken();
-
-    Buf[ReadCount] = Token;
-
-    if(Token.is(AsmToken::Eof))
-        break;
-
-  }
   SetError(SavedErrLoc, SavedErr);
 
   SkipSpace = SavedSkipSpace;
@@ -465,7 +455,7 @@ size_t AsmLexer::peekTokens(AsmToken *Buf, size_t Size,
   CurPtr = SavedCurPtr;
   TokStart = SavedTokStart;
 
-  return ReadCount;
+  return Token;
 }
 
 bool AsmLexer::isAtStartOfComment(const char *Ptr) {
