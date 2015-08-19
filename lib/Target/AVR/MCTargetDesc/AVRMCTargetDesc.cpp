@@ -90,7 +90,7 @@ static MCStreamer *createMCStreamer(const Triple &T, MCContext &Context,
 static MCTargetStreamer *
 createAVRObjectTargetStreamer(MCStreamer &S, const MCSubtargetInfo &STI) {
 
-  return new AVRTargetELFStreamer(S);
+  return new AVRTargetELFStreamer(S, STI);
 }
 
 static MCTargetStreamer *createMCAsmTargetStreamer(MCStreamer &S,

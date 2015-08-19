@@ -23,9 +23,16 @@ namespace llvm {
 AVRTargetStreamer::AVRTargetStreamer(MCStreamer &S) : MCTargetStreamer(S) {}
 
 AVRTargetAsmStreamer::AVRTargetAsmStreamer(MCStreamer &S)
-    : AVRTargetStreamer(S) {}
+  : AVRTargetStreamer(S) {}
 
-AVRTargetELFStreamer::AVRTargetELFStreamer(MCStreamer &S)
-    : AVRTargetStreamer(S) {}
+AVRTargetELFStreamer::AVRTargetELFStreamer(MCStreamer &S,
+                                           const MCSubtargetInfo &STI)
+  : AVRTargetStreamer(S), STI(STI) {
 
-} // end of namespace llvm
+  MCAssembler &MCA = getStreamer().getAssembler();
+}
+
+MCELFStreamer &AVRTargetELFStreamer::getStreamer() {
+  return static_cast<MCELFStreamer&>(Streamer);
+}
+} // end namespace llvm

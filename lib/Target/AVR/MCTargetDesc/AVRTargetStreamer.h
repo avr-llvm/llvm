@@ -38,7 +38,13 @@ class AVRTargetAsmStreamer : public AVRTargetStreamer {
  */
 class AVRTargetELFStreamer : public AVRTargetStreamer {
   public:
-    explicit AVRTargetELFStreamer(MCStreamer & S);
+    explicit AVRTargetELFStreamer(MCStreamer &S, const MCSubtargetInfo &STI);
+
+    /// Gets the ELF streamer.
+    MCELFStreamer &getStreamer();
+
+  private:
+    const MCSubtargetInfo &STI;
 };
 
 } // end namespace llvm
