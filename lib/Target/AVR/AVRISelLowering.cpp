@@ -704,11 +704,11 @@ void AVRTargetLowering::ReplaceNodeResults(SDNode *N,
       }
       break;
     }
-  case ISD::UDIVREM:
-  case ISD::SDIVREM: {
-    llvm_unreachable("you have reached a bug - division/modulus "
-                     "greater than 16-bits is broken - see "
-                     "GitHub issue #149");
+  default: {
+    SDValue Res = LowerOperation(SDValue(N, 0), DAG);
+
+    for (unsigned I = 0, E = Res->getNumValues(); I != E; ++I)
+      Results.push_back(Res.getValue(I));
 
     break;
   }
