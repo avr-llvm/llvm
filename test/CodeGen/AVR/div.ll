@@ -40,3 +40,25 @@ define i16 @sdiv16(i16 %a, i16 %b) {
   ret i16 %quot
 }
 
+; Unsigned 32-bit division
+define i32 @udiv32(i32 %a, i32 %b) {
+; CHECK-LABEL: udiv32:
+; CHECK: call __udivmodsi4
+; CHECK: movw r22, r18
+; CHECK: movw r24, r20
+; CHECK: ret
+  %quot = udiv i32 %a, %b
+  ret i32 %quot
+}
+
+; Signed 32-bit division
+define i32 @sdiv32(i32 %a, i32 %b) {
+; CHECK-LABEL: sdiv32:
+; CHECK: call __divmodsi4
+; CHECK: movw r22, r18
+; CHECK: movw r24, r20
+; CHECK: ret
+  %quot = sdiv i32 %a, %b
+  ret i32 %quot
+}
+

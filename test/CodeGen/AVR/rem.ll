@@ -6,7 +6,6 @@ define i8 @urem8(i8 %a, i8 %b) {
 ; CHECK: call __udivmodqi4
 ; CHECK: mov r24, r25
 ; CHECK: ret
-
   %rem = urem i8 %a, %b
   ret i8 %rem
 }
@@ -17,7 +16,6 @@ define i8 @srem8(i8 %a, i8 %b) {
 ; CHECK: call __divmodqi4
 ; CHECK: mov r24, r25
 ; CHECK: ret
-
   %rem = srem i8 %a, %b
   ret i8 %rem
 }
@@ -38,5 +36,23 @@ define i16 @srem16(i16 %a, i16 %b) {
 ; CHECK: ret
   %rem = srem i16 %a, %b
   ret i16 %rem
+}
+
+; Unsigned 32-bit remision
+define i32 @urem32(i32 %a, i32 %b) {
+; CHECK-LABEL: urem32:
+; CHECK: call __udivmodsi4
+; CHECK: ret
+  %rem = urem i32 %a, %b
+  ret i32 %rem
+}
+
+; Signed 32-bit remision
+define i32 @srem32(i32 %a, i32 %b) {
+; CHECK-LABEL: srem32:
+; CHECK: call __divmodsi4
+; CHECK: ret
+  %rem = srem i32 %a, %b
+  ret i32 %rem
 }
 
