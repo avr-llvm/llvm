@@ -1,5 +1,4 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
-; XFAIL: *
 
 declare void @foo(i16*, i16*, i8*)
 
