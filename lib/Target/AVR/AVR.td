@@ -23,6 +23,7 @@ include "llvm/Target/Target.td"
 // :TODO: We define all devices with SRAM to have all variants of LD/ST/LDD/STD.
 //        In reality, avr1 (no SRAM) has one variant each of `LD` and `ST`.
 //        avr2 (with SRAM) adds the rest of the variants.
+// :TODO: s/AVRTiny/Tiny
 
 
 // A feature set aggregates features, grouping them. We don't want to create a

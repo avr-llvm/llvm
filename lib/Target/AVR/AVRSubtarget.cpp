@@ -54,7 +54,7 @@ AVRSubtarget::AVRSubtarget(const Triple &TT, const std::string &CPU,
   m_supportsMultiplication(),
   m_hasBREAK(),
   m_hasTinyEncoding(),
-  ELFArch(0),
+  ELFArch(),
   m_FeatureSetDummy()
 {
   // Parse features string.
