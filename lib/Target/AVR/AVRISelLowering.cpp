@@ -688,8 +688,6 @@ void AVRTargetLowering::ReplaceNodeResults(SDNode *N,
 
   switch (N->getOpcode())
   {
-  default:
-    llvm_unreachable("Don't know how to custom expand this!");
   case ISD::ADD:
     {
       // Convert add (x, imm) into sub (x, -imm).
@@ -700,7 +698,6 @@ void AVRTargetLowering::ReplaceNodeResults(SDNode *N,
                       DAG.getConstant(-C->getAPIntValue(),
                                       DL, C->getValueType(0)));
         Results.push_back(Sub);
-        return;
       }
       break;
     }
