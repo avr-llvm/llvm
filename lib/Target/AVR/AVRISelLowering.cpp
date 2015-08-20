@@ -189,6 +189,12 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm) :
       setLibcallCallingConv(RTLIB::UDIVREM_I8,  CallingConv::AVR_RT_DIV);
       setLibcallCallingConv(RTLIB::UDIVREM_I16, CallingConv::AVR_RT_DIV);
     }
+
+    // Trigonometric rtlib functions
+    {
+      setLibcallName(RTLIB::SIN_F32, "sin");
+      setLibcallName(RTLIB::COS_F32, "cos");
+    }
   }
 
   setMinFunctionAlignment(1);
