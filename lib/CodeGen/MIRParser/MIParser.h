@@ -23,6 +23,7 @@ class BasicBlock;
 class MachineBasicBlock;
 class MachineInstr;
 class MachineFunction;
+class MDNode;
 struct SlotMapping;
 class SMDiagnostic;
 class SourceMgr;
@@ -83,6 +84,15 @@ bool parseVirtualRegisterReference(unsigned &Reg, SourceMgr &SM,
                                    const PerFunctionMIParsingState &PFS,
                                    const SlotMapping &IRSlots,
                                    SMDiagnostic &Error);
+
+bool parseStackObjectReference(int &FI, SourceMgr &SM, MachineFunction &MF,
+                               StringRef Src,
+                               const PerFunctionMIParsingState &PFS,
+                               const SlotMapping &IRSlots, SMDiagnostic &Error);
+
+bool parseMDNode(MDNode *&Node, SourceMgr &SM, MachineFunction &MF,
+                 StringRef Src, const PerFunctionMIParsingState &PFS,
+                 const SlotMapping &IRSlots, SMDiagnostic &Error);
 
 } // end namespace llvm
 

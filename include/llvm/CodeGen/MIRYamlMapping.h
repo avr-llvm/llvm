@@ -196,6 +196,9 @@ struct MachineStackObject {
   unsigned Alignment = 0;
   StringValue CalleeSavedRegister;
   Optional<int64_t> LocalOffset;
+  StringValue DebugVar;
+  StringValue DebugExpr;
+  StringValue DebugLoc;
 };
 
 template <> struct ScalarEnumerationTraits<MachineStackObject::ObjectType> {
@@ -221,6 +224,12 @@ template <> struct MappingTraits<MachineStackObject> {
     YamlIO.mapOptional("callee-saved-register", Object.CalleeSavedRegister,
                        StringValue()); // Don't print it out when it's empty.
     YamlIO.mapOptional("local-offset", Object.LocalOffset);
+    YamlIO.mapOptional("di-variable", Object.DebugVar,
+                       StringValue()); // Don't print it out when it's empty.
+    YamlIO.mapOptional("di-expression", Object.DebugExpr,
+                       StringValue()); // Don't print it out when it's empty.
+    YamlIO.mapOptional("di-location", Object.DebugLoc,
+                       StringValue()); // Don't print it out when it's empty.
   }
 
   static const bool flow = true;
@@ -337,7 +346,8 @@ struct MachineFrameInfo {
   unsigned MaxAlignment = 0;
   bool AdjustsStack = false;
   bool HasCalls = false;
-  // TODO: Serialize StackProtectorIdx and FunctionContextIdx
+  StringValue StackProtector;
+  // TODO: Serialize FunctionContextIdx
   unsigned MaxCallFrameSize = 0;
   bool HasOpaqueSPAdjustment = false;
   bool HasVAStart = false;
@@ -357,6 +367,8 @@ template <> struct MappingTraits<MachineFrameInfo> {
     YamlIO.mapOptional("maxAlignment", MFI.MaxAlignment);
     YamlIO.mapOptional("adjustsStack", MFI.AdjustsStack);
     YamlIO.mapOptional("hasCalls", MFI.HasCalls);
+    YamlIO.mapOptional("stackProtector", MFI.StackProtector,
+                       StringValue()); // Don't print it out when it's empty.
     YamlIO.mapOptional("maxCallFrameSize", MFI.MaxCallFrameSize);
     YamlIO.mapOptional("hasOpaqueSPAdjustment", MFI.HasOpaqueSPAdjustment);
     YamlIO.mapOptional("hasVAStart", MFI.HasVAStart);

@@ -11,6 +11,7 @@
 #include "MCTargetDesc/MipsMCExpr.h"
 #include "MCTargetDesc/MipsMCTargetDesc.h"
 #include "MipsRegisterInfo.h"
+#include "MipsTargetObjectFile.h"
 #include "MipsTargetStreamer.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/SmallVector.h"
@@ -114,6 +115,7 @@ class MipsAsmParser : public MCTargetAsmParser {
                        // selected. This usually happens after an '.end func'
                        // directive.
   bool IsLittleEndian;
+  bool IsPicEnabled;
 
   // Print a warning along with its fix-it message at the given range.
   void printWarningWithFixIt(const Twine &Msg, const Twine &FixMsg,
@@ -406,6 +408,9 @@ public:
 
     CurrentFn = nullptr;
 
+    IsPicEnabled =
+        (getContext().getObjectFileInfo()->getRelocM() == Reloc::PIC_);
+
     Triple TheTriple(sti.getTargetTriple());
     if ((TheTriple.getArch() == Triple::mips) ||
         (TheTriple.getArch() == Triple::mips64))
@@ -473,6 +478,10 @@ public:
   bool hasMSA() const { return STI.getFeatureBits()[Mips::FeatureMSA]; }
   bool hasCnMips() const {
     return (STI.getFeatureBits()[Mips::FeatureCnMips]);
+  }
+
+  bool inPicMode() {
+    return IsPicEnabled;
   }
 
   bool inMips16Mode() const {
@@ -942,6 +951,10 @@ public:
   template <unsigned Bits> bool isMemWithSimmOffset() const {
     return isMem() && isConstantMemOff() && isInt<Bits>(getConstantMemOff());
   }
+  template <unsigned Bits> bool isMemWithSimmOffsetGPR() const {
+    return isMem() && isConstantMemOff() && isInt<Bits>(getConstantMemOff())
+      && getMemBase()->isGPRAsmReg();
+  }
   bool isMemWithGRPMM16Base() const {
     return isMem() && getMemBase()->isMM16AsmReg();
   }
@@ -1305,6 +1318,44 @@ static bool hasShortDelaySlot(unsigned Opcode) {
   }
 }
 
+static const MCSymbol *getSingleMCSymbol(const MCExpr *Expr) {
+  if (const MCSymbolRefExpr *SRExpr = dyn_cast<MCSymbolRefExpr>(Expr)) {
+    return &SRExpr->getSymbol();
+  }
+
+  if (const MCBinaryExpr *BExpr = dyn_cast<MCBinaryExpr>(Expr)) {
+    const MCSymbol *LHSSym = getSingleMCSymbol(BExpr->getLHS());
+    const MCSymbol *RHSSym = getSingleMCSymbol(BExpr->getRHS());
+
+    if (LHSSym)
+      return LHSSym;
+
+    if (RHSSym)
+      return RHSSym;
+
+    return nullptr;
+  }
+
+  if (const MCUnaryExpr *UExpr = dyn_cast<MCUnaryExpr>(Expr))
+    return getSingleMCSymbol(UExpr->getSubExpr());
+
+  return nullptr;
+}
+
+static unsigned countMCSymbolRefExpr(const MCExpr *Expr) {
+  if (isa<MCSymbolRefExpr>(Expr))
+    return 1;
+
+  if (const MCBinaryExpr *BExpr = dyn_cast<MCBinaryExpr>(Expr))
+    return countMCSymbolRefExpr(BExpr->getLHS()) +
+           countMCSymbolRefExpr(BExpr->getRHS());
+
+  if (const MCUnaryExpr *UExpr = dyn_cast<MCUnaryExpr>(Expr))
+    return countMCSymbolRefExpr(UExpr->getSubExpr());
+
+  return 0;
+}
+
 bool MipsAsmParser::processInstruction(MCInst &Inst, SMLoc IDLoc,
                                        SmallVectorImpl<MCInst> &Instructions) {
   const MCInstrDesc &MCID = getInstDesc(Inst.getOpcode());
@@ -1453,6 +1504,94 @@ bool MipsAsmParser::processInstruction(MCInst &Inst, SMLoc IDLoc,
           return Error(IDLoc, "immediate operand value out of range");
         break;
     }
+  }
+
+  // This expansion is not in a function called by expandInstruction() because
+  // the pseudo-instruction doesn't have a distinct opcode.
+  if ((Inst.getOpcode() == Mips::JAL || Inst.getOpcode() == Mips::JAL_MM) &&
+      inPicMode()) {
+    warnIfNoMacro(IDLoc);
+
+    const MCExpr *JalExpr = Inst.getOperand(0).getExpr();
+
+    // We can do this expansion if there's only 1 symbol in the argument
+    // expression.
+    if (countMCSymbolRefExpr(JalExpr) > 1)
+      return Error(IDLoc, "jal doesn't support multiple symbols in PIC mode");
+
+    // FIXME: This is checking the expression can be handled by the later stages
+    //        of the assembler. We ought to leave it to those later stages but
+    //        we can't do that until we stop evaluateRelocExpr() rewriting the
+    //        expressions into non-equivalent forms.
+    const MCSymbol *JalSym = getSingleMCSymbol(JalExpr);
+
+    // FIXME: Add support for label+offset operands (currently causes an error).
+    // FIXME: Add support for forward-declared local symbols.
+    // FIXME: Add expansion for when the LargeGOT option is enabled.
+    if (JalSym->isInSection() || JalSym->isTemporary()) {
+      if (isABI_O32()) {
+        // If it's a local symbol and the O32 ABI is being used, we expand to:
+        //  lw    $25, 0($gp)
+        //    R_(MICRO)MIPS_GOT16  label
+        //  addiu $25, $25, 0
+        //    R_(MICRO)MIPS_LO16   label
+        //  jalr  $25
+        const MCExpr *Got16RelocExpr = evaluateRelocExpr(JalExpr, "got");
+        const MCExpr *Lo16RelocExpr = evaluateRelocExpr(JalExpr, "lo");
+
+        MCInst LwInst;
+        LwInst.setOpcode(Mips::LW);
+        LwInst.addOperand(MCOperand::createReg(Mips::T9));
+        LwInst.addOperand(MCOperand::createReg(Mips::GP));
+        LwInst.addOperand(MCOperand::createExpr(Got16RelocExpr));
+        Instructions.push_back(LwInst);
+
+        MCInst AddiuInst;
+        AddiuInst.setOpcode(Mips::ADDiu);
+        AddiuInst.addOperand(MCOperand::createReg(Mips::T9));
+        AddiuInst.addOperand(MCOperand::createReg(Mips::T9));
+        AddiuInst.addOperand(MCOperand::createExpr(Lo16RelocExpr));
+        Instructions.push_back(AddiuInst);
+      } else if (isABI_N32() || isABI_N64()) {
+        // If it's a local symbol and the N32/N64 ABIs are being used,
+        // we expand to:
+        //  lw/ld    $25, 0($gp)
+        //    R_(MICRO)MIPS_GOT_DISP  label
+        //  jalr  $25
+        const MCExpr *GotDispRelocExpr = evaluateRelocExpr(JalExpr, "got_disp");
+
+        MCInst LoadInst;
+        LoadInst.setOpcode(ABI.ArePtrs64bit() ? Mips::LD : Mips::LW);
+        LoadInst.addOperand(MCOperand::createReg(Mips::T9));
+        LoadInst.addOperand(MCOperand::createReg(Mips::GP));
+        LoadInst.addOperand(MCOperand::createExpr(GotDispRelocExpr));
+        Instructions.push_back(LoadInst);
+      }
+    } else {
+      // If it's an external/weak symbol, we expand to:
+      //  lw/ld    $25, 0($gp)
+      //    R_(MICRO)MIPS_CALL16  label
+      //  jalr  $25
+      const MCExpr *Call16RelocExpr = evaluateRelocExpr(JalExpr, "call16");
+
+      MCInst LoadInst;
+      LoadInst.setOpcode(ABI.ArePtrs64bit() ? Mips::LD : Mips::LW);
+      LoadInst.addOperand(MCOperand::createReg(Mips::T9));
+      LoadInst.addOperand(MCOperand::createReg(Mips::GP));
+      LoadInst.addOperand(MCOperand::createExpr(Call16RelocExpr));
+      Instructions.push_back(LoadInst);
+    }
+
+    MCInst JalrInst;
+    JalrInst.setOpcode(inMicroMipsMode() ? Mips::JALR_MM : Mips::JALR);
+    JalrInst.addOperand(MCOperand::createReg(Mips::RA));
+    JalrInst.addOperand(MCOperand::createReg(Mips::T9));
+
+    // FIXME: Add an R_(MICRO)MIPS_JALR relocation after the JALR.
+    // This relocation is supposed to be an optimization hint for the linker
+    // and is not necessary for correctness.
+
+    Inst = JalrInst;
   }
 
   if (MCID.mayLoad() || MCID.mayStore()) {
@@ -1755,7 +1894,7 @@ void emitRX(unsigned Opcode, unsigned Reg0, MCOperand Op1, SMLoc IDLoc,
   Instructions.push_back(tmpInst);
 }
 
-void emitRI(unsigned Opcode, unsigned Reg0, int16_t Imm, SMLoc IDLoc,
+void emitRI(unsigned Opcode, unsigned Reg0, int32_t Imm, SMLoc IDLoc,
             SmallVectorImpl<MCInst> &Instructions) {
   emitRX(Opcode, Reg0, MCOperand::createImm(Imm), IDLoc, Instructions);
 }
@@ -1934,7 +2073,7 @@ bool MipsAsmParser::loadImmediate(int64_t ImmValue, unsigned DstReg,
       // Traditional behaviour seems to special case this particular value. It's
       // not clear why other masks are handled differently.
       if (ImmValue == 0xffffffff) {
-        emitRI(Mips::LUi, TmpReg, -1, IDLoc, Instructions);
+        emitRI(Mips::LUi, TmpReg, 0xffff, IDLoc, Instructions);
         emitRRI(Mips::DSRL32, TmpReg, TmpReg, 0, IDLoc, Instructions);
         if (UseSrcReg)
           emitRRR(AdduOp, DstReg, TmpReg, SrcReg, IDLoc, Instructions);
@@ -4714,6 +4853,9 @@ bool MipsAsmParser::parseDirectiveOption() {
   StringRef Option = Tok.getIdentifier();
 
   if (Option == "pic0") {
+    // MipsAsmParser needs to know if the current PIC mode changes.
+    IsPicEnabled = false;
+
     getTargetStreamer().emitDirectiveOptionPic0();
     Parser.Lex();
     if (Parser.getTok().isNot(AsmToken::EndOfStatement)) {
@@ -4725,6 +4867,9 @@ bool MipsAsmParser::parseDirectiveOption() {
   }
 
   if (Option == "pic2") {
+    // MipsAsmParser needs to know if the current PIC mode changes.
+    IsPicEnabled = true;
+
     getTargetStreamer().emitDirectiveOptionPic2();
     Parser.Lex();
     if (Parser.getTok().isNot(AsmToken::EndOfStatement)) {

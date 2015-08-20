@@ -49,12 +49,14 @@ struct MIToken {
     // Keywords
     kw_implicit,
     kw_implicit_define,
+    kw_def,
     kw_dead,
     kw_killed,
     kw_undef,
     kw_internal,
     kw_early_clobber,
     kw_debug_use,
+    kw_tied_def,
     kw_frame_setup,
     kw_debug_location,
     kw_cfi_same_value,
@@ -79,6 +81,7 @@ struct MIToken {
     kw_got,
     kw_jump_table,
     kw_constant_pool,
+    kw_call_entry,
     kw_liveout,
     kw_address_taken,
     kw_landing_pad,
@@ -112,6 +115,7 @@ struct MIToken {
     NamedIRBlock,
     IRBlock,
     NamedIRValue,
+    IRValue
   };
 
 private:
@@ -145,9 +149,9 @@ public:
 
   bool isRegisterFlag() const {
     return Kind == kw_implicit || Kind == kw_implicit_define ||
-           Kind == kw_dead || Kind == kw_killed || Kind == kw_undef ||
-           Kind == kw_internal || Kind == kw_early_clobber ||
-           Kind == kw_debug_use;
+           Kind == kw_def || Kind == kw_dead || Kind == kw_killed ||
+           Kind == kw_undef || Kind == kw_internal ||
+           Kind == kw_early_clobber || Kind == kw_debug_use;
   }
 
   bool isMemoryOperandFlag() const {
@@ -173,7 +177,7 @@ public:
            Kind == MachineBasicBlockLabel || Kind == StackObject ||
            Kind == FixedStackObject || Kind == GlobalValue ||
            Kind == VirtualRegister || Kind == ConstantPoolItem ||
-           Kind == JumpTableIndex || Kind == IRBlock;
+           Kind == JumpTableIndex || Kind == IRBlock || Kind == IRValue;
   }
 };
 

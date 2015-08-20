@@ -245,6 +245,7 @@ namespace {
     SDValue visitUMULO(SDNode *N);
     SDValue visitSDIVREM(SDNode *N);
     SDValue visitUDIVREM(SDNode *N);
+    SDValue visitIMINMAX(SDNode *N);
     SDValue visitAND(SDNode *N);
     SDValue visitANDLike(SDValue N0, SDValue N1, SDNode *LocReference);
     SDValue visitOR(SDNode *N);
@@ -1341,6 +1342,10 @@ SDValue DAGCombiner::visit(SDNode *N) {
   case ISD::UMULO:              return visitUMULO(N);
   case ISD::SDIVREM:            return visitSDIVREM(N);
   case ISD::UDIVREM:            return visitUDIVREM(N);
+  case ISD::SMIN:
+  case ISD::SMAX:
+  case ISD::UMIN:
+  case ISD::UMAX:               return visitIMINMAX(N);
   case ISD::AND:                return visitAND(N);
   case ISD::OR:                 return visitOR(N);
   case ISD::XOR:                return visitXOR(N);
@@ -2176,6 +2181,7 @@ SDValue DAGCombiner::visitSDIV(SDNode *N) {
                          N0, N1);
   }
 
+  bool MinSize = DAG.getMachineFunction().getFunction()->optForMinSize();
   // fold (sdiv X, pow2) -> simple ops after legalize
   // FIXME: We check for the exact bit here because the generic lowering gives
   // better results in that case. The target-specific lowering should learn how
@@ -2184,9 +2190,8 @@ SDValue DAGCombiner::visitSDIV(SDNode *N) {
       !cast<BinaryWithFlagsSDNode>(N)->Flags.hasExact() &&
       (N1C->getAPIntValue().isPowerOf2() ||
        (-N1C->getAPIntValue()).isPowerOf2())) {
-    // If dividing by powers of two is cheap, then don't perform the following
-    // fold.
-    if (TLI.isPow2SDivCheap())
+    // If integer division is cheap, then don't perform the following fold.
+    if (TLI.isIntDivCheap(N->getValueType(0), MinSize))
       return SDValue();
 
     // Target-specific implementation of sdiv x, pow2.
@@ -2226,7 +2231,7 @@ SDValue DAGCombiner::visitSDIV(SDNode *N) {
 
   // If integer divide is expensive and we satisfy the requirements, emit an
   // alternate sequence.
-  if (N1C && !TLI.isIntDivCheap())
+  if (N1C && !TLI.isIntDivCheap(N->getValueType(0), MinSize))
     if (SDValue Op = BuildSDIV(N))
       return Op;
 
@@ -2280,8 +2285,10 @@ SDValue DAGCombiner::visitUDIV(SDNode *N) {
       }
     }
   }
+  
   // fold (udiv x, c) -> alternate
-  if (N1C && !TLI.isIntDivCheap())
+  bool MinSize = DAG.getMachineFunction().getFunction()->optForMinSize();
+  if (N1C && !TLI.isIntDivCheap(N->getValueType(0), MinSize))
     if (SDValue Op = BuildUDIV(N))
       return Op;
 
@@ -2618,6 +2625,30 @@ SDValue DAGCombiner::visitSDIVREM(SDNode *N) {
 SDValue DAGCombiner::visitUDIVREM(SDNode *N) {
   if (SDValue Res = SimplifyNodeWithTwoResults(N, ISD::UDIV, ISD::UREM))
     return Res;
+
+  return SDValue();
+}
+
+SDValue DAGCombiner::visitIMINMAX(SDNode *N) {
+  SDValue N0 = N->getOperand(0);
+  SDValue N1 = N->getOperand(1);
+  EVT VT = N0.getValueType();
+
+  // fold vector ops
+  if (VT.isVector())
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
+
+  // fold (add c1, c2) -> c1+c2
+  ConstantSDNode *N0C = getAsNonOpaqueConstant(N0);
+  ConstantSDNode *N1C = getAsNonOpaqueConstant(N1);
+  if (N0C && N1C)
+    return DAG.FoldConstantArithmetic(N->getOpcode(), SDLoc(N), VT, N0C, N1C);
+
+  // canonicalize constant to RHS
+  if (isConstantIntBuildVectorOrConstantInt(N0) &&
+     !isConstantIntBuildVectorOrConstantInt(N1))
+    return DAG.getNode(N->getOpcode(), SDLoc(N), VT, N1, N0);
 
   return SDValue();
 }
@@ -4955,6 +4986,79 @@ SDValue DAGCombiner::visitSELECT(SDNode *N) {
   if (SimplifySelectOps(N, N1, N2))
     return SDValue(N, 0);  // Don't revisit N.
 
+  if (VT0 == MVT::i1) {
+    // The code in this block deals with the following 2 equivalences:
+    //    select(C0|C1, x, y) <=> select(C0, x, select(C1, x, y))
+    //    select(C0&C1, x, y) <=> select(C0, select(C1, x, y), y)
+    // The target can specify its prefered form with the
+    // shouldNormalizeToSelectSequence() callback. However we always transform
+    // to the right anyway if we find the inner select exists in the DAG anyway
+    // and we always transform to the left side if we know that we can further
+    // optimize the combination of the conditions.
+    bool normalizeToSequence
+      = TLI.shouldNormalizeToSelectSequence(*DAG.getContext(), VT);
+    // select (and Cond0, Cond1), X, Y
+    //   -> select Cond0, (select Cond1, X, Y), Y
+    if (N0->getOpcode() == ISD::AND && N0->hasOneUse()) {
+      SDValue Cond0 = N0->getOperand(0);
+      SDValue Cond1 = N0->getOperand(1);
+      SDValue InnerSelect = DAG.getNode(ISD::SELECT, SDLoc(N),
+                                        N1.getValueType(), Cond1, N1, N2);
+      if (normalizeToSequence || !InnerSelect.use_empty())
+        return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), Cond0,
+                           InnerSelect, N2);
+    }
+    // select (or Cond0, Cond1), X, Y -> select Cond0, X, (select Cond1, X, Y)
+    if (N0->getOpcode() == ISD::OR && N0->hasOneUse()) {
+      SDValue Cond0 = N0->getOperand(0);
+      SDValue Cond1 = N0->getOperand(1);
+      SDValue InnerSelect = DAG.getNode(ISD::SELECT, SDLoc(N),
+                                        N1.getValueType(), Cond1, N1, N2);
+      if (normalizeToSequence || !InnerSelect.use_empty())
+        return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), Cond0, N1,
+                           InnerSelect);
+    }
+
+    // select Cond0, (select Cond1, X, Y), Y -> select (and Cond0, Cond1), X, Y
+    if (N1->getOpcode() == ISD::SELECT && N1->hasOneUse()) {
+      SDValue N1_0 = N1->getOperand(0);
+      SDValue N1_1 = N1->getOperand(1);
+      SDValue N1_2 = N1->getOperand(2);
+      if (N1_2 == N2 && N0.getValueType() == N1_0.getValueType()) {
+        // Create the actual and node if we can generate good code for it.
+        if (!normalizeToSequence) {
+          SDValue And = DAG.getNode(ISD::AND, SDLoc(N), N0.getValueType(),
+                                    N0, N1_0);
+          return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), And,
+                             N1_1, N2);
+        }
+        // Otherwise see if we can optimize the "and" to a better pattern.
+        if (SDValue Combined = visitANDLike(N0, N1_0, N))
+          return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), Combined,
+                             N1_1, N2);
+      }
+    }
+    // select Cond0, X, (select Cond1, X, Y) -> select (or Cond0, Cond1), X, Y
+    if (N2->getOpcode() == ISD::SELECT && N2->hasOneUse()) {
+      SDValue N2_0 = N2->getOperand(0);
+      SDValue N2_1 = N2->getOperand(1);
+      SDValue N2_2 = N2->getOperand(2);
+      if (N2_1 == N1 && N0.getValueType() == N2_0.getValueType()) {
+        // Create the actual or node if we can generate good code for it.
+        if (!normalizeToSequence) {
+          SDValue Or = DAG.getNode(ISD::OR, SDLoc(N), N0.getValueType(),
+                                   N0, N2_0);
+          return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), Or,
+                             N1, N2_2);
+        }
+        // Otherwise see if we can optimize to a better pattern.
+        if (SDValue Combined = visitORLike(N0, N2_0, N))
+          return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), Combined,
+                             N1, N2_2);
+      }
+    }
+  }
+
   // fold selects based on a setcc into other things, such as min/max/abs
   if (N0.getOpcode() == ISD::SETCC) {
     // select x, y (fcmp lt x, y) -> fminnum x, y
@@ -4985,69 +5089,6 @@ SDValue DAGCombiner::visitSELECT(SDNode *N) {
                          N0.getOperand(0), N0.getOperand(1),
                          N1, N2, N0.getOperand(2));
     return SimplifySelect(SDLoc(N), N0, N1, N2);
-  }
-
-  if (VT0 == MVT::i1) {
-    if (TLI.shouldNormalizeToSelectSequence(*DAG.getContext(), VT)) {
-      // select (and Cond0, Cond1), X, Y
-      //   -> select Cond0, (select Cond1, X, Y), Y
-      if (N0->getOpcode() == ISD::AND && N0->hasOneUse()) {
-        SDValue Cond0 = N0->getOperand(0);
-        SDValue Cond1 = N0->getOperand(1);
-        SDValue InnerSelect = DAG.getNode(ISD::SELECT, SDLoc(N),
-                                          N1.getValueType(), Cond1, N1, N2);
-        return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), Cond0,
-                           InnerSelect, N2);
-      }
-      // select (or Cond0, Cond1), X, Y -> select Cond0, X, (select Cond1, X, Y)
-      if (N0->getOpcode() == ISD::OR && N0->hasOneUse()) {
-        SDValue Cond0 = N0->getOperand(0);
-        SDValue Cond1 = N0->getOperand(1);
-        SDValue InnerSelect = DAG.getNode(ISD::SELECT, SDLoc(N),
-                                          N1.getValueType(), Cond1, N1, N2);
-        return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), Cond0, N1,
-                           InnerSelect);
-      }
-    }
-
-    // select Cond0, (select Cond1, X, Y), Y -> select (and Cond0, Cond1), X, Y
-    if (N1->getOpcode() == ISD::SELECT) {
-      SDValue N1_0 = N1->getOperand(0);
-      SDValue N1_1 = N1->getOperand(1);
-      SDValue N1_2 = N1->getOperand(2);
-      if (N1_2 == N2 && N0.getValueType() == N1_0.getValueType()) {
-        // Create the actual and node if we can generate good code for it.
-        if (!TLI.shouldNormalizeToSelectSequence(*DAG.getContext(), VT)) {
-          SDValue And = DAG.getNode(ISD::AND, SDLoc(N), N0.getValueType(),
-                                    N0, N1_0);
-          return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), And,
-                             N1_1, N2);
-        }
-        // Otherwise see if we can optimize the "and" to a better pattern.
-        if (SDValue Combined = visitANDLike(N0, N1_0, N))
-          return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), Combined,
-                             N1_1, N2);
-      }
-    }
-    // select Cond0, X, (select Cond1, X, Y) -> select (or Cond0, Cond1), X, Y
-    if (N2->getOpcode() == ISD::SELECT) {
-      SDValue N2_0 = N2->getOperand(0);
-      SDValue N2_1 = N2->getOperand(1);
-      SDValue N2_2 = N2->getOperand(2);
-      if (N2_1 == N1 && N0.getValueType() == N2_0.getValueType()) {
-        // Create the actual or node if we can generate good code for it.
-        if (!TLI.shouldNormalizeToSelectSequence(*DAG.getContext(), VT)) {
-          SDValue Or = DAG.getNode(ISD::OR, SDLoc(N), N0.getValueType(),
-                                   N0, N2_0);
-          return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), Or,
-                             N1, N2_2);
-        }
-        // Otherwise see if we can optimize to a better pattern.
-        if (SDValue Combined = visitORLike(N0, N2_0, N))
-          return DAG.getNode(ISD::SELECT, SDLoc(N), N1.getValueType(), Combined,
-                             N1, N2_2);
-      }
-    }
   }
 
   return SDValue();
@@ -9735,8 +9776,8 @@ struct LoadedSlice {
     void addSliceGain(const LoadedSlice &LS) {
       // Each slice saves a truncate.
       const TargetLowering &TLI = LS.DAG->getTargetLoweringInfo();
-      if (!TLI.isTruncateFree(LS.Inst->getValueType(0),
-                              LS.Inst->getOperand(0).getValueType()))
+      if (!TLI.isTruncateFree(LS.Inst->getOperand(0).getValueType(),
+                              LS.Inst->getValueType(0)))
         ++Truncates;
       // If there is a shift amount, this slice gets rid of it.
       if (LS.Shift)
@@ -12192,12 +12233,81 @@ static SDValue combineConcatVectorOfScalars(SDNode *N, SelectionDAG &DAG) {
                      DAG.getNode(ISD::BUILD_VECTOR, DL, VecVT, Ops));
 }
 
-SDValue DAGCombiner::visitCONCAT_VECTORS(SDNode *N) {
-  // TODO: Check to see if this is a CONCAT_VECTORS of a bunch of
-  // EXTRACT_SUBVECTOR operations.  If so, and if the EXTRACT_SUBVECTOR vector
-  // inputs come from at most two distinct vectors, turn this into a shuffle
-  // node.
+// Check to see if this is a CONCAT_VECTORS of a bunch of EXTRACT_SUBVECTOR
+// operations. If so, and if the EXTRACT_SUBVECTOR vector inputs come from at
+// most two distinct vectors the same size as the result, attempt to turn this
+// into a legal shuffle.
+static SDValue combineConcatVectorOfExtracts(SDNode *N, SelectionDAG &DAG) {
+  EVT VT = N->getValueType(0);
+  EVT OpVT = N->getOperand(0).getValueType();
+  int NumElts = VT.getVectorNumElements();
+  int NumOpElts = OpVT.getVectorNumElements();
 
+  SDValue SV0 = DAG.getUNDEF(VT), SV1 = DAG.getUNDEF(VT);
+  SmallVector<int, 8> Mask;
+
+  for (SDValue Op : N->ops()) {
+    // Peek through any bitcast.
+    while (Op.getOpcode() == ISD::BITCAST)
+      Op = Op.getOperand(0);
+
+    // UNDEF nodes convert to UNDEF shuffle mask values.
+    if (Op.getOpcode() == ISD::UNDEF) {
+      Mask.append((unsigned)NumOpElts, -1);
+      continue;
+    }
+
+    if (Op.getOpcode() != ISD::EXTRACT_SUBVECTOR)
+      return SDValue();
+
+    // What vector are we extracting the subvector from and at what index?
+    SDValue ExtVec = Op.getOperand(0);
+    if (ExtVec.getOpcode() == ISD::UNDEF) {
+      Mask.append((unsigned)NumOpElts, -1);
+      continue;
+    }
+
+    EVT ExtVT = ExtVec.getValueType();
+    if (!isa<ConstantSDNode>(Op.getOperand(1)))
+      return SDValue();
+    int ExtIdx = dyn_cast<ConstantSDNode>(Op.getOperand(1))->getZExtValue();
+
+    // Ensure that we are extracting a subvector from a vector the same
+    // size as the result.
+    if (ExtVT.getSizeInBits() != VT.getSizeInBits())
+      return SDValue();
+
+    // Scale the subvector index to account for any bitcast.
+    int NumExtElts = ExtVT.getVectorNumElements();
+    if (0 == (NumExtElts % NumElts))
+      ExtIdx /= (NumExtElts / NumElts);
+    else if (0 == (NumElts % NumExtElts))
+      ExtIdx *= (NumElts / NumExtElts);
+    else
+      return SDValue();
+
+    // At most we can reference 2 inputs in the final shuffle.
+    if (SV0.getOpcode() == ISD::UNDEF || SV0 == ExtVec) {
+      SV0 = ExtVec;
+      for (int i = 0; i != NumOpElts; ++i)
+        Mask.push_back(i + ExtIdx);
+    } else if (SV1.getOpcode() == ISD::UNDEF || SV1 == ExtVec) {
+      SV1 = ExtVec;
+      for (int i = 0; i != NumOpElts; ++i)
+        Mask.push_back(i + ExtIdx + NumElts);
+    } else {
+      return SDValue();
+    }
+  }
+
+  if (!DAG.getTargetLoweringInfo().isShuffleMaskLegal(Mask, VT))
+    return SDValue();
+
+  return DAG.getVectorShuffle(VT, SDLoc(N), DAG.getBitcast(VT, SV0),
+                              DAG.getBitcast(VT, SV1), Mask);
+}
+
+SDValue DAGCombiner::visitCONCAT_VECTORS(SDNode *N) {
   // If we only have one input vector, we don't need to do any concatenation.
   if (N->getNumOperands() == 1)
     return N->getOperand(0);
@@ -12297,6 +12407,11 @@ SDValue DAGCombiner::visitCONCAT_VECTORS(SDNode *N) {
   // Fold CONCAT_VECTORS of only bitcast scalars (or undef) to BUILD_VECTOR.
   if (SDValue V = combineConcatVectorOfScalars(N, DAG))
     return V;
+
+  // Fold CONCAT_VECTORS of EXTRACT_SUBVECTOR (or undef) to VECTOR_SHUFFLE.
+  if (Level < AfterLegalizeVectorOps && TLI.isTypeLegal(VT))
+    if (SDValue V = combineConcatVectorOfExtracts(N, DAG))
+      return V;
 
   // Type legalization of vectors and DAG canonicalization of SHUFFLE_VECTOR
   // nodes often generate nop CONCAT_VECTOR nodes.
