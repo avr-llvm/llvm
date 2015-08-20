@@ -14,12 +14,17 @@ before_script:
   - if [ "$CXX" = "clang++" ]; then sudo apt-get install -qq libstdc++-4.8-dev; fi
   - if [ "$CXX" = "g++" ]; then sudo apt-get install -qq g++-4.8; fi
   - if [ "$CXX" = "g++" ]; then export CXX="g++-4.8" CC="gcc-4.8"; fi
+  - git clone --depth=1 https://github.com/avr-llvm/clang.git tools/clang
+  - git clone --depth=1 https://github.com/avr-llvm/compiler-rt.git projects/compiler-rt
 
 script:
   - mkdir build && cd build
-  - cmake -DLLVM_TARGETS_TO_BUILD="AVR" .. 
+    # Build shared libs - faster linking
+  - cmake ../ -DLLVM_TARGETS_TO_BUILD="AVR" -DBUILD_SHARED_LIBS="ON"
   - make -j3
   - export PATH=$(pwd)/bin:$PATH
   - cd ../
+    # Run the AVR test-suite
   - llvm-lit -v `find ./test -type d -name AVR`
+    # Verify every MC test against AVR-GCC
   - ./utils/AVR/validate-mc-against-gcc.sh ./test/MC/AVR
