@@ -62,8 +62,4 @@ AVRTargetELFStreamer::AVRTargetELFStreamer(MCStreamer &S,
     MCA.setELFHeaderEFlags(EFlags);
   }
 }
-
-MCELFStreamer &AVRTargetELFStreamer::getStreamer() {
-  return static_cast<MCELFStreamer&>(Streamer);
-}
 } // end namespace llvm

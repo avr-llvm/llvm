@@ -30,7 +30,7 @@ class AVRTargetStreamer : public MCTargetStreamer {
  */
 class AVRTargetAsmStreamer : public AVRTargetStreamer {
   public:
-    explicit AVRTargetAsmStreamer(MCStreamer & S);
+    explicit AVRTargetAsmStreamer(MCStreamer &S);
 };
 
 /**
@@ -38,10 +38,12 @@ class AVRTargetAsmStreamer : public AVRTargetStreamer {
  */
 class AVRTargetELFStreamer : public AVRTargetStreamer {
   public:
-    explicit AVRTargetELFStreamer(MCStreamer &S, const MCSubtargetInfo &STI);
+    AVRTargetELFStreamer(MCStreamer &S, const MCSubtargetInfo &STI);
 
     /// Gets the ELF streamer.
-    MCELFStreamer &getStreamer();
+    MCELFStreamer &getStreamer() {
+      return static_cast<MCELFStreamer&>(Streamer);
+    }
 
   private:
     const MCSubtargetInfo &STI;
