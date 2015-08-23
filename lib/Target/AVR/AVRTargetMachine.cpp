@@ -28,7 +28,7 @@ namespace {
     const char* DefaultCPU = "avr2";
 
     /// Processes a CPU name.
-    StringRef ProcessCPU(StringRef CPU) {
+    StringRef GetTargetCPU(StringRef CPU) {
         if(CPU.empty() || CPU == "generic") {
             return DefaultCPU;
         } else {
@@ -42,8 +42,8 @@ AVRTargetMachine::AVRTargetMachine(const Target &T, const Triple &TT, StringRef 
                                    Reloc::Model RM, CodeModel::Model CM,
                                    CodeGenOpt::Level OL) :
   LLVMTargetMachine(T, "e-p:16:8:8-i8:8:8-i16:8:8-i32:8:8-i64:8:8-f32:8:8-f64:8:8-n8",
-                    TT, ProcessCPU(CPU), FS, Options, RM, CM, OL),
-  SubTarget(TT, CPU, FS, *this)
+                    TT, GetTargetCPU(CPU), FS, Options, RM, CM, OL),
+  SubTarget(TT, GetTargetCPU(CPU), FS, *this)
 {
   this->TLOF = make_unique<AVRTargetObjectFile>();
   initAsmInfo();

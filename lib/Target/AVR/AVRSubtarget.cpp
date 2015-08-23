@@ -13,6 +13,7 @@
 
 #include "AVRSubtarget.h"
 
+#include "llvm/Support/ELF.h"
 #include "llvm/Support/TargetRegistry.h"
 
 #include "AVR.h"
@@ -53,6 +54,7 @@ AVRSubtarget::AVRSubtarget(const Triple &TT, const std::string &CPU,
   m_supportsMultiplication(),
   m_hasBREAK(),
   m_hasTinyEncoding(),
+  ELFArch(),
   m_FeatureSetDummy()
 {
   // Parse features string.

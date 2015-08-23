@@ -32,7 +32,7 @@
 namespace llvm {
 
 /**
- * A specific implementation of AVR.
+ * A specific AVR target MCU.
  */
 class AVRSubtarget : public AVRGenSubtargetInfo
 {
@@ -77,6 +77,13 @@ public:
   bool hasBREAK() const { return this->m_hasBREAK; }
   bool hasTinyEncoding() const { return this->m_hasTinyEncoding; }
 
+  /// Gets the ELF architecture for the e_flags field
+  /// of an ELF object file.
+  unsigned getELFArch() const {
+    assert(ELFArch != 0 && "every device must have an associate ELF architecture");
+    return this->ELFArch;
+  }
+
 private:
 
   AVRInstrInfo InstrInfo;
@@ -104,6 +111,9 @@ private:
   bool m_supportsMultiplication;
   bool m_hasBREAK;
   bool m_hasTinyEncoding;
+
+  /// The ELF e_flags architecture.
+  unsigned ELFArch;
 
   // Dummy member, used by FeatureSet's. We cannot have a SubtargetFeature with
   // no variable, so we instead bind pseudo features to this variable.
