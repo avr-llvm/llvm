@@ -27,6 +27,7 @@
 #include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ModuleSlotTracker.h"
+#include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/YAMLTraits.h"
@@ -438,7 +439,7 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
     OS << "address-taken";
     HasAttributes = true;
   }
-  if (MBB.isLandingPad()) {
+  if (MBB.isEHPad()) {
     OS << (HasAttributes ? ", " : " (");
     OS << "landing-pad";
     HasAttributes = true;
@@ -472,10 +473,12 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
   assert(TRI && "Expected target register info");
   if (!MBB.livein_empty()) {
     OS.indent(2) << "liveins: ";
-    for (auto I = MBB.livein_begin(), E = MBB.livein_end(); I != E; ++I) {
-      if (I != MBB.livein_begin())
+    bool First = true;
+    for (unsigned LI : MBB.liveins()) {
+      if (!First)
         OS << ", ";
-      printReg(*I, OS, TRI);
+      First = false;
+      printReg(LI, OS, TRI);
     }
     OS << "\n";
     HasLineAttributes = true;
@@ -612,15 +615,16 @@ void MIPrinter::printIRValueReference(const Value &V) {
     V.printAsOperand(OS, /*PrintType=*/false, MST);
     return;
   }
+  if (isa<Constant>(V)) {
+    // Machine memory operands can load/store to/from constant value pointers.
+    OS << '`';
+    V.printAsOperand(OS, /*PrintType=*/true, MST);
+    OS << '`';
+    return;
+  }
   OS << "%ir.";
   if (V.hasName()) {
     printLLVMNameWithoutPrefix(OS, V.getName());
-    return;
-  }
-  if (isa<Constant>(V)) {
-    // Machine memory operands can load/store to/from constant value pointers.
-    // TODO: Serialize the constant values.
-    OS << "<unserializable ir value>";
     return;
   }
   printIRSlotNumber(OS, MST.getLocalSlot(&V));
@@ -826,14 +830,14 @@ void MIPrinter::print(const MachineOperand &Op, const TargetRegisterInfo *TRI,
   case MachineOperand::MO_Metadata:
     Op.getMetadata()->printAsOperand(OS, MST);
     break;
+  case MachineOperand::MO_MCSymbol:
+    OS << "<mcsymbol " << *Op.getMCSymbol() << ">";
+    break;
   case MachineOperand::MO_CFIIndex: {
     const auto &MMI = Op.getParent()->getParent()->getParent()->getMMI();
     print(MMI.getFrameInstructions()[Op.getCFIIndex()], TRI);
     break;
   }
-  default:
-    // TODO: Print the other machine operands.
-    llvm_unreachable("Can't print this machine operand at the moment");
   }
 }
 

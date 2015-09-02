@@ -122,6 +122,8 @@ public:
   bool parseRegisterOperand(MachineOperand &Dest,
                             Optional<unsigned> &TiedDefIdx, bool IsDef = false);
   bool parseImmediateOperand(MachineOperand &Dest);
+  bool parseIRConstant(StringRef::iterator Loc, StringRef Source,
+                       const Constant *&C);
   bool parseIRConstant(StringRef::iterator Loc, const Constant *&C);
   bool parseTypedImmediateOperand(MachineOperand &Dest);
   bool parseFPImmediateOperand(MachineOperand &Dest);
@@ -366,7 +368,7 @@ bool MIParser::parseBasicBlockDefinition(
     MBB->setAlignment(Alignment);
   if (HasAddressTaken)
     MBB->setHasAddressTaken();
-  MBB->setIsLandingPad(IsLandingPad);
+  MBB->setIsEHPad(IsLandingPad);
   return false;
 }
 
@@ -976,13 +978,21 @@ bool MIParser::parseImmediateOperand(MachineOperand &Dest) {
   return false;
 }
 
-bool MIParser::parseIRConstant(StringRef::iterator Loc, const Constant *&C) {
-  auto Source = StringRef(Loc, Token.range().end() - Loc).str();
-  lex();
+bool MIParser::parseIRConstant(StringRef::iterator Loc, StringRef StringValue,
+                               const Constant *&C) {
+  auto Source = StringValue.str(); // The source has to be null terminated.
   SMDiagnostic Err;
-  C = parseConstantValue(Source.c_str(), Err, *MF.getFunction()->getParent());
+  C = parseConstantValue(Source.c_str(), Err, *MF.getFunction()->getParent(),
+                         &IRSlots);
   if (!C)
     return error(Loc + Err.getColumnNo(), Err.getMessage());
+  return false;
+}
+
+bool MIParser::parseIRConstant(StringRef::iterator Loc, const Constant *&C) {
+  if (parseIRConstant(Loc, StringRef(Loc, Token.range().end() - Loc), C))
+    return true;
+  lex();
   return false;
 }
 
@@ -1442,7 +1452,7 @@ bool MIParser::parseMachineOperand(MachineOperand &Dest,
     }
   // fallthrough
   default:
-    // TODO: parse the other machine operands.
+    // FIXME: Parse the MCSymbol machine operand.
     return error("expected a machine operand");
   }
   return false;
@@ -1546,6 +1556,13 @@ bool MIParser::parseIRValue(const Value *&V) {
     if (parseGlobalValue(GV))
       return true;
     V = GV;
+    break;
+  }
+  case MIToken::QuotedIRValue: {
+    const Constant *C = nullptr;
+    if (parseIRConstant(Token.location(), Token.stringValue(), C))
+      return true;
+    V = C;
     break;
   }
   default:
@@ -1653,7 +1670,8 @@ bool MIParser::parseMachinePointerInfo(MachinePointerInfo &Dest) {
   }
   if (Token.isNot(MIToken::NamedIRValue) && Token.isNot(MIToken::IRValue) &&
       Token.isNot(MIToken::GlobalValue) &&
-      Token.isNot(MIToken::NamedGlobalValue))
+      Token.isNot(MIToken::NamedGlobalValue) &&
+      Token.isNot(MIToken::QuotedIRValue))
     return error("expected an IR value reference");
   const Value *V = nullptr;
   if (parseIRValue(V))

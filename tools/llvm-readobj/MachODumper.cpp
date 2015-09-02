@@ -40,6 +40,11 @@ public:
   void printUnwindInfo() override;
   void printStackMap() const override;
 
+  // MachO-specific.
+  void printMachODataInCode() override;
+  void printMachOVersionMin() override;
+  void printMachODysymtab() override;
+
 private:
   template<class MachHeader>
   void printFileHeaders(const MachHeader &Header);
@@ -255,6 +260,7 @@ namespace {
     uint32_t Flags;
     uint32_t Reserved1;
     uint32_t Reserved2;
+    uint32_t Reserved3;
   };
 
   struct MachOSymbol {
@@ -292,6 +298,7 @@ static void getSection(const MachOObjectFile *Obj,
   Section.Flags       = Sect.flags;
   Section.Reserved1   = Sect.reserved1;
   Section.Reserved2   = Sect.reserved2;
+  Section.Reserved3   = Sect.reserved3;
 }
 
 
@@ -397,6 +404,8 @@ void MachODumper::printSections(const MachOObjectFile *Obj) {
                  makeArrayRef(MachOSectionAttributes));
     W.printHex("Reserved1", MOSection.Reserved1);
     W.printHex("Reserved2", MOSection.Reserved2);
+    if (Obj->is64Bit())
+      W.printHex("Reserved3", MOSection.Reserved3);
 
     if (opts::SectionRelocations) {
       ListScope D(W, "Relocations");
@@ -599,4 +608,90 @@ void MachODumper::printStackMap() const {
   else
      prettyPrintStackMap(llvm::outs(),
                          StackMapV1Parser<support::big>(StackMapContentsArray));
+}
+
+void MachODumper::printMachODataInCode() {
+  for (const auto &Load : Obj->load_commands()) {
+    if (Load.C.cmd  == MachO::LC_DATA_IN_CODE) {
+      MachO::linkedit_data_command LLC = Obj->getLinkeditDataLoadCommand(Load);
+      DictScope Group(W, "DataInCode");
+      W.printNumber("Data offset", LLC.dataoff);
+      W.printNumber("Data size", LLC.datasize);
+      ListScope D(W, "Data entries");
+      unsigned NumRegions = LLC.datasize / sizeof(MachO::data_in_code_entry);
+      for (unsigned i = 0; i < NumRegions; ++i) {
+        MachO::data_in_code_entry DICE = Obj->getDataInCodeTableEntry(
+                                                              LLC.dataoff, i);
+        DictScope Group(W, "Entry");
+        W.printNumber("Index", i);
+        W.printNumber("Offset", DICE.offset);
+        W.printNumber("Length", DICE.length);
+        W.printNumber("Kind", DICE.kind);
+      }
+    }
+  }
+}
+
+void MachODumper::printMachOVersionMin() {
+  for (const auto &Load : Obj->load_commands()) {
+    if (Load.C.cmd == MachO::LC_VERSION_MIN_MACOSX ||
+        Load.C.cmd == MachO::LC_VERSION_MIN_IPHONEOS) {
+      MachO::version_min_command VMC = Obj->getVersionMinLoadCommand(Load);
+      DictScope Group(W, "MinVersion");
+      StringRef Cmd;
+      if (Load.C.cmd == MachO::LC_VERSION_MIN_MACOSX)
+        Cmd = "LC_VERSION_MIN_MACOSX";
+      else
+        Cmd = "LC_VERSION_MIN_IPHONEOS";
+      W.printString("Cmd", Cmd);
+      W.printNumber("Size", VMC.cmdsize);
+      SmallString<32> Version;
+      Version = utostr(MachOObjectFile::getVersionMinMajor(VMC, false)) + "." +
+        utostr(MachOObjectFile::getVersionMinMinor(VMC, false));
+      uint32_t Update = MachOObjectFile::getVersionMinUpdate(VMC, false);
+      if (Update != 0)
+        Version += "." + utostr(MachOObjectFile::getVersionMinUpdate(VMC,
+                                                                     false));
+      W.printString("Version", Version);
+      SmallString<32> SDK;
+      if (VMC.sdk == 0)
+        SDK = "n/a";
+      else {
+        SDK = utostr(MachOObjectFile::getVersionMinMajor(VMC, true)) + "." +
+          utostr(MachOObjectFile::getVersionMinMinor(VMC, true));
+        uint32_t Update = MachOObjectFile::getVersionMinUpdate(VMC, true);
+        if (Update != 0)
+          SDK += "." + utostr(MachOObjectFile::getVersionMinUpdate(VMC,
+                                                                   true));
+      }
+      W.printString("SDK", SDK);
+    }
+  }
+}
+
+void MachODumper::printMachODysymtab() {
+  for (const auto &Load : Obj->load_commands()) {
+    if (Load.C.cmd == MachO::LC_DYSYMTAB) {
+      MachO::dysymtab_command DLC = Obj->getDysymtabLoadCommand();
+      DictScope Group(W, "Dysymtab");
+      W.printNumber("ilocalsym", DLC.ilocalsym);
+      W.printNumber("nlocalsym", DLC.nlocalsym);
+      W.printNumber("iextdefsym", DLC.iextdefsym);
+      W.printNumber("nextdefsym", DLC.nextdefsym);
+      W.printNumber("iundefsym", DLC.iundefsym);
+      W.printNumber("nundefsym", DLC.nundefsym);
+      W.printNumber("tocoff", DLC.tocoff);
+      W.printNumber("ntoc", DLC.ntoc);
+      W.printNumber("modtaboff", DLC.modtaboff);
+      W.printNumber("nmodtab", DLC.nmodtab);
+      W.printNumber("extrefsymoff", DLC.extrefsymoff);
+      W.printNumber("nextrefsyms", DLC.nextrefsyms);
+      W.printNumber("indirectsymoff", DLC.indirectsymoff);
+      W.printNumber("nindirectsyms", DLC.nindirectsyms);
+      W.printNumber("extreloff", DLC.extreloff);
+      W.printNumber("nextrel", DLC.nextrel);
+      W.printNumber("locreloff", DLC.locreloff);
+      W.printNumber("nlocrel", DLC.nlocrel);
+    }
+  }
 }

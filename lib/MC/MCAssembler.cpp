@@ -137,7 +137,7 @@ static bool getSymbolOffsetImpl(const MCAsmLayout &Layout, const MCSymbol &S,
 
   // If SD is a variable, evaluate it.
   MCValue Target;
-  if (!S.getVariableValue()->evaluateAsRelocatable(Target, &Layout, nullptr))
+  if (!S.getVariableValue()->evaluateAsValue(Target, Layout))
     report_fatal_error("unable to evaluate offset for variable '" +
                        S.getName() + "'");
 
@@ -325,11 +325,10 @@ void MCFragment::destroy() {
 /* *** */
 
 MCAssembler::MCAssembler(MCContext &Context_, MCAsmBackend &Backend_,
-                         MCCodeEmitter &Emitter_, MCObjectWriter &Writer_,
-                         raw_ostream &OS_)
+                         MCCodeEmitter &Emitter_, MCObjectWriter &Writer_)
     : Context(Context_), Backend(Backend_), Emitter(Emitter_), Writer(Writer_),
-      OS(OS_), BundleAlignSize(0), RelaxAll(false),
-      SubsectionsViaSymbols(false), ELFHeaderEFlags(0) {
+      BundleAlignSize(0), RelaxAll(false), SubsectionsViaSymbols(false),
+      ELFHeaderEFlags(0) {
   VersionMinInfo.Major = 0; // Major version == 0 for "none specified"
 }
 
@@ -852,13 +851,10 @@ std::pair<uint64_t, bool> MCAssembler::handleFixup(const MCAsmLayout &Layout,
   return std::make_pair(FixedValue, IsPCRel);
 }
 
-void MCAssembler::Finish() {
+void MCAssembler::layout(MCAsmLayout &Layout) {
   DEBUG_WITH_TYPE("mc-dump", {
       llvm::errs() << "assembler backend - pre-layout\n--\n";
       dump(); });
-
-  // Create the layout object.
-  MCAsmLayout Layout(*this);
 
   // Create dummy fragments and assign section ordinals.
   unsigned SectionIndex = 0;
@@ -896,8 +892,6 @@ void MCAssembler::Finish() {
       llvm::errs() << "assembler backend - final-layout\n--\n";
       dump(); });
 
-  uint64_t StartOffset = OS.tell();
-
   // Allow the object writer a chance to perform post-layout binding (for
   // example, to set the index fields in the symbol data).
   getWriter().executePostLayoutBinding(*this, Layout);
@@ -931,6 +925,15 @@ void MCAssembler::Finish() {
       }
     }
   }
+}
+
+void MCAssembler::Finish() {
+  // Create the layout object.
+  MCAsmLayout Layout(*this);
+  layout(Layout);
+
+  raw_ostream &OS = getWriter().getStream();
+  uint64_t StartOffset = OS.tell();
 
   // Write the object file.
   getWriter().writeObject(*this, Layout);

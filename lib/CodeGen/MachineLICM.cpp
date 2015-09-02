@@ -529,15 +529,13 @@ void MachineLICM::HoistRegionPostRA() {
     // If the header of the loop containing this basic block is a landing pad,
     // then don't try to hoist instructions out of this loop.
     const MachineLoop *ML = MLI->getLoopFor(BB);
-    if (ML && ML->getHeader()->isLandingPad()) continue;
+    if (ML && ML->getHeader()->isEHPad()) continue;
 
     // Conservatively treat live-in's as an external def.
     // FIXME: That means a reload that're reused in successor block(s) will not
     // be LICM'ed.
-    for (MachineBasicBlock::livein_iterator I = BB->livein_begin(),
-           E = BB->livein_end(); I != E; ++I) {
-      unsigned Reg = *I;
-      for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
+    for (unsigned LI : BB->liveins()) {
+      for (MCRegAliasIterator AI(LI, TRI, true); AI.isValid(); ++AI)
         PhysRegDefs.set(*AI);
     }
 
@@ -727,7 +725,7 @@ void MachineLICM::HoistOutOfLoop(MachineDomTreeNode *HeaderN) {
     // If the header of the loop containing this basic block is a landing pad,
     // then don't try to hoist instructions out of this loop.
     const MachineLoop *ML = MLI->getLoopFor(BB);
-    if (ML && ML->getHeader()->isLandingPad())
+    if (ML && ML->getHeader()->isEHPad())
       continue;
 
     // If this subregion is not in the top level loop at all, exit.

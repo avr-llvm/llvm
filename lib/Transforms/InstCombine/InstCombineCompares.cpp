@@ -2140,6 +2140,12 @@ bool InstCombiner::OptimizeOverflowCheck(OverflowCheckFlavor OCF, Value *LHS,
     return true;
   };
 
+  // If the overflow check was an add followed by a compare, the insertion point
+  // may be pointing to the compare.  We want to insert the new instructions
+  // before the add in case there are uses of the add between the add and the
+  // compare.
+  Builder->SetInsertPoint(&OrigI);
+
   switch (OCF) {
   case OCF_INVALID:
     llvm_unreachable("bad overflow check kind!");
@@ -3488,6 +3494,18 @@ Instruction *InstCombiner::visitICmpInst(ICmpInst &I) {
         return new ICmpInst(I.getPredicate(), BO0->getOperand(0),
                             BO1->getOperand(0));
       }
+      }
+    }
+
+    if (BO0) {
+      // Transform  A & (L - 1) `ult` L --> L != 0
+      auto LSubOne = m_Add(m_Specific(Op1), m_AllOnes());
+      auto BitwiseAnd =
+          m_CombineOr(m_And(m_Value(), LSubOne), m_And(LSubOne, m_Value()));
+
+      if (match(BO0, BitwiseAnd) && I.getPredicate() == ICmpInst::ICMP_ULT) {
+        auto *Zero = Constant::getNullValue(BO0->getType());
+        return new ICmpInst(ICmpInst::ICMP_NE, Op1, Zero);
       }
     }
   }

@@ -399,6 +399,11 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
 
   setOperationAction(ISD::PREFETCH, MVT::Other, Custom);
 
+  // Lower READCYCLECOUNTER using an mrs from PMCCNTR_EL0.
+  // This requires the Performance Monitors extension.
+  if (Subtarget->hasPerfMon())
+    setOperationAction(ISD::READCYCLECOUNTER, MVT::i64, Legal);
+
   if (Subtarget->isTargetMachO()) {
     // For iOS, we don't want to the normal expansion of a libcall to
     // sincos. We want to issue a libcall to __sincos_stret to avoid memory
@@ -1349,7 +1354,7 @@ static SDValue emitConjunctionDisjunctionTree(SelectionDAG &DAG, SDValue Val,
     unsigned NZCV = AArch64CC::getNZCVToSatisfyCondCode(InvOutCC);
     return emitConditionalComparison(LHS, RHS, CC, CCOp, ConditionOp, NZCV, DL,
                                      DAG);
-  } else if (Opcode != ISD::AND && Opcode != ISD::OR)
+  } else if ((Opcode != ISD::AND && Opcode != ISD::OR) || !Val->hasOneUse())
     return SDValue();
 
   assert((Opcode == ISD::OR || !PushNegate)
@@ -1374,10 +1379,17 @@ static SDValue emitConjunctionDisjunctionTree(SelectionDAG &DAG, SDValue Val,
     if (!CanPushNegateL && !CanPushNegateR)
       return SDValue();
     // Order the side where we can push the negate through to LHS.
-    if (!CanPushNegateL && CanPushNegateR) {
+    if (!CanPushNegateL && CanPushNegateR)
       std::swap(LHS, RHS);
-      CanPushNegateL = true;
-    }
+  } else {
+    bool NeedsNegOutL = LHS->getOpcode() == ISD::OR;
+    bool NeedsNegOutR = RHS->getOpcode() == ISD::OR;
+    if (NeedsNegOutL && NeedsNegOutR)
+      return SDValue();
+    // Order the side where we need to negate the output flags to RHS so it
+    // gets emitted first.
+    if (NeedsNegOutL)
+      std::swap(LHS, RHS);
   }
 
   // Emit RHS. If we want to negate the tree we only need to push a negate
@@ -2177,6 +2189,18 @@ SDValue AArch64TargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
     EVT PtrVT = getPointerTy(DAG.getDataLayout());
     return DAG.getNode(AArch64ISD::THREAD_POINTER, dl, PtrVT);
   }
+  case Intrinsic::aarch64_neon_smax:
+    return DAG.getNode(ISD::SMAX, dl, Op.getValueType(),
+                       Op.getOperand(1), Op.getOperand(2));
+  case Intrinsic::aarch64_neon_umax:
+    return DAG.getNode(ISD::UMAX, dl, Op.getValueType(),
+                       Op.getOperand(1), Op.getOperand(2));
+  case Intrinsic::aarch64_neon_smin:
+    return DAG.getNode(ISD::SMIN, dl, Op.getValueType(),
+                       Op.getOperand(1), Op.getOperand(2));
+  case Intrinsic::aarch64_neon_umin:
+    return DAG.getNode(ISD::UMIN, dl, Op.getValueType(),
+                       Op.getOperand(1), Op.getOperand(2));
   }
 }
 
@@ -6245,7 +6269,10 @@ FailedModImm:
     // a) Avoid a RMW dependency on the full vector register, and
     // b) Allow the register coalescer to fold away the copy if the
     //    value is already in an S or D register.
-    if (Op0.getOpcode() != ISD::UNDEF && (ElemSize == 32 || ElemSize == 64)) {
+    // Do not do this for UNDEF/LOAD nodes because we have better patterns
+    // for those avoiding the SCALAR_TO_VECTOR/BUILD_VECTOR.
+    if (Op0.getOpcode() != ISD::UNDEF && Op0.getOpcode() != ISD::LOAD &&
+        (ElemSize == 32 || ElemSize == 64)) {
       unsigned SubIdx = ElemSize == 32 ? AArch64::ssub : AArch64::dsub;
       MachineSDNode *N =
           DAG.getMachineNode(TargetOpcode::INSERT_SUBREG, dl, VT, Vec, Op0,

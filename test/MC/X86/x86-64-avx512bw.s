@@ -4112,3 +4112,107 @@
 // CHECK:  encoding: [0x62,0x61,0x2d,0x40,0x69,0xb2,0xc0,0xdf,0xff,0xff]
           vpunpckhwd -8256(%rdx), %zmm26, %zmm30
 
+// CHECK: ktestd %k3, %k3
+// CHECK:  encoding: [0xc4,0xe1,0xf9,0x99,0xdb]
+          ktestd %k3, %k3
+
+// CHECK: ktestq %k6, %k2
+// CHECK:  encoding: [0xc4,0xe1,0xf8,0x99,0xd6]
+          ktestq %k6, %k2
+
+// CHECK: kortestd %k3, %k4
+// CHECK:  encoding: [0xc4,0xe1,0xf9,0x98,0xe3]
+          kortestd %k3, %k4
+
+// CHECK: kortestq %k4, %k5
+// CHECK:  encoding: [0xc4,0xe1,0xf8,0x98,0xec]
+          kortestq %k4, %k5
+
+// CHECK: kaddd  %k6, %k6, %k2
+// CHECK:  encoding: [0xc4,0xe1,0xcd,0x4a,0xd6]
+          kaddd  %k6, %k6, %k2
+
+// CHECK: kaddq  %k4, %k6, %k3
+// CHECK:  encoding: [0xc4,0xe1,0xcc,0x4a,0xdc]
+          kaddq  %k4, %k6, %k3
+
+// CHECK: vpalignr $171, %zmm17, %zmm26, %zmm22
+// CHECK:  encoding: [0x62,0xa3,0x2d,0x40,0x0f,0xf1,0xab]
+          vpalignr $171, %zmm17, %zmm26, %zmm22
+
+// CHECK: vpalignr $171, %zmm17, %zmm26, %zmm22 {%k3}
+// CHECK:  encoding: [0x62,0xa3,0x2d,0x43,0x0f,0xf1,0xab]
+          vpalignr $171, %zmm17, %zmm26, %zmm22 {%k3}
+
+// CHECK: vpalignr $171, %zmm17, %zmm26, %zmm22 {%k3} {z}
+// CHECK:  encoding: [0x62,0xa3,0x2d,0xc3,0x0f,0xf1,0xab]
+          vpalignr $171, %zmm17, %zmm26, %zmm22 {%k3} {z}
+
+// CHECK: vpalignr $123, %zmm17, %zmm26, %zmm22
+// CHECK:  encoding: [0x62,0xa3,0x2d,0x40,0x0f,0xf1,0x7b]
+          vpalignr $123, %zmm17, %zmm26, %zmm22
+
+// CHECK: vpalignr $123, (%rcx), %zmm26, %zmm22
+// CHECK:  encoding: [0x62,0xe3,0x2d,0x40,0x0f,0x31,0x7b]
+          vpalignr $123, (%rcx), %zmm26, %zmm22
+
+// CHECK: vpalignr $123, 291(%rax,%r14,8), %zmm26, %zmm22
+// CHECK:  encoding: [0x62,0xa3,0x2d,0x40,0x0f,0xb4,0xf0,0x23,0x01,0x00,0x00,0x7b]
+          vpalignr $123, 291(%rax,%r14,8), %zmm26, %zmm22
+
+// CHECK: vpalignr $123, 8128(%rdx), %zmm26, %zmm22
+// CHECK:  encoding: [0x62,0xe3,0x2d,0x40,0x0f,0x72,0x7f,0x7b]
+          vpalignr $123, 8128(%rdx), %zmm26, %zmm22
+
+// CHECK: vpalignr $123, 8192(%rdx), %zmm26, %zmm22
+// CHECK:  encoding: [0x62,0xe3,0x2d,0x40,0x0f,0xb2,0x00,0x20,0x00,0x00,0x7b]
+          vpalignr $123, 8192(%rdx), %zmm26, %zmm22
+
+// CHECK: vpalignr $123, -8192(%rdx), %zmm26, %zmm22
+// CHECK:  encoding: [0x62,0xe3,0x2d,0x40,0x0f,0x72,0x80,0x7b]
+          vpalignr $123, -8192(%rdx), %zmm26, %zmm22
+
+// CHECK: vpalignr $123, -8256(%rdx), %zmm26, %zmm22
+// CHECK:  encoding: [0x62,0xe3,0x2d,0x40,0x0f,0xb2,0xc0,0xdf,0xff,0xff,0x7b]
+          vpalignr $123, -8256(%rdx), %zmm26, %zmm22
+
+// CHECK: vdbpsadbw $171, %zmm18, %zmm20, %zmm21
+// CHECK:  encoding: [0x62,0xa3,0x5d,0x40,0x42,0xea,0xab]
+          vdbpsadbw $171, %zmm18, %zmm20, %zmm21
+
+// CHECK: vdbpsadbw $171, %zmm18, %zmm20, %zmm21 {%k1}
+// CHECK:  encoding: [0x62,0xa3,0x5d,0x41,0x42,0xea,0xab]
+          vdbpsadbw $171, %zmm18, %zmm20, %zmm21 {%k1}
+
+// CHECK: vdbpsadbw $171, %zmm18, %zmm20, %zmm21 {%k1} {z}
+// CHECK:  encoding: [0x62,0xa3,0x5d,0xc1,0x42,0xea,0xab]
+          vdbpsadbw $171, %zmm18, %zmm20, %zmm21 {%k1} {z}
+
+// CHECK: vdbpsadbw $123, %zmm18, %zmm20, %zmm21
+// CHECK:  encoding: [0x62,0xa3,0x5d,0x40,0x42,0xea,0x7b]
+          vdbpsadbw $123, %zmm18, %zmm20, %zmm21
+
+// CHECK: vdbpsadbw $123, (%rcx), %zmm20, %zmm21
+// CHECK:  encoding: [0x62,0xe3,0x5d,0x40,0x42,0x29,0x7b]
+          vdbpsadbw $123, (%rcx), %zmm20, %zmm21
+
+// CHECK: vdbpsadbw $123, 291(%rax,%r14,8), %zmm20, %zmm21
+// CHECK:  encoding: [0x62,0xa3,0x5d,0x40,0x42,0xac,0xf0,0x23,0x01,0x00,0x00,0x7b]
+          vdbpsadbw $123, 291(%rax,%r14,8), %zmm20, %zmm21
+
+// CHECK: vdbpsadbw $123, 8128(%rdx), %zmm20, %zmm21
+// CHECK:  encoding: [0x62,0xe3,0x5d,0x40,0x42,0x6a,0x7f,0x7b]
+          vdbpsadbw $123, 8128(%rdx), %zmm20, %zmm21
+
+// CHECK: vdbpsadbw $123, 8192(%rdx), %zmm20, %zmm21
+// CHECK:  encoding: [0x62,0xe3,0x5d,0x40,0x42,0xaa,0x00,0x20,0x00,0x00,0x7b]
+          vdbpsadbw $123, 8192(%rdx), %zmm20, %zmm21
+
+// CHECK: vdbpsadbw $123, -8192(%rdx), %zmm20, %zmm21
+// CHECK:  encoding: [0x62,0xe3,0x5d,0x40,0x42,0x6a,0x80,0x7b]
+          vdbpsadbw $123, -8192(%rdx), %zmm20, %zmm21
+
+// CHECK: vdbpsadbw $123, -8256(%rdx), %zmm20, %zmm21
+// CHECK:  encoding: [0x62,0xe3,0x5d,0x40,0x42,0xaa,0xc0,0xdf,0xff,0xff,0x7b]
+          vdbpsadbw $123, -8256(%rdx), %zmm20, %zmm21
+

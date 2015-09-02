@@ -1049,6 +1049,7 @@ static unsigned getIntelMemOperandSize(StringRef OpStr) {
     .Cases("WORD", "word", 16)
     .Cases("DWORD", "dword", 32)
     .Cases("QWORD", "qword", 64)
+    .Cases("MMWORD","mmword", 64)
     .Cases("XWORD", "xword", 80)
     .Cases("TBYTE", "tbyte", 80)
     .Cases("XMMWORD", "xmmword", 128)
@@ -1366,7 +1367,7 @@ bool X86AsmParser::ParseIntelIdentifier(const MCExpr *&Val,
                                         InlineAsmIdentifierInfo &Info,
                                         bool IsUnevaluatedOperand, SMLoc &End) {
   MCAsmParser &Parser = getParser();
-  assert (isParsingInlineAsm() && "Expected to be parsing inline assembly.");
+  assert(isParsingInlineAsm() && "Expected to be parsing inline assembly.");
   Val = nullptr;
 
   StringRef LineBuf(Identifier.data());
@@ -1379,14 +1380,16 @@ bool X86AsmParser::ParseIntelIdentifier(const MCExpr *&Val,
   // Advance the token stream until the end of the current token is
   // after the end of what the frontend claimed.
   const char *EndPtr = Tok.getLoc().getPointer() + LineBuf.size();
-  while (true) {
+  do {
     End = Tok.getEndLoc();
     getLexer().Lex();
-
-    assert(End.getPointer() <= EndPtr && "frontend claimed part of a token?");
-    if (End.getPointer() == EndPtr) break;
-  }
+  } while (End.getPointer() < EndPtr);
   Identifier = LineBuf;
+
+  // The frontend should end parsing on an assembler token boundary, unless it
+  // failed parsing.
+  assert((End.getPointer() == EndPtr || !Result) &&
+         "frontend claimed part of a token?");
 
   // If the identifier lookup was unsuccessful, assume that we are dealing with
   // a label.

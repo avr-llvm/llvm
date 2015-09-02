@@ -1431,17 +1431,7 @@ bool X86FastISel::X86SelectBranch(const Instruction *I) {
           .addMBB(TrueMBB);
       }
 
-      // Obtain the branch weight and add the TrueBB to the successor list.
-      uint32_t BranchWeight = 0;
-      if (FuncInfo.BPI)
-        BranchWeight = FuncInfo.BPI->getEdgeWeight(BI->getParent(),
-                                                   TrueMBB->getBasicBlock());
-      FuncInfo.MBB->addSuccessor(TrueMBB, BranchWeight);
-
-      // Emits an unconditional branch to the FalseBB, obtains the branch
-      // weight, and adds it to the successor list.
-      fastEmitBranch(FalseMBB, DbgLoc);
-
+      finishCondBranch(BI->getParent(), TrueMBB, FalseMBB);
       return true;
     }
   } else if (TruncInst *TI = dyn_cast<TruncInst>(BI->getCondition())) {
@@ -1472,12 +1462,8 @@ bool X86FastISel::X86SelectBranch(const Instruction *I) {
 
         BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(JmpOpc))
           .addMBB(TrueMBB);
-        fastEmitBranch(FalseMBB, DbgLoc);
-        uint32_t BranchWeight = 0;
-        if (FuncInfo.BPI)
-          BranchWeight = FuncInfo.BPI->getEdgeWeight(BI->getParent(),
-                                                     TrueMBB->getBasicBlock());
-        FuncInfo.MBB->addSuccessor(TrueMBB, BranchWeight);
+
+        finishCondBranch(BI->getParent(), TrueMBB, FalseMBB);
         return true;
       }
     }
@@ -1492,12 +1478,7 @@ bool X86FastISel::X86SelectBranch(const Instruction *I) {
 
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(BranchOpc))
       .addMBB(TrueMBB);
-    fastEmitBranch(FalseMBB, DbgLoc);
-    uint32_t BranchWeight = 0;
-    if (FuncInfo.BPI)
-      BranchWeight = FuncInfo.BPI->getEdgeWeight(BI->getParent(),
-                                                 TrueMBB->getBasicBlock());
-    FuncInfo.MBB->addSuccessor(TrueMBB, BranchWeight);
+    finishCondBranch(BI->getParent(), TrueMBB, FalseMBB);
     return true;
   }
 
@@ -1511,12 +1492,7 @@ bool X86FastISel::X86SelectBranch(const Instruction *I) {
     .addReg(OpReg).addImm(1);
   BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(X86::JNE_1))
     .addMBB(TrueMBB);
-  fastEmitBranch(FalseMBB, DbgLoc);
-  uint32_t BranchWeight = 0;
-  if (FuncInfo.BPI)
-    BranchWeight = FuncInfo.BPI->getEdgeWeight(BI->getParent(),
-                                               TrueMBB->getBasicBlock());
-  FuncInfo.MBB->addSuccessor(TrueMBB, BranchWeight);
+  finishCondBranch(BI->getParent(), TrueMBB, FalseMBB);
   return true;
 }
 
@@ -1945,6 +1921,9 @@ bool X86FastISel::X86FastEmitSSESelect(MVT RetVT, const Instruction *I) {
   unsigned ResultReg;
   
   if (Subtarget->hasAVX()) {
+    const TargetRegisterClass *FR32 = &X86::FR32RegClass;
+    const TargetRegisterClass *VR128 = &X86::VR128RegClass;
+
     // If we have AVX, create 1 blendv instead of 3 logic instructions.
     // Blendv was introduced with SSE 4.1, but the 2 register form implicitly
     // uses XMM0 as the selection register. That may need just as many
@@ -1955,10 +1934,13 @@ bool X86FastISel::X86FastEmitSSESelect(MVT RetVT, const Instruction *I) {
     unsigned BlendOpcode =
       (RetVT.SimpleTy == MVT::f32) ? X86::VBLENDVPSrr : X86::VBLENDVPDrr;
     
-    unsigned CmpReg = fastEmitInst_rri(CmpOpcode, RC, CmpLHSReg, CmpLHSIsKill,
+    unsigned CmpReg = fastEmitInst_rri(CmpOpcode, FR32, CmpLHSReg, CmpLHSIsKill,
                                        CmpRHSReg, CmpRHSIsKill, CC);
-    ResultReg = fastEmitInst_rrr(BlendOpcode, RC, RHSReg, RHSIsKill,
-                                 LHSReg, LHSIsKill, CmpReg, true);
+    unsigned VBlendReg = fastEmitInst_rrr(BlendOpcode, VR128, RHSReg, RHSIsKill,
+                                          LHSReg, LHSIsKill, CmpReg, true);
+    ResultReg = createResultReg(RC);
+    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
+            TII.get(TargetOpcode::COPY), ResultReg).addReg(VBlendReg);
   } else {
     unsigned CmpReg = fastEmitInst_rri(Opc[0], RC, CmpLHSReg, CmpLHSIsKill,
                                        CmpRHSReg, CmpRHSIsKill, CC);

@@ -73,7 +73,17 @@ endfunction()
 macro(add_tablegen target project)
   set(${target}_OLD_LLVM_LINK_COMPONENTS ${LLVM_LINK_COMPONENTS})
   set(LLVM_LINK_COMPONENTS ${LLVM_LINK_COMPONENTS} TableGen)
-  add_llvm_utility(${target} ${ARGN})
+
+  # FIXME: It leaks to user, callee of add_tablegen.
+  set(LLVM_ENABLE_OBJLIB ON)
+
+  add_llvm_utility(
+    ${target} ${ARGN}
+    # libLLVM does not include the TableGen
+    # components, so we cannot link any tblgen
+    # utilities against it.
+    DISABLE_LLVM_LINK_LLVM_DYLIB)
+
   set(LLVM_LINK_COMPONENTS ${${target}_OLD_LLVM_LINK_COMPONENTS})
 
   set(${project}_TABLEGEN "${target}" CACHE

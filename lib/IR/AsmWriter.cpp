@@ -2862,9 +2862,6 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
       writeOperand(LPI->getClause(i), true);
     }
   } else if (const auto *CPI = dyn_cast<CatchPadInst>(&I)) {
-    Out << ' ';
-    TypePrinter.print(I.getType(), Out);
-
     Out << " [";
     for (unsigned Op = 0, NumOps = CPI->getNumArgOperands(); Op < NumOps;
          ++Op) {
@@ -2890,9 +2887,6 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     else
       Out << "to caller";
   } else if (const auto *CPI = dyn_cast<CleanupPadInst>(&I)) {
-    Out << ' ';
-    TypePrinter.print(I.getType(), Out);
-
     Out << " [";
     for (unsigned Op = 0, NumOps = CPI->getNumOperands(); Op < NumOps; ++Op) {
       if (Op > 0)
@@ -2903,22 +2897,14 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
   } else if (isa<ReturnInst>(I) && !Operand) {
     Out << " void";
   } else if (const auto *CRI = dyn_cast<CatchReturnInst>(&I)) {
-    if (CRI->hasReturnValue()) {
-      Out << ' ';
-      writeOperand(CRI->getReturnValue(), /*PrintType=*/true);
-    } else {
-      Out << " void";
-    }
+    Out << ' ';
+    writeOperand(CRI->getCatchPad(), /*PrintType=*/false);
 
     Out << " to ";
     writeOperand(CRI->getSuccessor(), /*PrintType=*/true);
   } else if (const auto *CRI = dyn_cast<CleanupReturnInst>(&I)) {
-    if (CRI->hasReturnValue()) {
-      Out << ' ';
-      writeOperand(CRI->getReturnValue(), /*PrintType=*/true);
-    } else {
-      Out << " void";
-    }
+    Out << ' ';
+    writeOperand(CRI->getCleanupPad(), /*PrintType=*/false);
 
     Out << " unwind ";
     if (CRI->hasUnwindDest())

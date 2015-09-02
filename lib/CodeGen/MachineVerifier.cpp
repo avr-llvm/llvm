@@ -507,11 +507,8 @@ MachineVerifier::visitMachineBasicBlockBefore(const MachineBasicBlock *MBB) {
   if (MRI->isSSA()) {
     // If this block has allocatable physical registers live-in, check that
     // it is an entry block or landing pad.
-    for (MachineBasicBlock::livein_iterator LI = MBB->livein_begin(),
-           LE = MBB->livein_end();
-         LI != LE; ++LI) {
-      unsigned reg = *LI;
-      if (isAllocatable(reg) && !MBB->isLandingPad() &&
+    for (unsigned LI : MBB->liveins()) {
+      if (isAllocatable(LI) && !MBB->isEHPad() &&
           MBB != MBB->getParent()->begin()) {
         report("MBB has allocable live-in, but isn't entry or landing-pad.", MBB);
       }
@@ -522,7 +519,7 @@ MachineVerifier::visitMachineBasicBlockBefore(const MachineBasicBlock *MBB) {
   SmallPtrSet<MachineBasicBlock*, 4> LandingPadSuccs;
   for (MachineBasicBlock::const_succ_iterator I = MBB->succ_begin(),
        E = MBB->succ_end(); I != E; ++I) {
-    if ((*I)->isLandingPad())
+    if ((*I)->isEHPad())
       LandingPadSuccs.insert(*I);
     if (!FunctionBlocks.count(*I))
       report("MBB has successor that isn't part of the function.", MBB);
@@ -680,13 +677,12 @@ MachineVerifier::visitMachineBasicBlockBefore(const MachineBasicBlock *MBB) {
   }
 
   regsLive.clear();
-  for (MachineBasicBlock::livein_iterator I = MBB->livein_begin(),
-         E = MBB->livein_end(); I != E; ++I) {
-    if (!TargetRegisterInfo::isPhysicalRegister(*I)) {
+  for (unsigned LI : MBB->liveins()) {
+    if (!TargetRegisterInfo::isPhysicalRegister(LI)) {
       report("MBB live-in list contains non-physical register", MBB);
       continue;
     }
-    for (MCSubRegIterator SubRegs(*I, TRI, /*IncludeSelf=*/true);
+    for (MCSubRegIterator SubRegs(LI, TRI, /*IncludeSelf=*/true);
          SubRegs.isValid(); ++SubRegs)
       regsLive.insert(*SubRegs);
   }
@@ -1610,7 +1606,7 @@ void MachineVerifier::verifyLiveRangeSegment(const LiveRange &LR,
     assert(LiveInts->isLiveInToMBB(LR, MFI));
     // We don't know how to track physregs into a landing pad.
     if (!TargetRegisterInfo::isVirtualRegister(Reg) &&
-        MFI->isLandingPad()) {
+        MFI->isEHPad()) {
       if (&*MFI == EndMBB)
         break;
       ++MFI;

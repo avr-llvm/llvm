@@ -283,21 +283,24 @@ private:
   typedef SmallVector<BitTestCase, 3> BitTestInfo;
 
   struct BitTestBlock {
-    BitTestBlock(APInt F, APInt R, const Value* SV,
-                 unsigned Rg, MVT RgVT, bool E,
-                 MachineBasicBlock* P, MachineBasicBlock* D,
-                 BitTestInfo C):
-      First(F), Range(R), SValue(SV), Reg(Rg), RegVT(RgVT), Emitted(E),
-      Parent(P), Default(D), Cases(std::move(C)) { }
+    BitTestBlock(APInt F, APInt R, const Value *SV, unsigned Rg, MVT RgVT,
+                 bool E, bool CR, MachineBasicBlock *P, MachineBasicBlock *D,
+                 BitTestInfo C, uint32_t W)
+        : First(F), Range(R), SValue(SV), Reg(Rg), RegVT(RgVT), Emitted(E),
+          ContiguousRange(CR), Parent(P), Default(D), Cases(std::move(C)),
+          Weight(W), DefaultWeight(0) {}
     APInt First;
     APInt Range;
     const Value *SValue;
     unsigned Reg;
     MVT RegVT;
     bool Emitted;
+    bool ContiguousRange;
     MachineBasicBlock *Parent;
     MachineBasicBlock *Default;
     BitTestInfo Cases;
+    uint32_t Weight;
+    uint32_t DefaultWeight;
   };
 
   /// Minimum jump table density, in percent.
@@ -339,6 +342,7 @@ private:
     CaseClusterIt LastCluster;
     const ConstantInt *GE;
     const ConstantInt *LT;
+    uint32_t DefaultWeight;
   };
   typedef SmallVector<SwitchWorkListItem, 4> SwitchWorkList;
 
@@ -515,6 +519,7 @@ private:
     void resetPerFunctionState() {
       FailureMBB = nullptr;
       Guard = nullptr;
+      GuardReg = 0;
     }
 
     MachineBasicBlock *getParentMBB() { return ParentMBB; }

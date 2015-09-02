@@ -39,6 +39,10 @@ llvm::ErrorOr<std::vector<std::unique_ptr<DebugMap>>>
 parseDebugMap(StringRef InputFile, ArrayRef<std::string> Archs,
               StringRef PrependPath, bool Verbose, bool InputIsYAML);
 
+/// \brief Dump the symbol table
+bool dumpStab(StringRef InputFile, ArrayRef<std::string> Archs,
+              StringRef PrependPath = "");
+
 /// \brief Link the Dwarf debuginfo as directed by the passed DebugMap
 /// \p DM into a DwarfFile named \p OutputFilename.
 /// \returns false if the link failed.
@@ -48,6 +52,9 @@ bool linkDwarf(StringRef OutputFilename, const DebugMap &DM,
 /// \brief Exit the dsymutil process, cleaning up every temporary
 /// files that we created.
 LLVM_ATTRIBUTE_NORETURN void exitDsymutil(int ExitStatus);
+
+void warn(const Twine &Warning, const Twine &Context);
+bool error(const Twine &Error, const Twine &Context);
 }
 }
 #endif // LLVM_TOOLS_DSYMUTIL_DSYMUTIL_H

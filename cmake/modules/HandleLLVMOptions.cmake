@@ -247,6 +247,12 @@ if( MSVC_IDE )
 endif()
 
 if( MSVC )
+  if( CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19.0 )
+    # For MSVC 2013, disable iterator null pointer checking in debug mode,
+    # especially so std::equal(nullptr, nullptr, nullptr) will not assert.
+    add_llvm_definitions("-D_DEBUG_POINTER_IMPL=")
+  endif()
+  
   include(ChooseMSVCCRT)
 
   if( NOT (${CMAKE_VERSION} VERSION_LESS 2.8.11) )
@@ -450,7 +456,7 @@ macro(append_common_sanitizer_flags)
     # stack traces.
     add_flag_if_supported("-fno-omit-frame-pointer" FNO_OMIT_FRAME_POINTER)
     if (NOT uppercase_CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND
-	NOT uppercase_CMAKE_BUILD_TYPE STREQUAL "RELWITHDEBINFO")
+        NOT uppercase_CMAKE_BUILD_TYPE STREQUAL "RELWITHDEBINFO")
       add_flag_if_supported("-gline-tables-only" GLINE_TABLES_ONLY)
     endif()
     # Use -O1 even in debug mode, otherwise sanitizers slowdown is too large.
@@ -463,6 +469,10 @@ macro(append_common_sanitizer_flags)
     if (CMAKE_LINKER MATCHES "lld-link.exe")
       # Use DWARF debug info with LLD.
       append("-gdwarf" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+      # Pass /MANIFEST:NO so that CMake doesn't run mt.exe on our binaries.
+      # Adding manifests with mt.exe breaks LLD's symbol tables. See PR24476.
+      append("/MANIFEST:NO"
+        CMAKE_EXE_LINKER_FLAGS CMAKE_MODULE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS)
     else()
       # Enable codeview otherwise.
       append("/Z7" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
@@ -497,17 +507,17 @@ if(LLVM_USE_SANITIZER)
       append("-fsanitize=address,undefined -fno-sanitize=vptr,function -fno-sanitize-recover=all"
               CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
     else()
-      message(WARNING "Unsupported value of LLVM_USE_SANITIZER: ${LLVM_USE_SANITIZER}")
+      message(FATAL_ERROR "Unsupported value of LLVM_USE_SANITIZER: ${LLVM_USE_SANITIZER}")
     endif()
   elseif(MSVC)
     if (LLVM_USE_SANITIZER STREQUAL "Address")
       append_common_sanitizer_flags()
       append("-fsanitize=address" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
     else()
-      message(WARNING "This sanitizer not yet supported in the MSVC environment: ${LLVM_USE_SANITIZER}")
+      message(FATAL_ERROR "This sanitizer not yet supported in the MSVC environment: ${LLVM_USE_SANITIZER}")
     endif()
   else()
-    message(WARNING "LLVM_USE_SANITIZER is not supported on this platform.")
+    message(FATAL_ERROR "LLVM_USE_SANITIZER is not supported on this platform.")
   endif()
   if (LLVM_USE_SANITIZE_COVERAGE)
     append("-fsanitize-coverage=edge,indirect-calls,8bit-counters,trace-cmp" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)

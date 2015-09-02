@@ -419,8 +419,14 @@ protected:
                             const TargetRegisterClass *RC, unsigned Op0,
                             bool Op0IsKill, uint64_t Imm1, uint64_t Imm2);
 
-  /// \brief Emit a MachineInstr with two register operands and a result
+  /// \brief Emit a MachineInstr with a floating point immediate, and a result
   /// register in the given register class.
+  unsigned fastEmitInst_f(unsigned MachineInstOpcode,
+                          const TargetRegisterClass *RC,
+                          const ConstantFP *FPImm);
+
+  /// \brief Emit a MachineInstr with one register operand, a floating point
+  /// immediate, and a result register in the given register class.
   unsigned fastEmitInst_rf(unsigned MachineInstOpcode,
                            const TargetRegisterClass *RC, unsigned Op0,
                            bool Op0IsKill, const ConstantFP *FPImm);
@@ -461,6 +467,11 @@ protected:
   /// \brief Emit an unconditional branch to the given block, unless it is the
   /// immediate (fall-through) successor, and update the CFG.
   void fastEmitBranch(MachineBasicBlock *MBB, DebugLoc DL);
+
+  /// Emit an unconditional branch to \p FalseMBB, obtains the branch weight
+  /// and adds TrueMBB and FalseMBB to the successor list.
+  void finishCondBranch(const BasicBlock *BranchBB, MachineBasicBlock *TrueMBB,
+                        MachineBasicBlock *FalseMBB);
 
   /// \brief Update the value map to include the new mapping for this
   /// instruction, or insert an extra copy to get the result in a previous

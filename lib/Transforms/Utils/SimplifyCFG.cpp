@@ -2199,7 +2199,7 @@ bool llvm::FoldBranchToCommonDest(BranchInst *BI, unsigned BonusInstThreshold) {
       // only given the branch precondition.
       // For an analogous reason, we must also drop all the metadata whose
       // semantics we don't understand.
-      NewBonusInst->dropUnknownMetadata(LLVMContext::MD_dbg);
+      NewBonusInst->dropUnknownNonDebugMetadata();
 
       PredBlock->getInstList().insert(PBI, NewBonusInst);
       NewBonusInst->takeName(BonusInst);
@@ -3246,6 +3246,23 @@ static bool EliminateDeadSwitchCases(SwitchInst *SI, AssumptionCache *AC,
       DEBUG(dbgs() << "SimplifyCFG: switch case '"
                    << I.getCaseValue() << "' is dead.\n");
     }
+  }
+
+  // If we can prove that the cases must cover all possible values, the 
+  // default destination becomes dead and we can remove it.
+  bool HasDefault =
+    !isa<UnreachableInst>(SI->getDefaultDest()->getFirstNonPHIOrDbg());
+  if (HasDefault && Bits < 64 /* avoid overflow */ &&  
+      SI->getNumCases() == (1ULL << Bits)) {
+    DEBUG(dbgs() << "SimplifyCFG: switch default is dead.\n");
+    BasicBlock *NewDefault = SplitBlockPredecessors(SI->getDefaultDest(),
+                                                    SI->getParent(), "");
+    SI->setDefaultDest(NewDefault);
+    SplitBlock(NewDefault, NewDefault->begin());
+    auto *OldTI = NewDefault->getTerminator();
+    new UnreachableInst(SI->getContext(), OldTI);
+    EraseTerminatorInstAndDCECond(OldTI);
+    return true;
   }
 
   SmallVector<uint64_t, 8> Weights;

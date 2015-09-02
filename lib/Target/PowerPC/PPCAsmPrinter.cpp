@@ -947,11 +947,11 @@ void PPCAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     return;
   }
   case PPC::ADDISdtprelHA:
-    // Transform: %Xd = ADDISdtprelHA %X3, <ga:@sym>
-    // Into:      %Xd = ADDIS8 %X3, sym@dtprel@ha
+    // Transform: %Xd = ADDISdtprelHA %Xs, <ga:@sym>
+    // Into:      %Xd = ADDIS8 %Xs, sym@dtprel@ha
   case PPC::ADDISdtprelHA32: {
-    // Transform: %Rd = ADDISdtprelHA32 %R3, <ga:@sym>
-    // Into:      %Rd = ADDIS %R3, sym@dtprel@ha
+    // Transform: %Rd = ADDISdtprelHA32 %Rs, <ga:@sym>
+    // Into:      %Rd = ADDIS %Rs, sym@dtprel@ha
     const MachineOperand &MO = MI->getOperand(2);
     const GlobalValue *GValue = MO.getGlobal();
     MCSymbol *MOSymbol = getSymbol(GValue);
@@ -962,7 +962,7 @@ void PPCAsmPrinter::EmitInstruction(const MachineInstr *MI) {
         *OutStreamer,
         MCInstBuilder(Subtarget->isPPC64() ? PPC::ADDIS8 : PPC::ADDIS)
             .addReg(MI->getOperand(0).getReg())
-            .addReg(Subtarget->isPPC64() ? PPC::X3 : PPC::R3)
+            .addReg(MI->getOperand(1).getReg())
             .addExpr(SymDtprel));
     return;
   }
@@ -1484,14 +1484,14 @@ bool PPCDarwinAsmPrinter::doFinalization(Module &M) {
   if (MAI->doesSupportExceptionHandling() && MMI) {
     // Add the (possibly multiple) personalities to the set of global values.
     // Only referenced functions get into the Personalities list.
-    const std::vector<const Function*> &Personalities = MMI->getPersonalities();
-    for (std::vector<const Function*>::const_iterator I = Personalities.begin(),
-         E = Personalities.end(); I != E; ++I) {
-      if (*I) {
-        MCSymbol *NLPSym = getSymbolWithGlobalValueBase(*I, "$non_lazy_ptr");
+    for (const Function *Personality : MMI->getPersonalities()) {
+      if (Personality) {
+        MCSymbol *NLPSym =
+            getSymbolWithGlobalValueBase(Personality, "$non_lazy_ptr");
         MachineModuleInfoImpl::StubValueTy &StubSym =
-          MMIMacho.getGVStubEntry(NLPSym);
-        StubSym = MachineModuleInfoImpl::StubValueTy(getSymbol(*I), true);
+            MMIMacho.getGVStubEntry(NLPSym);
+        StubSym =
+            MachineModuleInfoImpl::StubValueTy(getSymbol(Personality), true);
       }
     }
   }

@@ -41,7 +41,7 @@ function(llvm_update_compile_flags name)
   # Assume that;
   #   - LLVM_COMPILE_FLAGS is list.
   #   - PROPERTY COMPILE_FLAGS is string.
-  string(REPLACE ";" " " target_compile_flags "${LLVM_COMPILE_FLAGS}")
+  string(REPLACE ";" " " target_compile_flags " ${LLVM_COMPILE_FLAGS}")
 
   if(update_src_props)
     foreach(fn ${sources})
@@ -303,6 +303,9 @@ endfunction(set_windows_version_resource_properties)
 #   MODULE
 #     Target ${name} might not be created on unsupported platforms.
 #     Check with "if(TARGET ${name})".
+#   DISABLE_LLVM_LINK_LLVM_DYLIB
+#     Do not link this library to libLLVM, even if
+#     LLVM_LINK_LLVM_DYLIB is enabled.
 #   OUTPUT_NAME name
 #     Corresponds to OUTPUT_NAME in target properties.
 #   DEPENDS targets...
@@ -316,7 +319,7 @@ endfunction(set_windows_version_resource_properties)
 #   )
 function(llvm_add_library name)
   cmake_parse_arguments(ARG
-    "MODULE;SHARED;STATIC"
+    "MODULE;SHARED;STATIC;DISABLE_LLVM_LINK_LLVM_DYLIB"
     "OUTPUT_NAME"
     "ADDITIONAL_HEADERS;DEPENDS;LINK_COMPONENTS;LINK_LIBS;OBJLIBS"
     ${ARGN})
@@ -444,10 +447,14 @@ function(llvm_add_library name)
   # property has been set to an empty value.
   get_property(lib_deps GLOBAL PROPERTY LLVMBUILD_LIB_DEPS_${name})
 
-  llvm_map_components_to_libnames(llvm_libs
-    ${ARG_LINK_COMPONENTS}
-    ${LLVM_LINK_COMPONENTS}
-    )
+  if (LLVM_LINK_LLVM_DYLIB AND NOT ARG_STATIC AND NOT ARG_DISABLE_LLVM_LINK_LLVM_DYLIB)
+    set(llvm_libs LLVM)
+  else()
+    llvm_map_components_to_libnames(llvm_libs
+      ${ARG_LINK_COMPONENTS}
+      ${LLVM_LINK_COMPONENTS}
+      )
+  endif()
 
   if(CMAKE_VERSION VERSION_LESS 2.8.12)
     # Link libs w/o keywords, assuming PUBLIC.
@@ -562,7 +569,22 @@ endmacro(add_llvm_loadable_module name)
 
 
 macro(add_llvm_executable name)
-  llvm_process_sources( ALL_FILES ${ARGN} )
+  cmake_parse_arguments(ARG "DISABLE_LLVM_LINK_LLVM_DYLIB" "" "" ${ARGN})
+  llvm_process_sources( ALL_FILES ${ARG_UNPARSED_ARGUMENTS} )
+
+  # Generate objlib
+  if(LLVM_ENABLE_OBJLIB)
+    # Generate an obj library for both targets.
+    set(obj_name "obj.${name}")
+    add_library(${obj_name} OBJECT EXCLUDE_FROM_ALL
+      ${ALL_FILES}
+      )
+    llvm_update_compile_flags(${obj_name})
+    set(ALL_FILES "$<TARGET_OBJECTS:${obj_name}>")
+
+    set_target_properties(${obj_name} PROPERTIES FOLDER "Object Libraries")
+  endif()
+
   add_windows_version_resource_file(ALL_FILES ${ALL_FILES})
 
   if( EXCLUDE_FROM_ALL )
@@ -590,7 +612,11 @@ macro(add_llvm_executable name)
 
   set(EXCLUDE_FROM_ALL OFF)
   set_output_directory(${name} ${LLVM_RUNTIME_OUTPUT_INTDIR} ${LLVM_LIBRARY_OUTPUT_INTDIR})
-  llvm_config( ${name} ${LLVM_LINK_COMPONENTS} )
+  if (LLVM_LINK_LLVM_DYLIB AND NOT ARG_DISABLE_LLVM_LINK_LLVM_DYLIB)
+    target_link_libraries(${name} LLVM)
+  else()
+    llvm_config( ${name} ${LLVM_LINK_COMPONENTS} )
+  endif()
   if( LLVM_COMMON_DEPENDS )
     add_dependencies( ${name} ${LLVM_COMMON_DEPENDS} )
   endif( LLVM_COMMON_DEPENDS )
@@ -694,20 +720,37 @@ macro(add_llvm_external_project name)
     set(add_llvm_external_dir ${name})
   endif()
   canonicalize_tool_name(${name} nameUPPER)
-  if(NOT DEFINED LLVM_TOOL_${nameUPPER}_BUILD)
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${add_llvm_external_dir}/CMakeLists.txt)
+    # Treat it as in-tree subproject.
     option(LLVM_TOOL_${nameUPPER}_BUILD
            "Whether to build ${name} as part of LLVM" On)
-  endif()
-  if (LLVM_TOOL_${nameUPPER}_BUILD)
-    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${add_llvm_external_dir}/CMakeLists.txt)
-        add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/${add_llvm_external_dir} ${add_llvm_external_dir})
-        set(LLVM_TOOL_${nameUPPER}_BUILD Off)
-    elseif(LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR)
-      set(LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR
-        "${LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR}"
-        CACHE PATH "Path to ${name} source directory")
-      mark_as_advanced(LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR)
-      add_subdirectory(${LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR} ${add_llvm_external_dir})
+    mark_as_advanced(LLVM_TOOL_${name}_BUILD)
+    if(LLVM_TOOL_${nameUPPER}_BUILD)
+      add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/${add_llvm_external_dir} ${add_llvm_external_dir})
+      # Don't process it in add_llvm_implicit_projects().
+      set(LLVM_TOOL_${nameUPPER}_BUILD OFF)
+    endif()
+  else()
+    set(LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR
+      "${LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR}"
+      CACHE PATH "Path to ${name} source directory")
+    set(LLVM_TOOL_${nameUPPER}_BUILD_DEFAULT ON)
+    if(NOT LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR OR NOT EXISTS ${LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR})
+      set(LLVM_TOOL_${nameUPPER}_BUILD_DEFAULT OFF)
+    endif()
+    if("${LLVM_EXTERNAL_${nameUPPER}_BUILD}" STREQUAL "OFF")
+      set(LLVM_TOOL_${nameUPPER}_BUILD_DEFAULT OFF)
+    endif()
+    option(LLVM_TOOL_${nameUPPER}_BUILD
+      "Whether to build ${name} as part of LLVM"
+      ${LLVM_TOOL_${nameUPPER}_BUILD_DEFAULT})
+    if (LLVM_TOOL_${nameUPPER}_BUILD)
+      if(EXISTS ${LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR})
+        add_subdirectory(${LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR} ${add_llvm_external_dir})
+      elseif(NOT "${LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR}" STREQUAL "")
+        message(WARNING "Nonexistent directory for ${name}: ${LLVM_EXTERNAL_${nameUPPER}_SOURCE_DIR}")
+      endif()
+      # FIXME: It'd be redundant.
       set(LLVM_TOOL_${nameUPPER}_BUILD Off)
     endif()
   endif()
@@ -733,15 +776,6 @@ function(create_llvm_tool_options)
     if(IS_DIRECTORY "${dir}" AND EXISTS "${dir}/CMakeLists.txt")
       canonicalize_tool_name(${dir} name)
       option(LLVM_TOOL_${name}_BUILD
-           "Whether to build ${name} as part of LLVM" On)
-      mark_as_advanced(LLVM_TOOL_${name}_BUILD)
-    endif()
-  endforeach()
-  get_cmake_property(variableNames VARIABLES)
-  foreach (variableName ${variableNames})
-    get_project_name_from_src_var(${variableName} projectName)
-    if(projectName)
-      option(LLVM_TOOL_${projectName}_BUILD
            "Whether to build ${name} as part of LLVM" On)
       mark_as_advanced(LLVM_TOOL_${name}_BUILD)
     endif()
@@ -814,8 +848,13 @@ function(llvm_add_go_executable binary pkgpath)
       set(cppflags "${cppflags} -I${d}")
     endforeach(d)
     set(ldflags "${CMAKE_EXE_LINKER_FLAGS}")
+    if (LLVM_LINK_LLVM_DYLIB)
+      set(linkmode "dylib")
+    else()
+      set(linkmode "component-libs")
+    endif()
     add_custom_command(OUTPUT ${binpath}
-      COMMAND ${CMAKE_BINARY_DIR}/bin/llvm-go "go=${GO_EXECUTABLE}" "cc=${cc}" "cxx=${cxx}" "cppflags=${cppflags}" "ldflags=${ldflags}"
+      COMMAND ${CMAKE_BINARY_DIR}/bin/llvm-go "go=${GO_EXECUTABLE}" "cc=${cc}" "cxx=${cxx}" "cppflags=${cppflags}" "ldflags=${ldflags}" "linkmode=${linkmode}"
               ${ARG_GOFLAGS} build -o ${binpath} ${pkgpath}
       DEPENDS llvm-config ${CMAKE_BINARY_DIR}/bin/llvm-go${CMAKE_EXECUTABLE_SUFFIX}
               ${llvmlibs} ${ARG_DEPENDS}

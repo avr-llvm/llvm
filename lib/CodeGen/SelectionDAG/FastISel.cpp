@@ -1408,6 +1408,22 @@ void FastISel::fastEmitBranch(MachineBasicBlock *MSucc, DebugLoc DbgLoc) {
   FuncInfo.MBB->addSuccessor(MSucc, BranchWeight);
 }
 
+void FastISel::finishCondBranch(const BasicBlock *BranchBB,
+                                MachineBasicBlock *TrueMBB,
+                                MachineBasicBlock *FalseMBB) {
+  uint32_t BranchWeight = 0;
+  if (FuncInfo.BPI)
+    BranchWeight = FuncInfo.BPI->getEdgeWeight(BranchBB,
+                                               TrueMBB->getBasicBlock());
+  // Add TrueMBB as successor unless it is equal to the FalseMBB: This can
+  // happen in degenerate IR and MachineIR forbids to have a block twice in the
+  // successor/predecessor lists.
+  if (TrueMBB != FalseMBB)
+    FuncInfo.MBB->addSuccessor(TrueMBB, BranchWeight);
+
+  fastEmitBranch(FalseMBB, DbgLoc);
+}
+
 /// Emit an FNeg operation.
 bool FastISel::selectFNeg(const User *I) {
   unsigned OpReg = getRegForValue(BinaryOperator::getFNegArgument(I));
@@ -1861,6 +1877,25 @@ unsigned FastISel::fastEmitInst_rii(unsigned MachineInstOpcode,
         .addReg(Op0, getKillRegState(Op0IsKill))
         .addImm(Imm1)
         .addImm(Imm2);
+    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
+            TII.get(TargetOpcode::COPY), ResultReg).addReg(II.ImplicitDefs[0]);
+  }
+  return ResultReg;
+}
+
+unsigned FastISel::fastEmitInst_f(unsigned MachineInstOpcode,
+                                  const TargetRegisterClass *RC,
+                                  const ConstantFP *FPImm) {
+  const MCInstrDesc &II = TII.get(MachineInstOpcode);
+
+  unsigned ResultReg = createResultReg(RC);
+
+  if (II.getNumDefs() >= 1)
+    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II, ResultReg)
+        .addFPImm(FPImm);
+  else {
+    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, II)
+        .addFPImm(FPImm);
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
             TII.get(TargetOpcode::COPY), ResultReg).addReg(II.ImplicitDefs[0]);
   }
