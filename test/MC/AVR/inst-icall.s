@@ -1,4 +1,4 @@
-; RUN: llvm-mc -triple avr-none -mattr=ijmpcall -show-encoding < %s | FileCheck %s
+; RUN: llvm-mc -triple avr -mattr=ijmpcall -show-encoding < %s | FileCheck %s
 
 
 foo:

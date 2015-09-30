@@ -1,4 +1,4 @@
-; RUN: llvm-mc -triple avr-none -show-encoding < %s | FileCheck %s
+; RUN: llvm-mc -triple avr -show-encoding < %s | FileCheck %s
 
 ; TODO: Add support for lo8(-foo + 3), and add test
 

@@ -147,7 +147,6 @@ public:
     Win32,
     Haiku,
     Minix,
-    None,
     RTEMS,
     NaCl,       // Native Client
     CNK,        // BG/P Compute-Node Kernel
