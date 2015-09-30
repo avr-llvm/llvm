@@ -149,18 +149,26 @@ namespace CallingConv {
     /// in SSE registers.
     X86_VectorCall = 80,
 
-    /// AVR_INTR - Calling convention used for AVR interrupt routines.
-    AVR_INTR = 81,
+    /// \brief Calling convention used by HipHop Virtual Machine (HHVM) to
+    /// perform calls to and from translation cache, and for calling PHP
+    /// functions.
+    /// HHVM calling convention supports tail/sibling call elimination.
+    HHVM = 81,
+
+    /// \brief HHVM calling convention for invoking C/C++ helpers.
+    HHVM_C = 82,
+
+    /// Used for AVR interrupt routines.
+    AVR_INTR = 83,
     
-    /// AVR_SIGNAL - Calling convention used for AVR signal routines.
-    AVR_SIGNAL = 82,
+    /// AVR_SIGNAL - Used for AVR signal routines.
+    AVR_SIGNAL = 84,
 
     /// Calling convention used for special multiplication RTLIB routines.
-    AVR_RT_MUL = 83,
+    AVR_RT_MUL = 85,
 
     /// Calling convention used for special division RTLIB routines.
-    AVR_RT_DIV = 84
-
+    AVR_RT_DIV = 86
   };
 } // End CallingConv namespace
 

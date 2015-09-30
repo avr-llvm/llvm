@@ -12,9 +12,6 @@
 //===----------------------------------------------------------------------===//
 FUZZER_FLAG_INT(verbosity, 1, "Verbosity level.")
 FUZZER_FLAG_INT(seed, 0, "Random seed. If 0, seed is generated.")
-FUZZER_FLAG_INT(iterations, -1,
-            "Number of iterations of the fuzzer internal loop"
-            " (-1 for infinite iterations).")
 FUZZER_FLAG_INT(runs, -1,
             "Number of individual test runs (-1 for infinite runs).")
 FUZZER_FLAG_INT(max_len, 64, "Maximum length of the test input.")
@@ -34,7 +31,8 @@ FUZZER_FLAG_INT(
 FUZZER_FLAG_INT(help, 0, "Print help.")
 FUZZER_FLAG_INT(
     save_minimized_corpus, 0,
-    "If 1, the minimized corpus is saved into the first input directory")
+    "If 1, the minimized corpus is saved into the first input directory. "
+    "Example: ./fuzzer -save_minimized_corpus=1 NEW_EMPTY_DIR OLD_CORPUS")
 FUZZER_FLAG_INT(use_counters, 1, "Use coverage counters")
 FUZZER_FLAG_INT(use_traces, 0, "Experimental: use instruction traces")
 FUZZER_FLAG_INT(use_full_coverage_set, 0,
@@ -50,8 +48,9 @@ FUZZER_FLAG_INT(workers, 0,
 FUZZER_FLAG_INT(reload, 1,
                 "Reload the main corpus periodically to get new units"
                 " discovered by other processes.")
-FUZZER_FLAG_STRING(tokens, "Use the file with tokens (one token per line) to"
-                           " fuzz a token based input language.")
+FUZZER_FLAG_STRING(deprecated_tokens,
+                   "Use the file with tokens (one token per line) to"
+                   " fuzz a token based input language.")
 FUZZER_FLAG_STRING(apply_tokens, "Read the given input file, substitute bytes "
                                  " with tokens and write the result to stdout.")
 FUZZER_FLAG_STRING(sync_command, "Execute an external command "
@@ -62,6 +61,7 @@ FUZZER_FLAG_INT(report_slow_units, 10,
     "Report slowest units if they run for more than this number of seconds.")
 FUZZER_FLAG_INT(only_ascii, 0,
                 "If 1, generate only ASCII (isprint+isspace) inputs.")
+FUZZER_FLAG_STRING(dict, "Experimental. Use the dictionary file.")
 FUZZER_FLAG_INT(tbm_depth, 5, "Apply at most this number of consecutive"
                                "trace-based-mutations (tbm).")
 FUZZER_FLAG_INT(tbm_width, 5, "Apply at most this number of independent"

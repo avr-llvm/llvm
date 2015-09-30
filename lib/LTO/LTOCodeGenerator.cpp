@@ -64,17 +64,23 @@ const char* LTOCodeGenerator::getVersionString() {
 #endif
 }
 
+static void handleLTODiagnostic(const DiagnosticInfo &DI) {
+  DiagnosticPrinterRawOStream DP(errs());                                
+  DI.print(DP);                                                          
+  errs() << "\n";
+}
+
 LTOCodeGenerator::LTOCodeGenerator()
     : Context(getGlobalContext()),
       MergedModule(new Module("ld-temp.o", Context)),
-      IRLinker(MergedModule.get()) {
+      IRLinker(MergedModule.get(), handleLTODiagnostic) {
   initializeLTOPasses();
 }
 
 LTOCodeGenerator::LTOCodeGenerator(std::unique_ptr<LLVMContext> Context)
     : OwnedContext(std::move(Context)), Context(*OwnedContext),
       MergedModule(new Module("ld-temp.o", *OwnedContext)),
-      IRLinker(MergedModule.get()) {
+      IRLinker(MergedModule.get(), handleLTODiagnostic) {
   initializeLTOPasses();
 }
 
@@ -97,11 +103,11 @@ void LTOCodeGenerator::initializeLTOPasses() {
   initializeGlobalDCEPass(R);
   initializeArgPromotionPass(R);
   initializeJumpThreadingPass(R);
-  initializeSROAPass(R);
+  initializeSROALegacyPassPass(R);
   initializeSROA_DTPass(R);
   initializeSROA_SSAUpPass(R);
   initializeFunctionAttrsPass(R);
-  initializeGlobalsModRefPass(R);
+  initializeGlobalsAAWrapperPassPass(R);
   initializeLICMPass(R);
   initializeMergedLoadStoreMotionPass(R);
   initializeGVNPass(R);
@@ -259,20 +265,24 @@ LTOCodeGenerator::compileOptimized(std::string &ErrMsg) {
   return std::move(*BufferOrErr);
 }
 
-bool LTOCodeGenerator::compile_to_file(const char **Name, bool DisableInline,
+bool LTOCodeGenerator::compile_to_file(const char **Name, bool DisableVerify,
+                                       bool DisableInline,
                                        bool DisableGVNLoadPRE,
                                        bool DisableVectorization,
                                        std::string &ErrMsg) {
-  if (!optimize(DisableInline, DisableGVNLoadPRE, DisableVectorization, ErrMsg))
+  if (!optimize(DisableVerify, DisableInline, DisableGVNLoadPRE,
+                DisableVectorization, ErrMsg))
     return false;
 
   return compileOptimizedToFile(Name, ErrMsg);
 }
 
 std::unique_ptr<MemoryBuffer>
-LTOCodeGenerator::compile(bool DisableInline, bool DisableGVNLoadPRE,
-                          bool DisableVectorization, std::string &ErrMsg) {
-  if (!optimize(DisableInline, DisableGVNLoadPRE, DisableVectorization, ErrMsg))
+LTOCodeGenerator::compile(bool DisableVerify, bool DisableInline,
+                          bool DisableGVNLoadPRE, bool DisableVectorization,
+                          std::string &ErrMsg) {
+  if (!optimize(DisableVerify, DisableInline, DisableGVNLoadPRE,
+                DisableVectorization, ErrMsg))
     return nullptr;
 
   return compileOptimized(ErrMsg);
@@ -453,7 +463,8 @@ void LTOCodeGenerator::applyScopeRestrictions() {
 }
 
 /// Optimize merged modules using various IPO passes
-bool LTOCodeGenerator::optimize(bool DisableInline, bool DisableGVNLoadPRE,
+bool LTOCodeGenerator::optimize(bool DisableVerify, bool DisableInline,
+                                bool DisableGVNLoadPRE,
                                 bool DisableVectorization,
                                 std::string &ErrMsg) {
   if (!this->determineTarget(ErrMsg))
@@ -480,8 +491,8 @@ bool LTOCodeGenerator::optimize(bool DisableInline, bool DisableGVNLoadPRE,
     PMB.Inliner = createFunctionInliningPass();
   PMB.LibraryInfo = new TargetLibraryInfoImpl(TargetTriple);
   PMB.OptLevel = OptLevel;
-  PMB.VerifyInput = true;
-  PMB.VerifyOutput = true;
+  PMB.VerifyInput = !DisableVerify;
+  PMB.VerifyOutput = !DisableVerify;
 
   PMB.populateLTOPassManager(passes);
 

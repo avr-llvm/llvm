@@ -121,9 +121,13 @@ public:
   bool runOnMachineFunction(MachineFunction &MF) override;
 
   const char *getPassName() const override {
-    return "SI insert wait  instructions";
+    return "SI insert wait instructions";
   }
 
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.setPreservesCFG();
+    MachineFunctionPass::getAnalysisUsage(AU);
+  }
 };
 
 } // End anonymous namespace
@@ -140,7 +144,7 @@ FunctionPass *llvm::createSIInsertWaits(TargetMachine &tm) {
 Counters SIInsertWaits::getHwCounts(MachineInstr &MI) {
 
   uint64_t TSFlags = TII->get(MI.getOpcode()).TSFlags;
-  Counters Result;
+  Counters Result = { { 0, 0, 0 } };
 
   Result.Named.VM = !!(TSFlags & SIInstrFlags::VM_CNT);
 
@@ -153,13 +157,21 @@ Counters SIInsertWaits::getHwCounts(MachineInstr &MI) {
 
     if (TII->isSMRD(MI.getOpcode())) {
 
-      MachineOperand &Op = MI.getOperand(0);
-      assert(Op.isReg() && "First LGKM operand must be a register!");
+      if (MI.getNumOperands() != 0) {
+        MachineOperand &Op = MI.getOperand(0);
+        assert(Op.isReg() && "First LGKM operand must be a register!");
 
-      unsigned Reg = Op.getReg();
-      unsigned Size = TRI->getMinimalPhysRegClass(Reg)->getSize();
-      Result.Named.LGKM = Size > 4 ? 2 : 1;
+        unsigned Reg = Op.getReg();
 
+        // XXX - What if this is a write into a super register?
+        unsigned Size = TRI->getMinimalPhysRegClass(Reg)->getSize();
+        Result.Named.LGKM = Size > 4 ? 2 : 1;
+      } else {
+        // s_dcache_inv etc. do not have a a destination register. Assume we
+        // want a wait on these.
+        // XXX - What is the right value?
+        Result.Named.LGKM = 1;
+      }
     } else {
       // DS
       Result.Named.LGKM = 1;

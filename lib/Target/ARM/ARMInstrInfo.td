@@ -71,6 +71,8 @@ def SDT_ARMTCRET : SDTypeProfile<0, 1, [SDTCisPtrTy<0>]>;
 def SDT_ARMBFI : SDTypeProfile<1, 3, [SDTCisVT<0, i32>, SDTCisVT<1, i32>,
                                       SDTCisVT<2, i32>, SDTCisVT<3, i32>]>;
 
+def SDT_WIN__DBZCHK : SDTypeProfile<0, 1, [SDTCisVT<0, i32>]>;
+
 def SDTBinaryArithWithFlags : SDTypeProfile<2, 2,
                                             [SDTCisSameAs<0, 2>,
                                              SDTCisSameAs<0, 3>,
@@ -234,9 +236,8 @@ def HasDivideInARM   : Predicate<"Subtarget->hasDivideInARMMode()">,
 def HasT2ExtractPack : Predicate<"Subtarget->hasT2ExtractPack()">,
                                  AssemblerPredicate<"FeatureT2XtPk",
                                                      "pack/extract">;
-def HasThumb2DSP     : Predicate<"Subtarget->hasThumb2DSP()">,
-                                 AssemblerPredicate<"FeatureDSPThumb2",
-                                                    "thumb2-dsp">;
+def HasDSP           : Predicate<"Subtarget->hasDSP()">,
+                                 AssemblerPredicate<"FeatureDSP", "dsp">;
 def HasDB            : Predicate<"Subtarget->hasDataBarrier()">,
                                  AssemblerPredicate<"FeatureDB",
                                                     "data-barriers">;
@@ -5239,6 +5240,12 @@ def win__chkstk : SDNode<"ARMISD::WIN__CHKSTK", SDTNone,
                       [SDNPHasChain, SDNPSideEffect]>;
 let usesCustomInserter = 1, Uses = [R4], Defs = [R4, SP] in
   def WIN__CHKSTK : PseudoInst<(outs), (ins), NoItinerary, [(win__chkstk)]>;
+
+def win__dbzchk : SDNode<"ARMISD::WIN__DBZCHK", SDT_WIN__DBZCHK,
+                         [SDNPHasChain, SDNPSideEffect, SDNPOutGlue]>;
+let usesCustomInserter = 1, Defs = [CPSR] in
+  def WIN__DBZCHK : PseudoInst<(outs), (ins GPR:$divisor), NoItinerary,
+                               [(win__dbzchk GPR:$divisor)]>;
 
 //===----------------------------------------------------------------------===//
 // TLS Instructions

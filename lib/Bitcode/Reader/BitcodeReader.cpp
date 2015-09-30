@@ -147,6 +147,7 @@ class BitcodeReader : public GVMaterializer {
   BitstreamCursor Stream;
   uint64_t NextUnreadBit = 0;
   bool SeenValueSymbolTable = false;
+  unsigned VSTOffset = 0;
 
   std::vector<Type*> TypeList;
   BitcodeReaderValueList ValueList;
@@ -224,6 +225,8 @@ class BitcodeReader : public GVMaterializer {
   bool IsMetadataMaterialized = false;
 
   bool StripDebugInfo = false;
+
+  std::vector<std::string> BundleTags;
 
 public:
   std::error_code error(BitcodeError E, const Twine &Message);
@@ -369,8 +372,11 @@ private:
   std::error_code parseAttributeGroupBlock();
   std::error_code parseTypeTable();
   std::error_code parseTypeTableBody();
+  std::error_code parseOperandBundleTags();
 
-  std::error_code parseValueSymbolTable();
+  ErrorOr<Value *> recordValue(SmallVectorImpl<uint64_t> &Record,
+                               unsigned NameIndex, Triple &TT);
+  std::error_code parseValueSymbolTable(unsigned Offset = 0);
   std::error_code parseConstants();
   std::error_code rememberAndSkipFunctionBody();
   /// Save the positions of the Metadata blocks and skip parsing the blocks.
@@ -1583,7 +1589,104 @@ std::error_code BitcodeReader::parseTypeTableBody() {
   }
 }
 
-std::error_code BitcodeReader::parseValueSymbolTable() {
+std::error_code BitcodeReader::parseOperandBundleTags() {
+  if (Stream.EnterSubBlock(bitc::OPERAND_BUNDLE_TAGS_BLOCK_ID))
+    return error("Invalid record");
+
+  if (!BundleTags.empty())
+    return error("Invalid multiple blocks");
+
+  SmallVector<uint64_t, 64> Record;
+
+  while (1) {
+    BitstreamEntry Entry = Stream.advanceSkippingSubblocks();
+
+    switch (Entry.Kind) {
+    case BitstreamEntry::SubBlock: // Handled for us already.
+    case BitstreamEntry::Error:
+      return error("Malformed block");
+    case BitstreamEntry::EndBlock:
+      return std::error_code();
+    case BitstreamEntry::Record:
+      // The interesting case.
+      break;
+    }
+
+    // Tags are implicitly mapped to integers by their order.
+
+    if (Stream.readRecord(Entry.ID, Record) != bitc::OPERAND_BUNDLE_TAG)
+      return error("Invalid record");
+
+    // OPERAND_BUNDLE_TAG: [strchr x N]
+    BundleTags.emplace_back();
+    if (convertToString(Record, 0, BundleTags.back()))
+      return error("Invalid record");
+    Record.clear();
+  }
+}
+
+/// Associate a value with its name from the given index in the provided record.
+ErrorOr<Value *> BitcodeReader::recordValue(SmallVectorImpl<uint64_t> &Record,
+                                            unsigned NameIndex, Triple &TT) {
+  SmallString<128> ValueName;
+  if (convertToString(Record, NameIndex, ValueName))
+    return error("Invalid record");
+  unsigned ValueID = Record[0];
+  if (ValueID >= ValueList.size() || !ValueList[ValueID])
+    return error("Invalid record");
+  Value *V = ValueList[ValueID];
+
+  V->setName(StringRef(ValueName.data(), ValueName.size()));
+  auto *GO = dyn_cast<GlobalObject>(V);
+  if (GO) {
+    if (GO->getComdat() == reinterpret_cast<Comdat *>(1)) {
+      if (TT.isOSBinFormatMachO())
+        GO->setComdat(nullptr);
+      else
+        GO->setComdat(TheModule->getOrInsertComdat(V->getName()));
+    }
+  }
+  return V;
+}
+
+/// Parse the value symbol table at either the current parsing location or
+/// at the given bit offset if provided.
+std::error_code BitcodeReader::parseValueSymbolTable(unsigned Offset) {
+  uint64_t CurrentBit;
+  // Pass in the Offset to distinguish between calling for the module-level
+  // VST (where we want to jump to the VST offset) and the function-level
+  // VST (where we don't).
+  if (Offset > 0) {
+    // Save the current parsing location so we can jump back at the end
+    // of the VST read.
+    CurrentBit = Stream.GetCurrentBitNo();
+    Stream.JumpToBit(Offset * 32);
+#ifndef NDEBUG
+    // Do some checking if we are in debug mode.
+    BitstreamEntry Entry = Stream.advance();
+    assert(Entry.Kind == BitstreamEntry::SubBlock);
+    assert(Entry.ID == bitc::VALUE_SYMTAB_BLOCK_ID);
+#else
+    // In NDEBUG mode ignore the output so we don't get an unused variable
+    // warning.
+    Stream.advance();
+#endif
+  }
+
+  // Compute the delta between the bitcode indices in the VST (the word offset
+  // to the word-aligned ENTER_SUBBLOCK for the function block, and that
+  // expected by the lazy reader. The reader's EnterSubBlock expects to have
+  // already read the ENTER_SUBBLOCK code (size getAbbrevIDWidth) and BlockID
+  // (size BlockIDWidth). Note that we access the stream's AbbrevID width here
+  // just before entering the VST subblock because: 1) the EnterSubBlock
+  // changes the AbbrevID width; 2) the VST block is nested within the same
+  // outer MODULE_BLOCK as the FUNCTION_BLOCKs and therefore have the same
+  // AbbrevID width before calling EnterSubBlock; and 3) when we want to
+  // jump to the FUNCTION_BLOCK using this offset later, we don't want
+  // to rely on the stream's AbbrevID width being that of the MODULE_BLOCK.
+  unsigned FuncBitcodeOffsetDelta =
+      Stream.getAbbrevIDWidth() + bitc::BlockIDWidth;
+
   if (Stream.EnterSubBlock(bitc::VALUE_SYMTAB_BLOCK_ID))
     return error("Invalid record");
 
@@ -1601,6 +1704,8 @@ std::error_code BitcodeReader::parseValueSymbolTable() {
     case BitstreamEntry::Error:
       return error("Malformed block");
     case BitstreamEntry::EndBlock:
+      if (Offset > 0)
+        Stream.JumpToBit(CurrentBit);
       return std::error_code();
     case BitstreamEntry::Record:
       // The interesting case.
@@ -1613,23 +1718,39 @@ std::error_code BitcodeReader::parseValueSymbolTable() {
     default:  // Default behavior: unknown type.
       break;
     case bitc::VST_CODE_ENTRY: {  // VST_ENTRY: [valueid, namechar x N]
-      if (convertToString(Record, 1, ValueName))
-        return error("Invalid record");
-      unsigned ValueID = Record[0];
-      if (ValueID >= ValueList.size() || !ValueList[ValueID])
-        return error("Invalid record");
-      Value *V = ValueList[ValueID];
+      ErrorOr<Value *> ValOrErr = recordValue(Record, 1, TT);
+      if (std::error_code EC = ValOrErr.getError())
+        return EC;
+      ValOrErr.get();
+      break;
+    }
+    case bitc::VST_CODE_FNENTRY: {
+      // VST_FNENTRY: [valueid, offset, namechar x N]
+      ErrorOr<Value *> ValOrErr = recordValue(Record, 2, TT);
+      if (std::error_code EC = ValOrErr.getError())
+        return EC;
+      Value *V = ValOrErr.get();
 
-      V->setName(StringRef(ValueName.data(), ValueName.size()));
-      if (auto *GO = dyn_cast<GlobalObject>(V)) {
-        if (GO->getComdat() == reinterpret_cast<Comdat *>(1)) {
-          if (TT.isOSBinFormatMachO())
-            GO->setComdat(nullptr);
-          else
-            GO->setComdat(TheModule->getOrInsertComdat(V->getName()));
-        }
+      auto *GO = dyn_cast<GlobalObject>(V);
+      if (!GO) {
+        // If this is an alias, need to get the actual Function object
+        // it aliases, in order to set up the DeferredFunctionInfo entry below.
+        auto *GA = dyn_cast<GlobalAlias>(V);
+        if (GA)
+          GO = GA->getBaseObject();
+        assert(GO);
       }
-      ValueName.clear();
+
+      uint64_t FuncWordOffset = Record[1];
+      Function *F = dyn_cast<Function>(GO);
+      assert(F);
+      uint64_t FuncBitOffset = FuncWordOffset * 32;
+      DeferredFunctionInfo[F] = FuncBitOffset + FuncBitcodeOffsetDelta;
+      // Set the NextUnreadBit to point to the last function block.
+      // Later when parsing is resumed after function materialization,
+      // we can simply skip that last function block.
+      if (FuncBitOffset > NextUnreadBit)
+        NextUnreadBit = FuncBitOffset;
       break;
     }
     case bitc::VST_CODE_BBENTRY: {
@@ -2852,9 +2973,23 @@ std::error_code BitcodeReader::parseModule(bool Resume,
           return EC;
         break;
       case bitc::VALUE_SYMTAB_BLOCK_ID:
-        if (std::error_code EC = parseValueSymbolTable())
-          return EC;
-        SeenValueSymbolTable = true;
+        if (!SeenValueSymbolTable) {
+          // Either this is an old form VST without function index and an
+          // associated VST forward declaration record (which would have caused
+          // the VST to be jumped to and parsed before it was encountered
+          // normally in the stream), or there were no function blocks to
+          // trigger an earlier parsing of the VST.
+          assert(VSTOffset == 0 || FunctionsWithBodies.empty());
+          if (std::error_code EC = parseValueSymbolTable())
+            return EC;
+          SeenValueSymbolTable = true;
+        } else {
+          // We must have had a VST forward declaration record, which caused
+          // the parser to jump to and parse the VST earlier.
+          assert(VSTOffset > 0);
+          if (Stream.SkipBlock())
+            return error("Invalid record");
+        }
         break;
       case bitc::CONSTANTS_BLOCK_ID:
         if (std::error_code EC = parseConstants())
@@ -2882,6 +3017,32 @@ std::error_code BitcodeReader::parseModule(bool Resume,
           SeenFirstFunctionBody = true;
         }
 
+        if (VSTOffset > 0) {
+          // If we have a VST forward declaration record, make sure we
+          // parse the VST now if we haven't already. It is needed to
+          // set up the DeferredFunctionInfo vector for lazy reading.
+          if (!SeenValueSymbolTable) {
+            if (std::error_code EC =
+                    BitcodeReader::parseValueSymbolTable(VSTOffset))
+              return EC;
+            SeenValueSymbolTable = true;
+            return std::error_code();
+          } else {
+            // If we have a VST forward declaration record, but have already
+            // parsed the VST (just above, when the first function body was
+            // encountered here), then we are resuming the parse after
+            // materializing functions. The NextUnreadBit points to the start
+            // of the last function block recorded in the VST (set when
+            // parsing the VST function entries). Skip it.
+            if (Stream.SkipBlock())
+              return error("Invalid record");
+            continue;
+          }
+        }
+
+        // Support older bitcode files that did not have the function
+        // index in the VST, nor a VST forward declaration record.
+        // Build the DeferredFunctionInfo vector on the fly.
         if (std::error_code EC = rememberAndSkipFunctionBody())
           return EC;
         // Suspend parsing when we reach the function bodies. Subsequent
@@ -2897,6 +3058,10 @@ std::error_code BitcodeReader::parseModule(bool Resume,
         if (std::error_code EC = parseUseLists())
           return EC;
         break;
+      case bitc::OPERAND_BUNDLE_TAGS_BLOCK_ID:
+        if (std::error_code EC = parseOperandBundleTags())
+          return EC;
+        break;
       }
       continue;
 
@@ -2907,7 +3072,8 @@ std::error_code BitcodeReader::parseModule(bool Resume,
 
 
     // Read a record.
-    switch (Stream.readRecord(Entry.ID, Record)) {
+    auto BitCode = Stream.readRecord(Entry.ID, Record);
+    switch (BitCode) {
     default: break;  // Default behavior, ignore unknown content.
     case bitc::MODULE_CODE_VERSION: {  // VERSION: [version#]
       if (Record.size() < 1)
@@ -3146,35 +3312,51 @@ std::error_code BitcodeReader::parseModule(bool Resume,
       }
       break;
     }
-    // ALIAS: [alias type, aliasee val#, linkage]
-    // ALIAS: [alias type, aliasee val#, linkage, visibility, dllstorageclass]
-    case bitc::MODULE_CODE_ALIAS: {
-      if (Record.size() < 3)
+    // ALIAS: [alias type, addrspace, aliasee val#, linkage]
+    // ALIAS: [alias type, addrspace, aliasee val#, linkage, visibility, dllstorageclass]
+    case bitc::MODULE_CODE_ALIAS:
+    case bitc::MODULE_CODE_ALIAS_OLD: {
+      bool NewRecord = BitCode == bitc::MODULE_CODE_ALIAS;
+      if (Record.size() < (3 + (unsigned)NewRecord))
         return error("Invalid record");
-      Type *Ty = getTypeByID(Record[0]);
+      unsigned OpNum = 0;
+      Type *Ty = getTypeByID(Record[OpNum++]);
       if (!Ty)
         return error("Invalid record");
-      auto *PTy = dyn_cast<PointerType>(Ty);
-      if (!PTy)
-        return error("Invalid type for value");
 
-      auto *NewGA =
-          GlobalAlias::create(PTy, getDecodedLinkage(Record[2]), "", TheModule);
+      unsigned AddrSpace;
+      if (!NewRecord) {
+        auto *PTy = dyn_cast<PointerType>(Ty);
+        if (!PTy)
+          return error("Invalid type for value");
+        Ty = PTy->getElementType();
+        AddrSpace = PTy->getAddressSpace();
+      } else {
+        AddrSpace = Record[OpNum++];
+      }
+
+      auto Val = Record[OpNum++];
+      auto Linkage = Record[OpNum++];
+      auto *NewGA = GlobalAlias::create(
+          Ty, AddrSpace, getDecodedLinkage(Linkage), "", TheModule);
       // Old bitcode files didn't have visibility field.
       // Local linkage must have default visibility.
-      if (Record.size() > 3 && !NewGA->hasLocalLinkage())
-        // FIXME: Change to an error if non-default in 4.0.
-        NewGA->setVisibility(getDecodedVisibility(Record[3]));
-      if (Record.size() > 4)
-        NewGA->setDLLStorageClass(getDecodedDLLStorageClass(Record[4]));
+      if (OpNum != Record.size()) {
+        auto VisInd = OpNum++;
+        if (!NewGA->hasLocalLinkage())
+          // FIXME: Change to an error if non-default in 4.0.
+          NewGA->setVisibility(getDecodedVisibility(Record[VisInd]));
+      }
+      if (OpNum != Record.size())
+        NewGA->setDLLStorageClass(getDecodedDLLStorageClass(Record[OpNum++]));
       else
-        upgradeDLLImportExportLinkage(NewGA, Record[2]);
-      if (Record.size() > 5)
-        NewGA->setThreadLocalMode(getDecodedThreadLocalMode(Record[5]));
-      if (Record.size() > 6)
-        NewGA->setUnnamedAddr(Record[6]);
+        upgradeDLLImportExportLinkage(NewGA, Linkage);
+      if (OpNum != Record.size())
+        NewGA->setThreadLocalMode(getDecodedThreadLocalMode(Record[OpNum++]));
+      if (OpNum != Record.size())
+        NewGA->setUnnamedAddr(Record[OpNum++]);
       ValueList.push_back(NewGA);
-      AliasInits.push_back(std::make_pair(NewGA, Record[1]));
+      AliasInits.push_back(std::make_pair(NewGA, Val));
       break;
     }
     /// MODULE_CODE_PURGEVALS: [numvals]
@@ -3183,6 +3365,12 @@ std::error_code BitcodeReader::parseModule(bool Resume,
       if (Record.size() < 1 || Record[0] > ValueList.size())
         return error("Invalid record");
       ValueList.shrinkTo(Record[0]);
+      break;
+    /// MODULE_CODE_VSTOFFSET: [offset]
+    case bitc::MODULE_CODE_VSTOFFSET:
+      if (Record.size() < 1)
+        return error("Invalid record");
+      VSTOffset = Record[0];
       break;
     }
     Record.clear();
@@ -3410,6 +3598,8 @@ std::error_code BitcodeReader::parseFunctionBody(Function *F) {
       return &FunctionBBs[CurBBNo - 1]->back();
     return nullptr;
   };
+
+  std::vector<OperandBundleDef> OperandBundles;
 
   // Read all the records.
   SmallVector<uint64_t, 64> Record;
@@ -3999,6 +4189,25 @@ std::error_code BitcodeReader::parseFunctionBody(Function *F) {
       InstructionList.push_back(I);
       break;
     }
+    case bitc::FUNC_CODE_INST_CLEANUPENDPAD: { // CLEANUPENDPADINST: [val] or [val,bb#]
+      if (Record.size() != 1 && Record.size() != 2)
+        return error("Invalid record");
+      unsigned Idx = 0;
+      Value *CleanupPad = getValue(Record, Idx++, NextValueNo,
+                                   Type::getTokenTy(Context), OC_CleanupPad);
+      if (!CleanupPad)
+        return error("Invalid record");
+
+      BasicBlock *BB = nullptr;
+      if (Record.size() == 2) {
+        BB = getBasicBlock(Record[Idx++]);
+        if (!BB)
+          return error("Invalid record");
+      }
+      I = CleanupEndPadInst::Create(cast<CleanupPadInst>(CleanupPad), BB);
+      InstructionList.push_back(I);
+      break;
+    }
     case bitc::FUNC_CODE_INST_SWITCH: { // SWITCH: [opty, op0, op1, ...]
       // Check magic
       if ((Record[0] >> 16) == SWITCH_INST_MAGIC) {
@@ -4161,7 +4370,8 @@ std::error_code BitcodeReader::parseFunctionBody(Function *F) {
         }
       }
 
-      I = InvokeInst::Create(Callee, NormalBB, UnwindBB, Ops);
+      I = InvokeInst::Create(Callee, NormalBB, UnwindBB, Ops, OperandBundles);
+      OperandBundles.clear();
       InstructionList.push_back(I);
       cast<InvokeInst>(I)
           ->setCallingConv(static_cast<CallingConv::ID>(~(1U << 13) & CCInfo));
@@ -4544,7 +4754,8 @@ std::error_code BitcodeReader::parseFunctionBody(Function *F) {
         }
       }
 
-      I = CallInst::Create(FTy, Callee, Args);
+      I = CallInst::Create(FTy, Callee, Args, OperandBundles);
+      OperandBundles.clear();
       InstructionList.push_back(I);
       cast<CallInst>(I)->setCallingConv(
           static_cast<CallingConv::ID>((~(1U << 14) & CCInfo) >> 1));
@@ -4569,6 +4780,30 @@ std::error_code BitcodeReader::parseFunctionBody(Function *F) {
       InstructionList.push_back(I);
       break;
     }
+
+    case bitc::FUNC_CODE_OPERAND_BUNDLE: {
+      // A call or an invoke can be optionally prefixed with some variable
+      // number of operand bundle blocks.  These blocks are read into
+      // OperandBundles and consumed at the next call or invoke instruction.
+
+      if (Record.size() < 1 || Record[0] >= BundleTags.size())
+        return error("Invalid record");
+
+      OperandBundles.emplace_back();
+      OperandBundles.back().Tag = BundleTags[Record[0]];
+
+      std::vector<Value *> &Inputs = OperandBundles.back().Inputs;
+
+      unsigned OpNum = 1;
+      while (OpNum != Record.size()) {
+        Value *Op;
+        if (getValueTypePair(Record, OpNum, NextValueNo, Op))
+          return error("Invalid record");
+        Inputs.push_back(Op);
+      }
+
+      continue;
+    }
     }
 
     // Add instruction to end of current BB.  If there is no current BB, reject
@@ -4576,6 +4811,10 @@ std::error_code BitcodeReader::parseFunctionBody(Function *F) {
     if (!CurBB) {
       delete I;
       return error("Invalid instruction with no BB");
+    }
+    if (!OperandBundles.empty()) {
+      delete I;
+      return error("Operand bundles found with no consumer");
     }
     CurBB->getInstList().push_back(I);
 
@@ -4592,6 +4831,9 @@ std::error_code BitcodeReader::parseFunctionBody(Function *F) {
   }
 
 OutOfRecordLoop:
+
+  if (!OperandBundles.empty())
+    return error("Operand bundles found with no consumer");
 
   // Check the function list for unresolved values.
   if (Argument *A = dyn_cast<Argument>(ValueList.back())) {
@@ -4622,6 +4864,11 @@ std::error_code BitcodeReader::findFunctionInStream(
     Function *F,
     DenseMap<Function *, uint64_t>::iterator DeferredFunctionInfoIterator) {
   while (DeferredFunctionInfoIterator->second == 0) {
+    // This is the fallback handling for the old format bitcode that
+    // didn't contain the function index in the VST. Assert if we end up
+    // here for the new format (which is the only time the VSTOffset would
+    // be non-zero).
+    assert(VSTOffset == 0);
     if (Stream.AtEndOfStream())
       return error("Could not find function in stream");
     // ParseModule will parse the next body in the stream and set its

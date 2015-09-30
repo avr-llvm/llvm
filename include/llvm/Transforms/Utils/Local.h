@@ -15,6 +15,7 @@
 #ifndef LLVM_TRANSFORMS_UTILS_LOCAL_H
 #define LLVM_TRANSFORMS_UTILS_LOCAL_H
 
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
@@ -40,7 +41,6 @@ class DataLayout;
 class TargetLibraryInfo;
 class TargetTransformInfo;
 class DIBuilder;
-class AliasAnalysis;
 class DominatorTree;
 
 template<typename T> class SmallVectorImpl;
@@ -277,6 +277,14 @@ DbgDeclareInst *FindAllocaDbgDeclare(Value *V);
 bool replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
                                 DIBuilder &Builder, bool Deref);
 
+/// Replace 'BB's terminator with one that does not have an unwind successor
+/// block.  Rewrites `invoke` to `call`, `catchendpad unwind label %foo` to
+/// `catchendpad unwind to caller`, etc.  Updates any PHIs in unwind successor.
+///
+/// \param BB  Block whose terminator will be replaced.  Its terminator must
+///            have an unwind successor.
+void removeUnwindEdge(BasicBlock *BB);
+
 /// \brief Remove all blocks that can not be reached from the function's entry.
 ///
 /// Returns true if any basic block was removed.
@@ -291,6 +299,10 @@ void combineMetadata(Instruction *K, const Instruction *J, ArrayRef<unsigned> Kn
 /// the given edge.  Returns the number of replacements made.
 unsigned replaceDominatedUsesWith(Value *From, Value *To, DominatorTree &DT,
                                   const BasicBlockEdge &Edge);
+/// \brief Replace each use of 'From' with 'To' if that use is dominated by
+/// the given BasicBlock. Returns the number of replacements made.
+unsigned replaceDominatedUsesWith(Value *From, Value *To, DominatorTree &DT,
+                                  const BasicBlock *BB);
 } // End llvm namespace
 
 #endif

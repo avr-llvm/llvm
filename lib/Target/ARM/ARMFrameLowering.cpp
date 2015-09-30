@@ -488,7 +488,8 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
 
   if (NumBytes) {
     // Adjust SP after all the callee-save spills.
-    if (tryFoldSPUpdateIntoPushPop(STI, MF, LastPush, NumBytes))
+    if (AFI->getNumAlignedDPRCS2Regs() == 0 &&
+        tryFoldSPUpdateIntoPushPop(STI, MF, LastPush, NumBytes))
       DefCFAOffsetCandidates.addExtraBytes(LastPush, NumBytes);
     else {
       emitSPUpdate(isARM, MBB, MBBI, dl, TII, -NumBytes,
@@ -1885,7 +1886,7 @@ void ARMFrameLowering::adjustForSegmentedStacks(
   for (int Idx = 0; Idx < NbAddedBlocks; ++Idx)
     BeforePrologueRegion.insert(AddedBlocks[Idx]);
 
-  for (unsigned LI : PrologueMBB.liveins()) {
+  for (const auto &LI : PrologueMBB.liveins()) {
     for (MachineBasicBlock *PredBB : BeforePrologueRegion)
       PredBB->addLiveIn(LI);
   }

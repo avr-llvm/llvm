@@ -187,6 +187,21 @@ namespace opts {
   MachODataInCode("macho-data-in-code",
                   cl::desc("Display MachO Data in Code command"));
 
+  // -macho-indirect-symbols
+  cl::opt<bool>
+  MachOIndirectSymbols("macho-indirect-symbols",
+                  cl::desc("Display MachO indirect symbols"));
+
+  // -macho-linker-options
+  cl::opt<bool>
+  MachOLinkerOptions("macho-linker-options",
+                  cl::desc("Display MachO linker options"));
+
+  // -macho-segment
+  cl::opt<bool>
+  MachOSegment("macho-segment",
+                  cl::desc("Display MachO Segment command"));
+
   // -macho-version-min
   cl::opt<bool>
   MachOVersionMin("macho-version-min",
@@ -331,6 +346,12 @@ static void dumpObject(const ObjectFile *Obj) {
   if (Obj->isMachO()) {
     if (opts::MachODataInCode)
       Dumper->printMachODataInCode();
+    if (opts::MachOIndirectSymbols)
+      Dumper->printMachOIndirectSymbols();
+    if (opts::MachOLinkerOptions)
+      Dumper->printMachOLinkerOptions();
+    if (opts::MachOSegment)
+      Dumper->printMachOSegment();
     if (opts::MachOVersionMin)
       Dumper->printMachOVersionMin();
     if (opts::MachODysymtab)
@@ -373,11 +394,6 @@ static void dumpMachOUniversalBinary(const MachOUniversalBinary *UBinary) {
 
 /// @brief Opens \a File and dumps it.
 static void dumpInput(StringRef File) {
-  // If file isn't stdin, check that it exists.
-  if (File != "-" && !sys::fs::exists(File)) {
-    reportError(File, readobj_error::file_not_found);
-    return;
-  }
 
   // Attempt to open the binary.
   ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(File);

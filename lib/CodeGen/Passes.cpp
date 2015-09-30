@@ -226,6 +226,10 @@ TargetPassConfig::TargetPassConfig(TargetMachine *tm, PassManagerBase &pm)
   // including this pass itself.
   initializeCodeGen(*PassRegistry::getPassRegistry());
 
+  // Also register alias analysis passes required by codegen passes.
+  initializeBasicAAWrapperPassPass(*PassRegistry::getPassRegistry());
+  initializeAAResultsWrapperPassPass(*PassRegistry::getPassRegistry());
+
   // Substitute Pseudo Pass IDs for real ones.
   substitutePass(&EarlyTailDuplicateID, &TailDuplicateID);
   substitutePass(&PostRAMachineLICMID, &MachineLICMID);
@@ -381,10 +385,10 @@ void TargetPassConfig::addIRPasses() {
   // BasicAliasAnalysis wins if they disagree. This is intended to help
   // support "obvious" type-punning idioms.
   if (UseCFLAA)
-    addPass(createCFLAliasAnalysisPass());
-  addPass(createTypeBasedAliasAnalysisPass());
-  addPass(createScopedNoAliasAAPass());
-  addPass(createBasicAliasAnalysisPass());
+    addPass(createCFLAAWrapperPass());
+  addPass(createTypeBasedAAWrapperPass());
+  addPass(createScopedNoAliasAAWrapperPass());
+  addPass(createBasicAAWrapperPass());
 
   // Before running any passes, run the verifier to determine if the input
   // coming from the front-end and/or optimizer is valid.
@@ -462,7 +466,7 @@ void TargetPassConfig::addISelPrepare() {
 
   // Add both the safe stack and the stack protection passes: each of them will
   // only protect functions that have corresponding attributes.
-  addPass(createSafeStackPass());
+  addPass(createSafeStackPass(TM));
   addPass(createStackProtectorPass(TM));
 
   if (PrintISelInput)
@@ -577,6 +581,8 @@ void TargetPassConfig::addMachinePasses() {
     addBlockPlacement();
 
   addPreEmitPass();
+
+  addPass(&FuncletLayoutID, false);
 
   addPass(&StackMapLivenessID, false);
 
@@ -704,7 +710,8 @@ void TargetPassConfig::addFastRegAlloc(FunctionPass *RegAllocPass) {
   addPass(&PHIEliminationID, false);
   addPass(&TwoAddressInstructionPassID, false);
 
-  addPass(RegAllocPass);
+  if (RegAllocPass)
+    addPass(RegAllocPass);
 }
 
 /// Add standard target-independent passes that are tightly coupled with
@@ -735,25 +742,27 @@ void TargetPassConfig::addOptimizedRegAlloc(FunctionPass *RegAllocPass) {
   // PreRA instruction scheduling.
   addPass(&MachineSchedulerID);
 
-  // Add the selected register allocation pass.
-  addPass(RegAllocPass);
+  if (RegAllocPass) {
+    // Add the selected register allocation pass.
+    addPass(RegAllocPass);
 
-  // Allow targets to change the register assignments before rewriting.
-  addPreRewrite();
+    // Allow targets to change the register assignments before rewriting.
+    addPreRewrite();
 
-  // Finally rewrite virtual registers.
-  addPass(&VirtRegRewriterID);
+    // Finally rewrite virtual registers.
+    addPass(&VirtRegRewriterID);
 
-  // Perform stack slot coloring and post-ra machine LICM.
-  //
-  // FIXME: Re-enable coloring with register when it's capable of adding
-  // kill markers.
-  addPass(&StackSlotColoringID);
+    // Perform stack slot coloring and post-ra machine LICM.
+    //
+    // FIXME: Re-enable coloring with register when it's capable of adding
+    // kill markers.
+    addPass(&StackSlotColoringID);
 
-  // Run post-ra machine LICM to hoist reloads / remats.
-  //
-  // FIXME: can this move into MachineLateOptimization?
-  addPass(&PostRAMachineLICMID);
+    // Run post-ra machine LICM to hoist reloads / remats.
+    //
+    // FIXME: can this move into MachineLateOptimization?
+    addPass(&PostRAMachineLICMID);
+  }
 }
 
 //===---------------------------------------------------------------------===//

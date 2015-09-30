@@ -710,6 +710,11 @@ void WinCOFFObjectWriter::recordRelocation(
     Asm.getContext().reportFatalError(Fixup.getLoc(),
                                       Twine("symbol '") + A.getName() +
                                           "' can not be undefined");
+  if (A.isTemporary() && A.isUndefined()) {
+    Asm.getContext().reportFatalError(Fixup.getLoc(),
+                                      Twine("assembler label '") + A.getName() +
+                                          "' can not be undefined");
+  }
 
   MCSection *Section = Fragment->getParent();
 
@@ -1013,12 +1018,17 @@ void WinCOFFObjectWriter::writeObject(MCAssembler &Asm,
 
   Header.PointerToSymbolTable = offset;
 
+#if (ENABLE_TIMESTAMPS == 1)
   // MS LINK expects to be able to use this timestamp to implement their
   // /INCREMENTAL feature.
   std::time_t Now = time(nullptr);
-  if (Now < 0 || Now > UINT32_MAX)
+  if (Now < 0 || !isUInt<32>(Now))
     Now = UINT32_MAX;
   Header.TimeDateStamp = Now;
+#else
+  // We want a deterministic output. It looks like GNU as also writes 0 in here.
+  Header.TimeDateStamp = 0;
+#endif
 
   // Write it all to disk...
   WriteFileHeader(Header);

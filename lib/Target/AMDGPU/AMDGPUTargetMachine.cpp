@@ -14,6 +14,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "AMDGPUTargetMachine.h"
+#include "AMDGPUHSATargetObjectFile.h"
 #include "AMDGPU.h"
 #include "AMDGPUTargetTransformInfo.h"
 #include "R600ISelLowering.h"
@@ -41,6 +42,13 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   // Register the target
   RegisterTargetMachine<R600TargetMachine> X(TheAMDGPUTarget);
   RegisterTargetMachine<GCNTargetMachine> Y(TheGCNTarget);
+}
+
+static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
+  if (TT.getOS() == Triple::AMDHSA)
+    return make_unique<AMDGPUHSATargetObjectFile>();
+
+  return make_unique<TargetLoweringObjectFileELF>();
 }
 
 static ScheduleDAGInstrs *createR600MachineScheduler(MachineSchedContext *C) {
@@ -72,15 +80,13 @@ AMDGPUTargetMachine::AMDGPUTargetMachine(const Target &T, const Triple &TT,
                                          CodeGenOpt::Level OptLevel)
     : LLVMTargetMachine(T, computeDataLayout(TT), TT, CPU, FS, Options, RM, CM,
                         OptLevel),
-      TLOF(new TargetLoweringObjectFileELF()), Subtarget(TT, CPU, FS, *this),
+      TLOF(createTLOF(getTargetTriple())), Subtarget(TT, CPU, FS, *this),
       IntrinsicInfo() {
   setRequiresStructuredCFG(true);
   initAsmInfo();
 }
 
-AMDGPUTargetMachine::~AMDGPUTargetMachine() {
-  delete TLOF;
-}
+AMDGPUTargetMachine::~AMDGPUTargetMachine() { }
 
 //===----------------------------------------------------------------------===//
 // R600 Target Machine (R600 -> Cayman)
@@ -110,7 +116,13 @@ namespace {
 class AMDGPUPassConfig : public TargetPassConfig {
 public:
   AMDGPUPassConfig(TargetMachine *TM, PassManagerBase &PM)
-    : TargetPassConfig(TM, PM) {}
+    : TargetPassConfig(TM, PM) {
+
+    // Exceptions and StackMaps are not supported, so these passes will never do
+    // anything.
+    disablePass(&StackMapLivenessID);
+    disablePass(&FuncletLayoutID);
+  }
 
   AMDGPUTargetMachine &getAMDGPUTargetMachine() const {
     return getTM<AMDGPUTargetMachine>();
@@ -126,8 +138,9 @@ public:
 
   void addIRPasses() override;
   void addCodeGenPrepare() override;
-  virtual bool addPreISel() override;
-  virtual bool addInstSelector() override;
+  bool addPreISel() override;
+  bool addInstSelector() override;
+  bool addGCPasses() override;
 };
 
 class R600PassConfig : public AMDGPUPassConfig {
@@ -156,7 +169,7 @@ public:
 } // End of anonymous namespace
 
 TargetIRAnalysis AMDGPUTargetMachine::getTargetIRAnalysis() {
-  return TargetIRAnalysis([this](Function &F) {
+  return TargetIRAnalysis([this](const Function &F) {
     return TargetTransformInfo(
         AMDGPUTTIImpl(this, F.getParent()->getDataLayout()));
   });
@@ -197,6 +210,11 @@ AMDGPUPassConfig::addPreISel() {
 
 bool AMDGPUPassConfig::addInstSelector() {
   addPass(createAMDGPUISelDag(getAMDGPUTargetMachine()));
+  return false;
+}
+
+bool AMDGPUPassConfig::addGCPasses() {
+  // Do nothing. GC is not supported.
   return false;
 }
 

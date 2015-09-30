@@ -40,10 +40,6 @@ public:
                            unsigned FIOperandNum,
                            RegScavenger *RS) const override;
 
-  /// \brief get the register class of the specified type to use in the
-  /// CFGStructurizer
-  const TargetRegisterClass * getCFGStructurizerRegClass(MVT VT) const override;
-
   unsigned getHWRegIndex(unsigned Reg) const override;
 
   /// \brief Return the 'base' register class for this register.
@@ -52,17 +48,11 @@ public:
 
   /// \returns true if this class contains only SGPR registers
   bool isSGPRClass(const TargetRegisterClass *RC) const {
-    if (!RC)
-      return false;
-
     return !hasVGPRs(RC);
   }
 
   /// \returns true if this class ID contains only SGPR registers
   bool isSGPRClassID(unsigned RCID) const {
-    if (static_cast<int>(RCID) == -1)
-      return false;
-
     return isSGPRClass(getRegClass(RCID));
   }
 
@@ -78,6 +68,11 @@ public:
   /// be returned.
   const TargetRegisterClass *getSubRegClass(const TargetRegisterClass *RC,
                                             unsigned SubIdx) const;
+
+  bool shouldRewriteCopySrc(const TargetRegisterClass *DefRC,
+                            unsigned DefSubReg,
+                            const TargetRegisterClass *SrcRC,
+                            unsigned SrcSubReg) const override;
 
   /// \p Channel This is the register channel (e.g. a value from 0-16), not the
   ///            SubReg index.

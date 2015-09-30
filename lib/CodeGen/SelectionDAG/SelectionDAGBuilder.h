@@ -17,6 +17,7 @@
 #include "StatepointLowering.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
@@ -30,7 +31,6 @@
 namespace llvm {
 
 class AddrSpaceCastInst;
-class AliasAnalysis;
 class AllocaInst;
 class BasicBlock;
 class BitCastInst;
@@ -710,7 +710,7 @@ public:
   void CopyToExportRegsIfNeeded(const Value *V);
   void ExportFromCurrentBlock(const Value *V);
   void LowerCallTo(ImmutableCallSite CS, SDValue Callee, bool IsTailCall,
-                   MachineBasicBlock *LandingPad = nullptr);
+                   const BasicBlock *EHPadBB = nullptr);
 
   std::pair<SDValue, SDValue> lowerCallOperands(
           ImmutableCallSite CS,
@@ -718,7 +718,7 @@ public:
           unsigned NumArgs,
           SDValue Callee,
           Type *ReturnTy,
-          MachineBasicBlock *LandingPad = nullptr,
+          const BasicBlock *EHPadBB = nullptr,
           bool IsPatchPoint = false);
 
   /// UpdateSplitBlock - When an MBB was split during scheduling, update the
@@ -728,11 +728,11 @@ public:
   // This function is responsible for the whole statepoint lowering process.
   // It uniformly handles invoke and call statepoints.
   void LowerStatepoint(ImmutableStatepoint Statepoint,
-                       MachineBasicBlock *LandingPad = nullptr);
+                       const BasicBlock *EHPadBB = nullptr);
 private:
-  std::pair<SDValue, SDValue> lowerInvokable(
-          TargetLowering::CallLoweringInfo &CLI,
-          MachineBasicBlock *LandingPad);
+  std::pair<SDValue, SDValue>
+  lowerInvokable(TargetLowering::CallLoweringInfo &CLI,
+                 const BasicBlock *EHPadBB = nullptr);
 
   // Terminator instructions.
   void visitRet(const ReturnInst &I);
@@ -740,6 +740,7 @@ private:
   void visitSwitch(const SwitchInst &I);
   void visitIndirectBr(const IndirectBrInst &I);
   void visitUnreachable(const UnreachableInst &I);
+  void visitCleanupEndPad(const CleanupEndPadInst &I);
   void visitCleanupRet(const CleanupReturnInst &I);
   void visitCatchEndPad(const CatchEndPadInst &I);
   void visitCatchRet(const CatchReturnInst &I);
@@ -854,7 +855,7 @@ private:
   void visitVACopy(const CallInst &I);
   void visitStackmap(const CallInst &I);
   void visitPatchpoint(ImmutableCallSite CS,
-                       MachineBasicBlock *LandingPad = nullptr);
+                       const BasicBlock *EHPadBB = nullptr);
 
   // These three are implemented in StatepointLowering.cpp
   void visitStatepoint(const CallInst &I);

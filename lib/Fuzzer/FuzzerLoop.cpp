@@ -136,6 +136,8 @@ void Fuzzer::ShuffleAndMinimize() {
       U.clear();
       size_t Last = std::min(First + Options.MaxLen, C.size());
       U.insert(U.begin(), C.begin() + First, C.begin() + Last);
+      if (Options.OnlyASCII)
+        ToASCII(U);
       size_t NewCoverage = RunOne(U);
       if (NewCoverage) {
         MaxCov = NewCoverage;
@@ -256,11 +258,7 @@ void Fuzzer::WriteToOutputCorpus(const Unit &U) {
   WriteToFile(U, Path);
   if (Options.Verbosity >= 2)
     Printf("Written to %s\n", Path.c_str());
-#ifdef DEBUG
-  if (Options.OnlyASCII)
-    for (auto X : U)
-      assert(isprint(X) || isspace(X));
-#endif
+  assert(!Options.OnlyASCII || IsASCII(U));
 }
 
 void Fuzzer::WriteUnitToFileWithPrefix(const Unit &U, const char *Prefix) {
@@ -329,30 +327,34 @@ void Fuzzer::MutateAndTestOne(Unit *U) {
   }
 }
 
-void Fuzzer::Loop(size_t NumIterations) {
-  for (size_t i = 1; i <= NumIterations; i++) {
+void Fuzzer::Loop() {
+  for (auto &U: Options.Dictionary)
+    USF.GetMD().AddWordToDictionary(U.data(), U.size());
+
+  while (true) {
     for (size_t J1 = 0; J1 < Corpus.size(); J1++) {
       SyncCorpus();
       RereadOutputCorpus();
       if (TotalNumberOfRuns >= Options.MaxNumberOfRuns)
         return;
-      // First, simply mutate the unit w/o doing crosses.
       CurrentUnit = Corpus[J1];
-      MutateAndTestOne(&CurrentUnit);
-      // Now, cross with others.
-      if (Options.DoCrossOver && !Corpus[J1].empty()) {
-        for (size_t J2 = 0; J2 < Corpus.size(); J2++) {
+      // Optionally, cross with another unit.
+      if (Options.DoCrossOver && USF.GetRand().RandBool()) {
+        size_t J2 = USF.GetRand()(Corpus.size());
+        if (!Corpus[J1].empty() && !Corpus[J2].empty()) {
+          assert(!Corpus[J2].empty());
           CurrentUnit.resize(Options.MaxLen);
           size_t NewSize = USF.CrossOver(
               Corpus[J1].data(), Corpus[J1].size(), Corpus[J2].data(),
               Corpus[J2].size(), CurrentUnit.data(), CurrentUnit.size());
           assert(NewSize > 0 && "CrossOver returned empty unit");
           assert(NewSize <= (size_t)Options.MaxLen &&
-                 "CrossOver return overisized unit");
+                 "CrossOver returned overisized unit");
           CurrentUnit.resize(NewSize);
-          MutateAndTestOne(&CurrentUnit);
         }
       }
+      // Perform several mutations and runs.
+      MutateAndTestOne(&CurrentUnit);
     }
   }
 }

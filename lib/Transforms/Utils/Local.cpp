@@ -17,6 +17,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/InstructionSimplify.h"
@@ -419,6 +420,49 @@ bool llvm::RecursivelyDeleteDeadPHINode(PHINode *PN,
   return false;
 }
 
+static bool
+simplifyAndDCEInstruction(Instruction *I,
+                          SmallSetVector<Instruction *, 16> &WorkList,
+                          const DataLayout &DL,
+                          const TargetLibraryInfo *TLI) {
+  if (isInstructionTriviallyDead(I, TLI)) {
+    // Null out all of the instruction's operands to see if any operand becomes
+    // dead as we go.
+    for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i) {
+      Value *OpV = I->getOperand(i);
+      I->setOperand(i, nullptr);
+
+      if (!OpV->use_empty() || I == OpV)
+        continue;
+
+      // If the operand is an instruction that became dead as we nulled out the
+      // operand, and if it is 'trivially' dead, delete it in a future loop
+      // iteration.
+      if (Instruction *OpI = dyn_cast<Instruction>(OpV))
+        if (isInstructionTriviallyDead(OpI, TLI))
+          WorkList.insert(OpI);
+    }
+
+    I->eraseFromParent();
+
+    return true;
+  }
+
+  if (Value *SimpleV = SimplifyInstruction(I, DL)) {
+    // Add the users to the worklist. CAREFUL: an instruction can use itself,
+    // in the case of a phi node.
+    for (User *U : I->users())
+      if (U != I)
+        WorkList.insert(cast<Instruction>(U));
+
+    // Replace the instruction with its simplified value.
+    I->replaceAllUsesWith(SimpleV);
+    I->eraseFromParent();
+    return true;
+  }
+  return false;
+}
+
 /// SimplifyInstructionsInBlock - Scan the specified basic block and try to
 /// simplify any instructions in it and recursively delete dead instructions.
 ///
@@ -427,6 +471,7 @@ bool llvm::RecursivelyDeleteDeadPHINode(PHINode *PN,
 bool llvm::SimplifyInstructionsInBlock(BasicBlock *BB,
                                        const TargetLibraryInfo *TLI) {
   bool MadeChange = false;
+  const DataLayout &DL = BB->getModule()->getDataLayout();
 
 #ifndef NDEBUG
   // In debug builds, ensure that the terminator of the block is never replaced
@@ -436,21 +481,24 @@ bool llvm::SimplifyInstructionsInBlock(BasicBlock *BB,
   AssertingVH<Instruction> TerminatorVH(--BB->end());
 #endif
 
-  for (BasicBlock::iterator BI = BB->begin(), E = --BB->end(); BI != E; ) {
+  SmallSetVector<Instruction *, 16> WorkList;
+  // Iterate over the original function, only adding insts to the worklist
+  // if they actually need to be revisited. This avoids having to pre-init
+  // the worklist with the entire function's worth of instructions.
+  for (BasicBlock::iterator BI = BB->begin(), E = std::prev(BB->end()); BI != E;) {
     assert(!BI->isTerminator());
-    Instruction *Inst = BI++;
+    Instruction *I = &*BI;
+    ++BI;
 
-    WeakVH BIHandle(BI);
-    if (recursivelySimplifyInstruction(Inst, TLI)) {
-      MadeChange = true;
-      if (BIHandle != BI)
-        BI = BB->begin();
-      continue;
-    }
+    // We're visiting this instruction now, so make sure it's not in the
+    // worklist from an earlier visit.
+    if (!WorkList.count(I))
+      MadeChange |= simplifyAndDCEInstruction(I, WorkList, DL, TLI);
+  }
 
-    MadeChange |= RecursivelyDeleteTriviallyDeadInstructions(Inst, TLI);
-    if (BIHandle != BI)
-      BI = BB->begin();
+  while (!WorkList.empty()) {
+    Instruction *I = WorkList.pop_back_val();
+    MadeChange |= simplifyAndDCEInstruction(I, WorkList, DL, TLI);
   }
   return MadeChange;
 }
@@ -874,6 +922,11 @@ bool llvm::EliminateDuplicatePHINodes(BasicBlock *BB) {
       PN->replaceAllUsesWith(*Inserted.first);
       PN->eraseFromParent();
       Changed = true;
+
+      // The RAUW can change PHIs that we already visited. Start over from the
+      // beginning.
+      PHISet.clear();
+      I = BB->begin();
     }
   }
 
@@ -1104,10 +1157,10 @@ bool llvm::replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
     DIExpr = Builder.createExpression(NewDIExpr);
   }
 
-  // Insert llvm.dbg.declare in the same basic block as the original alloca,
-  // and remove old llvm.dbg.declare.
-  BasicBlock *BB = AI->getParent();
-  Builder.insertDeclare(NewAllocaAddress, DIVar, DIExpr, Loc, BB);
+  // Insert llvm.dbg.declare immediately after the original alloca, and remove
+  // old llvm.dbg.declare.
+  Builder.insertDeclare(NewAllocaAddress, DIVar, DIExpr, Loc,
+                        AI->getNextNode());
   DDI->eraseFromParent();
   return true;
 }
@@ -1253,6 +1306,43 @@ static bool markAliveBlocks(Function &F,
   return Changed;
 }
 
+void llvm::removeUnwindEdge(BasicBlock *BB) {
+  TerminatorInst *TI = BB->getTerminator();
+
+  if (auto *II = dyn_cast<InvokeInst>(TI)) {
+    changeToCall(II);
+    return;
+  }
+
+  TerminatorInst *NewTI;
+  BasicBlock *UnwindDest;
+
+  if (auto *CRI = dyn_cast<CleanupReturnInst>(TI)) {
+    NewTI = CleanupReturnInst::Create(CRI->getCleanupPad(), nullptr, CRI);
+    UnwindDest = CRI->getUnwindDest();
+  } else if (auto *CEP = dyn_cast<CleanupEndPadInst>(TI)) {
+    NewTI = CleanupEndPadInst::Create(CEP->getCleanupPad(), nullptr, CEP);
+    UnwindDest = CEP->getUnwindDest();
+  } else if (auto *CEP = dyn_cast<CatchEndPadInst>(TI)) {
+    NewTI = CatchEndPadInst::Create(CEP->getContext(), nullptr, CEP);
+    UnwindDest = CEP->getUnwindDest();
+  } else if (auto *TPI = dyn_cast<TerminatePadInst>(TI)) {
+    SmallVector<Value *, 3> TerminatePadArgs;
+    for (Value *Operand : TPI->arg_operands())
+      TerminatePadArgs.push_back(Operand);
+    NewTI = TerminatePadInst::Create(TPI->getContext(), nullptr,
+                                     TerminatePadArgs, TPI);
+    UnwindDest = TPI->getUnwindDest();
+  } else {
+    llvm_unreachable("Could not find unwind successor");
+  }
+
+  NewTI->takeName(TI);
+  NewTI->setDebugLoc(TI->getDebugLoc());
+  UnwindDest->removePredecessor(BB);
+  TI->eraseFromParent();
+}
+
 /// removeUnreachableBlocksFromFn - Remove blocks that are not reachable, even
 /// if they are in a dead cycle.  Return true if a change was made, false
 /// otherwise.
@@ -1344,6 +1434,26 @@ unsigned llvm::replaceDominatedUsesWith(Value *From, Value *To,
       DEBUG(dbgs() << "Replace dominated use of '"
             << From->getName() << "' as "
             << *To << " in " << *U << "\n");
+      ++Count;
+    }
+  }
+  return Count;
+}
+
+unsigned llvm::replaceDominatedUsesWith(Value *From, Value *To,
+                                        DominatorTree &DT,
+                                        const BasicBlock *BB) {
+  assert(From->getType() == To->getType());
+
+  unsigned Count = 0;
+  for (Value::use_iterator UI = From->use_begin(), UE = From->use_end();
+       UI != UE;) {
+    Use &U = *UI++;
+    auto *I = cast<Instruction>(U.getUser());
+    if (DT.dominates(BB, I->getParent())) {
+      U.set(To);
+      DEBUG(dbgs() << "Replace dominated use of '" << From->getName() << "' as "
+                   << *To << " in " << *U << "\n");
       ++Count;
     }
   }
