@@ -160,7 +160,7 @@ namespace CallingConv {
 
     /// Used for AVR interrupt routines.
     AVR_INTR = 83,
-    
+
     /// AVR_SIGNAL - Used for AVR signal routines.
     AVR_SIGNAL = 84,
 
