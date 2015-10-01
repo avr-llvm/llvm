@@ -2,7 +2,6 @@ language: cpp
 
 compiler:
   - clang
-  - gcc
 
 # Attempt to get the right GCC/Clang versions
 before_script:
