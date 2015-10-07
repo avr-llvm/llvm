@@ -1583,7 +1583,6 @@ int main(int argc, char **argv) {
   // Initialize targets and assembly printers/parsers.
   llvm::InitializeAllTargetInfos();
   llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmParsers();
   llvm::InitializeAllDisassemblers();
 
   // Register the target printer for --version.
