@@ -63,8 +63,8 @@ public: // MCTargetExpr
   
   void visitUsedExpr(MCStreamer& streamer) const override;
   
-  MCSection *findAssociatedSection() const override {
-    return getSubExpr()->findAssociatedSection();
+  MCFragment *findAssociatedFragment() const override {
+    return getSubExpr()->findAssociatedFragment();
   }
 
   void fixELFSymbolsInTLSFixups(MCAssembler &Asm) const override {}
