@@ -1,5 +1,7 @@
 # AVR-LLVM
 
+**Note**: The backend is currently in the process of being merged into LLVM trunk, so development has halted until that is finished.
+
 [![Build Status](https://travis-ci.org/avr-llvm/llvm.svg?branch=avr-support)](https://travis-ci.org/avr-llvm/llvm)
 
 See the [Wiki](https://github.com/avr-llvm/llvm/wiki/Getting%20Started) for more information.
