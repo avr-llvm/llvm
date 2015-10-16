@@ -83,6 +83,8 @@ const char *Triple::getArchTypePrefix(ArchType Kind) {
   
   case avr:         return "avr";
 
+  case avr:         return "avr";
+
   case ppc64:
   case ppc64le:
   case ppc:         return "ppc";
