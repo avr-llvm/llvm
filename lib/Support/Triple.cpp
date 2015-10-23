@@ -80,8 +80,6 @@ const char *Triple::getArchTypePrefix(ArchType Kind) {
   case armeb:
   case thumb:
   case thumbeb:     return "arm";
-  
-  case avr:         return "avr";
 
   case avr:         return "avr";
 
