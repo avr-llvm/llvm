@@ -65,13 +65,10 @@ namespace llvm {
  * We manually set this bit in the post encoder method.
  */
 unsigned
-AVRMCCodeEmitter::loadStorePostEncoder(const MCInst &MI,
-                                       unsigned EncodedValue,
-                                       const MCSubtargetInfo &STI) const
-{
+AVRMCCodeEmitter::loadStorePostEncoder(const MCInst &MI, unsigned EncodedValue,
+                                       const MCSubtargetInfo &STI) const {
 
-  assert(MI.getOperand(0).isReg() &&
-         MI.getOperand(1).isReg() &&
+  assert(MI.getOperand(0).isReg() && MI.getOperand(1).isReg() &&
          "the load/store operands must be registers");
 
   auto opcode = MI.getOpcode();
@@ -80,16 +77,13 @@ AVRMCCodeEmitter::loadStorePostEncoder(const MCInst &MI,
   bool isRegX = (MI.getOperand(0).getReg() == AVR::R27R26) ||
                 (MI.getOperand(1).getReg() == AVR::R27R26);
 
-  bool isPredec = opcode == AVR::LDRdPtrPd ||
-                  opcode == AVR::STPtrPdRr;
+  bool isPredec = opcode == AVR::LDRdPtrPd || opcode == AVR::STPtrPdRr;
 
-  bool isPostinc = opcode == AVR::LDRdPtrPi ||
-                   opcode == AVR::STPtrPiRr;
-
+  bool isPostinc = opcode == AVR::LDRdPtrPi || opcode == AVR::STPtrPiRr;
 
   // check if we need to set the inconsistent bit
-  if(isRegX || isPredec || isPostinc) {
-    EncodedValue |= (1<<12);
+  if (isRegX || isPredec || isPostinc) {
+    EncodedValue |= (1 << 12);
   }
 
   return EncodedValue;
@@ -99,10 +93,9 @@ template <AVR::Fixups Fixup>
 unsigned
 AVRMCCodeEmitter::encodeRelCondBrTarget(const MCInst &MI, unsigned OpNo,
                                         SmallVectorImpl<MCFixup> &Fixups,
-                                        const MCSubtargetInfo &STI) const
-{
-  MCOperand const& MO = MI.getOperand(OpNo);
-  
+                                        const MCSubtargetInfo &STI) const {
+  MCOperand const &MO = MI.getOperand(OpNo);
+
   if (MO.isExpr()) {
     const MCOperand &MO = MI.getOperand(OpNo);
     const MCExpr *Expr = MO.getExpr();
@@ -119,11 +112,9 @@ AVRMCCodeEmitter::encodeRelCondBrTarget(const MCInst &MI, unsigned OpNo,
   return target;
 }
 
-unsigned
-AVRMCCodeEmitter::encodeLDSTPtrReg(const MCInst &MI, unsigned OpNo,
-                                   SmallVectorImpl<MCFixup> &Fixups,
-                                   const MCSubtargetInfo &STI) const
-{
+unsigned AVRMCCodeEmitter::encodeLDSTPtrReg(const MCInst &MI, unsigned OpNo,
+                                            SmallVectorImpl<MCFixup> &Fixups,
+                                            const MCSubtargetInfo &STI) const {
   // the operand should be a pointer register.
   assert(MI.getOperand(OpNo).isReg());
 
@@ -132,10 +123,18 @@ AVRMCCodeEmitter::encodeLDSTPtrReg(const MCInst &MI, unsigned OpNo,
   unsigned encoding;
 
   switch (MO.getReg()) {
-    case AVR::R27R26: encoding = 0x03; break; // X 0b11
-    case AVR::R29R28: encoding = 0x02; break; // Y 0b10
-    case AVR::R31R30: encoding = 0x00; break; // Z 0b00
-    default: llvm_unreachable("invalid pointer register"); break;
+  case AVR::R27R26:
+    encoding = 0x03;
+    break; // X 0b11
+  case AVR::R29R28:
+    encoding = 0x02;
+    break; // Y 0b10
+  case AVR::R31R30:
+    encoding = 0x00;
+    break; // Z 0b00
+  default:
+    llvm_unreachable("invalid pointer register");
+    break;
   }
 
   return encoding;
@@ -145,13 +144,11 @@ AVRMCCodeEmitter::encodeLDSTPtrReg(const MCInst &MI, unsigned OpNo,
 /// The operand is 7-bits.
 /// * The lower 6 bits is the immediate
 /// * The upper bit is the pointer register bit (Z=0,Y=1)
-unsigned
-AVRMCCodeEmitter::encodeMemri(const MCInst &MI, unsigned OpNo,
-                              SmallVectorImpl<MCFixup> &Fixups,
-                              const MCSubtargetInfo &STI) const
-{
+unsigned AVRMCCodeEmitter::encodeMemri(const MCInst &MI, unsigned OpNo,
+                                       SmallVectorImpl<MCFixup> &Fixups,
+                                       const MCSubtargetInfo &STI) const {
   auto RegOp = MI.getOperand(OpNo);
-  auto ImmOp = MI.getOperand(OpNo+1);
+  auto ImmOp = MI.getOperand(OpNo + 1);
 
   assert(RegOp.isReg() && "Expected register operand");
   assert(ImmOp.isImm() && "Expected immediate operand");
@@ -159,20 +156,23 @@ AVRMCCodeEmitter::encodeMemri(const MCInst &MI, unsigned OpNo,
   uint8_t RegBit = 0;
   int8_t ImmBits = ImmOp.getImm();
 
-  switch(RegOp.getReg()) {
-    default: llvm_unreachable("Expected either Y or Z register");
-    case AVR::R31R30: RegBit = 0; break; // Z register
-    case AVR::R29R28: RegBit = 1; break; // Y register
+  switch (RegOp.getReg()) {
+  default:
+    llvm_unreachable("Expected either Y or Z register");
+  case AVR::R31R30:
+    RegBit = 0;
+    break; // Z register
+  case AVR::R29R28:
+    RegBit = 1;
+    break; // Y register
   }
 
-  return (RegBit<<6) | ImmBits;
+  return (RegBit << 6) | ImmBits;
 }
 
-unsigned
-AVRMCCodeEmitter::encodeComplement(const MCInst &MI, unsigned OpNo,
-                                   SmallVectorImpl<MCFixup> &Fixups,
-                                   const MCSubtargetInfo &STI) const
-{
+unsigned AVRMCCodeEmitter::encodeComplement(const MCInst &MI, unsigned OpNo,
+                                            SmallVectorImpl<MCFixup> &Fixups,
+                                            const MCSubtargetInfo &STI) const {
   // The operand should be a pointer register.
   assert(MI.getOperand(OpNo).isImm());
   auto imm = MI.getOperand(OpNo).getImm();
@@ -180,14 +180,12 @@ AVRMCCodeEmitter::encodeComplement(const MCInst &MI, unsigned OpNo,
   return (~0) - imm;
 }
 
-unsigned
-AVRMCCodeEmitter::encodeCallTarget(const MCInst &MI, unsigned OpNo,
-                                   SmallVectorImpl<MCFixup> &Fixups,
-                                   const MCSubtargetInfo &STI) const
-{
+unsigned AVRMCCodeEmitter::encodeCallTarget(const MCInst &MI, unsigned OpNo,
+                                            SmallVectorImpl<MCFixup> &Fixups,
+                                            const MCSubtargetInfo &STI) const {
   auto MO = MI.getOperand(OpNo);
-  
-  if (MO.isExpr()){
+
+  if (MO.isExpr()) {
     MCFixupKind FixupKind = static_cast<MCFixupKind>(AVR::fixup_call);
     Fixups.push_back(MCFixup::create(0, MO.getExpr(), FixupKind, MI.getLoc()));
     return 0;
@@ -200,22 +198,19 @@ AVRMCCodeEmitter::encodeCallTarget(const MCInst &MI, unsigned OpNo,
   return target;
 }
 
+unsigned AVRMCCodeEmitter::getExprOpValue(const MCExpr *Expr,
+                                          SmallVectorImpl<MCFixup> &Fixups,
+                                          const MCSubtargetInfo &STI) const {
 
-unsigned
-AVRMCCodeEmitter::getExprOpValue(const MCExpr *Expr,
-                                 SmallVectorImpl<MCFixup> &Fixups,
-                                 const MCSubtargetInfo &STI) const
-{
-               
   MCExpr::ExprKind Kind = Expr->getKind();
 
   if (Kind == MCExpr::Binary) {
-    Expr = static_cast<const MCBinaryExpr*>(Expr)->getLHS();
+    Expr = static_cast<const MCBinaryExpr *>(Expr)->getLHS();
     Kind = Expr->getKind();
   }
 
-  if(Kind == MCExpr::Target) {
-    AVRMCExpr const* AVRExpr = cast<AVRMCExpr>(Expr);
+  if (Kind == MCExpr::Target) {
+    AVRMCExpr const *AVRExpr = cast<AVRMCExpr>(Expr);
     int64_t Result;
     if (AVRExpr->evaluateAsConstant(Result)) {
       return Result;
@@ -226,67 +221,58 @@ AVRMCCodeEmitter::getExprOpValue(const MCExpr *Expr,
     return 0;
   }
 
-  assert (Kind == MCExpr::SymbolRef);
+  assert(Kind == MCExpr::SymbolRef);
   return 0;
 }
 
-unsigned
-AVRMCCodeEmitter::getMachineOpValue(const MCInst &MI,
-                                    const MCOperand &MO,
-                                    SmallVectorImpl<MCFixup> &Fixups,
-                                    const MCSubtargetInfo &STI) const
-{
+unsigned AVRMCCodeEmitter::getMachineOpValue(const MCInst &MI,
+                                             const MCOperand &MO,
+                                             SmallVectorImpl<MCFixup> &Fixups,
+                                             const MCSubtargetInfo &STI) const {
   if (MO.isReg()) {
     return Ctx.getRegisterInfo()->getEncodingValue(MO.getReg());
   } else if (MO.isImm()) {
     return static_cast<unsigned>(MO.getImm());
   } else if (MO.isFPImm()) {
     return static_cast<unsigned>(APFloat(MO.getFPImm())
-        .bitcastToAPInt().getHiBits(32).getLimitedValue());
+                                     .bitcastToAPInt()
+                                     .getHiBits(32)
+                                     .getLimitedValue());
   }
-  
+
   // MO must be an Expr.
   assert(MO.isExpr());
-  
-  return getExprOpValue(MO.getExpr(),Fixups, STI);
+
+  return getExprOpValue(MO.getExpr(), Fixups, STI);
 }
 
-void
-AVRMCCodeEmitter::emitByte(unsigned char C, raw_ostream &OS) const {
+void AVRMCCodeEmitter::emitByte(unsigned char C, raw_ostream &OS) const {
   OS << (char)C;
 }
 
-void
-AVRMCCodeEmitter::emitWord(uint16_t word, raw_ostream &OS) const {
-  emitByte((word & 0x00ff)>>0, OS);
-  emitByte((word & 0xff00)>>8, OS);
+void AVRMCCodeEmitter::emitWord(uint16_t word, raw_ostream &OS) const {
+  emitByte((word & 0x00ff) >> 0, OS);
+  emitByte((word & 0xff00) >> 8, OS);
 }
 
-void
-AVRMCCodeEmitter::emitWords(uint16_t const* Words,
-                            size_t Count,
-                            raw_ostream &OS) const
-{
-  for(int64_t i = Count - 1; i >= 0; --i) {
+void AVRMCCodeEmitter::emitWords(uint16_t const *Words, size_t Count,
+                                 raw_ostream &OS) const {
+  for (int64_t i = Count - 1; i >= 0; --i) {
     emitWord(Words[i], OS);
   }
 }
 
-void
-AVRMCCodeEmitter::emitInstruction(uint64_t Val, unsigned Size,
-                                  const MCSubtargetInfo &STI,
-                                  raw_ostream &OS) const
-{
-  uint16_t const* words = reinterpret_cast<uint16_t const*>(&Val);
+void AVRMCCodeEmitter::emitInstruction(uint64_t Val, unsigned Size,
+                                       const MCSubtargetInfo &STI,
+                                       raw_ostream &OS) const {
+  uint16_t const *words = reinterpret_cast<uint16_t const *>(&Val);
   size_t wordCount = Size / 2;
   emitWords(words, wordCount, OS);
 }
 
-void
-AVRMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
-                                    SmallVectorImpl<MCFixup> &Fixups,
-                                    const MCSubtargetInfo &STI) const
-{
+void AVRMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
+                                         SmallVectorImpl<MCFixup> &Fixups,
+                                         const MCSubtargetInfo &STI) const {
   const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
 
   // Get byte count of instruction
@@ -298,15 +284,12 @@ AVRMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
   emitInstruction(BinaryOpCode, Size, STI, OS);
 }
 
-MCCodeEmitter *
-createAVRMCCodeEmitter(const MCInstrInfo &MCII,
-                       const MCRegisterInfo &MRI,
-                       MCContext &Ctx)
-{
+MCCodeEmitter *createAVRMCCodeEmitter(const MCInstrInfo &MCII,
+                                      const MCRegisterInfo &MRI,
+                                      MCContext &Ctx) {
   return new AVRMCCodeEmitter(MCII, Ctx);
 }
 
 #include "AVRGenMCCodeEmitter.inc"
 
 } // end of namespace llvm
-

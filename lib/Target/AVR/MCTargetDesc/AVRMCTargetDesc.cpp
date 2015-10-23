@@ -35,32 +35,28 @@
 
 namespace llvm {
 
-static MCInstrInfo *createAVRMCInstrInfo()
-{
+static MCInstrInfo *createAVRMCInstrInfo() {
   MCInstrInfo *X = new MCInstrInfo();
   InitAVRMCInstrInfo(X);
 
   return X;
 }
 
-static MCRegisterInfo *createAVRMCRegisterInfo(const Triple &TT)
-{
+static MCRegisterInfo *createAVRMCRegisterInfo(const Triple &TT) {
   MCRegisterInfo *X = new MCRegisterInfo();
   InitAVRMCRegisterInfo(X, 0);
 
   return X;
 }
 
-static MCSubtargetInfo *createAVRMCSubtargetInfo(const Triple &TT, StringRef CPU,
-                                                 StringRef FS)
-{
+static MCSubtargetInfo *createAVRMCSubtargetInfo(const Triple &TT,
+                                                 StringRef CPU, StringRef FS) {
   return createAVRMCSubtargetInfoImpl(TT, CPU, FS);
 }
 
 static MCCodeGenInfo *createAVRMCCodeGenInfo(const Triple &TT, Reloc::Model RM,
                                              CodeModel::Model CM,
-                                             CodeGenOpt::Level OL)
-{
+                                             CodeGenOpt::Level OL) {
   MCCodeGenInfo *X = new MCCodeGenInfo();
   X->initMCCodeGenInfo(RM, CM, OL);
 
@@ -71,10 +67,8 @@ static MCInstPrinter *createAVRMCInstPrinter(const Triple &T,
                                              unsigned SyntaxVariant,
                                              const MCAsmInfo &MAI,
                                              const MCInstrInfo &MII,
-                                             const MCRegisterInfo &MRI)
-{
-  if (SyntaxVariant == 0)
-  {
+                                             const MCRegisterInfo &MRI) {
+  if (SyntaxVariant == 0) {
     return new AVRInstPrinter(MAI, MII, MRI);
   }
 
@@ -100,9 +94,7 @@ static MCTargetStreamer *createMCAsmTargetStreamer(MCStreamer &S,
   return new AVRTargetAsmStreamer(S);
 }
 
-extern "C"
-void
-LLVMInitializeAVRTargetMC() {
+extern "C" void LLVMInitializeAVRTargetMC() {
   // Register the MC asm info.
   RegisterMCAsmInfo<AVRMCAsmInfo> X(TheAVRTarget);
 
@@ -121,22 +113,22 @@ LLVMInitializeAVRTargetMC() {
 
   // Register the MCInstPrinter.
   TargetRegistry::RegisterMCInstPrinter(TheAVRTarget, createAVRMCInstPrinter);
-  
+
   // Register the MC Code Emitter
-  TargetRegistry::RegisterMCCodeEmitter(TheAVRTarget,
-                                        createAVRMCCodeEmitter);
+  TargetRegistry::RegisterMCCodeEmitter(TheAVRTarget, createAVRMCCodeEmitter);
   // Register the ELF streamer
   TargetRegistry::RegisterELFStreamer(TheAVRTarget, createMCStreamer);
 
   // Register the obj target streamer.
-  TargetRegistry::RegisterObjectTargetStreamer(TheAVRTarget, createAVRObjectTargetStreamer);
+  TargetRegistry::RegisterObjectTargetStreamer(TheAVRTarget,
+                                               createAVRObjectTargetStreamer);
 
   // Register the asm target streamer.
-  TargetRegistry::RegisterAsmTargetStreamer(TheAVRTarget, createMCAsmTargetStreamer);
+  TargetRegistry::RegisterAsmTargetStreamer(TheAVRTarget,
+                                            createMCAsmTargetStreamer);
 
   // Register the asm backend (as little endian).
-  TargetRegistry::RegisterMCAsmBackend(TheAVRTarget,
-                                       createAVRAsmBackend);
+  TargetRegistry::RegisterMCAsmBackend(TheAVRTarget, createAVRAsmBackend);
 }
 
 } // end of namespace llvm

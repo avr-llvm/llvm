@@ -29,14 +29,14 @@
  */
 
 #ifndef LLVM_AVR_H
-# define LLVM_AVR_H
+#define LLVM_AVR_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/Target/TargetMachine.h"
-# include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/CodeGen/SelectionDAGNodes.h"
 
-# include "MCTargetDesc/AVRMCTargetDesc.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 namespace llvm {
 
@@ -55,26 +55,19 @@ FunctionPass *createAVRBranchSelectionPass();
  */
 namespace AVR {
 
-enum AddressSpace {
-  DataMemory,
-  ProgramMemory
-};
+enum AddressSpace { DataMemory, ProgramMemory };
 
-template <typename T>
-bool
-isProgramMemoryAddress(T * V) {
+template <typename T> bool isProgramMemoryAddress(T *V) {
   return cast<PointerType>(V->getType())->getAddressSpace() == ProgramMemory;
 }
 
-inline
-bool
-isProgramMemoryAccess(MemSDNode const* N) {
+inline bool isProgramMemoryAccess(MemSDNode const *N) {
   auto V = N->getMemOperand()->getValue();
 
   return (V != nullptr) ? isProgramMemoryAddress(V) : false;
 }
 
-}  // end of namespace AVR
+} // end of namespace AVR
 
 } // end namespace llvm
 

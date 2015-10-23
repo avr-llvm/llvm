@@ -12,19 +12,18 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_MACHINE_FUNCTION_INFO_H
-# define LLVM_AVR_MACHINE_FUNCTION_INFO_H
+#define LLVM_AVR_MACHINE_FUNCTION_INFO_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineFunction.h"
 
 namespace llvm {
 
 /**
  * Contains AVR-specific information for each MachineFunction.
  */
-class AVRMachineFunctionInfo : public MachineFunctionInfo
-{
+class AVRMachineFunctionInfo : public MachineFunctionInfo {
   /// Indicates if a register has been spilled by the register
   /// allocator.
   bool HasSpills;
@@ -43,20 +42,15 @@ class AVRMachineFunctionInfo : public MachineFunctionInfo
 
   /// FrameIndex for start of varargs area.
   int VarArgsFrameIndex;
-public:
-  AVRMachineFunctionInfo() :
-    HasSpills(false),
-    HasAllocas(false),
-    HasStackArgs(false),
-    CalleeSavedFrameSize(0),
-    VarArgsFrameIndex(0) {}
 
-  explicit AVRMachineFunctionInfo(MachineFunction &MF) :
-    HasSpills(false),
-    HasAllocas(false),
-    HasStackArgs(false),
-    CalleeSavedFrameSize(0),
-    VarArgsFrameIndex(0) {}
+public:
+  AVRMachineFunctionInfo()
+      : HasSpills(false), HasAllocas(false), HasStackArgs(false),
+        CalleeSavedFrameSize(0), VarArgsFrameIndex(0) {}
+
+  explicit AVRMachineFunctionInfo(MachineFunction &MF)
+      : HasSpills(false), HasAllocas(false), HasStackArgs(false),
+        CalleeSavedFrameSize(0), VarArgsFrameIndex(0) {}
 
   bool getHasSpills() const { return HasSpills; }
   void setHasSpills(bool B) { HasSpills = B; }

@@ -12,11 +12,11 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_SELECTION_DAG_INFO_H
-# define LLVM_AVR_SELECTION_DAG_INFO_H
+#define LLVM_AVR_SELECTION_DAG_INFO_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/Target/TargetSelectionDAGInfo.h"
+#include "llvm/Target/TargetSelectionDAGInfo.h"
 
 namespace llvm {
 

@@ -8,11 +8,11 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_MCINST_LOWER_H
-# define LLVM_AVR_MCINST_LOWER_H
+#define LLVM_AVR_MCINST_LOWER_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/Support/Compiler.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
@@ -27,14 +27,14 @@ class MCSymbol;
 /**
  * Lowers `MachineInstr` objects into `MCInst` objects.
  */
-class LLVM_LIBRARY_VISIBILITY AVRMCInstLower
-{
+class LLVM_LIBRARY_VISIBILITY AVRMCInstLower {
 public:
-  AVRMCInstLower(MCContext &ctx, AsmPrinter &printer) :
-    Ctx(ctx), Printer(printer) {}
+  AVRMCInstLower(MCContext &ctx, AsmPrinter &printer)
+      : Ctx(ctx), Printer(printer) {}
 
   void Lower(const MachineInstr *MI, MCInst &OutMI) const;
   MCOperand LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const;
+
 private:
   MCContext &Ctx;
   AsmPrinter &Printer;

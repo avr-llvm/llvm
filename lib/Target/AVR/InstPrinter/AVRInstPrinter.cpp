@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 #include "AVRInstPrinter.h"
 
 #include <cstring>
@@ -35,24 +34,25 @@ namespace llvm {
 #include "AVRGenAsmWriter.inc"
 
 void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
-                               StringRef Annot, const MCSubtargetInfo &STI)
-{
+                               StringRef Annot, const MCSubtargetInfo &STI) {
   unsigned Opcode = MI->getOpcode();
 
   // First handle load and store instructions with postinc or predec
   // of the form "ld reg, X+".
-  // TODO: is this necessary anymore now that we encode this into AVRInstrInfo.td
-  switch (Opcode)
-  {
+  // TODO: is this necessary anymore now that we encode this into
+  // AVRInstrInfo.td
+  switch (Opcode) {
   case AVR::LDRdPtr:
   case AVR::LDRdPtrPi:
   case AVR::LDRdPtrPd:
     O << "\tld\t";
     printOperand(MI, 0, O);
     O << ", ";
-    if (Opcode == AVR::LDRdPtrPd) O << '-';
+    if (Opcode == AVR::LDRdPtrPd)
+      O << '-';
     printOperand(MI, 1, O);
-    if (Opcode == AVR::LDRdPtrPi) O << '+';
+    if (Opcode == AVR::LDRdPtrPi)
+      O << '+';
     return;
   case AVR::STPtrRr:
     O << "\tst\t";
@@ -63,22 +63,24 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
   case AVR::STPtrPiRr:
   case AVR::STPtrPdRr:
     O << "\tst\t";
-    if (Opcode == AVR::STPtrPdRr) O << '-';
+    if (Opcode == AVR::STPtrPdRr)
+      O << '-';
     printOperand(MI, 1, O);
-    if (Opcode == AVR::STPtrPiRr) O << '+';
+    if (Opcode == AVR::STPtrPiRr)
+      O << '+';
     O << ", ";
     printOperand(MI, 2, O);
     return;
   }
 
-  if(!printAliasInstr(MI, O))
+  if (!printAliasInstr(MI, O))
     printInstruction(MI, O);
 
   printAnnotation(O, Annot);
 }
 
-const char *
-AVRInstPrinter::getPrettyRegisterName(unsigned RegNum, MCRegisterInfo const& MRI) {
+const char *AVRInstPrinter::getPrettyRegisterName(unsigned RegNum,
+                                                  MCRegisterInfo const &MRI) {
 
 #ifdef LLVM_AVR_GCC_COMPAT
   // GCC prints register pairs by just printing the lower register
@@ -92,13 +94,10 @@ AVRInstPrinter::getPrettyRegisterName(unsigned RegNum, MCRegisterInfo const& MRI
   return getRegisterName(RegNum);
 }
 
-
 void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
-                                  raw_ostream &O)
-{
+                                  raw_ostream &O) {
   const MCOperand &Op = MI->getOperand(OpNo);
-  const MCOperandInfo& MOI = this->MII.get(MI->getOpcode()).OpInfo[OpNo];
-
+  const MCOperandInfo &MOI = this->MII.get(MI->getOpcode()).OpInfo[OpNo];
 
   if (Op.isReg()) {
     //.RegClass == AVR::GPR8RegClassID
@@ -106,7 +105,7 @@ void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
                     (MOI.RegClass == AVR::PTRDISPREGSRegClassID) ||
                     (MOI.RegClass == AVR::ZREGSRegClassID);
 
-    if(isPtrReg) {
+    if (isPtrReg) {
       O << getRegisterName(Op.getReg(), AVR::ptr);
     } else {
       O << getPrettyRegisterName(Op.getReg(), MRI);
@@ -119,22 +118,19 @@ void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   }
 }
 
-
 /// This is used to print an immediate value that ends up
 /// being encoded as a pc-relative value.
 void AVRInstPrinter::printPCRelImm(const MCInst *MI, unsigned OpNo,
-                                   raw_ostream &O)
-{
+                                   raw_ostream &O) {
   const MCOperand &Op = MI->getOperand(OpNo);
 
-  if (Op.isImm())
-  {
+  if (Op.isImm()) {
     int64_t Imm = Op.getImm();
     O << '.';
 
     // Print a position sign if needed.
     // Negative values have their sign printed automatically.
-    if(Imm >= 0)
+    if (Imm >= 0)
       O << '+';
 
     O << Imm;
@@ -146,10 +142,9 @@ void AVRInstPrinter::printPCRelImm(const MCInst *MI, unsigned OpNo,
 }
 
 void AVRInstPrinter::printMemri(const MCInst *MI, unsigned OpNo,
-                                raw_ostream &O)
-{
+                                raw_ostream &O) {
   const MCOperand &RegOp = MI->getOperand(OpNo);
-  const MCOperand &ImmOp = MI->getOperand(OpNo+1);
+  const MCOperand &ImmOp = MI->getOperand(OpNo + 1);
 
   assert(RegOp.isReg() && "Expected a register");
   assert(ImmOp.isImm() && "Expected an immediate value");
@@ -161,7 +156,7 @@ void AVRInstPrinter::printMemri(const MCInst *MI, unsigned OpNo,
   {
     auto Imm = ImmOp.getImm();
 
-    if(Imm >= 0)
+    if (Imm >= 0)
       O << '+';
 
     O << Imm;

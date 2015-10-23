@@ -8,13 +8,14 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_FIXUP_KINDS_H
-# define LLVM_AVR_FIXUP_KINDS_H
+#define LLVM_AVR_FIXUP_KINDS_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/MC/MCFixup.h"
+#include "llvm/MC/MCFixup.h"
 
-namespace llvm { namespace AVR {
+namespace llvm {
+namespace AVR {
 
 /// The set of supported fixups.
 ///
@@ -80,20 +81,25 @@ enum Fixups {
   /// with the lower 8 bits of a 16-bit program memory address value (bits 0-7).
   fixup_lo8_ldi_pm,
   /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
-  /// with the upper 8 bits of a 16-bit program memory address value (bits 8-15).
+  /// with the upper 8 bits of a 16-bit program memory address value (bits
+  /// 8-15).
   fixup_hi8_ldi_pm,
   /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
-  /// with the upper 8 bits of a 24-bit program memory address value (bits 16-23).
+  /// with the upper 8 bits of a 24-bit program memory address value (bits
+  /// 16-23).
   fixup_hh8_ldi_pm,
 
   /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
-  /// with the lower 8 bits of a negated 16-bit program memory address value (bits 0-7).
+  /// with the lower 8 bits of a negated 16-bit program memory address value
+  /// (bits 0-7).
   fixup_lo8_ldi_pm_neg,
   /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
-  /// with the upper 8 bits of a negated 16-bit program memory address value (bits 8-15).
+  /// with the upper 8 bits of a negated 16-bit program memory address value
+  /// (bits 8-15).
   fixup_hi8_ldi_pm_neg,
   /// Replaces the immediate operand of a 16-bit `Rd, K` instruction
-  /// with the upper 8 bits of a negated 24-bit program memory address value (bits 16-23).
+  /// with the upper 8 bits of a negated 24-bit program memory address value
+  /// (bits 16-23).
   fixup_hh8_ldi_pm_neg,
 
   /// A 22-bit fixup for the target of a `CALL k` or `JMP k` instruction.
@@ -101,7 +107,6 @@ enum Fixups {
 
   fixup_6,
   fixup_6_adiw,
-
 
   fixup_lo8_ldi_gs,
   fixup_hi8_ldi_gs,
@@ -132,12 +137,10 @@ namespace fixups {
 /// 2, so bit 0 of an address is always 0. This gives us another bit
 /// of precision.
 /// \param[in,out] The target to adjust.
-template <typename T> inline void adjustBranchTarget(T &val) {
-  val >>= 1;
-}
+template <typename T> inline void adjustBranchTarget(T &val) { val >>= 1; }
 
 } // end of namespace fixups
-
-}} // end of namespace llvm::AVR
+}
+} // end of namespace llvm::AVR
 
 #endif // LLVM_AVR_FIXUP_KINDS_H

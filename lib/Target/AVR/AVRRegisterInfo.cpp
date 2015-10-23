@@ -29,29 +29,28 @@
 
 namespace llvm {
 
-AVRRegisterInfo::AVRRegisterInfo() :
-  AVRGenRegisterInfo(0) {}
+AVRRegisterInfo::AVRRegisterInfo() : AVRGenRegisterInfo(0) {}
 
 const uint16_t *
-AVRRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const
-{
+AVRRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   CallingConv::ID CC = MF->getFunction()->getCallingConv();
 
-  return ((CC == CallingConv::AVR_INTR || CC == CallingConv::AVR_SIGNAL) ?
-          CSR_Interrupts_SaveList : CSR_Normal_SaveList);
+  return ((CC == CallingConv::AVR_INTR || CC == CallingConv::AVR_SIGNAL)
+              ? CSR_Interrupts_SaveList
+              : CSR_Normal_SaveList);
 }
 
-const uint32_t *AVRRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
-                                                      CallingConv::ID CC) const
-{
-  return ((CC == CallingConv::AVR_INTR || CC == CallingConv::AVR_SIGNAL) ?
-          CSR_Interrupts_RegMask : CSR_Normal_RegMask);
+const uint32_t *
+AVRRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
+                                      CallingConv::ID CC) const {
+  return ((CC == CallingConv::AVR_INTR || CC == CallingConv::AVR_SIGNAL)
+              ? CSR_Interrupts_RegMask
+              : CSR_Normal_RegMask);
 }
 
-BitVector AVRRegisterInfo::getReservedRegs(const MachineFunction &MF) const
-{
+BitVector AVRRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
-  const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
+  const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
   const TargetFrameLowering *TFI = TM.getSubtargetImpl()->getFrameLowering();
 
   Reserved.set(AVR::R0);
@@ -62,8 +61,7 @@ BitVector AVRRegisterInfo::getReservedRegs(const MachineFunction &MF) const
   Reserved.set(AVR::SPH);
   Reserved.set(AVR::SP);
 
-  if (TFI->hasFP(MF))
-  {
+  if (TFI->hasFP(MF)) {
     Reserved.set(AVR::R28);
     Reserved.set(AVR::R29);
     Reserved.set(AVR::R29R28);
@@ -74,15 +72,12 @@ BitVector AVRRegisterInfo::getReservedRegs(const MachineFunction &MF) const
 
 const TargetRegisterClass *
 AVRRegisterInfo::getLargestLegalSuperClass(const TargetRegisterClass *RC,
-                                           const MachineFunction &MF) const
-{
-  if (RC->hasType(MVT::i16))
-  {
+                                           const MachineFunction &MF) const {
+  if (RC->hasType(MVT::i16)) {
     return &AVR::DREGSRegClass;
   }
 
-  if (RC->hasType(MVT::i8))
-  {
+  if (RC->hasType(MVT::i8)) {
     return &AVR::GPR8RegClass;
   }
 
@@ -90,26 +85,22 @@ AVRRegisterInfo::getLargestLegalSuperClass(const TargetRegisterClass *RC,
 }
 
 /// Fold a frame offset shared between two add instructions into a single one.
-static void foldFrameOffset(MachineInstr &MI, int &Offset, unsigned DstReg)
-{
+static void foldFrameOffset(MachineInstr &MI, int &Offset, unsigned DstReg) {
   int Opcode = MI.getOpcode();
 
   // Don't bother trying if the next instruction is not an add or a sub.
-  if ((Opcode != AVR::SUBIWRdK) && (Opcode != AVR::ADIWRdK))
-  {
+  if ((Opcode != AVR::SUBIWRdK) && (Opcode != AVR::ADIWRdK)) {
     return;
   }
 
   // Check that DstReg matches with next instruction, otherwise the instruction
   // is not related to stack address manipulation.
-  if (DstReg != MI.getOperand(0).getReg())
-  {
+  if (DstReg != MI.getOperand(0).getReg()) {
     return;
   }
 
   // Add the offset in the next instruction to our offset.
-  switch (Opcode)
-  {
+  switch (Opcode) {
   case AVR::SUBIWRdK:
     Offset += -MI.getOperand(2).getImm();
     break;
@@ -124,15 +115,14 @@ static void foldFrameOffset(MachineInstr &MI, int &Offset, unsigned DstReg)
 
 void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                                           int SPAdj, unsigned FIOperandNum,
-                                          RegScavenger *RS) const
-{
+                                          RegScavenger *RS) const {
   assert(SPAdj == 0 && "Unexpected SPAdj value");
 
   MachineInstr &MI = *II;
   DebugLoc dl = MI.getDebugLoc();
   MachineBasicBlock &MBB = *MI.getParent();
   const MachineFunction &MF = *MBB.getParent();
-  const AVRTargetMachine& TM = (const AVRTargetMachine&)MF.getTarget();
+  const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
   const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
   const MachineFrameInfo *MFI = MF.getFrameInfo();
   const TargetFrameLowering *TFI = TM.getSubtargetImpl()->getFrameLowering();
@@ -147,8 +137,7 @@ void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   // This is actually "load effective address" of the stack slot
   // instruction. We have only two-address instructions, thus we need to
   // expand it into move + add.
-  if (MI.getOpcode() == AVR::FRMIDX)
-  {
+  if (MI.getOpcode() == AVR::FRMIDX) {
     MI.setDesc(TII.get(AVR::MOVWRdRr));
     MI.getOperand(FIOperandNum).ChangeToRegister(AVR::R29R28, false);
 
@@ -170,32 +159,27 @@ void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     foldFrameOffset(*std::next(II), Offset, DstReg);
 
     // Select the best opcode based on DstReg and the offset size.
-    switch (DstReg)
-    {
+    switch (DstReg) {
     case AVR::R25R24:
     case AVR::R27R26:
-    case AVR::R31R30:
-      {
-        if (isUInt<6>(Offset))
-        {
-          Opcode = AVR::ADIWRdK;
-          break;
-        }
-        // Fallthru
-      }
-    default:
-      {
-        // This opcode will get expanded into a pair of subi/sbci.
-        Opcode = AVR::SUBIWRdK;
-        Offset = -Offset;
+    case AVR::R31R30: {
+      if (isUInt<6>(Offset)) {
+        Opcode = AVR::ADIWRdK;
         break;
       }
+      // Fallthru
+    }
+    default: {
+      // This opcode will get expanded into a pair of subi/sbci.
+      Opcode = AVR::SUBIWRdK;
+      Offset = -Offset;
+      break;
+    }
     }
 
-    MachineInstr *New =
-      BuildMI(MBB, std::next(II), dl, TII.get(Opcode), DstReg)
-        .addReg(DstReg, RegState::Kill)
-        .addImm(Offset);
+    MachineInstr *New = BuildMI(MBB, std::next(II), dl, TII.get(Opcode), DstReg)
+                            .addReg(DstReg, RegState::Kill)
+                            .addImm(Offset);
     New->getOperand(3).setIsDead();
 
     return;
@@ -204,14 +188,12 @@ void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   // If the offset is too big we have to adjust and restore the frame pointer
   // to materialize a valid load/store with displacement.
   //:TODO: consider using only one adiw/sbiw chain for more than one frame index
-  if (Offset >= 63)
-  {
+  if (Offset >= 63) {
     unsigned AddOpc = AVR::ADIWRdK, SubOpc = AVR::SBIWRdK;
     int AddOffset = Offset - 63 + 1;
 
     // For huge offsets where adiw/sbiw cannot be used use a pair of subi/sbci.
-    if ((Offset - 63 + 1) > 63)
-    {
+    if ((Offset - 63 + 1) > 63) {
       AddOpc = AVR::SUBIWRdK;
       SubOpc = AVR::SUBIWRdK;
       AddOffset = -AddOffset;
@@ -221,25 +203,23 @@ void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     // a compare and branch, invalidating the contents of SREG set by the
     // compare instruction because of the add/sub pairs. Conservatively save and
     // restore SREG before and after each add/sub pair.
-    BuildMI(MBB, II, dl, TII.get(AVR::INRdA), AVR::R0)
-      .addImm(0x3f);
+    BuildMI(MBB, II, dl, TII.get(AVR::INRdA), AVR::R0).addImm(0x3f);
 
-    MachineInstr *New =
-      BuildMI(MBB, II, dl, TII.get(AddOpc), AVR::R29R28)
-        .addReg(AVR::R29R28, RegState::Kill)
-        .addImm(AddOffset);
+    MachineInstr *New = BuildMI(MBB, II, dl, TII.get(AddOpc), AVR::R29R28)
+                            .addReg(AVR::R29R28, RegState::Kill)
+                            .addImm(AddOffset);
     New->getOperand(3).setIsDead();
 
     // Restore SREG.
     BuildMI(MBB, std::next(II), dl, TII.get(AVR::OUTARr))
-      .addImm(0x3f)
-      .addReg(AVR::R0, RegState::Kill);
+        .addImm(0x3f)
+        .addReg(AVR::R0, RegState::Kill);
 
     // No need to set SREG as dead here otherwise if the next instruction is a
     // cond branch it will be using a dead register.
     New = BuildMI(MBB, std::next(II), dl, TII.get(SubOpc), AVR::R29R28)
-            .addReg(AVR::R29R28, RegState::Kill)
-            .addImm(Offset - 63 + 1);
+              .addReg(AVR::R29R28, RegState::Kill)
+              .addImm(Offset - 63 + 1);
 
     Offset = 62;
   }
@@ -249,8 +229,7 @@ void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
 }
 
-unsigned AVRRegisterInfo::getFrameRegister(const MachineFunction &MF) const
-{
+unsigned AVRRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
   if (TFI->hasFP(MF)) {
     // The Y pointer register
@@ -262,8 +241,7 @@ unsigned AVRRegisterInfo::getFrameRegister(const MachineFunction &MF) const
 
 const TargetRegisterClass *
 AVRRegisterInfo::getPointerRegClass(const MachineFunction &MF,
-                                    unsigned Kind) const
-{
+                                    unsigned Kind) const {
   // FIXME: Currently we're using avr-gcc as reference, so we restrict
   // ptrs to Y and Z regs. Though avr-gcc has buggy implementation
   // of memory constraint, so we can fix it and bit avr-gcc here ;-)

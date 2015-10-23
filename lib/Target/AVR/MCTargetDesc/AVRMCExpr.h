@@ -8,13 +8,13 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_MCEXPR_H
-# define LLVM_AVR_MCEXPR_H
+#define LLVM_AVR_MCEXPR_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCExpr.h"
 
-# include "MCTargetDesc/AVRFixupKinds.h"
+#include "MCTargetDesc/AVRFixupKinds.h"
 
 namespace llvm {
 
@@ -27,15 +27,16 @@ public:
   enum VariantKind {
     VK_AVR_None,
 
-    VK_AVR_HI8,      ///< Corresponds to `hi8()`.
-    VK_AVR_LO8,      ///< Corresponds to `lo8()`.
-    VK_AVR_HH8,      ///< Corresponds to `hlo8() and hh8()`.
-    VK_AVR_HHI8,     ///< Corresponds to `hhi8()`.
+    VK_AVR_HI8,  ///< Corresponds to `hi8()`.
+    VK_AVR_LO8,  ///< Corresponds to `lo8()`.
+    VK_AVR_HH8,  ///< Corresponds to `hlo8() and hh8()`.
+    VK_AVR_HHI8, ///< Corresponds to `hhi8()`.
 
-    VK_AVR_PM_LO8,   ///< Corresponds to `pm_lo8()`.
-    VK_AVR_PM_HI8,   ///< Corresponds to `pm_hi8()`.
-    VK_AVR_PM_HH8    ///< Corresponds to `pm_hh8()`.
+    VK_AVR_PM_LO8, ///< Corresponds to `pm_lo8()`.
+    VK_AVR_PM_HI8, ///< Corresponds to `pm_hi8()`.
+    VK_AVR_PM_HH8  ///< Corresponds to `pm_hh8()`.
   };
+
 public:
   /// Creates an AVR machine code expression.
   static const AVRMCExpr *create(VariantKind Kind, const MCExpr *Expr,
@@ -44,25 +45,23 @@ public:
   /// Gets the type of the expression.
   VariantKind getKind() const { return Kind; }
   /// Gets the name of the expression.
-  char const* getName() const;
+  char const *getName() const;
   const MCExpr *getSubExpr() const { return SubExpr; }
   /// Gets the fixup which corresponds to the expression.
   AVR::Fixups getFixupKind() const;
   /// Evaluates the fixup as a constant value.
-  bool evaluateAsConstant(int64_t & Result) const;
+  bool evaluateAsConstant(int64_t &Result) const;
 
   bool isNegated() const { return Negated; }
   void setNegated(bool negated = true) { Negated = negated; }
 
-  
 public: // MCTargetExpr
   void printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const override;
-  bool evaluateAsRelocatableImpl(MCValue &Res,
-                                 const MCAsmLayout *Layout,
+  bool evaluateAsRelocatableImpl(MCValue &Res, const MCAsmLayout *Layout,
                                  const MCFixup *Fixup) const override;
-  
-  void visitUsedExpr(MCStreamer& streamer) const override;
-  
+
+  void visitUsedExpr(MCStreamer &streamer) const override;
+
   MCFragment *findAssociatedFragment() const override {
     return getSubExpr()->findAssociatedFragment();
   }
@@ -82,9 +81,10 @@ private:
   const VariantKind Kind;
   const MCExpr *SubExpr;
   bool Negated;
+
 private:
-  explicit AVRMCExpr(VariantKind _Kind, const MCExpr *_Expr, bool Negated) :
-    Kind(_Kind), SubExpr(_Expr), Negated(Negated) {}
+  explicit AVRMCExpr(VariantKind _Kind, const MCExpr *_Expr, bool Negated)
+      : Kind(_Kind), SubExpr(_Expr), Negated(Negated) {}
   ~AVRMCExpr() {}
 };
 

@@ -13,17 +13,17 @@
 //
 
 #ifndef LLVM_AVR_CODE_EMITTER_H
-# define LLVM_AVR_CODE_EMITTER_H
+#define LLVM_AVR_CODE_EMITTER_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/MC/MCCodeEmitter.h"
-# include "llvm/Support/DataTypes.h"
+#include "llvm/MC/MCCodeEmitter.h"
+#include "llvm/Support/DataTypes.h"
 
-# include "AVRFixupKinds.h"
+#include "AVRFixupKinds.h"
 
-# define GET_INSTRINFO_OPERAND_TYPES_ENUM
-# include "AVRGenInstrInfo.inc"
+#define GET_INSTRINFO_OPERAND_TYPES_ENUM
+#include "AVRGenInstrInfo.inc"
 
 namespace llvm {
 
@@ -45,16 +45,13 @@ public:
       : MCII(mcii), Ctx(Ctx_) {}
 
 private:
-
-
   /**
    * Finishes up encoding an LD/ST instruction.
    *
    * The purpose of this function is to set an bit in the instruction
    * which follows no logical pattern. See the implementation for details.
    */
-  unsigned loadStorePostEncoder(const MCInst &MI,
-                                unsigned EncodedValue,
+  unsigned loadStorePostEncoder(const MCInst &MI, unsigned EncodedValue,
                                 const MCSubtargetInfo &STI) const;
 
   /// Gets the encoding for a break target.
@@ -86,10 +83,10 @@ private:
   uint64_t getBinaryCodeForInstr(const MCInst &MI,
                                  SmallVectorImpl<MCFixup> &Fixups,
                                  const MCSubtargetInfo &STI) const;
-  
+
   unsigned getExprOpValue(const MCExpr *Expr, SmallVectorImpl<MCFixup> &Fixups,
                           const MCSubtargetInfo &STI) const;
-  
+
   /*!
    * Returns the binary encoding of operand.
    *
@@ -102,13 +99,12 @@ private:
 
   inline void emitByte(unsigned char C, raw_ostream &OS) const;
   inline void emitWord(uint16_t word, raw_ostream &OS) const;
-  void emitWords(uint16_t const* words, size_t count, raw_ostream &OS) const;
+  void emitWords(uint16_t const *words, size_t count, raw_ostream &OS) const;
   void emitInstruction(uint64_t Val, unsigned Size, const MCSubtargetInfo &STI,
                        raw_ostream &OS) const;
   void encodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups,
                          const MCSubtargetInfo &STI) const override;
-
 
   AVRMCCodeEmitter(const AVRMCCodeEmitter &) = delete;
   void operator=(const AVRMCCodeEmitter &) = delete;

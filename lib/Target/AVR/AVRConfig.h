@@ -8,8 +8,8 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_CONFIG_H
-# define LLVM_AVR_CONFIG_H
+#define LLVM_AVR_CONFIG_H
 
-# define LLVM_AVR_GCC_COMPAT
+#define LLVM_AVR_GCC_COMPAT
 
 #endif // LLVM_AVR_CONFIG_H

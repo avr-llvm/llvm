@@ -12,11 +12,11 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_FRAME_LOWERING_H
-# define LLVM_AVR_FRAME_LOWERING_H
+#define LLVM_AVR_FRAME_LOWERING_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/Target/TargetFrameLowering.h"
+#include "llvm/Target/TargetFrameLowering.h"
 
 namespace llvm {
 
@@ -35,17 +35,18 @@ public: // TargetFrameLowering
                                  MachineBasicBlock::iterator MI,
                                  const std::vector<CalleeSavedInfo> &CSI,
                                  const TargetRegisterInfo *TRI) const override;
-  bool restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                   MachineBasicBlock::iterator MI,
-                                   const std::vector<CalleeSavedInfo> &CSI,
-                                   const TargetRegisterInfo *TRI) const override;
+  bool
+  restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
+                              MachineBasicBlock::iterator MI,
+                              const std::vector<CalleeSavedInfo> &CSI,
+                              const TargetRegisterInfo *TRI) const override;
   bool hasReservedCallFrame(const MachineFunction &MF) const override;
   bool canSimplifyCallFramePseudos(const MachineFunction &MF) const override;
   void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
                             RegScavenger *RS = nullptr) const override;
-  void eliminateCallFramePseudoInstr(MachineFunction &MF,
-                                     MachineBasicBlock &MBB,
-                                     MachineBasicBlock::iterator MI) const override;
+  void
+  eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
+                                MachineBasicBlock::iterator MI) const override;
 };
 
 } // end namespace llvm

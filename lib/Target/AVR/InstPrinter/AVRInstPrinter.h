@@ -12,13 +12,13 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_INST_PRINTER_H
-# define LLVM_AVR_INST_PRINTER_H
+#define LLVM_AVR_INST_PRINTER_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/MC/MCInstPrinter.h"
+#include "llvm/MC/MCInstPrinter.h"
 
-# include "MCTargetDesc/AVRMCTargetDesc.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 namespace llvm {
 
@@ -28,16 +28,14 @@ namespace llvm {
 class AVRInstPrinter : public MCInstPrinter {
 public:
   AVRInstPrinter(const MCAsmInfo &MAI, const MCInstrInfo &MII,
-                 const MCRegisterInfo &MRI) :
-    MCInstPrinter(MAI, MII, MRI) {}
+                 const MCRegisterInfo &MRI)
+      : MCInstPrinter(MAI, MII, MRI) {}
 
-  static const char * getPrettyRegisterName(unsigned RegNo, MCRegisterInfo const& MRI);
+  static const char *getPrettyRegisterName(unsigned RegNo,
+                                           MCRegisterInfo const &MRI);
 
 public: // MCInstPrinter
-
-  void printInst(const MCInst *MI,
-                 raw_ostream &O,
-                 StringRef Annot,
+  void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot,
                  const MCSubtargetInfo &STI) override;
 
 private:
@@ -52,8 +50,7 @@ private:
   void printInstruction(const MCInst *MI, raw_ostream &O);
   bool printAliasInstr(const MCInst *MI, raw_ostream &O);
   void printCustomAliasOperand(const MCInst *MI, unsigned OpIdx,
-                               unsigned PrintMethodIdx,
-                               raw_ostream &O);
+                               unsigned PrintMethodIdx, raw_ostream &O);
 };
 
 } // end namespace llvm

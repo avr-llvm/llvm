@@ -8,11 +8,11 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_TARGET_OBJECT_FILE_H
-# define LLVM_AVR_TARGET_OBJECT_FILE_H
+#define LLVM_AVR_TARGET_OBJECT_FILE_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
+#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 
 namespace llvm {
 
@@ -21,13 +21,14 @@ namespace llvm {
  */
 class AVRTargetObjectFile : public TargetLoweringObjectFileELF {
   typedef TargetLoweringObjectFileELF Base;
+
 public:
   void Initialize(MCContext &ctx, const TargetMachine &TM) override;
 
-  MCSection *SelectSectionForGlobal(const GlobalValue *GV,
-                                    SectionKind Kind,
+  MCSection *SelectSectionForGlobal(const GlobalValue *GV, SectionKind Kind,
                                     Mangler &Mang,
                                     const TargetMachine &TM) const override;
+
 private:
   MCSection *ProgmemDataSection;
 };

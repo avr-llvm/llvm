@@ -41,56 +41,40 @@ extern bool RA_ReserveREG_Y;
 // the register allocator is executing code inside the spiller.
 extern bool RA_InSpillerCode;
 
-
-AVRInstrInfo::AVRInstrInfo() :
-  AVRGenInstrInfo(AVR::ADJCALLSTACKDOWN, AVR::ADJCALLSTACKUP),
-  RI() {}
+AVRInstrInfo::AVRInstrInfo()
+    : AVRGenInstrInfo(AVR::ADJCALLSTACKDOWN, AVR::ADJCALLSTACKUP), RI() {}
 
 void AVRInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                MachineBasicBlock::iterator MI, DebugLoc DL,
                                unsigned DestReg, unsigned SrcReg,
-                               bool KillSrc) const
-{
+                               bool KillSrc) const {
   unsigned Opc;
 
-  if (AVR::GPR8RegClass.contains(DestReg, SrcReg))
-  {
+  if (AVR::GPR8RegClass.contains(DestReg, SrcReg)) {
     Opc = AVR::MOVRdRr;
-  }
-  else if (AVR::DREGSRegClass.contains(DestReg, SrcReg))
-  {
+  } else if (AVR::DREGSRegClass.contains(DestReg, SrcReg)) {
     Opc = AVR::MOVWRdRr;
-  }
-  else if (SrcReg == AVR::SP && AVR::DREGSRegClass.contains(DestReg))
-  {
+  } else if (SrcReg == AVR::SP && AVR::DREGSRegClass.contains(DestReg)) {
     Opc = AVR::SPREAD;
-  }
-  else if (DestReg == AVR::SP && AVR::DREGSRegClass.contains(SrcReg))
-  {
+  } else if (DestReg == AVR::SP && AVR::DREGSRegClass.contains(SrcReg)) {
     Opc = AVR::SPWRITE;
-  }
-  else
-  {
+  } else {
     llvm_unreachable("Impossible reg-to-reg copy");
   }
 
-  BuildMI(MBB, MI, DL, get(Opc), DestReg).addReg(SrcReg,
-                                                 getKillRegState(KillSrc));
+  BuildMI(MBB, MI, DL, get(Opc), DestReg)
+      .addReg(SrcReg, getKillRegState(KillSrc));
 }
 
 unsigned AVRInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
-                                           int &FrameIndex) const
-{
-  switch (MI->getOpcode())
-  {
+                                           int &FrameIndex) const {
+  switch (MI->getOpcode()) {
   case AVR::LDDRdPtrQ:
   case AVR::LDDWRdYQ: //:FIXME: remove this once PR13375 gets fixed
-  //case AVR::LDDWRdPtrQ:
+    // case AVR::LDDWRdPtrQ:
     {
-      if ((MI->getOperand(1).isFI())
-          && (MI->getOperand(2).isImm())
-          && (MI->getOperand(2).getImm() == 0))
-      {
+      if ((MI->getOperand(1).isFI()) && (MI->getOperand(2).isImm()) &&
+          (MI->getOperand(2).getImm() == 0)) {
         FrameIndex = MI->getOperand(1).getIndex();
         return MI->getOperand(0).getReg();
       }
@@ -104,22 +88,17 @@ unsigned AVRInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
 }
 
 unsigned AVRInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
-                                          int &FrameIndex) const
-{
-  switch (MI->getOpcode())
-  {
+                                          int &FrameIndex) const {
+  switch (MI->getOpcode()) {
   case AVR::STDPtrQRr:
-  case AVR::STDWPtrQRr:
-    {
-      if ((MI->getOperand(0).isFI())
-          && (MI->getOperand(1).isImm())
-          && (MI->getOperand(1).getImm() == 0))
-      {
-        FrameIndex = MI->getOperand(0).getIndex();
-        return MI->getOperand(2).getReg();
-      }
-      break;
+  case AVR::STDWPtrQRr: {
+    if ((MI->getOperand(0).isFI()) && (MI->getOperand(1).isImm()) &&
+        (MI->getOperand(1).getImm() == 0)) {
+      FrameIndex = MI->getOperand(0).getIndex();
+      return MI->getOperand(2).getReg();
     }
+    break;
+  }
   default:
     break;
   }
@@ -132,138 +111,144 @@ void AVRInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
                                        unsigned SrcReg, bool isKill,
                                        int FrameIndex,
                                        const TargetRegisterClass *RC,
-                                       const TargetRegisterInfo *TRI) const
-{
+                                       const TargetRegisterInfo *TRI) const {
   MachineFunction &MF = *MBB.getParent();
   AVRMachineFunctionInfo *AFI = MF.getInfo<AVRMachineFunctionInfo>();
 
-  if (RA_InSpillerCode && !AFI->getHasSpills())
-  {
+  if (RA_InSpillerCode && !AFI->getHasSpills()) {
     AFI->setHasSpills(true);
     RA_ReserveREG_Y = true;
   }
 
   DebugLoc DL;
-  if (MI != MBB.end())
-  {
+  if (MI != MBB.end()) {
     DL = MI->getDebugLoc();
   }
 
   const MachineFrameInfo &MFI = *MF.getFrameInfo();
 
-  MachineMemOperand *MMO =
-    MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FrameIndex),
-                            MachineMemOperand::MOStore,
-                            MFI.getObjectSize(FrameIndex),
-                            MFI.getObjectAlignment(FrameIndex));
+  MachineMemOperand *MMO = MF.getMachineMemOperand(
+      MachinePointerInfo::getFixedStack(MF, FrameIndex),
+      MachineMemOperand::MOStore, MFI.getObjectSize(FrameIndex),
+      MFI.getObjectAlignment(FrameIndex));
 
   unsigned Opcode = 0;
-  if (RC->hasType(MVT::i8))
-  {
+  if (RC->hasType(MVT::i8)) {
     Opcode = AVR::STDPtrQRr;
-  }
-  else if (RC->hasType(MVT::i16))
-  {
+  } else if (RC->hasType(MVT::i16)) {
     Opcode = AVR::STDWPtrQRr;
-  }
-  else
-  {
+  } else {
     llvm_unreachable("Cannot store this register into a stack slot!");
   }
 
   BuildMI(MBB, MI, DL, get(Opcode))
-    .addFrameIndex(FrameIndex).addImm(0).addReg(SrcReg, getKillRegState(isKill))
-    .addMemOperand(MMO);
+      .addFrameIndex(FrameIndex)
+      .addImm(0)
+      .addReg(SrcReg, getKillRegState(isKill))
+      .addMemOperand(MMO);
 }
 
 void AVRInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
                                         MachineBasicBlock::iterator MI,
                                         unsigned DestReg, int FrameIndex,
                                         const TargetRegisterClass *RC,
-                                        const TargetRegisterInfo *TRI) const
-{
+                                        const TargetRegisterInfo *TRI) const {
   DebugLoc DL;
-  if (MI != MBB.end())
-  {
+  if (MI != MBB.end()) {
     DL = MI->getDebugLoc();
   }
 
   MachineFunction &MF = *MBB.getParent();
   const MachineFrameInfo &MFI = *MF.getFrameInfo();
 
-  MachineMemOperand *MMO =
-    MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FrameIndex),
-                            MachineMemOperand::MOLoad,
-                            MFI.getObjectSize(FrameIndex),
-                            MFI.getObjectAlignment(FrameIndex));
+  MachineMemOperand *MMO = MF.getMachineMemOperand(
+      MachinePointerInfo::getFixedStack(MF, FrameIndex),
+      MachineMemOperand::MOLoad, MFI.getObjectSize(FrameIndex),
+      MFI.getObjectAlignment(FrameIndex));
 
   unsigned Opcode = 0;
-  if (RC->hasType(MVT::i8))
-  {
+  if (RC->hasType(MVT::i8)) {
     Opcode = AVR::LDDRdPtrQ;
-  }
-  else if (RC->hasType(MVT::i16))
-  {
-    //Opcode = AVR::LDDWRdPtrQ;
+  } else if (RC->hasType(MVT::i16)) {
+    // Opcode = AVR::LDDWRdPtrQ;
     //:FIXME: remove this once PR13375 gets fixed
     Opcode = AVR::LDDWRdYQ;
-  }
-  else
-  {
+  } else {
     llvm_unreachable("Cannot load this register from a stack slot!");
   }
 
   BuildMI(MBB, MI, DL, get(Opcode), DestReg)
-    .addFrameIndex(FrameIndex).addImm(0).addMemOperand(MMO);
+      .addFrameIndex(FrameIndex)
+      .addImm(0)
+      .addMemOperand(MMO);
 }
 
-const MCInstrDesc &AVRInstrInfo::getBrCond(AVRCC::CondCodes CC) const
-{
-  switch (CC)
-  {
+const MCInstrDesc &AVRInstrInfo::getBrCond(AVRCC::CondCodes CC) const {
+  switch (CC) {
   default:
     llvm_unreachable("Unknown condition code!");
-  case AVRCC::COND_EQ:                  return get(AVR::BREQk);
-  case AVRCC::COND_NE:                  return get(AVR::BRNEk);
-  case AVRCC::COND_GE:                  return get(AVR::BRGEk);
-  case AVRCC::COND_LT:                  return get(AVR::BRLTk);
-  case AVRCC::COND_SH:                  return get(AVR::BRSHk);
-  case AVRCC::COND_LO:                  return get(AVR::BRLOk);
-  case AVRCC::COND_MI:                  return get(AVR::BRMIk);
-  case AVRCC::COND_PL:                  return get(AVR::BRPLk);
+  case AVRCC::COND_EQ:
+    return get(AVR::BREQk);
+  case AVRCC::COND_NE:
+    return get(AVR::BRNEk);
+  case AVRCC::COND_GE:
+    return get(AVR::BRGEk);
+  case AVRCC::COND_LT:
+    return get(AVR::BRLTk);
+  case AVRCC::COND_SH:
+    return get(AVR::BRSHk);
+  case AVRCC::COND_LO:
+    return get(AVR::BRLOk);
+  case AVRCC::COND_MI:
+    return get(AVR::BRMIk);
+  case AVRCC::COND_PL:
+    return get(AVR::BRPLk);
   }
 }
 
-AVRCC::CondCodes AVRInstrInfo::getCondFromBranchOpc(unsigned Opc) const
-{
-  switch (Opc)
-  {
-  default:                              return AVRCC::COND_INVALID;
-  case AVR::BREQk:                      return AVRCC::COND_EQ;
-  case AVR::BRNEk:                      return AVRCC::COND_NE;
-  case AVR::BRSHk:                      return AVRCC::COND_SH;
-  case AVR::BRLOk:                      return AVRCC::COND_LO;
-  case AVR::BRMIk:                      return AVRCC::COND_MI;
-  case AVR::BRPLk:                      return AVRCC::COND_PL;
-  case AVR::BRGEk:                      return AVRCC::COND_GE;
-  case AVR::BRLTk:                      return AVRCC::COND_LT;
+AVRCC::CondCodes AVRInstrInfo::getCondFromBranchOpc(unsigned Opc) const {
+  switch (Opc) {
+  default:
+    return AVRCC::COND_INVALID;
+  case AVR::BREQk:
+    return AVRCC::COND_EQ;
+  case AVR::BRNEk:
+    return AVRCC::COND_NE;
+  case AVR::BRSHk:
+    return AVRCC::COND_SH;
+  case AVR::BRLOk:
+    return AVRCC::COND_LO;
+  case AVR::BRMIk:
+    return AVRCC::COND_MI;
+  case AVR::BRPLk:
+    return AVRCC::COND_PL;
+  case AVR::BRGEk:
+    return AVRCC::COND_GE;
+  case AVR::BRLTk:
+    return AVRCC::COND_LT;
   }
 }
 
-AVRCC::CondCodes AVRInstrInfo::getOppositeCondition(AVRCC::CondCodes CC) const
-{
-  switch (CC)
-  {
+AVRCC::CondCodes AVRInstrInfo::getOppositeCondition(AVRCC::CondCodes CC) const {
+  switch (CC) {
   default:
     llvm_unreachable("Invalid condition!");
-  case AVRCC::COND_EQ:                  return AVRCC::COND_NE;
-  case AVRCC::COND_NE:                  return AVRCC::COND_EQ;
-  case AVRCC::COND_SH:                  return AVRCC::COND_LO;
-  case AVRCC::COND_LO:                  return AVRCC::COND_SH;
-  case AVRCC::COND_GE:                  return AVRCC::COND_LT;
-  case AVRCC::COND_LT:                  return AVRCC::COND_GE;
-  case AVRCC::COND_MI:                  return AVRCC::COND_PL;
-  case AVRCC::COND_PL:                  return AVRCC::COND_MI;
+  case AVRCC::COND_EQ:
+    return AVRCC::COND_NE;
+  case AVRCC::COND_NE:
+    return AVRCC::COND_EQ;
+  case AVRCC::COND_SH:
+    return AVRCC::COND_LO;
+  case AVRCC::COND_LO:
+    return AVRCC::COND_SH;
+  case AVRCC::COND_GE:
+    return AVRCC::COND_LT;
+  case AVRCC::COND_LT:
+    return AVRCC::COND_GE;
+  case AVRCC::COND_MI:
+    return AVRCC::COND_PL;
+  case AVRCC::COND_PL:
+    return AVRCC::COND_MI;
   }
 }
 
@@ -271,50 +256,42 @@ bool AVRInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                  MachineBasicBlock *&TBB,
                                  MachineBasicBlock *&FBB,
                                  SmallVectorImpl<MachineOperand> &Cond,
-                                 bool AllowModify) const
-{
+                                 bool AllowModify) const {
   // Start from the bottom of the block and work up, examining the
   // terminator instructions.
   MachineBasicBlock::iterator I = MBB.end();
   MachineBasicBlock::iterator UnCondBrIter = MBB.end();
 
-  while (I != MBB.begin())
-  {
+  while (I != MBB.begin()) {
     --I;
-    if (I->isDebugValue())
-    {
+    if (I->isDebugValue()) {
       continue;
     }
 
     // Working from the bottom, when we see a non-terminator
     // instruction, we're done.
-    if (!isUnpredicatedTerminator(I))
-    {
+    if (!isUnpredicatedTerminator(I)) {
       break;
     }
 
     // A terminator that isn't a branch can't easily be handled
     // by this analysis.
-    if (!I->getDesc().isBranch())
-    {
+    if (!I->getDesc().isBranch()) {
       return true;
     }
 
     // Handle unconditional branches.
     //:TODO: add here jmp
-    if (I->getOpcode() == AVR::RJMPk)
-    {
+    if (I->getOpcode() == AVR::RJMPk) {
       UnCondBrIter = I;
 
-      if (!AllowModify)
-      {
+      if (!AllowModify) {
         TBB = I->getOperand(0).getMBB();
         continue;
       }
 
       // If the block has any instructions after a JMP, delete them.
-      while (std::next(I) != MBB.end())
-      {
+      while (std::next(I) != MBB.end()) {
         std::next(I)->eraseFromParent();
       }
 
@@ -322,8 +299,7 @@ bool AVRInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
       FBB = 0;
 
       // Delete the JMP if it's equivalent to a fall-through.
-      if (MBB.isLayoutSuccessor(I->getOperand(0).getMBB()))
-      {
+      if (MBB.isLayoutSuccessor(I->getOperand(0).getMBB())) {
         TBB = 0;
         I->eraseFromParent();
         I = MBB.end();
@@ -338,18 +314,15 @@ bool AVRInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
 
     // Handle conditional branches.
     AVRCC::CondCodes BranchCode = getCondFromBranchOpc(I->getOpcode());
-    if (BranchCode == AVRCC::COND_INVALID)
-    {
-      return true;  // Can't handle indirect branch.
+    if (BranchCode == AVRCC::COND_INVALID) {
+      return true; // Can't handle indirect branch.
     }
 
     // Working from the bottom, handle the first conditional branch.
-    if (Cond.empty())
-    {
+    if (Cond.empty()) {
       MachineBasicBlock *TargetBB = I->getOperand(0).getMBB();
-      if (AllowModify && UnCondBrIter != MBB.end()
-          && MBB.isLayoutSuccessor(TargetBB))
-      {
+      if (AllowModify && UnCondBrIter != MBB.end() &&
+          MBB.isLayoutSuccessor(TargetBB)) {
         // If we can modify the code and it ends in something like:
         //
         //     jCC L1
@@ -372,9 +345,9 @@ bool AVRInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
         MachineBasicBlock::iterator OldInst = I;
 
         BuildMI(MBB, UnCondBrIter, MBB.findDebugLoc(I), get(JNCC))
-          .addMBB(UnCondBrIter->getOperand(0).getMBB());
+            .addMBB(UnCondBrIter->getOperand(0).getMBB());
         BuildMI(MBB, UnCondBrIter, MBB.findDebugLoc(I), get(AVR::RJMPk))
-          .addMBB(TargetBB);
+            .addMBB(TargetBB);
 
         OldInst->eraseFromParent();
         UnCondBrIter->eraseFromParent();
@@ -398,15 +371,13 @@ bool AVRInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
 
     // Only handle the case where all conditional branches branch to
     // the same destination.
-    if (TBB != I->getOperand(0).getMBB())
-    {
+    if (TBB != I->getOperand(0).getMBB()) {
       return true;
     }
 
     AVRCC::CondCodes OldBranchCode = (AVRCC::CondCodes)Cond[0].getImm();
     // If the conditions are the same, we can leave them alone.
-    if (OldBranchCode == BranchCode)
-    {
+    if (OldBranchCode == BranchCode) {
       continue;
     }
 
@@ -420,15 +391,13 @@ unsigned AVRInstrInfo::InsertBranch(MachineBasicBlock &MBB,
                                     MachineBasicBlock *TBB,
                                     MachineBasicBlock *FBB,
                                     ArrayRef<MachineOperand> Cond,
-                                    DebugLoc DL) const
-{
+                                    DebugLoc DL) const {
   // Shouldn't be a fall through.
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
   assert((Cond.size() == 1 || Cond.size() == 0) &&
          "AVR branch conditions have one component!");
 
-  if (Cond.empty())
-  {
+  if (Cond.empty()) {
     // Unconditional branch?
     assert(!FBB && "Unconditional branch with multiple successors!");
     BuildMI(&MBB, DL, get(AVR::RJMPk)).addMBB(TBB);
@@ -441,8 +410,7 @@ unsigned AVRInstrInfo::InsertBranch(MachineBasicBlock &MBB,
   BuildMI(&MBB, DL, getBrCond(CC)).addMBB(TBB);
   ++Count;
 
-  if (FBB)
-  {
+  if (FBB) {
     // Two-way Conditional branch. Insert the second branch.
     BuildMI(&MBB, DL, get(AVR::RJMPk)).addMBB(FBB);
     ++Count;
@@ -451,23 +419,19 @@ unsigned AVRInstrInfo::InsertBranch(MachineBasicBlock &MBB,
   return Count;
 }
 
-unsigned AVRInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
-{
+unsigned AVRInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator I = MBB.end();
   unsigned Count = 0;
 
-  while (I != MBB.begin())
-  {
+  while (I != MBB.begin()) {
     --I;
-    if (I->isDebugValue())
-    {
+    if (I->isDebugValue()) {
       continue;
     }
     //:TODO: add here the missing jmp instructions once they are implemented
     // like jmp, {e}ijmp, and other cond branches, ...
-    if (I->getOpcode() != AVR::RJMPk
-        && getCondFromBranchOpc(I->getOpcode()) == AVRCC::COND_INVALID)
-    {
+    if (I->getOpcode() != AVR::RJMPk &&
+        getCondFromBranchOpc(I->getOpcode()) == AVRCC::COND_INVALID) {
       break;
     }
 
@@ -480,9 +444,8 @@ unsigned AVRInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
   return Count;
 }
 
-bool AVRInstrInfo::
-ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const
-{
+bool AVRInstrInfo::ReverseBranchCondition(
+    SmallVectorImpl<MachineOperand> &Cond) const {
   assert(Cond.size() == 1 && "Invalid AVR branch condition!");
 
   AVRCC::CondCodes CC = static_cast<AVRCC::CondCodes>(Cond[0].getImm());
@@ -491,29 +454,27 @@ ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const
   return false;
 }
 
-unsigned AVRInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const
-{
+unsigned AVRInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
   unsigned Opcode = MI->getOpcode();
 
-  switch(Opcode)
-  {
-    // A regular instruction
-    default: {
-      const MCInstrDesc &Desc = get(Opcode);
-      return Desc.getSize();
-    }
-    case TargetOpcode::EH_LABEL:
-    case TargetOpcode::IMPLICIT_DEF:
-    case TargetOpcode::KILL:
-    case TargetOpcode::DBG_VALUE:
-      return 0;
-    case TargetOpcode::INLINEASM: {
-      const MachineFunction *MF = MI->getParent()->getParent();
-      const AVRTargetMachine& TM = (const AVRTargetMachine&)MF->getTarget();
-      const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
-      return TII.getInlineAsmLength(MI->getOperand(0).getSymbolName(),
-                                    *TM.getMCAsmInfo());
-    }
+  switch (Opcode) {
+  // A regular instruction
+  default: {
+    const MCInstrDesc &Desc = get(Opcode);
+    return Desc.getSize();
+  }
+  case TargetOpcode::EH_LABEL:
+  case TargetOpcode::IMPLICIT_DEF:
+  case TargetOpcode::KILL:
+  case TargetOpcode::DBG_VALUE:
+    return 0;
+  case TargetOpcode::INLINEASM: {
+    const MachineFunction *MF = MI->getParent()->getParent();
+    const AVRTargetMachine &TM = (const AVRTargetMachine &)MF->getTarget();
+    const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
+    return TII.getInlineAsmLength(MI->getOperand(0).getSymbolName(),
+                                  *TM.getMCAsmInfo());
+  }
   }
 }
 

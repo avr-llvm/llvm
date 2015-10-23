@@ -25,41 +25,39 @@ namespace llvm {
 
 // The default CPU to choose if an empty string is passed.
 namespace {
-    const char* DefaultCPU = "avr2";
+const char *DefaultCPU = "avr2";
 
-    /// Processes a CPU name.
-    StringRef GetTargetCPU(StringRef CPU) {
-        if(CPU.empty() || CPU == "generic") {
-            return DefaultCPU;
-        } else {
-            return CPU;
-        }
-    }
+/// Processes a CPU name.
+StringRef GetTargetCPU(StringRef CPU) {
+  if (CPU.empty() || CPU == "generic") {
+    return DefaultCPU;
+  } else {
+    return CPU;
+  }
+}
 }
 
-AVRTargetMachine::AVRTargetMachine(const Target &T, const Triple &TT, StringRef CPU,
-                                   StringRef FS, const TargetOptions &Options,
+AVRTargetMachine::AVRTargetMachine(const Target &T, const Triple &TT,
+                                   StringRef CPU, StringRef FS,
+                                   const TargetOptions &Options,
                                    Reloc::Model RM, CodeModel::Model CM,
-                                   CodeGenOpt::Level OL) :
-  LLVMTargetMachine(T, "e-p:16:8:8-i8:8:8-i16:8:8-i32:8:8-i64:8:8-f32:8:8-f64:8:8-n8",
-                    TT, GetTargetCPU(CPU), FS, Options, RM, CM, OL),
-  SubTarget(TT, GetTargetCPU(CPU), FS, *this)
-{
+                                   CodeGenOpt::Level OL)
+    : LLVMTargetMachine(
+          T, "e-p:16:8:8-i8:8:8-i16:8:8-i32:8:8-i64:8:8-f32:8:8-f64:8:8-n8", TT,
+          GetTargetCPU(CPU), FS, Options, RM, CM, OL),
+      SubTarget(TT, GetTargetCPU(CPU), FS, *this) {
   this->TLOF = make_unique<AVRTargetObjectFile>();
   initAsmInfo();
 }
 
-namespace
-{
+namespace {
 /// AVR Code Generator Pass Configuration Options.
-class AVRPassConfig : public TargetPassConfig
-{
+class AVRPassConfig : public TargetPassConfig {
 public:
-  AVRPassConfig(AVRTargetMachine *TM, PassManagerBase &PM) :
-    TargetPassConfig(TM, PM) {}
+  AVRPassConfig(AVRTargetMachine *TM, PassManagerBase &PM)
+      : TargetPassConfig(TM, PM) {}
 
-  AVRTargetMachine &getAVRTargetMachine() const
-  {
+  AVRTargetMachine &getAVRTargetMachine() const {
     return getTM<AVRTargetMachine>();
   }
 
@@ -79,13 +77,11 @@ extern "C" void LLVMInitializeAVRTarget() {
   RegisterTargetMachine<AVRTargetMachine> X(TheAVRTarget);
 }
 
-const AVRSubtarget *AVRTargetMachine::getSubtargetImpl() const
-{
+const AVRSubtarget *AVRTargetMachine::getSubtargetImpl() const {
   return &SubTarget;
 }
 
-const AVRSubtarget *AVRTargetMachine::getSubtargetImpl(const Function&) const
-{
+const AVRSubtarget *AVRTargetMachine::getSubtargetImpl(const Function &) const {
   return &SubTarget;
 }
 
@@ -93,8 +89,7 @@ const AVRSubtarget *AVRTargetMachine::getSubtargetImpl(const Function&) const
 // Pass Pipeline Configuration
 //===----------------------------------------------------------------------===//
 
-bool AVRPassConfig::addInstSelector()
-{
+bool AVRPassConfig::addInstSelector() {
   // Install an instruction selector.
   addPass(createAVRISelDag(getAVRTargetMachine(), getOptLevel()));
   // Create the frame analyzer pass used by the PEI pass.
@@ -103,19 +98,14 @@ bool AVRPassConfig::addInstSelector()
   return false;
 }
 
-void AVRPassConfig::addPreRegAlloc()
-{
+void AVRPassConfig::addPreRegAlloc() {
   // Create the dynalloc SP save/restore pass to handle variable sized allocas.
   addPass(createAVRDynAllocaSRPass());
 }
 
-void AVRPassConfig::addPreSched2()
-{
-  addPass(createAVRExpandPseudoPass());
-}
+void AVRPassConfig::addPreSched2() { addPass(createAVRExpandPseudoPass()); }
 
-void AVRPassConfig::addPreEmitPass()
-{
+void AVRPassConfig::addPreEmitPass() {
   // Must run branch selection immediately preceding the asm printer.
   addPass(createAVRBranchSelectionPass());
 }

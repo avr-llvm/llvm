@@ -28,35 +28,16 @@
 namespace llvm {
 
 AVRSubtarget::AVRSubtarget(const Triple &TT, const std::string &CPU,
-                           const std::string &FS, AVRTargetMachine &TM) :
-  AVRGenSubtargetInfo(TT, CPU, FS),
-  InstrInfo(),
-  FrameLowering(),
-  TLInfo(TM),
-  TSInfo(),
-  
-  // Subtarget features
-  m_hasSRAM(),
-  m_hasJMPCALL(),
-  m_hasIJMPCALL(),
-  m_hasEIJMPCALL(),
-  m_hasADDSUBIW(),
-  m_hasSmallStack(),
-  m_hasMOVW(),
-  m_hasLPM(),
-  m_hasLPMX(),
-  m_hasELPM(),
-  m_hasELPMX(),
-  m_hasSPM(),
-  m_hasSPMX(),
-  m_hasDES(),
-  m_supportsRMW(),
-  m_supportsMultiplication(),
-  m_hasBREAK(),
-  m_hasTinyEncoding(),
-  ELFArch(),
-  m_FeatureSetDummy()
-{
+                           const std::string &FS, AVRTargetMachine &TM)
+    : AVRGenSubtargetInfo(TT, CPU, FS), InstrInfo(), FrameLowering(),
+      TLInfo(TM), TSInfo(),
+
+      // Subtarget features
+      m_hasSRAM(), m_hasJMPCALL(), m_hasIJMPCALL(), m_hasEIJMPCALL(),
+      m_hasADDSUBIW(), m_hasSmallStack(), m_hasMOVW(), m_hasLPM(), m_hasLPMX(),
+      m_hasELPM(), m_hasELPMX(), m_hasSPM(), m_hasSPMX(), m_hasDES(),
+      m_supportsRMW(), m_supportsMultiplication(), m_hasBREAK(),
+      m_hasTinyEncoding(), ELFArch(), m_FeatureSetDummy() {
   // Parse features string.
   ParseSubtargetFeatures(CPU, FS);
 }

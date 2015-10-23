@@ -24,9 +24,8 @@
 
 namespace llvm {
 
-MCOperand AVRMCInstLower::
-LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const
-{
+MCOperand AVRMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
+                                             MCSymbol *Sym) const {
   unsigned char TF = MO.getTargetFlags();
   const MCExpr *Expr = MCSymbolRefExpr::create(Sym, Ctx);
 
@@ -37,8 +36,8 @@ LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const
   }
 
   if (!MO.isJTI() && MO.getOffset()) {
-    Expr = MCBinaryExpr::createAdd(Expr, MCConstantExpr::create(MO.getOffset(),
-                                                                Ctx), Ctx);
+    Expr = MCBinaryExpr::createAdd(
+        Expr, MCConstantExpr::create(MO.getOffset(), Ctx), Ctx);
   }
 
   if (TF & AVRII::MO_LO) {
@@ -52,21 +51,20 @@ LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const
   return MCOperand::createExpr(Expr);
 }
 
-void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
-{
+void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
   OutMI.setOpcode(MI->getOpcode());
 
-  for (MachineOperand const& MO : MI->operands()) {
+  for (MachineOperand const &MO : MI->operands()) {
     MCOperand MCOp;
 
-    switch (MO.getType())
-    {
+    switch (MO.getType()) {
     default:
       MI->dump();
       llvm_unreachable("unknown operand type");
     case MachineOperand::MO_Register:
       // Ignore all implicit register operands.
-      if (MO.isImplicit()) continue;
+      if (MO.isImplicit())
+        continue;
       MCOp = MCOperand::createReg(MO.getReg());
       break;
     case MachineOperand::MO_Immediate:
@@ -76,18 +74,18 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
       MCOp = LowerSymbolOperand(MO, Printer.getSymbol(MO.getGlobal()));
       break;
     case MachineOperand::MO_ExternalSymbol:
-      MCOp = LowerSymbolOperand(MO,
-               Printer.GetExternalSymbolSymbol(MO.getSymbolName()));
+      MCOp = LowerSymbolOperand(
+          MO, Printer.GetExternalSymbolSymbol(MO.getSymbolName()));
       break;
     case MachineOperand::MO_MachineBasicBlock:
-      MCOp = MCOperand::createExpr(MCSymbolRefExpr::create(
-        MO.getMBB()->getSymbol(), Ctx));
+      MCOp = MCOperand::createExpr(
+          MCSymbolRefExpr::create(MO.getMBB()->getSymbol(), Ctx));
       break;
     case MachineOperand::MO_RegisterMask:
       continue;
     case MachineOperand::MO_BlockAddress:
-      MCOp = LowerSymbolOperand(MO,
-               Printer.GetBlockAddressSymbol(MO.getBlockAddress()));
+      MCOp = LowerSymbolOperand(
+          MO, Printer.GetBlockAddressSymbol(MO.getBlockAddress()));
       break;
     case MachineOperand::MO_JumpTableIndex:
       MCOp = LowerSymbolOperand(MO, Printer.GetJTISymbol(MO.getIndex()));

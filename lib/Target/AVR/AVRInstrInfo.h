@@ -12,16 +12,16 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_INSTR_INFO_H
-# define LLVM_AVR_INSTR_INFO_H
+#define LLVM_AVR_INSTR_INFO_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/Target/TargetInstrInfo.h"
+#include "llvm/Target/TargetInstrInfo.h"
 
-# include "AVRRegisterInfo.h"
+#include "AVRRegisterInfo.h"
 
-# define GET_INSTRINFO_HEADER
-# include "AVRGenInstrInfo.inc"
+#define GET_INSTRINFO_HEADER
+#include "AVRGenInstrInfo.inc"
 
 namespace llvm {
 
@@ -33,14 +33,14 @@ namespace AVRCC {
  * They must be kept in synch.
  */
 enum CondCodes {
-  COND_EQ,            //!< Equal
-  COND_NE,            //!< Not equal
-  COND_GE,            //!< Greater than or equal
-  COND_LT,            //!< Less than
-  COND_SH,            //!< Unsigned same or higher
-  COND_LO,            //!< Unsigned lower
-  COND_MI,            //!< Minus
-  COND_PL,            //!< Plus
+  COND_EQ, //!< Equal
+  COND_NE, //!< Not equal
+  COND_GE, //!< Greater than or equal
+  COND_LT, //!< Less than
+  COND_SH, //!< Unsigned same or higher
+  COND_LO, //!< Unsigned lower
+  COND_MI, //!< Minus
+  COND_PL, //!< Plus
   COND_INVALID
 };
 
@@ -67,8 +67,7 @@ enum TOF {
 /**
  * Utilities related to the AVR instruction set.
  */
-class AVRInstrInfo : public AVRGenInstrInfo
-{
+class AVRInstrInfo : public AVRGenInstrInfo {
 public:
   explicit AVRInstrInfo();
   /*!
@@ -94,8 +93,10 @@ public:
                             MachineBasicBlock::iterator MI, unsigned DestReg,
                             int FrameIndex, const TargetRegisterClass *RC,
                             const TargetRegisterInfo *TRI) const override;
-  unsigned isLoadFromStackSlot(const MachineInstr *MI, int &FrameIndex) const override;
-  unsigned isStoreToStackSlot(const MachineInstr *MI, int &FrameIndex) const override;
+  unsigned isLoadFromStackSlot(const MachineInstr *MI,
+                               int &FrameIndex) const override;
+  unsigned isStoreToStackSlot(const MachineInstr *MI,
+                              int &FrameIndex) const override;
 
   // Branch analysis.
   bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
@@ -103,11 +104,12 @@ public:
                      SmallVectorImpl<MachineOperand> &Cond,
                      bool AllowModify = false) const override;
   unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
-                        MachineBasicBlock *FBB,
-                        ArrayRef<MachineOperand> Cond,
+                        MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
                         DebugLoc DL) const override;
   unsigned RemoveBranch(MachineBasicBlock &MBB) const override;
-  bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
+  bool
+  ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
+
 private:
   const AVRRegisterInfo RI;
 };

@@ -13,14 +13,14 @@
 //
 
 #ifndef LLVM_AVR_ASM_BACKEND_H
-# define LLVM_AVR_ASM_BACKEND_H
+#define LLVM_AVR_ASM_BACKEND_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/MC/MCAsmBackend.h"
-# include "llvm/ADT/Triple.h"
+#include "llvm/MC/MCAsmBackend.h"
+#include "llvm/ADT/Triple.h"
 
-# include "MCTargetDesc/AVRFixupKinds.h"
+#include "MCTargetDesc/AVRFixupKinds.h"
 
 namespace llvm {
 
@@ -34,7 +34,6 @@ class MCObjectWriter;
  */
 class AVRAsmBackend : public MCAsmBackend {
 
-
 public:
   AVRAsmBackend(const Target &T, Triple::OSType OSType)
       : MCAsmBackend(), OSType(OSType) {}
@@ -42,7 +41,7 @@ public:
   /**
    * Adjusts a fixup value before it is applied.
    */
-  void adjustFixupValue(const MCFixup &Fixup, uint64_t & Value,
+  void adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
                         MCContext *Ctx = nullptr) const;
 
   MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override;
@@ -66,15 +65,13 @@ public:
   /// relaxation.
   ///
   /// \param Inst - The instruction to test.
-  bool mayNeedRelaxation(const MCInst &Inst) const override {
-    return false;
-  }
+  bool mayNeedRelaxation(const MCInst &Inst) const override { return false; }
 
   /// fixupNeedsRelaxation - Target specific predicate for whether a given
   /// fixup requires the associated instruction to be relaxed.
-   bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
-                             const MCRelaxableFragment *DF,
-                             const MCAsmLayout &Layout) const override {
+  bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
+                            const MCRelaxableFragment *DF,
+                            const MCAsmLayout &Layout) const override {
     llvm_unreachable("RelaxInstruction() unimplemented");
     return false;
   }
@@ -90,13 +87,13 @@ public:
   /// @}
 
   bool writeNopData(uint64_t Count, MCObjectWriter *OW) const override;
-  
+
   void processFixupValue(const MCAssembler &Asm, const MCAsmLayout &Layout,
                          const MCFixup &Fixup, const MCFragment *DF,
                          const MCValue &Target, uint64_t &Value,
                          bool &IsResolved) override;
+
 private:
-  
   Triple::OSType OSType;
 }; // class AVRAsmBackend
 

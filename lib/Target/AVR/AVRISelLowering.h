@@ -13,11 +13,11 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_ISEL_LOWERING_H
-# define LLVM_AVR_ISEL_LOWERING_H
+#define LLVM_AVR_ISEL_LOWERING_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/Target/TargetLowering.h"
+#include "llvm/Target/TargetLowering.h"
 
 namespace llvm {
 
@@ -37,11 +37,11 @@ enum NodeType {
   /// A wrapper node for TargetConstantPool,
   /// TargetExternalSymbol, and TargetGlobalAddress.
   Wrapper,
-  LSL, ///< Logical shift left.
-  LSR, ///< Logical shift right.
-  ASR, ///< Arithmetic shift right.
-  ROR, ///< Bit rotate right.
-  ROL, ///< Bit rotate left.
+  LSL,     ///< Logical shift left.
+  LSR,     ///< Logical shift right.
+  ASR,     ///< Arithmetic shift right.
+  ROR,     ///< Bit rotate right.
+  ROL,     ///< Bit rotate left.
   LSLLOOP, ///< A loop of single logical shift left instructions.
   LSRLOOP, ///< A loop of single logical shift right instructions.
   ASRLOOP, ///< A loop of single arithmetic shift right instructions.
@@ -68,10 +68,10 @@ class AVRTargetMachine;
 /**
  * Performs target lowering for the AVR.
  */
-class AVRTargetLowering : public TargetLowering
-{
+class AVRTargetLowering : public TargetLowering {
 public:
   explicit AVRTargetLowering(AVRTargetMachine &TM);
+
 public:
   MVT getScalarShiftAmountTy(const DataLayout &, EVT LHSTy) const override {
     return MVT::i8;
@@ -95,8 +95,7 @@ public:
    * by AM is legal for this target, for a load/store
    * of the specified type.
    */
-  bool isLegalAddressingMode(const DataLayout &DL,
-                             const AddrMode &AM, Type *Ty,
+  bool isLegalAddressingMode(const DataLayout &DL, const AddrMode &AM, Type *Ty,
                              unsigned AS) const override;
 
   /*!
@@ -124,8 +123,9 @@ public:
    */
   bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
 
-  MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                 MachineBasicBlock *MBB) const override;
+  MachineBasicBlock *
+  EmitInstrWithCustomInserter(MachineInstr *MI,
+                              MachineBasicBlock *MBB) const override;
 
   /// Inline Asm support.
   /// Implementation of TargetLowering hooks.
@@ -137,11 +137,9 @@ public:
 
   std::pair<unsigned, const TargetRegisterClass *>
   getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
-                               StringRef Constraint,
-                               MVT VT) const override;
+                               StringRef Constraint, MVT VT) const override;
 
-  unsigned
-  getInlineAsmMemConstraint(StringRef ConstraintCode) const override;
+  unsigned getInlineAsmMemConstraint(StringRef ConstraintCode) const override;
 
   void LowerAsmOperandForConstraint(SDValue Op, std::string &Constraint,
                                     std::vector<SDValue> &Ops,
@@ -155,7 +153,7 @@ private:
   SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
-  SDValue LowerINLINEASM(SDValue Op, SelectionDAG &DAG) const;          
+  SDValue LowerINLINEASM(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
@@ -173,13 +171,13 @@ private:
                     SmallVectorImpl<SDValue> &InVals) const override;
   SDValue LowerCallResult(SDValue Chain, SDValue InFlag,
                           CallingConv::ID CallConv, bool isVarArg,
-                          const SmallVectorImpl<ISD::InputArg> &Ins,
-                          SDLoc dl, SelectionDAG &DAG,
+                          const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc dl,
+                          SelectionDAG &DAG,
                           SmallVectorImpl<SDValue> &InVals) const;
 
-private: // custom inserters 
-  MachineBasicBlock * insertShift(MachineInstr *MI,  MachineBasicBlock *BB) const;
-  MachineBasicBlock * insertMul(MachineInstr * MI, MachineBasicBlock * BB) const;
+private: // custom inserters
+  MachineBasicBlock *insertShift(MachineInstr *MI, MachineBasicBlock *BB) const;
+  MachineBasicBlock *insertMul(MachineInstr *MI, MachineBasicBlock *BB) const;
 };
 
 } // end namespace llvm

@@ -14,11 +14,11 @@
 
 #include "AVR.h"
 
-namespace llvm { Target TheAVRTarget; }
+namespace llvm {
+Target TheAVRTarget;
+}
 
-extern "C"
-void
-LLVMInitializeAVRTargetInfo() {
-  llvm::RegisterTarget<llvm::Triple::avr> X(llvm::TheAVRTarget, "avr",
-                                "Atmel AVR Microcontroller [experimental]");
+extern "C" void LLVMInitializeAVRTargetInfo() {
+  llvm::RegisterTarget<llvm::Triple::avr> X(
+      llvm::TheAVRTarget, "avr", "Atmel AVR Microcontroller [experimental]");
 }

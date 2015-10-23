@@ -38,13 +38,13 @@ namespace llvm {
 /**
  * An assembly code printer.
  */
-class AVRAsmPrinter : public AsmPrinter
-{
+class AVRAsmPrinter : public AsmPrinter {
   MCRegisterInfo MRI;
+
 public:
-  explicit
-  AVRAsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer) :
-    AsmPrinter(TM, std::move(Streamer)) {}
+  explicit AVRAsmPrinter(TargetMachine &TM,
+                         std::unique_ptr<MCStreamer> Streamer)
+      : AsmPrinter(TM, std::move(Streamer)) {}
 
   const char *getPassName() const override { return "AVR Assembly Printer"; }
 
@@ -63,14 +63,11 @@ public: // AsmPrinter
   void EmitInstruction(const MachineInstr *MI) override;
 };
 
-
 void AVRAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
-                                 raw_ostream &O, const char *Modifier)
-{
+                                 raw_ostream &O, const char *Modifier) {
   const MachineOperand &MO = MI->getOperand(OpNo);
 
-  switch (MO.getType())
-  {
+  switch (MO.getType()) {
   case MachineOperand::MO_Register:
     O << AVRInstPrinter::getPrettyRegisterName(MO.getReg(), MRI);
     break;
@@ -93,26 +90,24 @@ void AVRAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
 
 bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
                                     unsigned AsmVariant, const char *ExtraCode,
-                                    raw_ostream &O)
-{
+                                    raw_ostream &O) {
   // Default asm printer can only deal with some extra codes,
   // so try it first.
   bool Error = AsmPrinter::PrintAsmOperand(MI, OpNum, AsmVariant, ExtraCode, O);
-  if (Error && ExtraCode && ExtraCode[0])
-  {
-    if (ExtraCode[1] != 0) return true; // Unknown modifier.
+  if (Error && ExtraCode && ExtraCode[0]) {
+    if (ExtraCode[1] != 0)
+      return true; // Unknown modifier.
 
-    if  (ExtraCode[0] >= 'A' && ExtraCode[0] <= 'Z')
-    {
-      const MachineOperand& RegOp = MI->getOperand(OpNum);
+    if (ExtraCode[0] >= 'A' && ExtraCode[0] <= 'Z') {
+      const MachineOperand &RegOp = MI->getOperand(OpNum);
 
       assert(RegOp.isReg() && "Operand must be a register when you're"
                               "using 'A'..'Z' operand extracodes.");
       unsigned Reg = RegOp.getReg();
 
-      unsigned ByteNumber = ExtraCode[0] -'A';
+      unsigned ByteNumber = ExtraCode[0] - 'A';
 
-      unsigned OpFlags = MI->getOperand(OpNum-1).getImm();
+      unsigned OpFlags = MI->getOperand(OpNum - 1).getImm();
       unsigned NumOpRegs = InlineAsm::getNumOperandRegisters(OpFlags);
 
       const TargetRegisterInfo *TRI = MF->getSubtarget().getRegisterInfo();
@@ -126,10 +121,9 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
 
       Reg = MI->getOperand(OpNum + RegIdx).getReg();
 
-      if (BytesPerReg == 2)
-      {
-        Reg = TRI->getSubReg(Reg, ByteNumber % BytesPerReg ?
-                                  AVR::sub_hi : AVR::sub_lo);
+      if (BytesPerReg == 2) {
+        Reg = TRI->getSubReg(Reg, ByteNumber % BytesPerReg ? AVR::sub_hi
+                                                           : AVR::sub_lo);
       }
 
       O << AVRInstPrinter::getPrettyRegisterName(Reg, MRI);
@@ -144,10 +138,9 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
 
 bool AVRAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
                                           unsigned OpNum, unsigned AsmVariant,
-                                          const char *ExtraCode, raw_ostream &O)
-{
-  if (ExtraCode && ExtraCode[0])
-  {
+                                          const char *ExtraCode,
+                                          raw_ostream &O) {
+  if (ExtraCode && ExtraCode[0]) {
     // TODO:
     llvm_unreachable("This branch is not implemented yet");
   }
@@ -158,14 +151,11 @@ bool AVRAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   // :FIXME: This fixme is related with another one in AVRInstPrinter, line 29:
   // this should be done somewhere else
   // check out the new feature about alternative reg names
-  if (MI->getOperand(OpNum).getReg() == AVR::R31R30)
-  {
+  if (MI->getOperand(OpNum).getReg() == AVR::R31R30) {
     O << "Z";
-  }
-  else
-  {
-    assert(MI->getOperand(OpNum).getReg() == AVR::R29R28
-           && "Wrong register class for memory operand.");
+  } else {
+    assert(MI->getOperand(OpNum).getReg() == AVR::R29R28 &&
+           "Wrong register class for memory operand.");
     O << "Y";
   }
 
@@ -174,8 +164,7 @@ bool AVRAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   // Though it is weird that imm is counted as register too.
   unsigned OpFlags = MI->getOperand(OpNum - 1).getImm();
   unsigned NumOpRegs = InlineAsm::getNumOperandRegisters(OpFlags);
-  if (NumOpRegs == 2)
-  {
+  if (NumOpRegs == 2) {
     O << '+' << MI->getOperand(OpNum + 1).getImm();
   }
 
@@ -183,8 +172,7 @@ bool AVRAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
 }
 
 //===----------------------------------------------------------------------===//
-void AVRAsmPrinter::EmitInstruction(const MachineInstr *MI)
-{
+void AVRAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   AVRMCInstLower MCInstLowering(OutContext, *this);
 
   MCInst I;

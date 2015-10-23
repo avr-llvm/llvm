@@ -12,25 +12,26 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_REGISTER_INFO_H
-# define LLVM_AVR_REGISTER_INFO_H
+#define LLVM_AVR_REGISTER_INFO_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/TargetRegisterInfo.h"
 
-# define GET_REGINFO_HEADER
-# include "AVRGenRegisterInfo.inc"
+#define GET_REGINFO_HEADER
+#include "AVRGenRegisterInfo.inc"
 
 namespace llvm {
 /**
  * Utilities relating to AVR registers.
  */
-class AVRRegisterInfo : public AVRGenRegisterInfo
-{
+class AVRRegisterInfo : public AVRGenRegisterInfo {
 public:
   AVRRegisterInfo();
+
 public:
-  const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const override;
+  const uint16_t *
+  getCalleeSavedRegs(const MachineFunction *MF = 0) const override;
   const uint32_t *getCallPreservedMask(const MachineFunction &MF,
                                        CallingConv::ID CC) const override;
   BitVector getReservedRegs(const MachineFunction &MF) const override;
@@ -49,7 +50,8 @@ public:
 
   /// Returns a TargetRegisterClass used for pointer values.
   const TargetRegisterClass *
-  getPointerRegClass(const MachineFunction &MF, unsigned Kind = 0) const override;
+  getPointerRegClass(const MachineFunction &MF,
+                     unsigned Kind = 0) const override;
 };
 
 } // end namespace llvm

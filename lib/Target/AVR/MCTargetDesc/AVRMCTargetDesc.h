@@ -12,11 +12,11 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_MCTARGET_DESC_H
-# define LLVM_AVR_MCTARGET_DESC_H
+#define LLVM_AVR_MCTARGET_DESC_H
 
-# include "AVRConfig.h"
+#include "AVRConfig.h"
 
-# include "llvm/Support/DataTypes.h"
+#include "llvm/Support/DataTypes.h"
 
 namespace llvm {
 
@@ -53,13 +53,13 @@ MCObjectWriter *createAVRELFObjectWriter(raw_pwrite_stream &OS, uint8_t OSABI);
 
 } // end namespace llvm
 
-# define GET_REGINFO_ENUM
-# include "AVRGenRegisterInfo.inc"
+#define GET_REGINFO_ENUM
+#include "AVRGenRegisterInfo.inc"
 
-# define GET_INSTRINFO_ENUM
-# include "AVRGenInstrInfo.inc"
+#define GET_INSTRINFO_ENUM
+#include "AVRGenInstrInfo.inc"
 
-# define GET_SUBTARGETINFO_ENUM
-# include "AVRGenSubtargetInfo.inc"
+#define GET_SUBTARGETINFO_ENUM
+#include "AVRGenSubtargetInfo.inc"
 
 #endif // LLVM_AVR_MCTARGET_DESC_H
