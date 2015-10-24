@@ -115,7 +115,6 @@ public:
     UnknownVendor,
 
     Apple,
-    Atmel,
     PC,
     SCEI,
     BGP,

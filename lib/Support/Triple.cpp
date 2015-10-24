@@ -137,7 +137,6 @@ const char *Triple::getVendorTypeName(VendorType Kind) {
   case UnknownVendor: return "unknown";
 
   case Apple: return "apple";
-  case Atmel: return "atmel";
   case PC: return "pc";
   case SCEI: return "scei";
   case BGP: return "bgp";
@@ -395,7 +394,6 @@ static Triple::ArchType parseArch(StringRef ArchName) {
 static Triple::VendorType parseVendor(StringRef VendorName) {
   return StringSwitch<Triple::VendorType>(VendorName)
     .Case("apple", Triple::Apple)
-    .Case("atmel", Triple::Atmel)
     .Case("pc", Triple::PC)
     .Case("scei", Triple::SCEI)
     .Case("bgp", Triple::BGP)
