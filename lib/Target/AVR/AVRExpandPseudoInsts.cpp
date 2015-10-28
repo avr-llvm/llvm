@@ -1192,11 +1192,13 @@ bool AVRExpandPseudo::expand<AVR::LSRWRd>(Block &MBB, BlockIt MBBI) {
 template <>
 bool AVRExpandPseudo::expand<AVR::RORWRd>(Block &MBB, BlockIt MBBI) {
   assert(0 && "RORW unimplemented");
+  return false;
 }
 
 template <>
 bool AVRExpandPseudo::expand<AVR::ROLWRd>(Block &MBB, BlockIt MBBI) {
   assert(0 && "ROLW unimplemented");
+  return false;
 }
 
 template <>
