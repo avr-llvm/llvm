@@ -32,7 +32,7 @@ AVRTargetObjectFile::SelectSectionForGlobal(const GlobalValue *GV,
                                             const TargetMachine &TM) const {
   // Global values in flash memory are placed in the progmem.data section
   // unless they already have a user assigned section.
-  if (AVR::isProgramMemoryAddress(GV) and not GV->hasSection())
+  if (AVR::isProgramMemoryAddress(GV) && !GV->hasSection())
     return ProgmemDataSection;
 
   // Otherwise, we work the same way as ELF.

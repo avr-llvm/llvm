@@ -360,7 +360,7 @@ template <> SDNode *AVRDAGToDAGISel::select<ISD::STORE>(SDNode *N) {
 
 template <> SDNode *AVRDAGToDAGISel::select<ISD::LOAD>(SDNode *N) {
   const LoadSDNode *LD = cast<LoadSDNode>(N);
-  if (not AVR::isProgramMemoryAccess(LD)) {
+  if (!AVR::isProgramMemoryAccess(LD)) {
     // Check if the opcode can be converted into an indexed load.
     return SelectIndexedLoad(N);
   }
