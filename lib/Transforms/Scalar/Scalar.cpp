@@ -30,7 +30,7 @@ using namespace llvm;
 /// initializeScalarOptsPasses - Initialize all passes linked into the
 /// ScalarOpts library.
 void llvm::initializeScalarOpts(PassRegistry &Registry) {
-  initializeADCEPass(Registry);
+  initializeADCELegacyPassPass(Registry);
   initializeBDCEPass(Registry);
   initializeAlignmentFromAssumptionsPass(Registry);
   initializeConstantHoistingPass(Registry);
@@ -83,6 +83,7 @@ void llvm::initializeScalarOpts(PassRegistry &Registry) {
   initializePlaceSafepointsPass(Registry);
   initializeFloat2IntPass(Registry);
   initializeLoopDistributePass(Registry);
+  initializeLoopLoadEliminationPass(Registry);
 }
 
 void LLVMInitializeScalarOpts(LLVMPassRegistryRef R) {

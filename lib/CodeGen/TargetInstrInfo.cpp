@@ -576,10 +576,7 @@ bool TargetInstrInfo::hasReassociableOperands(
     MI2 = MRI.getUniqueVRegDef(Op2.getReg());
 
   // And they need to be in the trace (otherwise, they won't have a depth).
-  if (MI1 && MI2 && MI1->getParent() == MBB && MI2->getParent() == MBB)
-    return true;
-
-  return false;
+  return MI1 && MI2 && MI1->getParent() == MBB && MI2->getParent() == MBB;
 }
 
 bool TargetInstrInfo::hasReassociableSibling(const MachineInstr &Inst,
@@ -600,11 +597,9 @@ bool TargetInstrInfo::hasReassociableSibling(const MachineInstr &Inst,
   // 2. The previous instruction must have virtual register definitions for its
   //    operands in the same basic block as Inst.
   // 3. The previous instruction's result must only be used by Inst.
-  if (MI1->getOpcode() == AssocOpcode && hasReassociableOperands(*MI1, MBB) &&
-      MRI.hasOneNonDBGUse(MI1->getOperand(0).getReg()))
-    return true;
-
-  return false;
+  return MI1->getOpcode() == AssocOpcode &&
+         hasReassociableOperands(*MI1, MBB) &&
+         MRI.hasOneNonDBGUse(MI1->getOperand(0).getReg());
 }
 
 // 1. The operation must be associative and commutative.
@@ -613,12 +608,9 @@ bool TargetInstrInfo::hasReassociableSibling(const MachineInstr &Inst,
 // 3. The instruction must have a reassociable sibling.
 bool TargetInstrInfo::isReassociationCandidate(const MachineInstr &Inst,
                                                bool &Commuted) const {
-  if (isAssociativeAndCommutative(Inst) &&
-      hasReassociableOperands(Inst, Inst.getParent()) &&
-      hasReassociableSibling(Inst, Commuted))
-    return true;
-
-  return false;
+  return isAssociativeAndCommutative(Inst) &&
+         hasReassociableOperands(Inst, Inst.getParent()) &&
+         hasReassociableSibling(Inst, Commuted);
 }
 
 // The concept of the reassociation pass is that these operations can benefit
@@ -644,7 +636,7 @@ bool TargetInstrInfo::isReassociationCandidate(const MachineInstr &Inst,
 //    that pattern.
 bool TargetInstrInfo::getMachineCombinerPatterns(
     MachineInstr &Root,
-    SmallVectorImpl<MachineCombinerPattern::MC_PATTERN> &Patterns) const {
+    SmallVectorImpl<MachineCombinerPattern> &Patterns) const {
 
   bool Commute;
   if (isReassociationCandidate(Root, Commute)) {
@@ -653,11 +645,11 @@ bool TargetInstrInfo::getMachineCombinerPatterns(
     // possibility for the Prev instruction in the sequence and let the
     // machine combiner decide if changing the operands is worthwhile.
     if (Commute) {
-      Patterns.push_back(MachineCombinerPattern::MC_REASSOC_AX_YB);
-      Patterns.push_back(MachineCombinerPattern::MC_REASSOC_XA_YB);
+      Patterns.push_back(MachineCombinerPattern::REASSOC_AX_YB);
+      Patterns.push_back(MachineCombinerPattern::REASSOC_XA_YB);
     } else {
-      Patterns.push_back(MachineCombinerPattern::MC_REASSOC_AX_BY);
-      Patterns.push_back(MachineCombinerPattern::MC_REASSOC_XA_BY);
+      Patterns.push_back(MachineCombinerPattern::REASSOC_AX_BY);
+      Patterns.push_back(MachineCombinerPattern::REASSOC_XA_BY);
     }
     return true;
   }
@@ -669,7 +661,7 @@ bool TargetInstrInfo::getMachineCombinerPatterns(
 /// See the above comments before getMachineCombinerPatterns().
 void TargetInstrInfo::reassociateOps(
     MachineInstr &Root, MachineInstr &Prev,
-    MachineCombinerPattern::MC_PATTERN Pattern,
+    MachineCombinerPattern Pattern,
     SmallVectorImpl<MachineInstr *> &InsInstrs,
     SmallVectorImpl<MachineInstr *> &DelInstrs,
     DenseMap<unsigned, unsigned> &InstrIdxForVirtReg) const {
@@ -689,10 +681,19 @@ void TargetInstrInfo::reassociateOps(
     { 2, 2, 1, 1 }
   };
 
-  MachineOperand &OpA = Prev.getOperand(OpIdx[Pattern][0]);
-  MachineOperand &OpB = Root.getOperand(OpIdx[Pattern][1]);
-  MachineOperand &OpX = Prev.getOperand(OpIdx[Pattern][2]);
-  MachineOperand &OpY = Root.getOperand(OpIdx[Pattern][3]);
+  int Row;
+  switch (Pattern) {
+  case MachineCombinerPattern::REASSOC_AX_BY: Row = 0; break;
+  case MachineCombinerPattern::REASSOC_AX_YB: Row = 1; break;
+  case MachineCombinerPattern::REASSOC_XA_BY: Row = 2; break;
+  case MachineCombinerPattern::REASSOC_XA_YB: Row = 3; break;
+  default: llvm_unreachable("unexpected MachineCombinerPattern");
+  }
+
+  MachineOperand &OpA = Prev.getOperand(OpIdx[Row][0]);
+  MachineOperand &OpB = Root.getOperand(OpIdx[Row][1]);
+  MachineOperand &OpX = Prev.getOperand(OpIdx[Row][2]);
+  MachineOperand &OpY = Root.getOperand(OpIdx[Row][3]);
   MachineOperand &OpC = Root.getOperand(0);
 
   unsigned RegA = OpA.getReg();
@@ -743,7 +744,7 @@ void TargetInstrInfo::reassociateOps(
 }
 
 void TargetInstrInfo::genAlternativeCodeSequence(
-    MachineInstr &Root, MachineCombinerPattern::MC_PATTERN Pattern,
+    MachineInstr &Root, MachineCombinerPattern Pattern,
     SmallVectorImpl<MachineInstr *> &InsInstrs,
     SmallVectorImpl<MachineInstr *> &DelInstrs,
     DenseMap<unsigned, unsigned> &InstIdxForVirtReg) const {
@@ -752,12 +753,12 @@ void TargetInstrInfo::genAlternativeCodeSequence(
   // Select the previous instruction in the sequence based on the input pattern.
   MachineInstr *Prev = nullptr;
   switch (Pattern) {
-  case MachineCombinerPattern::MC_REASSOC_AX_BY:
-  case MachineCombinerPattern::MC_REASSOC_XA_BY:
+  case MachineCombinerPattern::REASSOC_AX_BY:
+  case MachineCombinerPattern::REASSOC_XA_BY:
     Prev = MRI.getUniqueVRegDef(Root.getOperand(1).getReg());
     break;
-  case MachineCombinerPattern::MC_REASSOC_AX_YB:
-  case MachineCombinerPattern::MC_REASSOC_XA_YB:
+  case MachineCombinerPattern::REASSOC_AX_YB:
+  case MachineCombinerPattern::REASSOC_XA_YB:
     Prev = MRI.getUniqueVRegDef(Root.getOperand(2).getReg());
     break;
   default:
@@ -940,10 +941,7 @@ bool TargetInstrInfo::isSchedulingBoundary(const MachineInstr *MI,
   // modification.
   const TargetLowering &TLI = *MF.getSubtarget().getTargetLowering();
   const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
-  if (MI->modifiesRegister(TLI.getStackPointerRegisterToSaveRestore(), TRI))
-    return true;
-
-  return false;
+  return MI->modifiesRegister(TLI.getStackPointerRegisterToSaveRestore(), TRI);
 }
 
 // Provide a global flag for disabling the PreRA hazard recognizer that targets

@@ -63,8 +63,6 @@ namespace llvm {
 
       BCC_i64,
 
-      RBIT,         // ARM bitreverse instruction
-
       SRL_FLAG,     // V,Flag = srl_flag X -> srl X, 1 + save carry out.
       SRA_FLAG,     // V,Flag = sra_flag X -> sra X, 1 + save carry out.
       RRX,          // V = RRX X, Flag     -> srl X, 1 + shift in carry flag.
@@ -260,6 +258,7 @@ namespace llvm {
                                        SDNode *Node) const override;
 
     SDValue PerformCMOVCombine(SDNode *N, SelectionDAG &DAG) const;
+    SDValue PerformCMOVToBFICombine(SDNode *N, SelectionDAG &DAG) const;
     SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
 
     bool isDesirableToTransformToIntegerOp(unsigned Opc, EVT VT) const override;
@@ -348,6 +347,8 @@ namespace llvm {
     getInlineAsmMemConstraint(StringRef ConstraintCode) const override {
       if (ConstraintCode == "Q")
         return InlineAsm::Constraint_Q;
+      else if (ConstraintCode == "o")
+        return InlineAsm::Constraint_o;
       else if (ConstraintCode.size() == 2) {
         if (ConstraintCode[0] == 'U') {
           switch(ConstraintCode[1]) {
@@ -420,6 +421,16 @@ namespace llvm {
     bool functionArgumentNeedsConsecutiveRegisters(
         Type *Ty, CallingConv::ID CallConv, bool isVarArg) const override;
 
+    /// If a physical register, this returns the register that receives the
+    /// exception address on entry to an EH pad.
+    unsigned
+    getExceptionPointerRegister(const Constant *PersonalityFn) const override;
+
+    /// If a physical register, this returns the register that receives the
+    /// exception typeid on entry to a landing pad.
+    unsigned
+    getExceptionSelectorRegister(const Constant *PersonalityFn) const override;
+
     Instruction *makeDMB(IRBuilder<> &Builder, ARM_MB::MemBOpt Domain) const;
     Value *emitLoadLinked(IRBuilder<> &Builder, Value *Addr,
                           AtomicOrdering Ord) const override;
@@ -453,6 +464,9 @@ namespace llvm {
 
     bool canCombineStoreAndExtract(Type *VectorTy, Value *Idx,
                                    unsigned &Cost) const override;
+
+    bool isCheapToSpeculateCttz() const override;
+    bool isCheapToSpeculateCtlz() const override;
 
   protected:
     std::pair<const TargetRegisterClass *, uint8_t>
@@ -512,6 +526,7 @@ namespace llvm {
     SDValue LowerToTLSExecModels(GlobalAddressSDNode *GA,
                                  SelectionDAG &DAG,
                                  TLSModel::Model model) const;
+    SDValue LowerGlobalTLSAddressDarwin(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerGLOBAL_OFFSET_TABLE(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerBR_JT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerXALUO(SDValue Op, SelectionDAG &DAG) const;
@@ -564,6 +579,15 @@ namespace llvm {
                             SDLoc dl, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals,
                             bool isThisReturn, SDValue ThisVal) const;
+
+    bool supportSplitCSR(MachineFunction *MF) const override {
+      return MF->getFunction()->getCallingConv() == CallingConv::CXX_FAST_TLS &&
+          MF->getFunction()->hasFnAttribute(Attribute::NoUnwind);
+    }
+    void initializeSplitCSR(MachineBasicBlock *Entry) const override;
+    void insertCopiesSplitCSR(
+      MachineBasicBlock *Entry,
+      const SmallVectorImpl<MachineBasicBlock *> &Exits) const override;
 
     SDValue
       LowerFormalArguments(SDValue Chain,

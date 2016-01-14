@@ -41,7 +41,7 @@ namespace llvm {
  * Parses AVR assembly from a stream.
  */
 class AVRAsmParser : public MCTargetAsmParser {
-  MCSubtargetInfo &STI;
+  const MCSubtargetInfo &STI;
   MCAsmParser &Parser;
   const MCRegisterInfo *MRI;
 
@@ -72,7 +72,8 @@ class AVRAsmParser : public MCTargetAsmParser {
   void eatComma();
 
   // Handles target specific special cases. See definition for notes.
-  unsigned validateTargetOperandClass(MCParsedAsmOperand &Op, unsigned Kind);
+  unsigned validateTargetOperandClass(MCParsedAsmOperand &Op,
+                                      unsigned Kind) override;
 
   // Given a register returns the corresponding DREG
   unsigned toDREG(unsigned Reg, unsigned From = AVR::sub_lo) {
@@ -86,9 +87,9 @@ class AVRAsmParser : public MCTargetAsmParser {
   bool missingFeature(SMLoc const &Loc, uint64_t const &ErrorInfo);
 
 public:
-  AVRAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,
+  AVRAsmParser(const MCSubtargetInfo &STI, MCAsmParser &Parser,
                const MCInstrInfo &MII, const MCTargetOptions &Options)
-      : MCTargetAsmParser(Options), STI(sti), Parser(parser) {
+      : MCTargetAsmParser(Options, STI), STI(STI), Parser(Parser) {
     MCAsmParserExtension::Initialize(Parser);
     MRI = getContext().getRegisterInfo();
 

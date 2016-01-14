@@ -226,7 +226,7 @@ public:
   ///
   /// This can also be used to plug a new MachineSchedStrategy into an instance
   /// of the standard ScheduleDAGMI:
-  ///   return new ScheduleDAGMI(C, make_unique<MyStrategy>(C), /* IsPostRA= */false)
+  ///   return new ScheduleDAGMI(C, make_unique<MyStrategy>(C), /*RemoveKillFlags=*/false)
   ///
   /// Return NULL to select the default (generic) machine scheduler.
   virtual ScheduleDAGInstrs *
@@ -639,6 +639,9 @@ namespace llvm {
   /// stackmap/patchpoint intrinsics and attaches the calculated information to
   /// the intrinsic for later emission to the StackMap.
   extern char &StackMapLivenessID;
+
+  /// LiveDebugValues pass
+  extern char &LiveDebugValuesID;
 
   /// createJumpInstrTables - This pass creates jump-instruction tables.
   ModulePass *createJumpInstrTablesPass();

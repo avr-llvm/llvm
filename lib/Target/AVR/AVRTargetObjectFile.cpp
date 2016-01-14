@@ -19,7 +19,6 @@
 #include "AVR.h"
 
 namespace llvm {
-
 void AVRTargetObjectFile::Initialize(MCContext &Ctx, const TargetMachine &TM) {
   Base::Initialize(Ctx, TM);
   ProgmemDataSection =
@@ -38,5 +37,4 @@ AVRTargetObjectFile::SelectSectionForGlobal(const GlobalValue *GV,
   // Otherwise, we work the same way as ELF.
   return Base::SelectSectionForGlobal(GV, Kind, Mang, TM);
 }
-
 } // end of namespace llvm

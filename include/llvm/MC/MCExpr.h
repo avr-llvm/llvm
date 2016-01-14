@@ -188,6 +188,7 @@ public:
     VK_WEAKREF,   // The link between the symbols in .weakref foo, bar
 
     VK_ARM_NONE,
+    VK_ARM_GOT_PREL,
     VK_ARM_TARGET1,
     VK_ARM_TARGET2,
     VK_ARM_PREL31,
@@ -289,6 +290,9 @@ public:
     VK_Hexagon_LD_PLT,
     VK_Hexagon_IE,
     VK_Hexagon_IE_GOT,
+
+    VK_WebAssembly_FUNCTION, // Function table index, rather than virtual addr
+
     VK_TPREL,
     VK_DTPREL
   };

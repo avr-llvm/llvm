@@ -32,10 +32,10 @@ dnl===-----------------------------------------------------------------------===
 dnl Initialize autoconf and define the package name, version number and
 dnl address for reporting bugs.
 
-AC_INIT([LLVM],[3.8.0svn],[http://llvm.org/bugs/])
+AC_INIT([LLVM],[3.9.0svn],[http://llvm.org/bugs/])
 
 LLVM_VERSION_MAJOR=3
-LLVM_VERSION_MINOR=8
+LLVM_VERSION_MINOR=9
 LLVM_VERSION_PATCH=0
 LLVM_VERSION_SUFFIX=svn
 
@@ -1345,7 +1345,7 @@ AC_DEFINE_UNQUOTED(DEFAULT_SYSROOT,"$withval",
 AC_ARG_WITH(clang-default-openmp-runtime,
   AS_HELP_STRING([--with-clang-default-openmp-runtime],
     [The default OpenMP runtime for Clang.]),,
-    withval="libgomp")
+    withval="libomp")
 AC_DEFINE_UNQUOTED(CLANG_DEFAULT_OPENMP_RUNTIME,"$withval",
                    [Default OpenMP runtime used by -fopenmp.])
 
@@ -1645,6 +1645,7 @@ if test "$llvm_cv_os_type" = "MingW" ; then
   AC_CHECK_LIB(ole32, main)
   AC_CHECK_LIB(psapi, main)
   AC_CHECK_LIB(shell32, main)
+  AC_CHECK_LIB(uuid,main)
 fi
 
 dnl dlopen() is required for plugin support.
@@ -2243,3 +2244,14 @@ AC_CONFIG_MAKEFILE(bindings/ocaml/Makefile.ocaml)
 
 dnl Finally, crank out the output
 AC_OUTPUT
+echo ""
+echo ""
+echo "################################################################################"
+echo "################################################################################"
+echo "The LLVM project has deprecated building with configure & make."
+echo "The autoconf-based makefile build system will be removed in the 3.9 release."
+echo ""
+echo "Please migrate to the CMake-based build system."
+echo "For more information see: http://llvm.org/docs/CMake.html"
+echo "################################################################################"
+echo "################################################################################"

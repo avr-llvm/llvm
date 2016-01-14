@@ -1,13 +1,14 @@
 ; RUN: %llc_dwarf %s -o - -dwarf-version 2 -filetype=obj | llvm-dwarfdump - | FileCheck %s --check-prefix=DWARF2
 ; RUN: %llc_dwarf %s -o - -dwarf-version 3 -filetype=obj | llvm-dwarfdump - | FileCheck %s --check-prefix=DWARF3
 ; RUN: %llc_dwarf %s -o - -dwarf-version 4 -filetype=obj | llvm-dwarfdump - | FileCheck %s --check-prefix=DWARF4
+; RUN: %llc_dwarf %s -o - -dwarf-version 5 -filetype=obj | llvm-dwarfdump - | FileCheck %s --check-prefix=DWARF4
 
 ; .debug_frame is not emitted for targeting Windows x64.
 ; REQUIRES: debug_frame
 ; REQUIRES: default_triple
 
 ; Function Attrs: nounwind
-define i32 @foo() #0 {
+define i32 @foo() #0 !dbg !4 {
 entry:
   %call = call i32 bitcast (i32 (...)* @bar to i32 ()*)(), !dbg !12
   %add = add nsw i32 %call, 1, !dbg !12
@@ -27,7 +28,7 @@ attributes #1 = { "less-precise-fpmad"="false" "no-frame-pointer-elim"="true" "n
 !1 = !DIFile(filename: "test.c", directory: "/tmp")
 !2 = !{}
 !3 = !{!4}
-!4 = distinct !DISubprogram(name: "foo", line: 2, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: false, scopeLine: 2, file: !1, scope: !5, type: !6, function: i32 ()* @foo, variables: !2)
+!4 = distinct !DISubprogram(name: "foo", line: 2, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: false, scopeLine: 2, file: !1, scope: !5, type: !6, variables: !2)
 !5 = !DIFile(filename: "test.c", directory: "/tmp")
 !6 = !DISubroutineType(types: !7)
 !7 = !{!8}

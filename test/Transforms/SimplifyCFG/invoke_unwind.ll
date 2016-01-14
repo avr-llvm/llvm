@@ -17,15 +17,28 @@ Rethrow:
         resume { i8*, i32 } %exn
 }
 
+define i32 @test2() personality i32 (...)* @__gxx_personality_v0 {
+; CHECK-LABEL: @test2(
+; CHECK-NEXT: call void @bar() [ "foo"(i32 100) ]
+; CHECK-NEXT: ret i32 0
+        invoke void @bar( ) [ "foo"(i32 100) ]
+                        to label %1 unwind label %Rethrow
+        ret i32 0
+Rethrow:
+        %exn = landingpad {i8*, i32}
+                 catch i8* null
+        resume { i8*, i32 } %exn
+}
+
 declare i64 @dummy1()
 declare i64 @dummy2()
 
 ; This testcase checks to see if simplifycfg pass can convert two invoke 
 ; instructions to call instructions if they share a common trivial unwind
 ; block.
-define i64 @test2(i1 %cond) personality i32 (...)* @__gxx_personality_v0 {
+define i64 @test3(i1 %cond) personality i32 (...)* @__gxx_personality_v0 {
 entry:
-; CHECK-LABEL: @test2(
+; CHECK-LABEL: @test3(
 ; CHECK: %call1 = call i64 @dummy1()
 ; CHECK: %call2 = call i64 @dummy2()
 ; CHECK-NOT: resume { i8*, i32 } %lp
@@ -49,14 +62,14 @@ lpad1:
           cleanup
   br label %rethrow 
 
+rethrow:
+  %lp = phi { i8*, i32 } [%0, %lpad1], [%1, %lpad2]
+  resume { i8*, i32 } %lp
+  
 lpad2:
   %1 = landingpad { i8*, i32 }
           cleanup
   br label %rethrow
-
-rethrow:
-  %lp = phi { i8*, i32 } [%0, %lpad1], [%1, %lpad2]
-  resume { i8*, i32 } %lp
 }
 
 declare i32 @__gxx_personality_v0(...)

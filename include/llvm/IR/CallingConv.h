@@ -72,6 +72,9 @@ namespace CallingConv {
     // Swift - Calling convention for Swift.
     Swift = 16,
 
+    // CXX_FAST_TLS - Calling convention for access functions.
+    CXX_FAST_TLS = 17,
+
     // Target - This is the start of the target-specific calling conventions,
     // e.g. fastcall and thiscall on X86.
     FirstTargetCC = 64,
@@ -158,17 +161,27 @@ namespace CallingConv {
     /// \brief HHVM calling convention for invoking C/C++ helpers.
     HHVM_C = 82,
 
+    /// X86_INTR - x86 hardware interrupt context. Callee may take one or two
+    /// parameters, where the 1st represents a pointer to hardware context frame
+    /// and the 2nd represents hardware error code, the presence of the later
+    /// depends on the interrupt vector taken. Valid for both 32- and 64-bit
+    /// subtargets.
+    X86_INTR = 83,
+
     /// Used for AVR interrupt routines.
-    AVR_INTR = 83,
+    AVR_INTR = 84,
 
     /// AVR_SIGNAL - Used for AVR signal routines.
-    AVR_SIGNAL = 84,
+    AVR_SIGNAL = 85,
 
     /// Calling convention used for special multiplication RTLIB routines.
-    AVR_RT_MUL = 85,
+    AVR_RT_MUL = 86,
 
     /// Calling convention used for special division RTLIB routines.
-    AVR_RT_DIV = 86
+    AVR_RT_DIV = 87,
+
+    /// The highest possible calling convention ID. Must be some 2^k - 1.
+    MaxID = 1023
   };
 } // End CallingConv namespace
 

@@ -2487,15 +2487,36 @@ static bool canCombineWithMUL(MachineBasicBlock &MBB, MachineOperand &MO,
   return true;
 }
 
-/// Return true when there is potentially a faster code sequence
-/// for an instruction chain ending in \p Root. All potential patterns are
-/// listed
-/// in the \p Pattern vector. Pattern should be sorted in priority order since
-/// the pattern evaluator stops checking as soon as it finds a faster sequence.
+// TODO: There are many more machine instruction opcodes to match:
+//       1. Other data types (integer, vectors)
+//       2. Other math / logic operations (xor, or)
+//       3. Other forms of the same operation (intrinsics and other variants)
+bool AArch64InstrInfo::isAssociativeAndCommutative(const MachineInstr &Inst) const {
+  switch (Inst.getOpcode()) {
+  case AArch64::FADDDrr:
+  case AArch64::FADDSrr:
+  case AArch64::FADDv2f32:
+  case AArch64::FADDv2f64:
+  case AArch64::FADDv4f32:
+  case AArch64::FMULDrr:
+  case AArch64::FMULSrr:
+  case AArch64::FMULX32:
+  case AArch64::FMULX64:
+  case AArch64::FMULXv2f32:
+  case AArch64::FMULXv2f64:
+  case AArch64::FMULXv4f32:
+  case AArch64::FMULv2f32:
+  case AArch64::FMULv2f64:
+  case AArch64::FMULv4f32:
+    return Inst.getParent()->getParent()->getTarget().Options.UnsafeFPMath;
+  default:
+    return false;
+  }
+}
 
-bool AArch64InstrInfo::getMachineCombinerPatterns(
-    MachineInstr &Root,
-    SmallVectorImpl<MachineCombinerPattern::MC_PATTERN> &Patterns) const {
+/// Find instructions that can be turned into madd.
+static bool getMaddPatterns(MachineInstr &Root,
+                            SmallVectorImpl<MachineCombinerPattern> &Patterns) {
   unsigned Opc = Root.getOpcode();
   MachineBasicBlock &MBB = *Root.getParent();
   bool Found = false;
@@ -2523,81 +2544,95 @@ bool AArch64InstrInfo::getMachineCombinerPatterns(
            "ADDWrr does not have register operands");
     if (canCombineWithMUL(MBB, Root.getOperand(1), AArch64::MADDWrrr,
                           AArch64::WZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULADDW_OP1);
+      Patterns.push_back(MachineCombinerPattern::MULADDW_OP1);
       Found = true;
     }
     if (canCombineWithMUL(MBB, Root.getOperand(2), AArch64::MADDWrrr,
                           AArch64::WZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULADDW_OP2);
+      Patterns.push_back(MachineCombinerPattern::MULADDW_OP2);
       Found = true;
     }
     break;
   case AArch64::ADDXrr:
     if (canCombineWithMUL(MBB, Root.getOperand(1), AArch64::MADDXrrr,
                           AArch64::XZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULADDX_OP1);
+      Patterns.push_back(MachineCombinerPattern::MULADDX_OP1);
       Found = true;
     }
     if (canCombineWithMUL(MBB, Root.getOperand(2), AArch64::MADDXrrr,
                           AArch64::XZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULADDX_OP2);
+      Patterns.push_back(MachineCombinerPattern::MULADDX_OP2);
       Found = true;
     }
     break;
   case AArch64::SUBWrr:
     if (canCombineWithMUL(MBB, Root.getOperand(1), AArch64::MADDWrrr,
                           AArch64::WZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULSUBW_OP1);
+      Patterns.push_back(MachineCombinerPattern::MULSUBW_OP1);
       Found = true;
     }
     if (canCombineWithMUL(MBB, Root.getOperand(2), AArch64::MADDWrrr,
                           AArch64::WZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULSUBW_OP2);
+      Patterns.push_back(MachineCombinerPattern::MULSUBW_OP2);
       Found = true;
     }
     break;
   case AArch64::SUBXrr:
     if (canCombineWithMUL(MBB, Root.getOperand(1), AArch64::MADDXrrr,
                           AArch64::XZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULSUBX_OP1);
+      Patterns.push_back(MachineCombinerPattern::MULSUBX_OP1);
       Found = true;
     }
     if (canCombineWithMUL(MBB, Root.getOperand(2), AArch64::MADDXrrr,
                           AArch64::XZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULSUBX_OP2);
+      Patterns.push_back(MachineCombinerPattern::MULSUBX_OP2);
       Found = true;
     }
     break;
   case AArch64::ADDWri:
     if (canCombineWithMUL(MBB, Root.getOperand(1), AArch64::MADDWrrr,
                           AArch64::WZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULADDWI_OP1);
+      Patterns.push_back(MachineCombinerPattern::MULADDWI_OP1);
       Found = true;
     }
     break;
   case AArch64::ADDXri:
     if (canCombineWithMUL(MBB, Root.getOperand(1), AArch64::MADDXrrr,
                           AArch64::XZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULADDXI_OP1);
+      Patterns.push_back(MachineCombinerPattern::MULADDXI_OP1);
       Found = true;
     }
     break;
   case AArch64::SUBWri:
     if (canCombineWithMUL(MBB, Root.getOperand(1), AArch64::MADDWrrr,
                           AArch64::WZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULSUBWI_OP1);
+      Patterns.push_back(MachineCombinerPattern::MULSUBWI_OP1);
       Found = true;
     }
     break;
   case AArch64::SUBXri:
     if (canCombineWithMUL(MBB, Root.getOperand(1), AArch64::MADDXrrr,
                           AArch64::XZR)) {
-      Patterns.push_back(MachineCombinerPattern::MC_MULSUBXI_OP1);
+      Patterns.push_back(MachineCombinerPattern::MULSUBXI_OP1);
       Found = true;
     }
     break;
   }
   return Found;
+}
+
+/// Return true when there is potentially a faster code sequence for an
+/// instruction chain ending in \p Root. All potential patterns are listed in
+/// the \p Pattern vector. Pattern should be sorted in priority order since the
+/// pattern evaluator stops checking as soon as it finds a faster sequence.
+
+bool AArch64InstrInfo::getMachineCombinerPatterns(
+    MachineInstr &Root,
+    SmallVectorImpl<MachineCombinerPattern> &Patterns) const {
+  if (getMaddPatterns(Root, Patterns))
+    return true;
+
+  return TargetInstrInfo::getMachineCombinerPatterns(Root, Patterns);
 }
 
 /// genMadd - Generate madd instruction and combine mul and add.
@@ -2699,7 +2734,7 @@ static MachineInstr *genMaddR(MachineFunction &MF, MachineRegisterInfo &MRI,
 /// this function generates the instructions that could replace the
 /// original code sequence
 void AArch64InstrInfo::genAlternativeCodeSequence(
-    MachineInstr &Root, MachineCombinerPattern::MC_PATTERN Pattern,
+    MachineInstr &Root, MachineCombinerPattern Pattern,
     SmallVectorImpl<MachineInstr *> &InsInstrs,
     SmallVectorImpl<MachineInstr *> &DelInstrs,
     DenseMap<unsigned, unsigned> &InstrIdxForVirtReg) const {
@@ -2713,15 +2748,17 @@ void AArch64InstrInfo::genAlternativeCodeSequence(
   unsigned Opc;
   switch (Pattern) {
   default:
-    // signal error.
-    break;
-  case MachineCombinerPattern::MC_MULADDW_OP1:
-  case MachineCombinerPattern::MC_MULADDX_OP1:
+    // Reassociate instructions.
+    TargetInstrInfo::genAlternativeCodeSequence(Root, Pattern, InsInstrs,
+                                                DelInstrs, InstrIdxForVirtReg);
+    return;
+  case MachineCombinerPattern::MULADDW_OP1:
+  case MachineCombinerPattern::MULADDX_OP1:
     // MUL I=A,B,0
     // ADD R,I,C
     // ==> MADD R,A,B,C
     // --- Create(MADD);
-    if (Pattern == MachineCombinerPattern::MC_MULADDW_OP1) {
+    if (Pattern == MachineCombinerPattern::MULADDW_OP1) {
       Opc = AArch64::MADDWrrr;
       RC = &AArch64::GPR32RegClass;
     } else {
@@ -2730,13 +2767,13 @@ void AArch64InstrInfo::genAlternativeCodeSequence(
     }
     MUL = genMadd(MF, MRI, TII, Root, InsInstrs, 1, Opc, RC);
     break;
-  case MachineCombinerPattern::MC_MULADDW_OP2:
-  case MachineCombinerPattern::MC_MULADDX_OP2:
+  case MachineCombinerPattern::MULADDW_OP2:
+  case MachineCombinerPattern::MULADDX_OP2:
     // MUL I=A,B,0
     // ADD R,C,I
     // ==> MADD R,A,B,C
     // --- Create(MADD);
-    if (Pattern == MachineCombinerPattern::MC_MULADDW_OP2) {
+    if (Pattern == MachineCombinerPattern::MULADDW_OP2) {
       Opc = AArch64::MADDWrrr;
       RC = &AArch64::GPR32RegClass;
     } else {
@@ -2745,8 +2782,8 @@ void AArch64InstrInfo::genAlternativeCodeSequence(
     }
     MUL = genMadd(MF, MRI, TII, Root, InsInstrs, 2, Opc, RC);
     break;
-  case MachineCombinerPattern::MC_MULADDWI_OP1:
-  case MachineCombinerPattern::MC_MULADDXI_OP1: {
+  case MachineCombinerPattern::MULADDWI_OP1:
+  case MachineCombinerPattern::MULADDXI_OP1: {
     // MUL I=A,B,0
     // ADD R,I,Imm
     // ==> ORR  V, ZR, Imm
@@ -2754,7 +2791,7 @@ void AArch64InstrInfo::genAlternativeCodeSequence(
     // --- Create(MADD);
     const TargetRegisterClass *OrrRC;
     unsigned BitSize, OrrOpc, ZeroReg;
-    if (Pattern == MachineCombinerPattern::MC_MULADDWI_OP1) {
+    if (Pattern == MachineCombinerPattern::MULADDWI_OP1) {
       OrrOpc = AArch64::ORRWri;
       OrrRC = &AArch64::GPR32spRegClass;
       BitSize = 32;
@@ -2789,8 +2826,8 @@ void AArch64InstrInfo::genAlternativeCodeSequence(
     }
     break;
   }
-  case MachineCombinerPattern::MC_MULSUBW_OP1:
-  case MachineCombinerPattern::MC_MULSUBX_OP1: {
+  case MachineCombinerPattern::MULSUBW_OP1:
+  case MachineCombinerPattern::MULSUBX_OP1: {
     // MUL I=A,B,0
     // SUB R,I, C
     // ==> SUB  V, 0, C
@@ -2798,7 +2835,7 @@ void AArch64InstrInfo::genAlternativeCodeSequence(
     // --- Create(MADD);
     const TargetRegisterClass *SubRC;
     unsigned SubOpc, ZeroReg;
-    if (Pattern == MachineCombinerPattern::MC_MULSUBW_OP1) {
+    if (Pattern == MachineCombinerPattern::MULSUBW_OP1) {
       SubOpc = AArch64::SUBWrr;
       SubRC = &AArch64::GPR32spRegClass;
       ZeroReg = AArch64::WZR;
@@ -2822,13 +2859,13 @@ void AArch64InstrInfo::genAlternativeCodeSequence(
     MUL = genMaddR(MF, MRI, TII, Root, InsInstrs, 1, Opc, NewVR, RC);
     break;
   }
-  case MachineCombinerPattern::MC_MULSUBW_OP2:
-  case MachineCombinerPattern::MC_MULSUBX_OP2:
+  case MachineCombinerPattern::MULSUBW_OP2:
+  case MachineCombinerPattern::MULSUBX_OP2:
     // MUL I=A,B,0
     // SUB R,C,I
     // ==> MSUB R,A,B,C (computes C - A*B)
     // --- Create(MSUB);
-    if (Pattern == MachineCombinerPattern::MC_MULSUBW_OP2) {
+    if (Pattern == MachineCombinerPattern::MULSUBW_OP2) {
       Opc = AArch64::MSUBWrrr;
       RC = &AArch64::GPR32RegClass;
     } else {
@@ -2837,8 +2874,8 @@ void AArch64InstrInfo::genAlternativeCodeSequence(
     }
     MUL = genMadd(MF, MRI, TII, Root, InsInstrs, 2, Opc, RC);
     break;
-  case MachineCombinerPattern::MC_MULSUBWI_OP1:
-  case MachineCombinerPattern::MC_MULSUBXI_OP1: {
+  case MachineCombinerPattern::MULSUBWI_OP1:
+  case MachineCombinerPattern::MULSUBXI_OP1: {
     // MUL I=A,B,0
     // SUB R,I, Imm
     // ==> ORR  V, ZR, -Imm
@@ -2846,7 +2883,7 @@ void AArch64InstrInfo::genAlternativeCodeSequence(
     // --- Create(MADD);
     const TargetRegisterClass *OrrRC;
     unsigned BitSize, OrrOpc, ZeroReg;
-    if (Pattern == MachineCombinerPattern::MC_MULSUBWI_OP1) {
+    if (Pattern == MachineCombinerPattern::MULSUBWI_OP1) {
       OrrOpc = AArch64::ORRWri;
       OrrRC = &AArch64::GPR32spRegClass;
       BitSize = 32;

@@ -3,6 +3,7 @@ import os, signal, subprocess, sys
 import re
 import platform
 import tempfile
+import threading
 
 import lit.ShUtil as ShUtil
 import lit.Test as Test
@@ -33,28 +34,127 @@ class ShellEnvironment(object):
         self.cwd = cwd
         self.env = dict(env)
 
-def executeShCmd(cmd, shenv, results):
+class TimeoutHelper(object):
+    """
+        Object used to helper manage enforcing a timeout in
+        _executeShCmd(). It is passed through recursive calls
+        to collect processes that have been executed so that when
+        the timeout happens they can be killed.
+    """
+    def __init__(self, timeout):
+        self.timeout = timeout
+        self._procs = []
+        self._timeoutReached = False
+        self._doneKillPass = False
+        # This lock will be used to protect concurrent access
+        # to _procs and _doneKillPass
+        self._lock = None
+        self._timer = None
+
+    def cancel(self):
+        if not self.active():
+            return
+        self._timer.cancel()
+
+    def active(self):
+        return self.timeout > 0
+
+    def addProcess(self, proc):
+        if not self.active():
+            return
+        needToRunKill = False
+        with self._lock:
+            self._procs.append(proc)
+            # Avoid re-entering the lock by finding out if kill needs to be run
+            # again here but call it if necessary once we have left the lock.
+            # We could use a reentrant lock here instead but this code seems
+            # clearer to me.
+            needToRunKill = self._doneKillPass
+
+        # The initial call to _kill() from the timer thread already happened so
+        # we need to call it again from this thread, otherwise this process
+        # will be left to run even though the timeout was already hit
+        if needToRunKill:
+            assert self.timeoutReached()
+            self._kill()
+
+    def startTimer(self):
+        if not self.active():
+            return
+
+        # Do some late initialisation that's only needed
+        # if there is a timeout set
+        self._lock = threading.Lock()
+        self._timer = threading.Timer(self.timeout, self._handleTimeoutReached)
+        self._timer.start()
+
+    def _handleTimeoutReached(self):
+        self._timeoutReached = True
+        self._kill()
+
+    def timeoutReached(self):
+        return self._timeoutReached
+
+    def _kill(self):
+        """
+            This method may be called multiple times as we might get unlucky
+            and be in the middle of creating a new process in _executeShCmd()
+            which won't yet be in ``self._procs``. By locking here and in
+            addProcess() we should be able to kill processes launched after
+            the initial call to _kill()
+        """
+        with self._lock:
+            for p in self._procs:
+                lit.util.killProcessAndChildren(p.pid)
+            # Empty the list and note that we've done a pass over the list
+            self._procs = [] # Python2 doesn't have list.clear()
+            self._doneKillPass = True
+
+def executeShCmd(cmd, shenv, results, timeout=0):
+    """
+        Wrapper around _executeShCmd that handles
+        timeout
+    """
+    # Use the helper even when no timeout is required to make
+    # other code simpler (i.e. avoid bunch of ``!= None`` checks)
+    timeoutHelper = TimeoutHelper(timeout)
+    if timeout > 0:
+        timeoutHelper.startTimer()
+    finalExitCode = _executeShCmd(cmd, shenv, results, timeoutHelper)
+    timeoutHelper.cancel()
+    timeoutInfo = None
+    if timeoutHelper.timeoutReached():
+        timeoutInfo = 'Reached timeout of {} seconds'.format(timeout)
+
+    return (finalExitCode, timeoutInfo)
+
+def _executeShCmd(cmd, shenv, results, timeoutHelper):
+    if timeoutHelper.timeoutReached():
+        # Prevent further recursion if the timeout has been hit
+        # as we should try avoid launching more processes.
+        return None
+
     if isinstance(cmd, ShUtil.Seq):
         if cmd.op == ';':
-            res = executeShCmd(cmd.lhs, shenv, results)
-            return executeShCmd(cmd.rhs, shenv, results)
+            res = _executeShCmd(cmd.lhs, shenv, results, timeoutHelper)
+            return _executeShCmd(cmd.rhs, shenv, results, timeoutHelper)
 
         if cmd.op == '&':
             raise InternalShellError(cmd,"unsupported shell operator: '&'")
 
         if cmd.op == '||':
-            res = executeShCmd(cmd.lhs, shenv, results)
+            res = _executeShCmd(cmd.lhs, shenv, results, timeoutHelper)
             if res != 0:
-                res = executeShCmd(cmd.rhs, shenv, results)
+                res = _executeShCmd(cmd.rhs, shenv, results, timeoutHelper)
             return res
 
         if cmd.op == '&&':
-            res = executeShCmd(cmd.lhs, shenv, results)
+            res = _executeShCmd(cmd.lhs, shenv, results, timeoutHelper)
             if res is None:
                 return res
 
             if res == 0:
-                res = executeShCmd(cmd.rhs, shenv, results)
+                res = _executeShCmd(cmd.rhs, shenv, results, timeoutHelper)
             return res
 
         raise ValueError('Unknown shell command: %r' % cmd.op)
@@ -206,8 +306,10 @@ def executeShCmd(cmd, shenv, results):
                                           stderr = stderr,
                                           env = cmd_shenv.env,
                                           close_fds = kUseCloseFDs))
+            # Let the helper know about this process
+            timeoutHelper.addProcess(procs[-1])
         except OSError as e:
-            raise InternalShellError(j, 'Could not create process due to {}'.format(e))
+            raise InternalShellError(j, 'Could not create process ({}) due to {}'.format(executable, e))
 
         # Immediately close stdin for any process taking stdin from us.
         if stdin == subprocess.PIPE:
@@ -271,7 +373,7 @@ def executeShCmd(cmd, shenv, results):
         except:
             err = str(err)
 
-        results.append((cmd.commands[i], out, err, res))
+        results.append((cmd.commands[i], out, err, res, timeoutHelper.timeoutReached()))
         if cmd.pipe_err:
             # Python treats the exit code as a signed char.
             if exitCode is None:
@@ -309,22 +411,25 @@ def executeScriptInternal(test, litConfig, tmpBase, commands, cwd):
         cmd = ShUtil.Seq(cmd, '&&', c)
 
     results = []
+    timeoutInfo = None
     try:
         shenv = ShellEnvironment(cwd, test.config.environment)
-        exitCode = executeShCmd(cmd, shenv, results)
+        exitCode, timeoutInfo = executeShCmd(cmd, shenv, results, timeout=litConfig.maxIndividualTestTime)
     except InternalShellError:
         e = sys.exc_info()[1]
         exitCode = 127
-        results.append((e.command, '', e.message, exitCode))
+        results.append((e.command, '', e.message, exitCode, False))
 
     out = err = ''
-    for i,(cmd, cmd_out,cmd_err,res) in enumerate(results):
+    for i,(cmd, cmd_out, cmd_err, res, timeoutReached) in enumerate(results):
         out += 'Command %d: %s\n' % (i, ' '.join('"%s"' % s for s in cmd.args))
         out += 'Command %d Result: %r\n' % (i, res)
+        if litConfig.maxIndividualTestTime > 0:
+            out += 'Command %d Reached Timeout: %s\n\n' % (i, str(timeoutReached))
         out += 'Command %d Output:\n%s\n\n' % (i, cmd_out)
         out += 'Command %d Stderr:\n%s\n\n' % (i, cmd_err)
 
-    return out, err, exitCode
+    return out, err, exitCode, timeoutInfo
 
 def executeScript(test, litConfig, tmpBase, commands, cwd):
     bashPath = litConfig.getBashPath();
@@ -359,10 +464,15 @@ def executeScript(test, litConfig, tmpBase, commands, cwd):
             # run on clang with no real loss.
             command = litConfig.valgrindArgs + command
 
-    return lit.util.executeCommand(command, cwd=cwd,
-                                   env=test.config.environment)
+    try:
+        out, err, exitCode = lit.util.executeCommand(command, cwd=cwd,
+                                       env=test.config.environment,
+                                       timeout=litConfig.maxIndividualTestTime)
+        return (out, err, exitCode, None)
+    except lit.util.ExecuteCommandTimeoutException as e:
+        return (e.out, e.err, e.exitCode, e.msg)
 
-def parseIntegratedTestScriptCommands(source_path):
+def parseIntegratedTestScriptCommands(source_path, keywords):
     """
     parseIntegratedTestScriptCommands(source_path) -> commands
 
@@ -381,7 +491,6 @@ def parseIntegratedTestScriptCommands(source_path):
     # remaining code can work with "strings" agnostic of the executing Python
     # version.
 
-    keywords = ['RUN:', 'XFAIL:', 'REQUIRES:', 'UNSUPPORTED:', 'END.']
     keywords_re = re.compile(
         to_bytes("(%s)(.*)\n" % ("|".join(k for k in keywords),)))
 
@@ -415,27 +524,18 @@ def parseIntegratedTestScriptCommands(source_path):
     finally:
         f.close()
 
-
-def parseIntegratedTestScript(test, normalize_slashes=False,
-                              extra_substitutions=[], require_script=True):
-    """parseIntegratedTestScript - Scan an LLVM/Clang style integrated test
-    script and extract the lines to 'RUN' as well as 'XFAIL' and 'REQUIRES'
-    and 'UNSUPPORTED' information. The RUN lines also will have variable
-    substitution performed. If 'require_script' is False an empty script may be
-    returned. This can be used for test formats where the actual script is
-    optional or ignored.
-    """
-
-    # Get the temporary location, this is always relative to the test suite
-    # root, not test source root.
-    #
-    # FIXME: This should not be here?
-    sourcepath = test.getSourcePath()
-    sourcedir = os.path.dirname(sourcepath)
+def getTempPaths(test):
+    """Get the temporary location, this is always relative to the test suite
+    root, not test source root."""
     execpath = test.getExecPath()
     execdir,execbase = os.path.split(execpath)
     tmpDir = os.path.join(execdir, 'Output')
     tmpBase = os.path.join(tmpDir, execbase)
+    return tmpDir, tmpBase
+
+def getDefaultSubstitutions(test, tmpDir, tmpBase, normalize_slashes=False):
+    sourcepath = test.getSourcePath()
+    sourcedir = os.path.dirname(sourcepath)
 
     # Normalize slashes, if requested.
     if normalize_slashes:
@@ -445,7 +545,7 @@ def parseIntegratedTestScript(test, normalize_slashes=False,
         tmpBase = tmpBase.replace('\\', '/')
 
     # We use #_MARKER_# to hide %% while we do the other substitutions.
-    substitutions = list(extra_substitutions)
+    substitutions = []
     substitutions.extend([('%%', '#_MARKER_#')])
     substitutions.extend(test.config.substitutions)
     substitutions.extend([('%s', sourcepath),
@@ -464,13 +564,40 @@ def parseIntegratedTestScript(test, normalize_slashes=False,
             ('%/t', tmpBase.replace('\\', '/') + '.tmp'),
             ('%/T', tmpDir.replace('\\', '/')),
             ])
+    return substitutions
 
+def applySubstitutions(script, substitutions):
+    """Apply substitutions to the script.  Allow full regular expression syntax.
+    Replace each matching occurrence of regular expression pattern a with
+    substitution b in line ln."""
+    def processLine(ln):
+        # Apply substitutions
+        for a,b in substitutions:
+            if kIsWindows:
+                b = b.replace("\\","\\\\")
+            ln = re.sub(a, b, ln)
+
+        # Strip the trailing newline and any extra whitespace.
+        return ln.strip()
+    # Note Python 3 map() gives an iterator rather than a list so explicitly
+    # convert to list before returning.
+    return list(map(processLine, script))
+
+def parseIntegratedTestScript(test, require_script=True):
+    """parseIntegratedTestScript - Scan an LLVM/Clang style integrated test
+    script and extract the lines to 'RUN' as well as 'XFAIL' and 'REQUIRES'
+    and 'UNSUPPORTED' information. If 'require_script' is False an empty script
+    may be returned. This can be used for test formats where the actual script
+    is optional or ignored.
+    """
     # Collect the test lines from the script.
+    sourcepath = test.getSourcePath()
     script = []
     requires = []
     unsupported = []
+    keywords = ['RUN:', 'XFAIL:', 'REQUIRES:', 'UNSUPPORTED:', 'END.']
     for line_number, command_type, ln in \
-            parseIntegratedTestScriptCommands(sourcepath):
+            parseIntegratedTestScriptCommands(sourcepath, keywords):
         if command_type == 'RUN':
             # Trim trailing whitespace.
             ln = ln.rstrip()
@@ -502,21 +629,6 @@ def parseIntegratedTestScript(test, normalize_slashes=False,
         else:
             raise ValueError("unknown script command type: %r" % (
                     command_type,))
-
-    # Apply substitutions to the script.  Allow full regular
-    # expression syntax.  Replace each matching occurrence of regular
-    # expression pattern a with substitution b in line ln.
-    def processLine(ln):
-        # Apply substitutions
-        for a,b in substitutions:
-            if kIsWindows:
-                b = b.replace("\\","\\\\")
-            ln = re.sub(a, b, ln)
-
-        # Strip the trailing newline and any extra whitespace.
-        return ln.strip()
-    script = [processLine(ln)
-              for ln in script]
 
     # Verify the script contains a run line.
     if require_script and not script:
@@ -557,13 +669,13 @@ def parseIntegratedTestScript(test, normalize_slashes=False,
             return lit.Test.Result(Test.UNSUPPORTED,
                  "Test requires one of the limit_to_features features %s" % msg)
 
-    return script,tmpBase,execdir
+    return script
 
-def _runShTest(test, litConfig, useExternalSh,
-                   script, tmpBase, execdir):
+def _runShTest(test, litConfig, useExternalSh, script, tmpBase):
     # Create the output directory if it does not already exist.
     lit.util.mkdir_p(os.path.dirname(tmpBase))
 
+    execdir = os.path.dirname(test.getExecPath())
     if useExternalSh:
         res = executeScript(test, litConfig, tmpBase, script, execdir)
     else:
@@ -571,15 +683,22 @@ def _runShTest(test, litConfig, useExternalSh,
     if isinstance(res, lit.Test.Result):
         return res
 
-    out,err,exitCode = res
+    out,err,exitCode,timeoutInfo = res
     if exitCode == 0:
         status = Test.PASS
     else:
-        status = Test.FAIL
+        if timeoutInfo == None:
+            status = Test.FAIL
+        else:
+            status = Test.TIMEOUT
 
     # Form the output log.
-    output = """Script:\n--\n%s\n--\nExit Code: %d\n\n""" % (
+    output = """Script:\n--\n%s\n--\nExit Code: %d\n""" % (
         '\n'.join(script), exitCode)
+
+    if timeoutInfo != None:
+        output += """Timeout: %s\n""" % (timeoutInfo,)
+    output += "\n"
 
     # Append the outputs, if present.
     if out:
@@ -595,20 +714,24 @@ def executeShTest(test, litConfig, useExternalSh,
     if test.config.unsupported:
         return (Test.UNSUPPORTED, 'Test is unsupported')
 
-    res = parseIntegratedTestScript(test, useExternalSh, extra_substitutions)
-    if isinstance(res, lit.Test.Result):
-        return res
+    script = parseIntegratedTestScript(test)
+    if isinstance(script, lit.Test.Result):
+        return script
     if litConfig.noExecute:
         return lit.Test.Result(Test.PASS)
 
-    script, tmpBase, execdir = res
+    tmpDir, tmpBase = getTempPaths(test)
+    substitutions = list(extra_substitutions)
+    substitutions += getDefaultSubstitutions(test, tmpDir, tmpBase,
+                                             normalize_slashes=useExternalSh)
+    script = applySubstitutions(script, substitutions)
 
     # Re-run failed tests up to test_retry_attempts times.
     attempts = 1
     if hasattr(test.config, 'test_retry_attempts'):
         attempts += test.config.test_retry_attempts
     for i in range(attempts):
-        res = _runShTest(test, litConfig, useExternalSh, script, tmpBase, execdir)
+        res = _runShTest(test, litConfig, useExternalSh, script, tmpBase)
         if res.code != Test.FAIL:
             break
     # If we had to run the test more than once, count it as a flaky pass. These

@@ -81,6 +81,12 @@ TEST(TripleTest, ParsedIDs) {
   EXPECT_EQ(Triple::Darwin, T.getOS());
   EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
 
+  T = Triple("i386-pc-elfiamcu");
+  EXPECT_EQ(Triple::x86, T.getArch());
+  EXPECT_EQ(Triple::PC, T.getVendor());
+  EXPECT_EQ(Triple::ELFIAMCU, T.getOS());
+  EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
+
   T = Triple("x86_64-pc-linux-gnu");
   EXPECT_EQ(Triple::x86_64, T.getArch());
   EXPECT_EQ(Triple::PC, T.getVendor());
@@ -846,10 +852,14 @@ TEST(TripleTest, getARMCPUForArch) {
   }
   {
     llvm::Triple Triple("armv6j-unknown-eabi");
-    EXPECT_EQ("arm1136j-s", Triple.getARMCPUForArch());
+    EXPECT_EQ("arm1136jf-s", Triple.getARMCPUForArch());
   }
   {
     llvm::Triple Triple("armv6k-unknown-eabi");
+    EXPECT_EQ("arm1176j-s", Triple.getARMCPUForArch());
+  }
+  {
+    llvm::Triple Triple("armv6kz-unknown-eabi");
     EXPECT_EQ("arm1176jzf-s", Triple.getARMCPUForArch());
   }
   {

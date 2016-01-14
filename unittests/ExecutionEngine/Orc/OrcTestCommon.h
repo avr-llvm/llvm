@@ -20,46 +20,77 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/TypeBuilder.h"
+#include "llvm/Object/ObjectFile.h"
+#include "llvm/ExecutionEngine/ExecutionEngine.h"
 #include "llvm/ExecutionEngine/Orc/JITSymbol.h"
+#include "llvm/Support/TargetSelect.h"
 #include <memory>
 
 namespace llvm {
 
-  class ModuleBuilder {
-  public:
-    ModuleBuilder(LLVMContext &Context, StringRef Triple,
-                  StringRef Name);
+// Base class for Orc tests that will execute code.
+class OrcExecutionTest {
+public:
 
-    template <typename FuncType>
-    Function* createFunctionDecl(Module *M, StringRef Name) {
-      return Function::Create(
-               TypeBuilder<FuncType, false>::get(M->getContext()),
-               GlobalValue::ExternalLinkage, Name, M);
+  OrcExecutionTest() {
+    if (!NativeTargetInitialized) {
+      InitializeNativeTarget();
+      InitializeNativeTargetAsmParser();
+      InitializeNativeTargetAsmPrinter();
+      NativeTargetInitialized = true;
     }
 
-    Module* getModule() { return M.get(); }
-    const Module* getModule() const { return M.get(); }
-    std::unique_ptr<Module> takeModule() { return std::move(M); }
+    // Try to select a TargetMachine for the host.
+    TM.reset(EngineBuilder().selectTarget());
 
-  private:
-    std::unique_ptr<Module> M;
-    IRBuilder<> Builder;
-  };
-
-  // Dummy struct type.
-  struct DummyStruct {
-    int X[256];
-  };
-
-  // TypeBuilder specialization for DummyStruct.
-  template <bool XCompile>
-  class TypeBuilder<DummyStruct, XCompile> {
-  public:
-    static StructType *get(LLVMContext &Context) {
-      return StructType::get(
-          TypeBuilder<types::i<32>[256], XCompile>::get(Context), nullptr);
+    if (TM) {
+      // If we found a TargetMachine, check that it's one that Orc supports.
+      const Triple& TT = TM->getTargetTriple();
+      if (TT.getArch() != Triple::x86_64 || !TT.isOSDarwin())
+        TM = nullptr;
     }
   };
+
+protected:
+  std::unique_ptr<TargetMachine> TM;
+private:
+  static bool NativeTargetInitialized;
+};
+
+class ModuleBuilder {
+public:
+  ModuleBuilder(LLVMContext &Context, StringRef Triple,
+                StringRef Name);
+
+  template <typename FuncType>
+  Function* createFunctionDecl(StringRef Name) {
+    return Function::Create(
+             TypeBuilder<FuncType, false>::get(M->getContext()),
+             GlobalValue::ExternalLinkage, Name, M.get());
+  }
+
+  Module* getModule() { return M.get(); }
+  const Module* getModule() const { return M.get(); }
+  std::unique_ptr<Module> takeModule() { return std::move(M); }
+
+private:
+  std::unique_ptr<Module> M;
+};
+
+// Dummy struct type.
+struct DummyStruct {
+  int X[256];
+};
+
+// TypeBuilder specialization for DummyStruct.
+template <bool XCompile>
+class TypeBuilder<DummyStruct, XCompile> {
+public:
+  static StructType *get(LLVMContext &Context) {
+    return StructType::get(
+      TypeBuilder<types::i<32>[256], XCompile>::get(Context), nullptr);
+  }
+};
 
 template <typename HandleT,
           typename AddModuleSetFtor,

@@ -14,7 +14,7 @@ target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 target triple = "arm64-apple-ios"
 
 ; Function Attrs: nounwind optsize
-define void @_Z5startv() #0 {
+define void @_Z5startv() #0 !dbg !4 {
 entry:
   %size = alloca i32, align 4
   %0 = bitcast i32* %size to i8*, !dbg !15
@@ -48,7 +48,7 @@ attributes #3 = { nounwind optsize }
 !1 = !DIFile(filename: "<stdin>", directory: "")
 !2 = !{}
 !3 = !{!4}
-!4 = distinct !DISubprogram(name: "start", linkageName: "_Z5startv", line: 2, isLocal: false, isDefinition: true, flags: DIFlagPrototyped, isOptimized: true, scopeLine: 3, file: !5, scope: !6, type: !7, function: void ()* @_Z5startv, variables: !9)
+!4 = distinct !DISubprogram(name: "start", linkageName: "_Z5startv", line: 2, isLocal: false, isDefinition: true, flags: DIFlagPrototyped, isOptimized: true, scopeLine: 3, file: !5, scope: !6, type: !7, variables: !9)
 !5 = !DIFile(filename: "test1.c", directory: "")
 !6 = !DIFile(filename: "test1.c", directory: "")
 !7 = !DISubroutineType(types: !8)
@@ -60,6 +60,6 @@ attributes #3 = { nounwind optsize }
 !13 = !{i32 2, !"Debug Info Version", i32 3}
 !14 = !{!"clang version 3.6.0 (trunk 223149) (llvm/trunk 223115)"}
 !15 = !DILocation(line: 5, column: 3, scope: !4)
-!16 = !DIExpression()
+!16 = !DIExpression(DW_OP_deref)
 !17 = !DILocation(line: 4, column: 12, scope: !4)
 !18 = !DILocation(line: 8, column: 1, scope: !4)

@@ -197,8 +197,8 @@ struct AllocaDerivedValueTracker {
       case Instruction::Call:
       case Instruction::Invoke: {
         CallSite CS(I);
-        bool IsNocapture = !CS.isCallee(U) &&
-                           CS.doesNotCapture(CS.getArgumentNo(U));
+        bool IsNocapture =
+            CS.isDataOperand(U) && CS.doesNotCapture(CS.getDataOperandNo(U));
         callUsesLocalStack(CS, IsNocapture);
         if (IsNocapture) {
           // If the alloca-derived argument is passed in as nocapture, then it
@@ -304,7 +304,9 @@ bool TailCallElim::markTails(Function &F, bool &AllCallsAreTailCalls) {
       if (!CI || CI->isTailCall())
         continue;
 
-      if (CI->doesNotAccessMemory()) {
+      bool IsNoTail = CI->isNoTailCall();
+
+      if (!IsNoTail && CI->doesNotAccessMemory()) {
         // A call to a readnone function whose arguments are all things computed
         // outside this function can be marked tail. Even if you stored the
         // alloca address into a global, a readnone function can't load the
@@ -332,7 +334,7 @@ bool TailCallElim::markTails(Function &F, bool &AllCallsAreTailCalls) {
         }
       }
 
-      if (Escaped == UNESCAPED && !Tracker.AllocaUsers.count(CI)) {
+      if (!IsNoTail && Escaped == UNESCAPED && !Tracker.AllocaUsers.count(CI)) {
         DeferredTails.push_back(CI);
       } else {
         AllCallsAreTailCalls = false;
@@ -423,9 +425,7 @@ bool TailCallElim::runTRE(Function &F) {
   // with themselves.  Check to see if we did and clean up our mess if so.  This
   // occurs when a function passes an argument straight through to its tail
   // call.
-  for (unsigned i = 0, e = ArgumentPHIs.size(); i != e; ++i) {
-    PHINode *PN = ArgumentPHIs[i];
-
+  for (PHINode *PN : ArgumentPHIs) {
     // If the PHI Node is a dynamic constant, replace it with the value it is.
     if (Value *PNV = SimplifyInstruction(PN, F.getParent()->getDataLayout())) {
       PN->replaceAllUsesWith(PNV);
@@ -466,10 +466,7 @@ bool TailCallElim::CanMoveAboveCall(Instruction *I, CallInst *CI) {
   // return value of the call, it must only use things that are defined before
   // the call, or movable instructions between the call and the instruction
   // itself.
-  for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
-    if (I->getOperand(i) == CI)
-      return false;
-  return true;
+  return std::find(I->op_begin(), I->op_end(), CI) == I->op_end();
 }
 
 /// Return true if the specified value is the same when the return would exit

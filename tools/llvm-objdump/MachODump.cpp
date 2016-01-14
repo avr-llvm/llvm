@@ -13,6 +13,7 @@
 
 #include "llvm-objdump.h"
 #include "llvm-c/Disassembler.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Triple.h"
@@ -666,13 +667,9 @@ static void DumpLiteral8(MachOObjectFile *O, uint32_t l0, uint32_t l1,
                          double d) {
   outs() << format("0x%08" PRIx32, l0) << " " << format("0x%08" PRIx32, l1);
   uint32_t Hi, Lo;
-  if (O->isLittleEndian()) {
-    Hi = l1;
-    Lo = l0;
-  } else {
-    Hi = l0;
-    Lo = l1;
-  }
+  Hi = (O->isLittleEndian()) ? l1 : l0;
+  Lo = (O->isLittleEndian()) ? l0 : l1;
+
   // Hi is the high word, so this is equivalent to if(isfinite(d))
   if ((Hi & 0x7ff00000) != 0x7ff00000)
     outs() << format(" (%.16e)\n", d);
@@ -917,10 +914,7 @@ static void DumpInitTermPointerSection(MachOObjectFile *O, const char *sect,
                                        SymbolAddressMap *AddrMap,
                                        bool verbose) {
   uint32_t stride;
-  if (O->is64Bit())
-    stride = sizeof(uint64_t);
-  else
-    stride = sizeof(uint32_t);
+  stride = (O->is64Bit()) ? sizeof(uint64_t) : sizeof(uint32_t);
   for (uint32_t i = 0; i < sect_size; i += stride) {
     const char *SymbolName = nullptr;
     if (O->is64Bit()) {
@@ -1202,7 +1196,11 @@ static void ProcessMachO(StringRef Filename, MachOObjectFile *MachOOF,
     PrintSymbolTable(MachOOF);
   if (UnwindInfo)
     printMachOUnwindInfo(MachOOF);
-  if (PrivateHeaders)
+  if (PrivateHeaders) {
+    printMachOFileHeader(MachOOF);
+    printMachOLoadCommands(MachOOF);
+  }
+  if (FirstPrivateHeader)
     printMachOFileHeader(MachOOF);
   if (ObjcMetaData)
     printObjcMetaData(MachOOF, !NonVerbose);
@@ -1391,7 +1389,7 @@ static void printMachOUniversalHeaders(const object::MachOUniversalBinary *UB,
   }
 }
 
-static void printArchiveChild(Archive::Child &C, bool verbose,
+static void printArchiveChild(const Archive::Child &C, bool verbose,
                               bool print_offset) {
   if (print_offset)
     outs() << C.getChildOffset() << "\t";
@@ -1417,8 +1415,10 @@ static void printArchiveChild(Archive::Child &C, bool verbose,
   outs() << format("%3d/", UID);
   unsigned GID = C.getGID();
   outs() << format("%-3d ", GID);
-  uint64_t Size = C.getRawSize();
-  outs() << format("%5" PRId64, Size) << " ";
+  ErrorOr<uint64_t> Size = C.getRawSize();
+  if (std::error_code EC = Size.getError())
+    report_fatal_error(EC.message());
+  outs() << format("%5" PRId64, Size.get()) << " ";
 
   StringRef RawLastModified = C.getRawLastModified();
   if (verbose) {
@@ -1452,14 +1452,11 @@ static void printArchiveChild(Archive::Child &C, bool verbose,
 }
 
 static void printArchiveHeaders(Archive *A, bool verbose, bool print_offset) {
-  if (A->hasSymbolTable()) {
-    Archive::child_iterator S = A->getSymbolTableChild();
-    Archive::Child C = *S;
-    printArchiveChild(C, verbose, print_offset);
-  }
-  for (Archive::child_iterator I = A->child_begin(), E = A->child_end(); I != E;
-       ++I) {
-    Archive::Child C = *I;
+  for (Archive::child_iterator I = A->child_begin(false), E = A->child_end();
+       I != E; ++I) {
+    if (std::error_code EC = I->getError())
+      report_fatal_error(EC.message());
+    const Archive::Child &C = **I;
     printArchiveChild(C, verbose, print_offset);
   }
 }
@@ -1484,10 +1481,8 @@ void llvm::ParseInputMachO(StringRef Filename) {
 
   // Attempt to open the binary.
   ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(Filename);
-  if (std::error_code EC = BinaryOrErr.getError()) {
-    errs() << "llvm-objdump: '" << Filename << "': " << EC.message() << ".\n";
-    return;
-  }
+  if (std::error_code EC = BinaryOrErr.getError())
+    report_error(Filename, EC);
   Binary &Bin = *BinaryOrErr.get().getBinary();
 
   if (Archive *A = dyn_cast<Archive>(&Bin)) {
@@ -1496,7 +1491,10 @@ void llvm::ParseInputMachO(StringRef Filename) {
       printArchiveHeaders(A, !NonVerbose, ArchiveMemberOffsets);
     for (Archive::child_iterator I = A->child_begin(), E = A->child_end();
          I != E; ++I) {
-      ErrorOr<std::unique_ptr<Binary>> ChildOrErr = I->getAsBinary();
+      if (std::error_code EC = I->getError())
+        report_error(Filename, EC);
+      auto &C = I->get();
+      ErrorOr<std::unique_ptr<Binary>> ChildOrErr = C.getAsBinary();
       if (ChildOrErr.getError())
         continue;
       if (MachOObjectFile *O = dyn_cast<MachOObjectFile>(&*ChildOrErr.get())) {
@@ -1544,7 +1542,10 @@ void llvm::ParseInputMachO(StringRef Filename) {
               for (Archive::child_iterator AI = A->child_begin(),
                                            AE = A->child_end();
                    AI != AE; ++AI) {
-                ErrorOr<std::unique_ptr<Binary>> ChildOrErr = AI->getAsBinary();
+                if (std::error_code EC = AI->getError())
+                  report_error(Filename, EC);
+                auto &C = AI->get();
+                ErrorOr<std::unique_ptr<Binary>> ChildOrErr = C.getAsBinary();
                 if (ChildOrErr.getError())
                   continue;
                 if (MachOObjectFile *O =
@@ -1586,7 +1587,10 @@ void llvm::ParseInputMachO(StringRef Filename) {
             for (Archive::child_iterator AI = A->child_begin(),
                                          AE = A->child_end();
                  AI != AE; ++AI) {
-              ErrorOr<std::unique_ptr<Binary>> ChildOrErr = AI->getAsBinary();
+              if (std::error_code EC = AI->getError())
+                report_error(Filename, EC);
+              auto &C = AI->get();
+              ErrorOr<std::unique_ptr<Binary>> ChildOrErr = C.getAsBinary();
               if (ChildOrErr.getError())
                 continue;
               if (MachOObjectFile *O =
@@ -1622,7 +1626,10 @@ void llvm::ParseInputMachO(StringRef Filename) {
           printArchiveHeaders(A.get(), !NonVerbose, ArchiveMemberOffsets);
         for (Archive::child_iterator AI = A->child_begin(), AE = A->child_end();
              AI != AE; ++AI) {
-          ErrorOr<std::unique_ptr<Binary>> ChildOrErr = AI->getAsBinary();
+          if (std::error_code EC = AI->getError())
+            report_error(Filename, EC);
+          auto &C = AI->get();
+          ErrorOr<std::unique_ptr<Binary>> ChildOrErr = C.getAsBinary();
           if (ChildOrErr.getError())
             continue;
           if (MachOObjectFile *O =
@@ -1644,9 +1651,9 @@ void llvm::ParseInputMachO(StringRef Filename) {
     } else
       errs() << "llvm-objdump: '" << Filename << "': "
              << "Object is not a Mach-O file type.\n";
-  } else
-    errs() << "llvm-objdump: '" << Filename << "': "
-           << "Unrecognized file type.\n";
+    return;
+  }
+  llvm_unreachable("Input object can't be invalid at this point");
 }
 
 typedef std::pair<uint64_t, const char *> BindInfoEntry;
@@ -4351,7 +4358,7 @@ static bool print_class_ro64_t(uint64_t p, struct DisassembleInfo *info,
   if (cro.baseProperties + n_value != 0)
     print_objc_property_list64(cro.baseProperties + n_value, info);
 
-  is_meta_class = (cro.flags & RO_META) ? true : false;
+  is_meta_class = (cro.flags & RO_META) != 0;
   return true;
 }
 
@@ -4415,7 +4422,7 @@ static bool print_class_ro32_t(uint32_t p, struct DisassembleInfo *info,
          << format("0x%" PRIx32, cro.baseProperties) << "\n";
   if (cro.baseProperties != 0)
     print_objc_property_list32(cro.baseProperties, info);
-  is_meta_class = (cro.flags & RO_META) ? true : false;
+  is_meta_class = (cro.flags & RO_META) != 0;
   return true;
 }
 
@@ -5148,75 +5155,47 @@ static void printObjc2_64bit_MetaData(MachOObjectFile *O, bool verbose) {
   info.adrp_inst = 0;
 
   info.depth = 0;
-  const SectionRef CL = get_section(O, "__OBJC2", "__class_list");
-  if (CL != SectionRef()) {
-    info.S = CL;
-    walk_pointer_list_64("class", CL, O, &info, print_class64_t);
-  } else {
-    const SectionRef CL = get_section(O, "__DATA", "__objc_classlist");
-    info.S = CL;
-    walk_pointer_list_64("class", CL, O, &info, print_class64_t);
-  }
+  SectionRef CL = get_section(O, "__OBJC2", "__class_list");
+  if (CL == SectionRef())
+    CL = get_section(O, "__DATA", "__objc_classlist");
+  info.S = CL;
+  walk_pointer_list_64("class", CL, O, &info, print_class64_t);
 
-  const SectionRef CR = get_section(O, "__OBJC2", "__class_refs");
-  if (CR != SectionRef()) {
-    info.S = CR;
-    walk_pointer_list_64("class refs", CR, O, &info, nullptr);
-  } else {
-    const SectionRef CR = get_section(O, "__DATA", "__objc_classrefs");
-    info.S = CR;
-    walk_pointer_list_64("class refs", CR, O, &info, nullptr);
-  }
+  SectionRef CR = get_section(O, "__OBJC2", "__class_refs");
+  if (CR == SectionRef())
+    CR = get_section(O, "__DATA", "__objc_classrefs");
+  info.S = CR;
+  walk_pointer_list_64("class refs", CR, O, &info, nullptr);
 
-  const SectionRef SR = get_section(O, "__OBJC2", "__super_refs");
-  if (SR != SectionRef()) {
-    info.S = SR;
-    walk_pointer_list_64("super refs", SR, O, &info, nullptr);
-  } else {
-    const SectionRef SR = get_section(O, "__DATA", "__objc_superrefs");
-    info.S = SR;
-    walk_pointer_list_64("super refs", SR, O, &info, nullptr);
-  }
+  SectionRef SR = get_section(O, "__OBJC2", "__super_refs");
+  if (SR == SectionRef())
+    SR = get_section(O, "__DATA", "__objc_superrefs");
+  info.S = SR;
+  walk_pointer_list_64("super refs", SR, O, &info, nullptr);
 
-  const SectionRef CA = get_section(O, "__OBJC2", "__category_list");
-  if (CA != SectionRef()) {
-    info.S = CA;
-    walk_pointer_list_64("category", CA, O, &info, print_category64_t);
-  } else {
-    const SectionRef CA = get_section(O, "__DATA", "__objc_catlist");
-    info.S = CA;
-    walk_pointer_list_64("category", CA, O, &info, print_category64_t);
-  }
+  SectionRef CA = get_section(O, "__OBJC2", "__category_list");
+  if (CA == SectionRef())
+    CA = get_section(O, "__DATA", "__objc_catlist");
+  info.S = CA;
+  walk_pointer_list_64("category", CA, O, &info, print_category64_t);
 
-  const SectionRef PL = get_section(O, "__OBJC2", "__protocol_list");
-  if (PL != SectionRef()) {
-    info.S = PL;
-    walk_pointer_list_64("protocol", PL, O, &info, nullptr);
-  } else {
-    const SectionRef PL = get_section(O, "__DATA", "__objc_protolist");
-    info.S = PL;
-    walk_pointer_list_64("protocol", PL, O, &info, nullptr);
-  }
+  SectionRef PL = get_section(O, "__OBJC2", "__protocol_list");
+  if (PL == SectionRef())
+    PL = get_section(O, "__DATA", "__objc_protolist");
+  info.S = PL;
+  walk_pointer_list_64("protocol", PL, O, &info, nullptr);
 
-  const SectionRef MR = get_section(O, "__OBJC2", "__message_refs");
-  if (MR != SectionRef()) {
-    info.S = MR;
-    print_message_refs64(MR, &info);
-  } else {
-    const SectionRef MR = get_section(O, "__DATA", "__objc_msgrefs");
-    info.S = MR;
-    print_message_refs64(MR, &info);
-  }
+  SectionRef MR = get_section(O, "__OBJC2", "__message_refs");
+  if (MR == SectionRef())
+    MR = get_section(O, "__DATA", "__objc_msgrefs");
+  info.S = MR;
+  print_message_refs64(MR, &info);
 
-  const SectionRef II = get_section(O, "__OBJC2", "__image_info");
-  if (II != SectionRef()) {
-    info.S = II;
-    print_image_info64(II, &info);
-  } else {
-    const SectionRef II = get_section(O, "__DATA", "__objc_imageinfo");
-    info.S = II;
-    print_image_info64(II, &info);
-  }
+  SectionRef II = get_section(O, "__OBJC2", "__image_info");
+  if (II == SectionRef())
+    II = get_section(O, "__DATA", "__objc_imageinfo");
+  info.S = II;
+  print_image_info64(II, &info);
 
   if (info.bindtable != nullptr)
     delete info.bindtable;
@@ -6150,7 +6129,7 @@ static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
       StringRef SymName = *SymNameOrErr;
 
       SymbolRef::Type ST = Symbols[SymIdx].getType();
-      if (ST != SymbolRef::ST_Function)
+      if (ST != SymbolRef::ST_Function && ST != SymbolRef::ST_Data)
         continue;
 
       // Make sure the symbol is defined in this section.
@@ -6771,6 +6750,262 @@ static void printMachOUnwindInfoSection(const MachOObjectFile *Obj,
   }
 }
 
+static unsigned getSizeForEncoding(bool is64Bit,
+                                   unsigned symbolEncoding) {
+  unsigned format = symbolEncoding & 0x0f;
+  switch (format) {
+    default: llvm_unreachable("Unknown Encoding");
+    case dwarf::DW_EH_PE_absptr:
+    case dwarf::DW_EH_PE_signed:
+      return is64Bit ? 8 : 4;
+    case dwarf::DW_EH_PE_udata2:
+    case dwarf::DW_EH_PE_sdata2:
+      return 2;
+    case dwarf::DW_EH_PE_udata4:
+    case dwarf::DW_EH_PE_sdata4:
+      return 4;
+    case dwarf::DW_EH_PE_udata8:
+    case dwarf::DW_EH_PE_sdata8:
+      return 8;
+  }
+}
+
+static uint64_t readPointer(const char *&Pos, bool is64Bit, unsigned Encoding) {
+  switch (getSizeForEncoding(is64Bit, Encoding)) {
+    case 2:
+      return readNext<uint16_t>(Pos);
+      break;
+    case 4:
+      return readNext<uint32_t>(Pos);
+      break;
+    case 8:
+      return readNext<uint64_t>(Pos);
+      break;
+    default:
+      llvm_unreachable("Illegal data size");
+  }
+}
+
+static void printMachOEHFrameSection(const MachOObjectFile *Obj,
+                                     std::map<uint64_t, SymbolRef> &Symbols,
+                                     const SectionRef &EHFrame) {
+  if (!Obj->isLittleEndian()) {
+    outs() << "warning: cannot handle big endian __eh_frame section\n";
+    return;
+  }
+
+  bool is64Bit = Obj->is64Bit();
+
+  outs() << "Contents of __eh_frame section:\n";
+
+  StringRef Contents;
+  EHFrame.getContents(Contents);
+
+  /// A few fields of the CIE are used when decoding the FDE's.  This struct
+  /// will cache those fields we need so that we don't have to decode it
+  /// repeatedly for each FDE that references it.
+  struct DecodedCIE {
+    Optional<uint32_t> FDEPointerEncoding;
+    Optional<uint32_t> LSDAPointerEncoding;
+    bool hasAugmentationLength;
+  };
+
+  // Map from the start offset of the CIE to the cached data for that CIE.
+  DenseMap<uint64_t, DecodedCIE> CachedCIEs;
+
+  for (const char *Pos = Contents.data(), *End = Contents.end(); Pos != End; ) {
+
+    const char *EntryStartPos = Pos;
+
+    uint64_t Length = readNext<uint32_t>(Pos);
+    if (Length == 0xffffffff)
+      Length = readNext<uint64_t>(Pos);
+
+    // Save the Pos so that we can check the length we encoded against what we
+    // end up decoding.
+    const char *PosAfterLength = Pos;
+    const char *EntryEndPos = PosAfterLength + Length;
+
+    assert(EntryEndPos <= End &&
+           "__eh_frame entry length exceeds section size");
+
+    uint32_t ID = readNext<uint32_t>(Pos);
+    if (ID == 0) {
+      // This is a CIE.
+
+      uint32_t Version = readNext<uint8_t>(Pos);
+
+      // Parse a null terminated augmentation string
+      SmallString<8> AugmentationString;
+      for (uint8_t Char = readNext<uint8_t>(Pos); Char;
+           Char = readNext<uint8_t>(Pos))
+        AugmentationString.push_back(Char);
+
+      // Optionally parse the EH data if the augmentation string says it's there.
+      Optional<uint64_t> EHData;
+      if (StringRef(AugmentationString).count("eh"))
+        EHData = is64Bit ? readNext<uint64_t>(Pos) : readNext<uint32_t>(Pos);
+
+      unsigned ULEBByteCount;
+      uint64_t CodeAlignmentFactor = decodeULEB128((const uint8_t *)Pos,
+                                                   &ULEBByteCount);
+      Pos += ULEBByteCount;
+
+      int64_t DataAlignmentFactor = decodeSLEB128((const uint8_t *)Pos,
+                                                   &ULEBByteCount);
+      Pos += ULEBByteCount;
+
+      uint32_t ReturnAddressRegister = readNext<uint8_t>(Pos);
+
+      Optional<uint64_t> AugmentationLength;
+      Optional<uint32_t> LSDAPointerEncoding;
+      Optional<uint32_t> PersonalityEncoding;
+      Optional<uint64_t> Personality;
+      Optional<uint32_t> FDEPointerEncoding;
+      if (!AugmentationString.empty() && AugmentationString.front() == 'z') {
+        AugmentationLength = decodeULEB128((const uint8_t *)Pos,
+                                           &ULEBByteCount);
+        Pos += ULEBByteCount;
+
+        // Walk the augmentation string to get all the augmentation data.
+        for (unsigned i = 1, e = AugmentationString.size(); i != e; ++i) {
+          char Char = AugmentationString[i];
+          switch (Char) {
+            case 'e':
+              assert((i + 1) != e && AugmentationString[i + 1] == 'h' &&
+                     "Expected 'eh' in augmentation string");
+              break;
+            case 'L':
+              assert(!LSDAPointerEncoding && "Duplicate LSDA encoding");
+              LSDAPointerEncoding = readNext<uint8_t>(Pos);
+              break;
+            case 'P': {
+              assert(!Personality && "Duplicate personality");
+              PersonalityEncoding = readNext<uint8_t>(Pos);
+              Personality = readPointer(Pos, is64Bit, *PersonalityEncoding);
+              break;
+            }
+            case 'R':
+              assert(!FDEPointerEncoding && "Duplicate FDE encoding");
+              FDEPointerEncoding = readNext<uint8_t>(Pos);
+              break;
+            case 'z':
+              llvm_unreachable("'z' must be first in the augmentation string");
+          }
+        }
+      }
+
+      outs() << "CIE:\n";
+      outs() << "  Length: " << Length << "\n";
+      outs() << "  CIE ID: " << ID << "\n";
+      outs() << "  Version: " << Version << "\n";
+      outs() << "  Augmentation String: " << AugmentationString << "\n";
+      if (EHData)
+        outs() << "  EHData: " << *EHData << "\n";
+      outs() << "  Code Alignment Factor: " << CodeAlignmentFactor << "\n";
+      outs() << "  Data Alignment Factor: " << DataAlignmentFactor << "\n";
+      outs() << "  Return Address Register: " << ReturnAddressRegister << "\n";
+      if (AugmentationLength) {
+        outs() << "  Augmentation Data Length: " << *AugmentationLength << "\n";
+        if (LSDAPointerEncoding) {
+          outs() << "  FDE LSDA Pointer Encoding: "
+                 << *LSDAPointerEncoding << "\n";
+        }
+        if (Personality) {
+          outs() << "  Personality Encoding: " << *PersonalityEncoding << "\n";
+          outs() << "  Personality: " << *Personality << "\n";
+        }
+        if (FDEPointerEncoding) {
+          outs() << "  FDE Address Pointer Encoding: "
+                 << *FDEPointerEncoding << "\n";
+        }
+      }
+      // FIXME: Handle instructions.
+      // For now just emit some bytes
+      outs() << "  Instructions:\n  ";
+      dumpBytes(makeArrayRef((const uint8_t*)Pos, (const uint8_t*)EntryEndPos),
+                outs());
+      outs() << "\n";
+      Pos = EntryEndPos;
+
+      // Cache this entry.
+      uint64_t Offset = EntryStartPos - Contents.data();
+      CachedCIEs[Offset] = { FDEPointerEncoding, LSDAPointerEncoding,
+                             AugmentationLength.hasValue() };
+      continue;
+    }
+
+    // This is an FDE.
+    // The CIE pointer for an FDE is the same location as the ID which we
+    // already read.
+    uint32_t CIEPointer = ID;
+
+    const char *CIEStart = PosAfterLength - CIEPointer;
+    assert(CIEStart >= Contents.data() &&
+           "FDE points to CIE before the __eh_frame start");
+
+    uint64_t CIEOffset = CIEStart - Contents.data();
+    auto CIEIt = CachedCIEs.find(CIEOffset);
+    if (CIEIt == CachedCIEs.end())
+      llvm_unreachable("Couldn't find CIE at offset in to __eh_frame section");
+
+    const DecodedCIE &CIE = CIEIt->getSecond();
+    assert(CIE.FDEPointerEncoding &&
+           "FDE references CIE which did not set pointer encoding");
+
+    uint64_t PCPointerSize = getSizeForEncoding(is64Bit,
+                                                *CIE.FDEPointerEncoding);
+
+    uint64_t PCBegin = readPointer(Pos, is64Bit, *CIE.FDEPointerEncoding);
+    uint64_t PCRange = readPointer(Pos, is64Bit, *CIE.FDEPointerEncoding);
+
+    Optional<uint64_t> AugmentationLength;
+    uint32_t LSDAPointerSize;
+    Optional<uint64_t> LSDAPointer;
+    if (CIE.hasAugmentationLength) {
+      unsigned ULEBByteCount;
+      AugmentationLength = decodeULEB128((const uint8_t *)Pos,
+                                         &ULEBByteCount);
+      Pos += ULEBByteCount;
+
+      // Decode the LSDA if the CIE augmentation string said we should.
+      if (CIE.LSDAPointerEncoding) {
+        LSDAPointerSize = getSizeForEncoding(is64Bit, *CIE.LSDAPointerEncoding);
+        LSDAPointer = readPointer(Pos, is64Bit, *CIE.LSDAPointerEncoding);
+      }
+    }
+
+    outs() << "FDE:\n";
+    outs() << "  Length: " << Length << "\n";
+    outs() << "  CIE Offset: " << CIEOffset << "\n";
+
+    if (PCPointerSize == 8) {
+      outs() << format("  PC Begin: %016" PRIx64, PCBegin) << "\n";
+      outs() << format("  PC Range: %016" PRIx64, PCRange) << "\n";
+    } else {
+      outs() << format("  PC Begin: %08" PRIx64, PCBegin) << "\n";
+      outs() << format("  PC Range: %08" PRIx64, PCRange) << "\n";
+    }
+    if (AugmentationLength) {
+      outs() << "  Augmentation Data Length: " << *AugmentationLength << "\n";
+      if (LSDAPointer) {
+        if (LSDAPointerSize == 8)
+          outs() << format("  LSDA Pointer: %016\n" PRIx64, *LSDAPointer);
+        else
+          outs() << format("  LSDA Pointer: %08\n" PRIx64, *LSDAPointer);
+      }
+    }
+
+    // FIXME: Handle instructions.
+    // For now just emit some bytes
+    outs() << "  Instructions:\n  ";
+    dumpBytes(makeArrayRef((const uint8_t*)Pos, (const uint8_t*)EntryEndPos),
+              outs());
+    outs() << "\n";
+    Pos = EntryEndPos;
+  }
+}
+
 void llvm::printMachOUnwindInfo(const MachOObjectFile *Obj) {
   std::map<uint64_t, SymbolRef> Symbols;
   for (const SymbolRef &SymRef : Obj->symbols()) {
@@ -6792,7 +7027,7 @@ void llvm::printMachOUnwindInfo(const MachOObjectFile *Obj) {
     else if (SectName == "__unwind_info")
       printMachOUnwindInfoSection(Obj, Symbols, Section);
     else if (SectName == "__eh_frame")
-      outs() << "llvm-objdump: warning: unhandled __eh_frame section\n";
+      printMachOEHFrameSection(Obj, Symbols, Section);
   }
 }
 
@@ -7585,26 +7820,11 @@ static void PrintUuidLoadCommand(MachO::uuid_command uuid) {
   else
     outs() << "\n";
   outs() << "    uuid ";
-  outs() << format("%02" PRIX32, uuid.uuid[0]);
-  outs() << format("%02" PRIX32, uuid.uuid[1]);
-  outs() << format("%02" PRIX32, uuid.uuid[2]);
-  outs() << format("%02" PRIX32, uuid.uuid[3]);
-  outs() << "-";
-  outs() << format("%02" PRIX32, uuid.uuid[4]);
-  outs() << format("%02" PRIX32, uuid.uuid[5]);
-  outs() << "-";
-  outs() << format("%02" PRIX32, uuid.uuid[6]);
-  outs() << format("%02" PRIX32, uuid.uuid[7]);
-  outs() << "-";
-  outs() << format("%02" PRIX32, uuid.uuid[8]);
-  outs() << format("%02" PRIX32, uuid.uuid[9]);
-  outs() << "-";
-  outs() << format("%02" PRIX32, uuid.uuid[10]);
-  outs() << format("%02" PRIX32, uuid.uuid[11]);
-  outs() << format("%02" PRIX32, uuid.uuid[12]);
-  outs() << format("%02" PRIX32, uuid.uuid[13]);
-  outs() << format("%02" PRIX32, uuid.uuid[14]);
-  outs() << format("%02" PRIX32, uuid.uuid[15]);
+  for (int i = 0; i < 16; ++i) {
+    outs() << format("%02" PRIX32, uuid.uuid[i]);
+    if (i == 3 || i == 5 || i == 7 || i == 9)
+      outs() << "-";
+  }
   outs() << "\n";
 }
 
@@ -7624,12 +7844,25 @@ static void PrintRpathLoadCommand(MachO::rpath_command rpath, const char *Ptr) {
 }
 
 static void PrintVersionMinLoadCommand(MachO::version_min_command vd) {
-  if (vd.cmd == MachO::LC_VERSION_MIN_MACOSX)
-    outs() << "      cmd LC_VERSION_MIN_MACOSX\n";
-  else if (vd.cmd == MachO::LC_VERSION_MIN_IPHONEOS)
-    outs() << "      cmd LC_VERSION_MIN_IPHONEOS\n";
-  else
-    outs() << "      cmd " << vd.cmd << " (?)\n";
+  StringRef LoadCmdName;
+  switch (vd.cmd) {
+  case MachO::LC_VERSION_MIN_MACOSX:
+    LoadCmdName = "LC_VERSION_MIN_MACOSX";
+    break;
+  case MachO::LC_VERSION_MIN_IPHONEOS:
+    LoadCmdName = "LC_VERSION_MIN_IPHONEOS";
+    break;
+  case MachO::LC_VERSION_MIN_TVOS:
+    LoadCmdName = "LC_VERSION_MIN_TVOS";
+    break;
+  case MachO::LC_VERSION_MIN_WATCHOS:
+    LoadCmdName = "LC_VERSION_MIN_WATCHOS";
+    break;
+  default:
+    llvm_unreachable("Unknown version min load command");
+  }
+
+  outs() << "      cmd " << LoadCmdName << '\n';
   outs() << "  cmdsize " << vd.cmdsize;
   if (vd.cmdsize != sizeof(struct MachO::version_min_command))
     outs() << " Incorrect size\n";
@@ -8344,7 +8577,9 @@ static void PrintLoadCommands(const MachOObjectFile *Obj, uint32_t filetype,
       MachO::rpath_command Rpath = Obj->getRpathCommand(Command);
       PrintRpathLoadCommand(Rpath, Command.Ptr);
     } else if (Command.C.cmd == MachO::LC_VERSION_MIN_MACOSX ||
-               Command.C.cmd == MachO::LC_VERSION_MIN_IPHONEOS) {
+               Command.C.cmd == MachO::LC_VERSION_MIN_IPHONEOS ||
+               Command.C.cmd == MachO::LC_VERSION_MIN_TVOS ||
+               Command.C.cmd == MachO::LC_VERSION_MIN_WATCHOS) {
       MachO::version_min_command Vd = Obj->getVersionMinLoadCommand(Command);
       PrintVersionMinLoadCommand(Vd);
     } else if (Command.C.cmd == MachO::LC_SOURCE_VERSION) {
@@ -8414,31 +8649,40 @@ static void PrintLoadCommands(const MachOObjectFile *Obj, uint32_t filetype,
   }
 }
 
-static void getAndPrintMachHeader(const MachOObjectFile *Obj,
-                                  uint32_t &filetype, uint32_t &cputype,
-                                  bool verbose) {
+static void PrintMachHeader(const MachOObjectFile *Obj, bool verbose) {
   if (Obj->is64Bit()) {
     MachO::mach_header_64 H_64;
     H_64 = Obj->getHeader64();
     PrintMachHeader(H_64.magic, H_64.cputype, H_64.cpusubtype, H_64.filetype,
                     H_64.ncmds, H_64.sizeofcmds, H_64.flags, verbose);
-    filetype = H_64.filetype;
-    cputype = H_64.cputype;
   } else {
     MachO::mach_header H;
     H = Obj->getHeader();
     PrintMachHeader(H.magic, H.cputype, H.cpusubtype, H.filetype, H.ncmds,
                     H.sizeofcmds, H.flags, verbose);
-    filetype = H.filetype;
-    cputype = H.cputype;
   }
 }
 
 void llvm::printMachOFileHeader(const object::ObjectFile *Obj) {
   const MachOObjectFile *file = dyn_cast<const MachOObjectFile>(Obj);
+  PrintMachHeader(file, !NonVerbose);
+}
+
+void llvm::printMachOLoadCommands(const object::ObjectFile *Obj) {
+  const MachOObjectFile *file = dyn_cast<const MachOObjectFile>(Obj);
   uint32_t filetype = 0;
   uint32_t cputype = 0;
-  getAndPrintMachHeader(file, filetype, cputype, !NonVerbose);
+  if (file->is64Bit()) {
+    MachO::mach_header_64 H_64;
+    H_64 = file->getHeader64();
+    filetype = H_64.filetype;
+    cputype = H_64.cputype;
+  } else {
+    MachO::mach_header H;
+    H = file->getHeader();
+    filetype = H.filetype;
+    cputype = H.cputype;
+  }
   PrintLoadCommands(file, filetype, cputype, !NonVerbose);
 }
 

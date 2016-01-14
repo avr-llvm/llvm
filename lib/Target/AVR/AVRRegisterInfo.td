@@ -11,22 +11,22 @@
 //  Declarations that describe the AVR register file
 //===----------------------------------------------------------------------===//
 
-// general purpose register definition
+// 8-bit General purpose register definition.
 class AVRReg<bits<16> num,
-             string n,
+             string name,
              list<Register> subregs = [],
              list<string> altNames = []>
-  : RegisterWithSubRegs<n, subregs>
+  : RegisterWithSubRegs<name, subregs>
 {
   field bits<16> Num = num;
-  
+
   let HWEncoding = num;
   let Namespace = "AVR";
   let SubRegs = subregs;
   let AltNames = altNames;
 }
 
-// subregister indices
+// Subregister indices.
 let Namespace = "AVR" in
 {
   def sub_lo : SubRegIndex<8>;
@@ -39,10 +39,9 @@ let Namespace = "AVR" in {
 
 
 //===----------------------------------------------------------------------===//
-//  Register definitions
+//  8-bit general purpose registers
 //===----------------------------------------------------------------------===//
 
-// 8 bit registers
 def R0  : AVRReg<0,  "r0">,  DwarfRegNum<[0]>;
 def R1  : AVRReg<1,  "r1">,  DwarfRegNum<[1]>;
 def R2  : AVRReg<2,  "r2">,  DwarfRegNum<[2]>;
@@ -81,7 +80,7 @@ def SPH : AVRReg<33, "SPH">, DwarfRegNum<[33]>;
 let SubRegIndices = [sub_lo, sub_hi],
 CoveredBySubRegs = 1 in
 {
-  // 16 bit register pairs
+  // 16 bit GPR pairs.
   def SP     : AVRReg<32, "SP",      [SPL, SPH]>, DwarfRegNum<[32]>;
 
   // The pointer registers (X,Y,Z) are a special case because they
@@ -113,14 +112,14 @@ CoveredBySubRegs = 1 in
 
 //:TODO: use proper set instructions instead of using always "add"
 
-// main 8 bit register class
+// Main 8-bit register class.
 def GPR8 : RegisterClass<"AVR", [i8], 8,
   (
-    // return value and arguments
+    // Return value and argument registers.
     add R24, R25, R18, R19, R20, R21, R22, R23,
-    // scratch registers
+    // Scratch registers.
     R30, R31, R26, R27,
-    // callee saved registers
+    // Callee saved registers.
     R28, R29, R17, R16, R15, R14, R13, R12, R11, R10,
     R9, R8, R7, R6, R5, R4, R3, R2, R0, R1
   )>;
@@ -131,14 +130,14 @@ def GPR8lo : RegisterClass<"AVR", [i8], 8,
     add R15, R14, R13, R12, R11, R10, R9, R8, R7, R6, R5, R4, R3, R2, R0, R1
   )>;
 
-// 8 bit register class for imm instructions
+// 8-bit register class for instructions which take immediates.
 def LD8 : RegisterClass<"AVR", [i8], 8,
   (
-    // return value and arguments
+    // Return value and arguments.
     add R24, R25, R18, R19, R20, R21, R22, R23,
-    // scratch registers
+    // Scratch registers.
     R30, R31, R26, R27,
-    // callee saved registers
+    // Callee saved registers.
     R28, R29, R17, R16
   )>;
 
@@ -148,42 +147,42 @@ def LD8lo : RegisterClass<"AVR", [i8], 8,
     add R23, R22, R21, R20, R19, R18, R17, R16
   )>;
 
-// main 16 bit pair register class
+// Main 16-bit pair register class.
 def DREGS : RegisterClass<"AVR", [i16], 8,
   (
-    // return value and arguments
+    // Return value and arguments.
     add R25R24, R19R18, R21R20, R23R22,
-    // scratch registers
+    // Scratch registers.
     R31R30, R27R26,
-    // callee saved registers
+    // Callee saved registers.
     R29R28, R17R16, R15R14, R13R12, R11R10,
     R9R8, R7R6, R5R4, R3R2, R1R0
   )>;
 
-// 16 bit register class for imm instructions
+// 16-bit register class for immediate instructions.
 def DLDREGS : RegisterClass<"AVR", [i16], 8,
   (
-    // return value and arguments
+    // Return value and arguments.
     add R25R24, R19R18, R21R20, R23R22,
-    // scratch registers
+    // Scratch registers.
     R31R30, R27R26,
-    // callee saved registers
+    // Callee saved registers.
     R29R28, R17R16
   )>;
 
-// 16 bit register class for the adiw/sbiw instructions
+// 16-bit register class for the adiw/sbiw instructions.
 def IWREGS : RegisterClass<"AVR", [i16], 8,
   (
-    // return value and arguments
+    // Return value and arguments.
     add R25R24,
-    // scratch registers
+    // Scratch registers.
     R31R30, R27R26,
-    // callee saved registers
+    // Callee saved registers.
     R29R28
   )>;
 
-// 16 bit register class for the ld and st instructions
-// aka x, y, z
+// 16-bit register class for the ld and st instructions.
+// AKA X,Y, and Z
 def PTRREGS : RegisterClass<"AVR", [i16], 8,
   (
     add R27R26, // X
@@ -191,8 +190,8 @@ def PTRREGS : RegisterClass<"AVR", [i16], 8,
         R31R30  // Z
   ), ptr>;
 
-// 16 bit register class for the ldd and std instructions
-// aka y, z
+// 16-bit register class for the ldd and std instructions.
+// AKA Y and Z.
 def PTRDISPREGS : RegisterClass<"AVR", [i16], 8,
   (
     add R31R30, R29R28
@@ -200,21 +199,18 @@ def PTRDISPREGS : RegisterClass<"AVR", [i16], 8,
 
 // We have a bunch of instructions with an explicit Z register argument. We
 // model this using a register class containing only the Z register.
+// :TODO: Rename to 'ZREG'.
 def ZREGS : RegisterClass<"AVR", [i16], 8, (add R31R30)>;
 
-// Register class used for the stack read pseudo instruction
+// Register class used for the stack read pseudo instruction.
 def GPRSP: RegisterClass<"AVR", [i16], 8, (add SP)>;
 
 //:TODO: if we remove this we get an error in tablegen
 //:TODO: this is just a hack, remove it once add16 works!
+// Status register.
 def SREG : AVRReg<14, "FLAGS">, DwarfRegNum<[88]>;
 def CCR : RegisterClass<"AVR", [i8], 8, (add SREG)>
 {
   let CopyCost = -1;      // Don't allow copying of status registers
 }
-
-//===----------------------------------------------------------------------===//
-// Register Classes
-//===----------------------------------------------------------------------===//
-
 

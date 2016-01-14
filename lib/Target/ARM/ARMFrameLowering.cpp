@@ -23,6 +23,7 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
+#include "llvm/MC/MCAsmInfo.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Function.h"
 #include "llvm/MC/MCContext.h"
@@ -58,7 +59,7 @@ bool ARMFrameLowering::hasFP(const MachineFunction &MF) const {
   const TargetRegisterInfo *RegInfo = MF.getSubtarget().getRegisterInfo();
 
   // iOS requires FP not to be clobbered for backtracing purpose.
-  if (STI.isTargetIOS())
+  if (STI.isTargetIOS() || STI.isTargetWatchOS())
     return true;
 
   const MachineFrameInfo *MFI = MF.getFrameInfo();
@@ -304,7 +305,11 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
   unsigned ArgRegsSaveSize = AFI->getArgRegsSaveSize();
   unsigned NumBytes = MFI->getStackSize();
   const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
-  DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+
+  // Debug location must be unknown since the first debug location is used
+  // to determine the end of the prologue.
+  DebugLoc dl;
+  
   unsigned FramePtr = RegInfo->getFrameRegister(MF);
 
   // Determine the sizes of each callee-save spill areas and record which frame
@@ -892,7 +897,6 @@ void ARMFrameLowering::emitPushInst(MachineBasicBlock &MBB,
   const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
 
   DebugLoc DL;
-  if (MI != MBB.end()) DL = MI->getDebugLoc();
 
   SmallVector<std::pair<unsigned,bool>, 4> Regs;
   unsigned i = CSI.size();
@@ -968,12 +972,16 @@ void ARMFrameLowering::emitPopInst(MachineBasicBlock &MBB,
   DebugLoc DL;
   bool isTailCall = false;
   bool isInterrupt = false;
+  bool isTrap = false;
   if (MBB.end() != MI) {
     DL = MI->getDebugLoc();
     unsigned RetOpcode = MI->getOpcode();
     isTailCall = (RetOpcode == ARM::TCRETURNdi || RetOpcode == ARM::TCRETURNri);
     isInterrupt =
         RetOpcode == ARM::SUBS_PC_LR || RetOpcode == ARM::t2SUBS_PC_LR;
+    isTrap =
+        RetOpcode == ARM::TRAP || RetOpcode == ARM::TRAPNaCl ||
+        RetOpcode == ARM::tTRAP;
   }
 
   SmallVector<unsigned, 4> Regs;
@@ -990,7 +998,7 @@ void ARMFrameLowering::emitPopInst(MachineBasicBlock &MBB,
         continue;
 
       if (Reg == ARM::LR && !isTailCall && !isVarArg && !isInterrupt &&
-          STI.hasV5TOps()) {
+          !isTrap && STI.hasV5TOps()) {
         if (MBB.succ_empty()) {
           Reg = ARM::PC;
           DeleteRet = true;
@@ -1069,7 +1077,7 @@ static void emitAlignedDPRCS2Spills(MachineBasicBlock &MBB,
   // slot offsets can be wrong. The offset for d8 will always be correct.
   for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
     unsigned DNum = CSI[i].getReg() - ARM::D8;
-    if (DNum >= 8)
+    if (DNum > NumAlignedDPRCS2Regs - 1)
       continue;
     int FI = CSI[i].getFrameIdx();
     // The even-numbered registers will be 16-byte aligned, the odd-numbered
@@ -1881,10 +1889,9 @@ void ARMFrameLowering::adjustForSegmentedStacks(
   // first in the list.
   MachineBasicBlock *AddedBlocks[] = {PrevStackMBB, McrMBB, GetMBB, AllocMBB,
                                       PostStackMBB};
-  const int NbAddedBlocks = sizeof(AddedBlocks) / sizeof(AddedBlocks[0]);
 
-  for (int Idx = 0; Idx < NbAddedBlocks; ++Idx)
-    BeforePrologueRegion.insert(AddedBlocks[Idx]);
+  for (MachineBasicBlock *B : AddedBlocks)
+    BeforePrologueRegion.insert(B);
 
   for (const auto &LI : PrologueMBB.liveins()) {
     for (MachineBasicBlock *PredBB : BeforePrologueRegion)
@@ -1893,9 +1900,9 @@ void ARMFrameLowering::adjustForSegmentedStacks(
 
   // Remove the newly added blocks from the list, since we know
   // we do not have to do the following updates for them.
-  for (int Idx = 0; Idx < NbAddedBlocks; ++Idx) {
-    BeforePrologueRegion.erase(AddedBlocks[Idx]);
-    MF.insert(PrologueMBB.getIterator(), AddedBlocks[Idx]);
+  for (MachineBasicBlock *B : AddedBlocks) {
+    BeforePrologueRegion.erase(B);
+    MF.insert(PrologueMBB.getIterator(), B);
   }
 
   for (MachineBasicBlock *MBB : BeforePrologueRegion) {

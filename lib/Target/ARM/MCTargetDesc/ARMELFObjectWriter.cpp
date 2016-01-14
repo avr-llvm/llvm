@@ -34,8 +34,8 @@ namespace {
 
     ~ARMELFObjectWriter() override;
 
-    unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
-                          bool IsPCRel) const override;
+    unsigned getRelocType(MCContext &Ctx, const MCValue &Target,
+                          const MCFixup &Fixup, bool IsPCRel) const override;
 
     bool needsRelocateWithSymbol(const MCSymbol &Sym,
                                  unsigned Type) const override;
@@ -67,7 +67,7 @@ bool ARMELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
 // Need to examine the Fixup when determining whether to 
 // emit the relocation as an explicit symbol or as a section relative
 // offset
-unsigned ARMELFObjectWriter::GetRelocType(const MCValue &Target,
+unsigned ARMELFObjectWriter::getRelocType(MCContext &Ctx, const MCValue &Target,
                                           const MCFixup &Fixup,
                                           bool IsPCRel) const {
   return GetRelocTypeInner(Target, Fixup, IsPCRel);
@@ -95,7 +95,7 @@ unsigned ARMELFObjectWriter::GetRelocTypeInner(const MCValue &Target,
       case MCSymbolRefExpr::VK_GOTTPOFF:
         Type = ELF::R_ARM_TLS_IE32;
         break;
-      case MCSymbolRefExpr::VK_GOTPCREL:
+      case MCSymbolRefExpr::VK_ARM_GOT_PREL:
         Type = ELF::R_ARM_GOT_PREL;
         break;
       }
@@ -192,7 +192,7 @@ unsigned ARMELFObjectWriter::GetRelocTypeInner(const MCValue &Target,
       case MCSymbolRefExpr::VK_GOTOFF:
         Type = ELF::R_ARM_GOTOFF32;
         break;
-      case MCSymbolRefExpr::VK_GOTPCREL:
+      case MCSymbolRefExpr::VK_ARM_GOT_PREL:
         Type = ELF::R_ARM_GOT_PREL;
         break;
       case MCSymbolRefExpr::VK_ARM_TARGET1:

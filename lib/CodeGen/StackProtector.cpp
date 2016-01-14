@@ -453,22 +453,20 @@ bool StackProtector::InsertStackProtectors() {
       LoadInst *LI1 = B.CreateLoad(StackGuardVar);
       LoadInst *LI2 = B.CreateLoad(AI);
       Value *Cmp = B.CreateICmpEQ(LI1, LI2);
-      unsigned SuccessWeight =
-          BranchProbabilityInfo::getBranchWeightStackProtector(true);
-      unsigned FailureWeight =
-          BranchProbabilityInfo::getBranchWeightStackProtector(false);
+      auto SuccessProb =
+          BranchProbabilityInfo::getBranchProbStackProtector(true);
+      auto FailureProb =
+          BranchProbabilityInfo::getBranchProbStackProtector(false);
       MDNode *Weights = MDBuilder(F->getContext())
-                            .createBranchWeights(SuccessWeight, FailureWeight);
+                            .createBranchWeights(SuccessProb.getNumerator(),
+                                                 FailureProb.getNumerator());
       B.CreateCondBr(Cmp, NewBB, FailBB, Weights);
     }
   }
 
   // Return if we didn't modify any basic blocks. i.e., there are no return
   // statements in the function.
-  if (!HasPrologue)
-    return false;
-
-  return true;
+  return HasPrologue;
 }
 
 /// CreateFailBB - Create a basic block to jump to when the stack protector

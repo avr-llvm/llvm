@@ -42,6 +42,7 @@ class TargetLibraryInfo;
 class TargetTransformInfo;
 class DIBuilder;
 class DominatorTree;
+class LazyValueInfo;
 
 template<typename T> class SmallVectorImpl;
 
@@ -271,16 +272,30 @@ bool LowerDbgDeclare(Function &F);
 /// an alloca, if any.
 DbgDeclareInst *FindAllocaDbgDeclare(Value *V);
 
-/// \brief Replaces llvm.dbg.declare instruction when an alloca is replaced with
-/// a new value. If Deref is true, an additional DW_OP_deref is prepended to the
-/// expression. If Offset is non-zero, a constant displacement is added to the
-/// expression (after the optional Deref). Offset can be negative.
+/// \brief Replaces llvm.dbg.declare instruction when the address it describes
+/// is replaced with a new value. If Deref is true, an additional DW_OP_deref is
+/// prepended to the expression. If Offset is non-zero, a constant displacement
+/// is added to the expression (after the optional Deref). Offset can be
+/// negative.
+bool replaceDbgDeclare(Value *Address, Value *NewAddress,
+                       Instruction *InsertBefore, DIBuilder &Builder,
+                       bool Deref, int Offset);
+
+/// \brief Replaces llvm.dbg.declare instruction when the alloca it describes
+/// is replaced with a new value. If Deref is true, an additional DW_OP_deref is
+/// prepended to the expression. If Offset is non-zero, a constant displacement
+/// is added to the expression (after the optional Deref). Offset can be
+/// negative. New llvm.dbg.declare is inserted immediately before AI.
 bool replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
                                 DIBuilder &Builder, bool Deref, int Offset = 0);
 
+/// \brief Insert an unreachable instruction before the specified
+/// instruction, making it and the rest of the code in the block dead.
+void changeToUnreachable(Instruction *I, bool UseLLVMTrap);
+
 /// Replace 'BB's terminator with one that does not have an unwind successor
-/// block.  Rewrites `invoke` to `call`, `catchendpad unwind label %foo` to
-/// `catchendpad unwind to caller`, etc.  Updates any PHIs in unwind successor.
+/// block.  Rewrites `invoke` to `call`, etc.  Updates any PHIs in unwind
+/// successor.
 ///
 /// \param BB  Block whose terminator will be replaced.  Its terminator must
 ///            have an unwind successor.
@@ -289,7 +304,7 @@ void removeUnwindEdge(BasicBlock *BB);
 /// \brief Remove all blocks that can not be reached from the function's entry.
 ///
 /// Returns true if any basic block was removed.
-bool removeUnreachableBlocks(Function &F);
+bool removeUnreachableBlocks(Function &F, LazyValueInfo *LVI = nullptr);
 
 /// \brief Combine the metadata of two instructions so that K can replace J
 ///

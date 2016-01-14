@@ -10,12 +10,9 @@
 #ifndef LLVM_AVR_TARGET_OBJECT_FILE_H
 #define LLVM_AVR_TARGET_OBJECT_FILE_H
 
-#include "AVRConfig.h"
-
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 
 namespace llvm {
-
 /**
  * Lowering for an AVR ELF32 object file.
  */

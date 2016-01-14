@@ -238,11 +238,6 @@ public:
   ///
   virtual void EmitJumpTableInfo();
 
-  /// Emit the control variable for an emulated TLS variable.
-  virtual void EmitEmulatedTLSControlVariable(const GlobalVariable *GV,
-                                              MCSymbol *EmittedSym,
-                                              bool AllZeroInitValue);
-
   /// Emit the specified global variable to the .s file.
   virtual void EmitGlobalVariable(const GlobalVariable *GV);
 
@@ -259,7 +254,7 @@ public:
   void EmitAlignment(unsigned NumBits, const GlobalObject *GO = nullptr) const;
 
   /// Lower the specified LLVM Constant to an MCExpr.
-  const MCExpr *lowerConstant(const Constant *CV);
+  virtual const MCExpr *lowerConstant(const Constant *CV);
 
   /// \brief Print a general LLVM constant to the .s file.
   void EmitGlobalConstant(const DataLayout &DL, const Constant *CV);
@@ -453,7 +448,16 @@ public:
   void emitCFIInstruction(const MCCFIInstruction &Inst) const;
 
   /// \brief Emit Dwarf abbreviation table.
-  void emitDwarfAbbrevs(const std::vector<DIEAbbrev *>& Abbrevs) const;
+  template <typename T> void emitDwarfAbbrevs(const T &Abbrevs) const {
+    // For each abbreviation.
+    for (const auto &Abbrev : Abbrevs)
+      emitDwarfAbbrev(*Abbrev);
+
+    // Mark end of abbreviations.
+    EmitULEB128(0, "EOM(3)");
+  }
+
+  void emitDwarfAbbrev(const DIEAbbrev &Abbrev) const;
 
   /// \brief Recursively emit Dwarf DIE tree.
   void emitDwarfDIE(const DIE &Die) const;

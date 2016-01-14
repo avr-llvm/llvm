@@ -13,13 +13,14 @@ set(DFSanTests
   )
 
 set(Tests
+  BufferOverflowOnInput
   CallerCalleeTest
   CounterTest
   FourIndependentBranchesTest
   FullCoverageSetTest
-  InfiniteTest
   MemcmpTest
   NullDerefTest
+  RepeatedMemcmp
   SimpleCmpTest
   SimpleDictionaryTest
   SimpleHashTest
@@ -27,6 +28,7 @@ set(Tests
   StrcmpTest
   StrncmpTest
   SwitchTest
+  ThreadedTest
   TimeoutTest
   )
 
@@ -34,6 +36,13 @@ set(CustomMainTests
   UserSuppliedFuzzerTest
   )
 
+set(UninstrumentedTests
+  UninstrumentedTest
+  )
+
+set(TraceBBTests
+  SimpleTest
+  )
 
 set(TestBinaries)
 
@@ -89,6 +98,17 @@ foreach(Test ${DFSanTests})
   set(TestBinaries ${TestBinaries} LLVMFuzzer-${Test}-DFSan)
 endforeach()
 
+add_subdirectory(uninstrumented)
+
+foreach(Test ${UninstrumentedTests})
+  set(TestBinaries ${TestBinaries} LLVMFuzzer-${Test}-Uninstrumented)
+endforeach()
+
+add_subdirectory(trace-bb)
+
+foreach(Test ${TraceBBTests})
+  set(TestBinaries ${TestBinaries} LLVMFuzzer-${Test}-TraceBB)
+endforeach()
 
 set_target_properties(${TestBinaries}
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}

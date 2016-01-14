@@ -213,12 +213,12 @@ Thumb2SizeReduce::Thumb2SizeReduce(std::function<bool(const Function &)> Ftor)
   for (unsigned i = 0, e = array_lengthof(ReduceTable); i != e; ++i) {
     unsigned FromOpc = ReduceTable[i].WideOpc;
     if (!ReduceOpcodeMap.insert(std::make_pair(FromOpc, i)).second)
-      assert(false && "Duplicated entries?");
+      llvm_unreachable("Duplicated entries?");
   }
 }
 
 static bool HasImplicitCPSRDef(const MCInstrDesc &MCID) {
-  for (const uint16_t *Regs = MCID.getImplicitDefs(); *Regs; ++Regs)
+  for (const MCPhysReg *Regs = MCID.getImplicitDefs(); *Regs; ++Regs)
     if (*Regs == ARM::CPSR)
       return true;
   return false;

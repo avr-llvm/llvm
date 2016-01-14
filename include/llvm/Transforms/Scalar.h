@@ -382,6 +382,13 @@ Pass *createLowerAtomicPass();
 
 //===----------------------------------------------------------------------===//
 //
+// LowerEmuTLS - This pass generates __emutls_[vt].xyz variables for all
+// TLS variables for the emulated TLS model.
+//
+ModulePass *createLowerEmuTLSPass(const TargetMachine *TM);
+
+//===----------------------------------------------------------------------===//
+//
 // ValuePropagation - Propagate CFG-derived value information
 //
 Pass *createCorrelatedValuePropagationPass();
@@ -479,6 +486,12 @@ FunctionPass *createNaryReassociatePass();
 // LoopDistribute - Distribute loops.
 //
 FunctionPass *createLoopDistributePass();
+
+//===----------------------------------------------------------------------===//
+//
+// LoopLoadElimination - Perform loop-aware load elimination.
+//
+FunctionPass *createLoopLoadEliminationPass();
 
 } // End llvm namespace
 

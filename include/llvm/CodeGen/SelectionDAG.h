@@ -215,9 +215,7 @@ class SelectionDAG {
   /// Tracks dbg_value information through SDISel.
   SDDbgInfo *DbgInfo;
 
-#ifndef NDEBUG
-  uint16_t NextPersistentId;
-#endif
+  uint16_t NextPersistentId = 0;
 
 public:
   /// Clients of various APIs that cause global effects on
@@ -328,11 +326,10 @@ public:
   }
 
   iterator_range<allnodes_iterator> allnodes() {
-    return iterator_range<allnodes_iterator>(allnodes_begin(), allnodes_end());
+    return make_range(allnodes_begin(), allnodes_end());
   }
   iterator_range<allnodes_const_iterator> allnodes() const {
-    return iterator_range<allnodes_const_iterator>(allnodes_begin(),
-                                                   allnodes_end());
+    return make_range(allnodes_begin(), allnodes_end());
   }
 
   /// Return the root tag of the SelectionDAG.
@@ -1218,6 +1215,10 @@ public:
   /// is true if they are the same value, or if one is negative zero and the
   /// other positive zero.
   bool isEqualTo(SDValue A, SDValue B) const;
+
+  /// Return true if A and B have no common bits set. As an example, this can
+  /// allow an 'add' to be transformed into an 'or'.
+  bool haveNoCommonBitsSet(SDValue A, SDValue B) const;
 
   /// Utility function used by legalize and lowering to
   /// "unroll" a vector operation by splitting out the scalars and operating

@@ -33,6 +33,7 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCTargetAsmParser.h"
+#include "llvm/MC/MCValue.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
@@ -342,6 +343,7 @@ private:
   enum DirectiveKind {
     DK_NO_DIRECTIVE, // Placeholder
     DK_SET, DK_EQU, DK_EQUIV, DK_ASCII, DK_ASCIZ, DK_STRING, DK_BYTE, DK_SHORT,
+    DK_RELOC,
     DK_VALUE, DK_2BYTE, DK_LONG, DK_INT, DK_4BYTE, DK_QUAD, DK_8BYTE, DK_OCTA,
     DK_SINGLE, DK_FLOAT, DK_DOUBLE, DK_ALIGN, DK_ALIGN32, DK_BALIGN, DK_BALIGNW,
     DK_BALIGNL, DK_P2ALIGN, DK_P2ALIGNW, DK_P2ALIGNL, DK_ORG, DK_FILL, DK_ENDR,
@@ -374,6 +376,7 @@ private:
 
   // ".ascii", ".asciz", ".string"
   bool parseDirectiveAscii(StringRef IDVal, bool ZeroTerminated);
+  bool parseDirectiveReloc(SMLoc DirectiveLoc); // ".reloc"
   bool parseDirectiveValue(unsigned Size); // ".byte", ".long", ...
   bool parseDirectiveOctaValue(); // ".octa"
   bool parseDirectiveRealValue(const fltSemantics &); // ".single", ...
@@ -700,7 +703,7 @@ bool AsmParser::Run(bool NoInitialTextSection, bool NoFinalize) {
   if (!HadError && !NoFinalize)
     Out.Finish();
 
-  return HadError;
+  return HadError || getContext().hadError();
 }
 
 void AsmParser::checkForValidSection() {
@@ -1101,8 +1104,9 @@ bool AsmParser::parseAbsoluteExpression(int64_t &Res) {
   return false;
 }
 
-unsigned AsmParser::getBinOpPrecedence(AsmToken::TokenKind K,
-                                       MCBinaryExpr::Opcode &Kind) {
+static unsigned getDarwinBinOpPrecedence(AsmToken::TokenKind K,
+                                         MCBinaryExpr::Opcode &Kind,
+                                         bool ShouldUseLogicalShr) {
   switch (K) {
   default:
     return 0; // not a binop.
@@ -1154,7 +1158,7 @@ unsigned AsmParser::getBinOpPrecedence(AsmToken::TokenKind K,
     Kind = MCBinaryExpr::Shl;
     return 4;
   case AsmToken::GreaterGreater:
-    Kind = MAI.shouldUseLogicalShr() ? MCBinaryExpr::LShr : MCBinaryExpr::AShr;
+    Kind = ShouldUseLogicalShr ? MCBinaryExpr::LShr : MCBinaryExpr::AShr;
     return 4;
 
   // High Intermediate Precedence: +, -
@@ -1176,6 +1180,89 @@ unsigned AsmParser::getBinOpPrecedence(AsmToken::TokenKind K,
     Kind = MCBinaryExpr::Mod;
     return 6;
   }
+}
+
+static unsigned getGNUBinOpPrecedence(AsmToken::TokenKind K,
+                                      MCBinaryExpr::Opcode &Kind,
+                                      bool ShouldUseLogicalShr) {
+  switch (K) {
+  default:
+    return 0; // not a binop.
+
+  // Lowest Precedence: &&, ||
+  case AsmToken::AmpAmp:
+    Kind = MCBinaryExpr::LAnd;
+    return 2;
+  case AsmToken::PipePipe:
+    Kind = MCBinaryExpr::LOr;
+    return 1;
+
+  // Low Precedence: ==, !=, <>, <, <=, >, >=
+  case AsmToken::EqualEqual:
+    Kind = MCBinaryExpr::EQ;
+    return 3;
+  case AsmToken::ExclaimEqual:
+  case AsmToken::LessGreater:
+    Kind = MCBinaryExpr::NE;
+    return 3;
+  case AsmToken::Less:
+    Kind = MCBinaryExpr::LT;
+    return 3;
+  case AsmToken::LessEqual:
+    Kind = MCBinaryExpr::LTE;
+    return 3;
+  case AsmToken::Greater:
+    Kind = MCBinaryExpr::GT;
+    return 3;
+  case AsmToken::GreaterEqual:
+    Kind = MCBinaryExpr::GTE;
+    return 3;
+
+  // Low Intermediate Precedence: +, -
+  case AsmToken::Plus:
+    Kind = MCBinaryExpr::Add;
+    return 4;
+  case AsmToken::Minus:
+    Kind = MCBinaryExpr::Sub;
+    return 4;
+
+  // High Intermediate Precedence: |, &, ^
+  //
+  // FIXME: gas seems to support '!' as an infix operator?
+  case AsmToken::Pipe:
+    Kind = MCBinaryExpr::Or;
+    return 5;
+  case AsmToken::Caret:
+    Kind = MCBinaryExpr::Xor;
+    return 5;
+  case AsmToken::Amp:
+    Kind = MCBinaryExpr::And;
+    return 5;
+
+  // Highest Precedence: *, /, %, <<, >>
+  case AsmToken::Star:
+    Kind = MCBinaryExpr::Mul;
+    return 6;
+  case AsmToken::Slash:
+    Kind = MCBinaryExpr::Div;
+    return 6;
+  case AsmToken::Percent:
+    Kind = MCBinaryExpr::Mod;
+    return 6;
+  case AsmToken::LessLess:
+    Kind = MCBinaryExpr::Shl;
+    return 6;
+  case AsmToken::GreaterGreater:
+    Kind = ShouldUseLogicalShr ? MCBinaryExpr::LShr : MCBinaryExpr::AShr;
+    return 6;
+  }
+}
+
+unsigned AsmParser::getBinOpPrecedence(AsmToken::TokenKind K,
+                                       MCBinaryExpr::Opcode &Kind) {
+  bool ShouldUseLogicalShr = MAI.shouldUseLogicalShr();
+  return IsDarwin ? getDarwinBinOpPrecedence(K, Kind, ShouldUseLogicalShr)
+                  : getGNUBinOpPrecedence(K, Kind, ShouldUseLogicalShr);
 }
 
 /// \brief Parse all binary operators with precedence >= 'Precedence'.
@@ -1250,6 +1337,15 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
     // Treat '.' as a valid identifier in this context.
     Lex();
     IDVal = ".";
+  } else if (Lexer.is(AsmToken::LCurly)) {
+    // Treat '{' as a valid identifier in this context.
+    Lex();
+    IDVal = "{";
+
+  } else if (Lexer.is(AsmToken::RCurly)) {
+    // Treat '}' as a valid identifier in this context.
+    Lex();
+    IDVal = "}";
   } else if (parseIdentifier(IDVal)) {
     if (!TheCondState.Ignore)
       return TokError("unexpected token at start of statement");
@@ -1312,6 +1408,8 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
   // See what kind of statement we have.
   switch (Lexer.getKind()) {
   case AsmToken::Colon: {
+    if (!getTargetParser().isLabel(ID))
+      break;
     checkForValidSection();
 
     // identifier ':'   -> Label.
@@ -1370,6 +1468,8 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
   }
 
   case AsmToken::Equal:
+    if (!getTargetParser().equalIsAsmAssignment())
+      break;
     // identifier '=' ... -> assignment statement
     Lex();
 
@@ -1598,6 +1698,8 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
       return parseDirectiveError(IDLoc, true);
     case DK_WARNING:
       return parseDirectiveWarning(IDLoc);
+    case DK_RELOC:
+      return parseDirectiveReloc(IDLoc);
     }
 
     return Error(IDLoc, "unknown directive");
@@ -1612,12 +1714,14 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
   if (ParsingInlineAsm && (IDVal == "align" || IDVal == "ALIGN"))
     return parseDirectiveMSAlign(IDLoc, Info);
 
+  if (ParsingInlineAsm && (IDVal == "even"))
+    Info.AsmRewrites->emplace_back(AOK_EVEN, IDLoc, 4);
   checkForValidSection();
 
   // Canonicalize the opcode to lower case.
   std::string OpcodeStr = IDVal.lower();
   ParseInstructionInfo IInfo(Info.AsmRewrites);
-  bool HadError = getTargetParser().ParseInstruction(IInfo, OpcodeStr, IDLoc,
+  bool HadError = getTargetParser().ParseInstruction(IInfo, OpcodeStr, ID,
                                                      Info.ParsedOperands);
   Info.ParseError = HadError;
 
@@ -2366,6 +2470,51 @@ bool AsmParser::parseDirectiveAscii(StringRef IDVal, bool ZeroTerminated) {
   return false;
 }
 
+/// parseDirectiveReloc
+///  ::= .reloc expression , identifier [ , expression ]
+bool AsmParser::parseDirectiveReloc(SMLoc DirectiveLoc) {
+  const MCExpr *Offset;
+  const MCExpr *Expr = nullptr;
+
+  SMLoc OffsetLoc = Lexer.getTok().getLoc();
+  if (parseExpression(Offset))
+    return true;
+
+  // We can only deal with constant expressions at the moment.
+  int64_t OffsetValue;
+  if (!Offset->evaluateAsAbsolute(OffsetValue))
+    return Error(OffsetLoc, "expression is not a constant value");
+
+  if (Lexer.isNot(AsmToken::Comma))
+    return TokError("expected comma");
+  Lexer.Lex();
+
+  if (Lexer.isNot(AsmToken::Identifier))
+    return TokError("expected relocation name");
+  SMLoc NameLoc = Lexer.getTok().getLoc();
+  StringRef Name = Lexer.getTok().getIdentifier();
+  Lexer.Lex();
+
+  if (Lexer.is(AsmToken::Comma)) {
+    Lexer.Lex();
+    SMLoc ExprLoc = Lexer.getLoc();
+    if (parseExpression(Expr))
+      return true;
+
+    MCValue Value;
+    if (!Expr->evaluateAsRelocatable(Value, nullptr, nullptr))
+      return Error(ExprLoc, "expression must be relocatable");
+  }
+
+  if (Lexer.isNot(AsmToken::EndOfStatement))
+    return TokError("unexpected token in .reloc directive");
+
+  if (getStreamer().EmitRelocDirective(*Offset, Name, Expr, DirectiveLoc))
+    return Error(NameLoc, "unknown relocation name");
+
+  return false;
+}
+
 /// parseDirectiveValue
 ///  ::= (.byte | .short | ... ) [ expression (, expression)* ]
 bool AsmParser::parseDirectiveValue(unsigned Size) {
@@ -2612,7 +2761,6 @@ bool AsmParser::parseDirectiveOrg() {
   checkForValidSection();
 
   const MCExpr *Offset;
-  SMLoc Loc = getTok().getLoc();
   if (parseExpression(Offset))
     return true;
 
@@ -2631,13 +2779,7 @@ bool AsmParser::parseDirectiveOrg() {
   }
 
   Lex();
-
-  // Only limited forms of relocatable expressions are accepted here, it
-  // has to be relative to the current section. The streamer will return
-  // 'true' if the expression wasn't evaluatable.
-  if (getStreamer().EmitValueToOffset(Offset, FillExpr))
-    return Error(Loc, "expected assembly-time absolute expression");
-
+  getStreamer().emitValueToOffset(Offset, FillExpr);
   return false;
 }
 
@@ -4268,6 +4410,7 @@ void AsmParser::initializeDirectiveKindMap() {
   DirectiveKindMap[".err"] = DK_ERR;
   DirectiveKindMap[".error"] = DK_ERROR;
   DirectiveKindMap[".warning"] = DK_WARNING;
+  DirectiveKindMap[".reloc"] = DK_RELOC;
 }
 
 MCAsmMacro *AsmParser::parseMacroLikeBody(SMLoc DirectiveLoc) {
@@ -4612,8 +4755,8 @@ bool AsmParser::parseMSInlineAsm(
     }
 
     // Consider implicit defs to be clobbers.  Think of cpuid and push.
-    ArrayRef<uint16_t> ImpDefs(Desc.getImplicitDefs(),
-                               Desc.getNumImplicitDefs());
+    ArrayRef<MCPhysReg> ImpDefs(Desc.getImplicitDefs(),
+                                Desc.getNumImplicitDefs());
     ClobberRegs.insert(ClobberRegs.end(), ImpDefs.begin(), ImpDefs.end());
   }
 
@@ -4708,14 +4851,23 @@ bool AsmParser::parseMSInlineAsm(
       OS << ".byte";
       break;
     case AOK_Align: {
-      unsigned Val = AR.Val;
-      OS << ".align " << Val;
+      // MS alignment directives are measured in bytes. If the native assembler
+      // measures alignment in bytes, we can pass it straight through.
+      OS << ".align";
+      if (getContext().getAsmInfo()->getAlignmentIsInBytes())
+        break;
 
-      // Skip the original immediate.
+      // Alignment is in log2 form, so print that instead and skip the original
+      // immediate.
+      unsigned Val = AR.Val;
+      OS << ' ' << Val;
       assert(Val < 10 && "Expected alignment less then 2^10.");
       AdditionalSkip = (Val < 4) ? 2 : Val < 7 ? 3 : 4;
       break;
     }
+    case AOK_EVEN:
+      OS << ".even";
+      break;
     case AOK_DotOperator:
       // Insert the dot if the user omitted it.
       OS.flush();
@@ -4815,11 +4967,7 @@ bool parseAssignmentExpression(StringRef Name, bool allow_redef,
                           "invalid reassignment of non-absolute variable '" +
                               Name + "'");
   } else if (Name == ".") {
-    if (Parser.getStreamer().EmitValueToOffset(Value, 0)) {
-      Parser.Error(EqualLoc, "expected absolute expression");
-      Parser.eatToEndOfStatement();
-      return true;
-    }
+    Parser.getStreamer().emitValueToOffset(Value, 0);
     return false;
   } else
     Sym = Parser.getContext().getOrCreateSymbol(Name);

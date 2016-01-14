@@ -32,7 +32,9 @@ public:
 
   virtual ~AVRELFObjectWriter() {}
 
-  unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
+  unsigned getRelocType(MCContext &Ctx,
+                        const MCValue &Target,
+                        const MCFixup &Fixup,
                         bool IsPCRel) const override;
 
   bool needsRelocateWithSymbol(const MCSymbol &Sym,
@@ -42,7 +44,8 @@ public:
 AVRELFObjectWriter::AVRELFObjectWriter(uint8_t OSABI)
     : MCELFObjectTargetWriter(false, OSABI, ELF::EM_AVR, true, false) {}
 
-unsigned AVRELFObjectWriter::GetRelocType(const MCValue &Target,
+unsigned AVRELFObjectWriter::getRelocType(MCContext &Ctx,
+                                          const MCValue &Target,
                                           const MCFixup &Fixup,
                                           bool IsPCRel) const {
   switch ((unsigned)Fixup.getKind()) {

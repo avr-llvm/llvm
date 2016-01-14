@@ -1,25 +1,25 @@
-//===-- AVR.td - Describe the AVR Target Machine -----------*- tablegen -*-===//
+//===-- AVR.td - Describe the AVR Target Machine ----------*- tablegen -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
 //
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 // This is the top level entry point for the AVR target.
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 // Target-independent interfaces which we are implementing
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 
 include "llvm/Target/Target.td"
 
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 // AVR Subtarget Features.
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 
-// :TODO: Implement the skip errata, see `gcc/config/avr/avr-arch.h` for details.
+// :TODO: Implement the skip errata, see `gcc/config/avr/avr-arch.h` for details
 // :TODO: We define all devices with SRAM to have all variants of LD/ST/LDD/STD.
 //        In reality, avr1 (no SRAM) has one variant each of `LD` and `ST`.
 //        avr2 (with SRAM) adds the rest of the variants.
@@ -36,9 +36,12 @@ class FeatureSet<string name, string desc, list<SubtargetFeature> i>
 
 // A family of microcontrollers, defining a set of supported features.
 class Family<string name, list<SubtargetFeature> i>
-  : FeatureSet<name, !strconcat("The device is a part of the ", name, " family"), i>;
+  : FeatureSet<name, !strconcat("The device is a part of the ",
+               name, " family"), i>;
 
-// The device has SRAM, and supports the bare minimum of SRAM-relevant instructions.
+// The device has SRAM, and supports the bare minimum of
+// SRAM-relevant instructions.
+//
 // These are:
 // LD - all 9 variants
 // ST - all 9 variants
@@ -52,27 +55,35 @@ def FeatureSRAM           : SubtargetFeature<"sram", "m_hasSRAM", "true",
 
 // The device supports the `JMP k` and `CALL k` instructions.
 def FeatureJMPCALL        : SubtargetFeature<"jmpcall", "m_hasJMPCALL", "true",
-                                  "The device supports the `JMP` and `CALL` instructions">;
+                                  "The device supports the `JMP` and "
+                                  "`CALL` instructions">;
+
 
 // The device supports the indirect branches `IJMP` and `ICALL`.
-def FeatureIJMPCALL       : SubtargetFeature<"ijmpcall", "m_hasIJMPCALL", "true",
-                                  "The device supports `IJMP`/`ICALL` instructions">;
+def FeatureIJMPCALL       : SubtargetFeature<"ijmpcall", "m_hasIJMPCALL",
+                                  "true",
+                                  "The device supports `IJMP`/`ICALL`"
+                                  "instructions">;
 
 // The device supports the extended indirect branches `EIJMP` and `EICALL`.
-def FeatureEIJMPCALL      : SubtargetFeature<"eijmpcall", "m_hasEIJMPCALL", "true",
-                                  "The device supports the `EIJMP`/`EICALL` instructions">;
+def FeatureEIJMPCALL      : SubtargetFeature<"eijmpcall", "m_hasEIJMPCALL",
+                                  "true", "The device supports the "
+                                  "`EIJMP`/`EICALL` instructions">;
 
 // The device supports `ADDI Rd, K`, `SUBI Rd, K`.
-def FeatureADDSUBIW       : SubtargetFeature<"addsubiw", "m_hasADDSUBIW", "true",
-                                  "Enable 16-bit register-immediate addition and subtraction instructions">;
+def FeatureADDSUBIW       : SubtargetFeature<"addsubiw", "m_hasADDSUBIW",
+                                  "true", "Enable 16-bit register-immediate "
+                                  "addition and subtraction instructions">;
 
 // The device has an 8-bit stack pointer (SP) register.
-def FeatureSmallStack     : SubtargetFeature<"smallstack", "m_hasSmallStack", "true",
-                                  "The device has an 8-bit stack pointer">;
+def FeatureSmallStack     : SubtargetFeature<"smallstack", "m_hasSmallStack",
+                                  "true", "The device has an 8-bit "
+                                  "stack pointer">;
 
 // The device supports the 16-bit GPR pair MOVW instruction.
 def FeatureMOVW           : SubtargetFeature<"movw", "m_hasMOVW", "true",
-                                  "The device supports the 16-bit MOVW instruction">;
+                                  "The device supports the 16-bit MOVW "
+                                  "instruction">;
 
 // The device supports the `LPM` instruction, with implied destination being r0.
 def FeatureLPM            : SubtargetFeature<"lpm", "m_hasLPM", "true",
@@ -80,7 +91,8 @@ def FeatureLPM            : SubtargetFeature<"lpm", "m_hasLPM", "true",
 
 // The device supports the `LPM Rd, Z[+] instruction.
 def FeatureLPMX           : SubtargetFeature<"lpmx", "m_hasLPMX", "true",
-                                  "The device supports the `LPM Rd, Z[+]` instruction">;
+                                  "The device supports the `LPM Rd, Z[+]` "
+                                  "instruction">;
 
 // The device supports the `ELPM` instruction.
 def FeatureELPM           : SubtargetFeature<"elpm", "m_hasELPM", "true",
@@ -88,7 +100,8 @@ def FeatureELPM           : SubtargetFeature<"elpm", "m_hasELPM", "true",
 
 // The device supports the `ELPM Rd, Z[+]` instructions.
 def FeatureELPMX          : SubtargetFeature<"elpmx", "m_hasELPMX", "true",
-                                  "The device supports the `ELPM Rd, Z[+]` instructions">;
+                                  "The device supports the `ELPM Rd, Z[+]` "
+                                  "instructions">;
 
 // The device supports the `SPM` instruction.
 def FeatureSPM            : SubtargetFeature<"spm", "m_hasSPM", "true",
@@ -96,29 +109,38 @@ def FeatureSPM            : SubtargetFeature<"spm", "m_hasSPM", "true",
 
 // The device supports the `SPM Z+` instruction.
 def FeatureSPMX           : SubtargetFeature<"spmx", "m_hasSPMX", "true",
-                                  "The device supports the `SPM Z+` instruction">;
+                                  "The device supports the `SPM Z+` "
+                                  "instruction">;
 
 // The device supports the `DES k` instruction.
 def FeatureDES            : SubtargetFeature<"des", "m_hasDES", "true",
-                                  "The device supports the `DES k` encryption instruction">;
+                                  "The device supports the `DES k` encryption "
+                                  "instruction">;
 
-// The device supports the Read-Write-Modify instructions XCH, LAS, LAC, and LAT.
+// The device supports the Read-Write-Modify instructions
+// XCH, LAS, LAC, and LAT.
 def FeatureRMW            : SubtargetFeature<"rmw", "m_supportsRMW", "true",
-                                  "The device supports the read-write-modify instructions: XCH, LAS, LAC, LAT">;
+                                  "The device supports the read-write-modify "
+                                  "instructions: XCH, LAS, LAC, LAT">;
 
 // The device supports the `[F]MUL[S][U]` family of instructions.
-def FeatureMultiplication : SubtargetFeature<"mul", "m_supportsMultiplication", "true",
-                                  "The device supports the multiplication instructions">;
+def FeatureMultiplication : SubtargetFeature<"mul", "m_supportsMultiplication",
+                                  "true", "The device supports the "
+                                  "multiplication instructions">;
 
 // The device supports the `BREAK` instruction.
 def FeatureBREAK          : SubtargetFeature<"break", "m_hasBREAK", "true",
-                                  "The device supports the `BREAK` debugging instruction">;
+                                  "The device supports the `BREAK` debugging "
+                                  "instruction">;
 
 // The device has instruction encodings specific to the Tiny core.
-def FeatureTinyEncoding   : SubtargetFeature<"tinyencoding", "m_hasTinyEncoding", "true",
-                                  "The device has Tiny core specific instruction encodings">;
+def FeatureTinyEncoding   : SubtargetFeature<"tinyencoding",
+                                  "m_hasTinyEncoding", "true",
+                                  "The device has Tiny core specific "
+                                  "instruction encodings">;
 
-class ELFArch<string name>  : SubtargetFeature<"", "ELFArch", !strconcat("ELF::",name), "">;
+class ELFArch<string name>  : SubtargetFeature<"", "ELFArch",
+                                    !strconcat("ELF::",name), "">;
 
 // ELF e_flags architecture values
 def ELFArchAVR1    : ELFArch<"EF_AVR_ARCH_AVR1">;
@@ -140,20 +162,23 @@ def ELFArchXMEGA5  : ELFArch<"EF_AVR_ARCH_XMEGA5">;
 def ELFArchXMEGA6  : ELFArch<"EF_AVR_ARCH_XMEGA6">;
 def ELFArchXMEGA7  : ELFArch<"EF_AVR_ARCH_XMEGA7">;
 
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 // AVR Families
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 
-// The device has at least the bare minimum that **every** single AVR device should have.
+// The device has at least the bare minimum that **every** single AVR
+// device should have.
 def FamilyAVR0           : Family<"avr0", []>;
 
 def FamilyAVR1           : Family<"avr1", [FamilyAVR0, FeatureLPM]>;
 
 def FamilyAVR2           : Family<"avr2",
-                                 [FamilyAVR1, FeatureIJMPCALL, FeatureADDSUBIW, FeatureSRAM]>;
+                                 [FamilyAVR1, FeatureIJMPCALL, FeatureADDSUBIW,
+                                  FeatureSRAM]>;
 
 def FamilyAVR25          : Family<"avr25",
-                                 [FamilyAVR2, FeatureMOVW, FeatureLPMX, FeatureSPM, FeatureBREAK]>;
+                                 [FamilyAVR2, FeatureMOVW, FeatureLPMX,
+                                  FeatureSPM, FeatureBREAK]>;
 
 def FamilyAVR3           : Family<"avr3",
                                  [FamilyAVR2, FeatureJMPCALL]>;
@@ -162,15 +187,18 @@ def FamilyAVR31          : Family<"avr31",
                                  [FamilyAVR3, FeatureELPM]>;
 
 def FamilyAVR35          : Family<"avr35",
-                                 [FamilyAVR3, FeatureMOVW, FeatureLPMX, FeatureSPM, FeatureBREAK]>;
+                                 [FamilyAVR3, FeatureMOVW, FeatureLPMX,
+                                  FeatureSPM, FeatureBREAK]>;
 
 def FamilyAVR4           : Family<"avr4",
-                                 [FamilyAVR2, FeatureMultiplication, FeatureMOVW,
-                                  FeatureLPMX, FeatureSPM,  FeatureBREAK]>;
+                                 [FamilyAVR2, FeatureMultiplication,
+                                  FeatureMOVW, FeatureLPMX, FeatureSPM,
+                                  FeatureBREAK]>;
 
 def FamilyAVR5           : Family<"avr5",
-                                 [FamilyAVR3, FeatureMultiplication, FeatureMOVW,
-                                  FeatureLPMX, FeatureSPM, FeatureBREAK]>;
+                                 [FamilyAVR3, FeatureMultiplication,
+                                  FeatureMOVW, FeatureLPMX, FeatureSPM,
+                                  FeatureBREAK]>;
 
 def FamilyAVR51          : Family<"avr51",
                                  [FamilyAVR5, FeatureELPM, FeatureELPMX]>;
@@ -179,24 +207,30 @@ def FamilyAVR6           : Family<"avr6",
                                  [FamilyAVR51]>;
 
 def FamilyAVRTiny        : Family<"avrtiny",
-                                 [FamilyAVR0, FeatureBREAK, FeatureSRAM, FeatureTinyEncoding]>;
+                                 [FamilyAVR0, FeatureBREAK, FeatureSRAM,
+                                  FeatureTinyEncoding]>;
 
 def FamilyXMEGA          : Family<"xmega",
-                                 [FamilyAVR51, FeatureEIJMPCALL, FeatureSPMX, FeatureDES]>;
+                                 [FamilyAVR51, FeatureEIJMPCALL, FeatureSPMX,
+                                  FeatureDES]>;
 
 def FamilyXMEGAU         : Family<"xmegau",
                                   [FamilyXMEGA, FeatureRMW]>;
 
-def FeatureSetSpecial    : FeatureSet<"special", "Enable use of the entire instruction set - used for debugging",
-                                      [FeatureSRAM, FeatureJMPCALL, FeatureIJMPCALL,
-                                       FeatureEIJMPCALL, FeatureADDSUBIW, FeatureMOVW,
-                                       FeatureLPM, FeatureLPMX, FeatureELPM, FeatureELPMX,
-                                       FeatureSPM, FeatureSPMX, FeatureDES, FeatureRMW,
+def FeatureSetSpecial    : FeatureSet<"special",
+                                      "Enable use of the entire instruction "
+                                      "set - used for debugging",
+                                      [FeatureSRAM, FeatureJMPCALL,
+                                       FeatureIJMPCALL, FeatureEIJMPCALL,
+                                       FeatureADDSUBIW, FeatureMOVW,
+                                       FeatureLPM, FeatureLPMX, FeatureELPM,
+                                       FeatureELPMX, FeatureSPM, FeatureSPMX,
+                                       FeatureDES, FeatureRMW,
                                        FeatureMultiplication, FeatureBREAK]>;
 
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 // AVR microcontrollers supported.
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 
 class Device<string Name, Family Fam, ELFArch Arch,
              list<SubtargetFeature> ExtraFeatures = []>
@@ -236,8 +270,9 @@ def : Device<"at90s2323",          FamilyAVR2, ELFArchAVR2>;
 def : Device<"at90s2333",          FamilyAVR2, ELFArchAVR2>;
 def : Device<"at90s2343",          FamilyAVR2, ELFArchAVR2>;
 def : Device<"attiny22",           FamilyAVR2, ELFArchAVR2>;
-def : Device<"attiny26",           FamilyAVR2, ELFArchAVR2,  [FeatureLPMX]>;
-def : Device<"at86rf401",          FamilyAVR2, ELFArchAVR25, [FeatureMOVW, FeatureLPMX]>;
+def : Device<"attiny26",           FamilyAVR2, ELFArchAVR2, [FeatureLPMX]>;
+def : Device<"at86rf401",          FamilyAVR2, ELFArchAVR25,
+             [FeatureMOVW, FeatureLPMX]>;
 def : Device<"at90s4414",          FamilyAVR2, ELFArchAVR2>;
 def : Device<"at90s4433",          FamilyAVR2, ELFArchAVR2>;
 def : Device<"at90s4434",          FamilyAVR2, ELFArchAVR2>;
@@ -282,7 +317,7 @@ def : Device<"atmega8u2",          FamilyAVR35, ELFArchAVR35>;
 def : Device<"atmega16u2",         FamilyAVR35, ELFArchAVR35>;
 def : Device<"atmega32u2",         FamilyAVR35, ELFArchAVR35>;
 def : Device<"attiny1634",         FamilyAVR35, ELFArchAVR35>;
-def : Device<"atmega8",            FamilyAVR4,  ELFArchAVR4>; // family is funky
+def : Device<"atmega8",            FamilyAVR4,  ELFArchAVR4>; // FIXME: family may be wrong
 def : Device<"ata6289",            FamilyAVR4,  ELFArchAVR4>;
 def : Device<"atmega8a",           FamilyAVR4,  ELFArchAVR4>;
 def : Device<"ata6285",            FamilyAVR4,  ELFArchAVR4>;
@@ -295,8 +330,10 @@ def : Device<"atmega88",           FamilyAVR4,  ELFArchAVR4>;
 def : Device<"atmega88a",          FamilyAVR4,  ELFArchAVR4>;
 def : Device<"atmega88p",          FamilyAVR4,  ELFArchAVR4>;
 def : Device<"atmega88pa",         FamilyAVR4,  ELFArchAVR4>;
-def : Device<"atmega8515",         FamilyAVR2,  ELFArchAVR4, [FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
-def : Device<"atmega8535",         FamilyAVR2,  ELFArchAVR4, [FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
+def : Device<"atmega8515",         FamilyAVR2,  ELFArchAVR4,
+             [FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
+def : Device<"atmega8535",         FamilyAVR2,  ELFArchAVR4,
+             [FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
 def : Device<"atmega8hva",         FamilyAVR4,  ELFArchAVR4>;
 def : Device<"at90pwm1",           FamilyAVR4,  ELFArchAVR4>;
 def : Device<"at90pwm2",           FamilyAVR4,  ELFArchAVR4>;
@@ -308,9 +345,11 @@ def : Device<"ata5790",            FamilyAVR5,  ELFArchAVR5>;
 def : Device<"ata5795",            FamilyAVR5,  ELFArchAVR5>;
 def : Device<"atmega16",           FamilyAVR5,  ELFArchAVR5>;
 def : Device<"atmega16a",          FamilyAVR5,  ELFArchAVR5>;
-def : Device<"atmega161",          FamilyAVR3,  ELFArchAVR5, [FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
+def : Device<"atmega161",          FamilyAVR3,  ELFArchAVR5,
+             [FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
 def : Device<"atmega162",          FamilyAVR5,  ELFArchAVR5>;
-def : Device<"atmega163",          FamilyAVR3,  ELFArchAVR5, [FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
+def : Device<"atmega163",          FamilyAVR3,  ELFArchAVR5,
+             [FeatureMultiplication, FeatureMOVW, FeatureLPMX, FeatureSPM]>;
 def : Device<"atmega164a",         FamilyAVR5,  ELFArchAVR5>;
 def : Device<"atmega164p",         FamilyAVR5,  ELFArchAVR5>;
 def : Device<"atmega164pa",        FamilyAVR5,  ELFArchAVR5>;
@@ -395,7 +434,8 @@ def : Device<"atmega32u6",         FamilyAVR5,  ELFArchAVR5>;
 def : Device<"at90usb646",         FamilyAVR5,  ELFArchAVR5>;
 def : Device<"at90usb647",         FamilyAVR5,  ELFArchAVR5>;
 def : Device<"at90scr100",         FamilyAVR5,  ELFArchAVR5>;
-def : Device<"at94k",              FamilyAVR3,  ELFArchAVR5, [FeatureMultiplication, FeatureMOVW, FeatureLPMX]>;
+def : Device<"at94k",              FamilyAVR3,  ELFArchAVR5,
+             [FeatureMultiplication, FeatureMOVW, FeatureLPMX]>;
 def : Device<"m3000",              FamilyAVR5,  ELFArchAVR5>;
 def : Device<"atmega128",          FamilyAVR51, ELFArchAVR51>;
 def : Device<"atmega128a",         FamilyAVR51, ELFArchAVR51>;
@@ -464,38 +504,38 @@ def : Device<"attiny10",           FamilyAVRTiny, ELFArchAVRTiny>;
 def : Device<"attiny20",           FamilyAVRTiny, ELFArchAVRTiny>;
 def : Device<"attiny40",           FamilyAVRTiny, ELFArchAVRTiny>;
 
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 // Register File Description
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 
 include "AVRRegisterInfo.td"
 
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 // Instruction Descriptions
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 
 include "AVRInstrInfo.td"
 
 def AVRInstrInfo : InstrInfo;
 
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 // Calling Conventions
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 
 include "AVRCallingConv.td"
 
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 // Assembly Printers
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 
 def AVRAsmWriter : AsmWriter {
-  string AsmWriterClassName = "InstPrinter";
-  bit isMCAsmWriter = 1;
+ string AsmWriterClassName = "InstPrinter";
+ bit isMCAsmWriter = 1;
 }
 
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 // Assembly Parsers
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 
 def AVRAsmParser : AsmParser {
   let ShouldEmitMatchRegisterName = 1;
@@ -507,16 +547,18 @@ def AVRAsmParserVariant : AsmParserVariant {
 
   // Recognize hard coded registers.
   string RegisterPrefix = "$";
+  string TokenizingCharacters = "+";
 }
 
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 // Target Declaration
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------------------===//
 
 def AVR : Target {
   let InstructionSet         = AVRInstrInfo;
   let AssemblyWriters        = [AVRAsmWriter];
-  
+
   let AssemblyParsers        = [AVRAsmParser];
   let AssemblyParserVariants = [AVRAsmParserVariant];
 }
+

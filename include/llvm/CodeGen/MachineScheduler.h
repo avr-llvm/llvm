@@ -228,6 +228,7 @@ public:
 class ScheduleDAGMI : public ScheduleDAGInstrs {
 protected:
   AliasAnalysis *AA;
+  LiveIntervals *LIS;
   std::unique_ptr<MachineSchedStrategy> SchedImpl;
 
   /// Topo - A topological ordering for SUnits which permits fast IsReachable
@@ -254,11 +255,11 @@ protected:
 #endif
 public:
   ScheduleDAGMI(MachineSchedContext *C, std::unique_ptr<MachineSchedStrategy> S,
-                bool IsPostRA)
-      : ScheduleDAGInstrs(*C->MF, C->MLI, IsPostRA,
-                          /*RemoveKillFlags=*/IsPostRA, C->LIS),
-        AA(C->AA), SchedImpl(std::move(S)), Topo(SUnits, &ExitSU), CurrentTop(),
-        CurrentBottom(), NextClusterPred(nullptr), NextClusterSucc(nullptr) {
+                bool RemoveKillFlags)
+      : ScheduleDAGInstrs(*C->MF, C->MLI, RemoveKillFlags), AA(C->AA),
+        LIS(C->LIS), SchedImpl(std::move(S)), Topo(SUnits, &ExitSU),
+        CurrentTop(), CurrentBottom(), NextClusterPred(nullptr),
+        NextClusterSucc(nullptr) {
 #ifndef NDEBUG
     NumInstrsScheduled = 0;
 #endif
@@ -266,6 +267,9 @@ public:
 
   // Provide a vtable anchor
   ~ScheduleDAGMI() override;
+
+  // Returns LiveIntervals instance for use in DAG mutators and such.
+  LiveIntervals *getLIS() const { return LIS; }
 
   /// Return true if this DAG supports VReg liveness and RegPressure.
   virtual bool hasVRegLiveness() const { return false; }
@@ -386,7 +390,7 @@ protected:
 public:
   ScheduleDAGMILive(MachineSchedContext *C,
                     std::unique_ptr<MachineSchedStrategy> S)
-      : ScheduleDAGMI(C, std::move(S), /*IsPostRA=*/false),
+      : ScheduleDAGMI(C, std::move(S), /*RemoveKillFlags=*/false),
         RegClassInfo(C->RegClassInfo), DFSResult(nullptr),
         ShouldTrackPressure(false), RPTracker(RegPressure),
         TopRPTracker(TopPressure), BotRPTracker(BotPressure) {}

@@ -293,6 +293,34 @@
 # define LLVM_ALIGNAS(x) alignas(x)
 #endif
 
+/// \macro LLVM_PACKED
+/// \brief Used to specify a packed structure.
+/// LLVM_PACKED(
+///    struct A {
+///      int i;
+///      int j;
+///      int k;
+///      long long l;
+///   });
+///
+/// LLVM_PACKED_START
+/// struct B {
+///   int i;
+///   int j;
+///   int k;
+///   long long l;
+/// };
+/// LLVM_PACKED_END 
+#ifdef _MSC_VER
+# define LLVM_PACKED(d) __pragma(pack(push, 1)) d __pragma(pack(pop))
+# define LLVM_PACKED_START __pragma(pack(push, 1))
+# define LLVM_PACKED_END   __pragma(pack(pop))
+#else
+# define LLVM_PACKED(d) d __attribute__((packed))
+# define LLVM_PACKED_START _Pragma("pack(push, 1)")
+# define LLVM_PACKED_END   _Pragma("pack(pop)")
+#endif
+
 /// \macro LLVM_PTR_SIZE
 /// \brief A constant integer equivalent to the value of sizeof(void*).
 /// Generally used in combination with LLVM_ALIGNAS or when doing computation in
@@ -333,8 +361,11 @@
 /// \brief Whether LLVM itself is built with AddressSanitizer instrumentation.
 #if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
 # define LLVM_ADDRESS_SANITIZER_BUILD 1
+# include <sanitizer/asan_interface.h>
 #else
 # define LLVM_ADDRESS_SANITIZER_BUILD 0
+# define __asan_poison_memory_region(p, size)
+# define __asan_unpoison_memory_region(p, size)
 #endif
 
 /// \macro LLVM_THREAD_SANITIZER_BUILD

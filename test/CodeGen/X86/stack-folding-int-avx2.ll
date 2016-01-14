@@ -1,4 +1,4 @@
-; RUN: llc -O3 -disable-peephole -mtriple=x86_64-unknown-unknown -mcpu=x86-64 -mattr=+avx2 < %s | FileCheck %s
+; RUN: llc -O3 -disable-peephole -mtriple=x86_64-unknown-unknown -mattr=+avx2 < %s | FileCheck %s
 
 target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-unknown"
@@ -447,28 +447,28 @@ declare <8 x i32> @llvm.x86.avx2.permd(<8 x i32>, <8 x i32>) nounwind readonly
 
 define <4 x double> @stack_fold_permpd(<4 x double> %a0) {
   ;CHECK-LABEL: stack_fold_permpd
-  ;CHECK:   vpermpd $255, {{-?[0-9]*}}(%rsp), {{%ymm[0-9][0-9]*}} {{.*#+}} 32-byte Folded Reload
+  ;CHECK:   vpermpd $235, {{-?[0-9]*}}(%rsp), {{%ymm[0-9][0-9]*}} {{.*#+}} 32-byte Folded Reload
   %1 = tail call <2 x i64> asm sideeffect "nop", "=x,~{xmm1},~{xmm2},~{xmm3},~{xmm4},~{xmm5},~{xmm6},~{xmm7},~{xmm8},~{xmm9},~{xmm10},~{xmm11},~{xmm12},~{xmm13},~{xmm14},~{xmm15},~{flags}"()
-  %2 = shufflevector <4 x double> %a0, <4 x double> undef, <4 x i32> <i32 3, i32 3, i32 3, i32 3>
+  %2 = shufflevector <4 x double> %a0, <4 x double> undef, <4 x i32> <i32 3, i32 2, i32 2, i32 3>
   ; fadd forces execution domain
   %3 = fadd <4 x double> %2, <double 0x0, double 0x0, double 0x0, double 0x0>
   ret <4 x double> %3
 }
 
-define <8 x float> @stack_fold_permps(<8 x float> %a0, <8 x float> %a1) {
+define <8 x float> @stack_fold_permps(<8 x i32> %a0, <8 x float> %a1) {
   ;CHECK-LABEL: stack_fold_permps
   ;CHECK:       vpermps {{-?[0-9]*}}(%rsp), {{%ymm[0-9][0-9]*}}, {{%ymm[0-9][0-9]*}} {{.*#+}} 32-byte Folded Reload
   %1 = tail call <2 x i64> asm sideeffect "nop", "=x,~{xmm2},~{xmm3},~{xmm4},~{xmm5},~{xmm6},~{xmm7},~{xmm8},~{xmm9},~{xmm10},~{xmm11},~{xmm12},~{xmm13},~{xmm14},~{xmm15},~{flags}"()
-  %2 = call <8 x float> @llvm.x86.avx2.permps(<8 x float> %a1, <8 x float> %a0)
+  %2 = call <8 x float> @llvm.x86.avx2.permps(<8 x float> %a1, <8 x i32> %a0)
   ret <8 x float> %2
 }
-declare <8 x float> @llvm.x86.avx2.permps(<8 x float>, <8 x float>) nounwind readonly
+declare <8 x float> @llvm.x86.avx2.permps(<8 x float>, <8 x i32>) nounwind readonly
 
 define <4 x i64> @stack_fold_permq(<4 x i64> %a0) {
   ;CHECK-LABEL: stack_fold_permq
-  ;CHECK:   vpermq $255, {{-?[0-9]*}}(%rsp), {{%ymm[0-9][0-9]*}} {{.*#+}} 32-byte Folded Reload
+  ;CHECK:   vpermq $235, {{-?[0-9]*}}(%rsp), {{%ymm[0-9][0-9]*}} {{.*#+}} 32-byte Folded Reload
   %1 = tail call <2 x i64> asm sideeffect "nop", "=x,~{xmm1},~{xmm2},~{xmm3},~{xmm4},~{xmm5},~{xmm6},~{xmm7},~{xmm8},~{xmm9},~{xmm10},~{xmm11},~{xmm12},~{xmm13},~{xmm14},~{xmm15},~{flags}"()
-  %2 = shufflevector <4 x i64> %a0, <4 x i64> undef, <4 x i32> <i32 3, i32 3, i32 3, i32 3>
+  %2 = shufflevector <4 x i64> %a0, <4 x i64> undef, <4 x i32> <i32 3, i32 2, i32 2, i32 3>
   ; add forces execution domain
   %3 = add <4 x i64> %2, <i64 1, i64 1, i64 1, i64 1>
   ret <4 x i64> %3

@@ -4,7 +4,7 @@
 #include "llvm/ExecutionEngine/Orc/LambdaResolver.h"
 #include "llvm/ExecutionEngine/Orc/LazyEmittingLayer.h"
 #include "llvm/ExecutionEngine/Orc/ObjectLinkingLayer.h"
-#include "llvm/ExecutionEngine/Orc/OrcTargetSupport.h"
+#include "llvm/ExecutionEngine/Orc/OrcArchitectureSupport.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/IRBuilder.h"
@@ -1085,7 +1085,7 @@ void PrototypeAST::CreateArgumentAllocas(Function *F, IRGenContext &C) {
     AllocaInst *Alloca = CreateEntryBlockAlloca(F, Args[Idx]);
 
     // Store the initial value into the alloca.
-    C.getBuilder().CreateStore(AI, Alloca);
+    C.getBuilder().CreateStore(&*AI, Alloca);
 
     // Add arguments to variable symbol table.
     C.NamedValues[Args[Idx]] = Alloca;
@@ -1168,9 +1168,7 @@ public:
     : Session(Session),
       CompileLayer(ObjectLayer, SimpleCompiler(Session.getTarget())),
       LazyEmitLayer(CompileLayer),
-      CompileCallbacks(LazyEmitLayer, CCMgrMemMgr, Session.getLLVMContext(),
-                       reinterpret_cast<uintptr_t>(EarthShatteringKaboom),
-                       64) {}
+      CompileCallbacks(reinterpret_cast<uintptr_t>(EarthShatteringKaboom)) {}
 
   std::string mangle(const std::string &Name) {
     std::string MangledName;
@@ -1260,8 +1258,7 @@ private:
     //         the function. The resulting CallbackInfo type will let us set the
     //         compile and update actions for the callback, and get a pointer to
     //         the jit trampoline that we need to call to trigger those actions.
-    auto CallbackInfo =
-      CompileCallbacks.getCompileCallback(F->getContext());
+    auto CallbackInfo = CompileCallbacks.getCompileCallback();
 
     // Step 3) Create a stub that will indirectly call the body of this
     //         function once it is compiled. Initially, set the function
@@ -1311,7 +1308,7 @@ private:
 
   std::map<std::string, std::unique_ptr<FunctionAST>> FunctionDefs;
 
-  JITCompileCallbackManager<LazyEmitLayerT, OrcX86_64> CompileCallbacks;
+  LocalJITCompileCallbackManager<OrcX86_64> CompileCallbacks;
 };
 
 static void HandleDefinition(SessionContext &S, KaleidoscopeJIT &J) {

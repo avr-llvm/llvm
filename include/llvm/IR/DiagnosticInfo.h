@@ -15,7 +15,6 @@
 #ifndef LLVM_IR_DIAGNOSTICINFO_H
 #define LLVM_IR_DIAGNOSTICINFO_H
 
-#include "llvm-c/Core.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Module.h"
@@ -60,6 +59,7 @@ enum DiagnosticKind {
   DK_OptimizationRemarkAnalysisAliasing,
   DK_OptimizationFailure,
   DK_MIRParser,
+  DK_PGOProfile,
   DK_FirstPluginKind
 };
 
@@ -214,19 +214,18 @@ public:
 /// Diagnostic information for the sample profiler.
 class DiagnosticInfoSampleProfile : public DiagnosticInfo {
 public:
-  DiagnosticInfoSampleProfile(const char *FileName, unsigned LineNum,
+  DiagnosticInfoSampleProfile(StringRef FileName, unsigned LineNum,
                               const Twine &Msg,
                               DiagnosticSeverity Severity = DS_Error)
       : DiagnosticInfo(DK_SampleProfile, Severity), FileName(FileName),
         LineNum(LineNum), Msg(Msg) {}
-  DiagnosticInfoSampleProfile(const char *FileName, const Twine &Msg,
+  DiagnosticInfoSampleProfile(StringRef FileName, const Twine &Msg,
                               DiagnosticSeverity Severity = DS_Error)
       : DiagnosticInfo(DK_SampleProfile, Severity), FileName(FileName),
         LineNum(0), Msg(Msg) {}
   DiagnosticInfoSampleProfile(const Twine &Msg,
                               DiagnosticSeverity Severity = DS_Error)
-      : DiagnosticInfo(DK_SampleProfile, Severity), FileName(nullptr),
-        LineNum(0), Msg(Msg) {}
+      : DiagnosticInfo(DK_SampleProfile, Severity), LineNum(0), Msg(Msg) {}
 
   /// \see DiagnosticInfo::print.
   void print(DiagnosticPrinter &DP) const override;
@@ -235,17 +234,42 @@ public:
     return DI->getKind() == DK_SampleProfile;
   }
 
-  const char *getFileName() const { return FileName; }
+  StringRef getFileName() const { return FileName; }
   unsigned getLineNum() const { return LineNum; }
   const Twine &getMsg() const { return Msg; }
 
 private:
   /// Name of the input file associated with this diagnostic.
-  const char *FileName;
+  StringRef FileName;
 
   /// Line number where the diagnostic occurred. If 0, no line number will
   /// be emitted in the message.
   unsigned LineNum;
+
+  /// Message to report.
+  const Twine &Msg;
+};
+
+/// Diagnostic information for the PGO profiler.
+class DiagnosticInfoPGOProfile : public DiagnosticInfo {
+public:
+  DiagnosticInfoPGOProfile(const char *FileName, const Twine &Msg,
+                           DiagnosticSeverity Severity = DS_Error)
+      : DiagnosticInfo(DK_PGOProfile, Severity), FileName(FileName), Msg(Msg) {}
+
+  /// \see DiagnosticInfo::print.
+  void print(DiagnosticPrinter &DP) const override;
+
+  static bool classof(const DiagnosticInfo *DI) {
+    return DI->getKind() == DK_PGOProfile;
+  }
+
+  const char *getFileName() const { return FileName; }
+  const Twine &getMsg() const { return Msg; }
+
+private:
+  /// Name of the input file associated with this diagnostic.
+  const char *FileName;
 
   /// Message to report.
   const Twine &Msg;

@@ -19,8 +19,8 @@
 namespace llvm {
 namespace orc {
 
-void JITCompileCallbackManagerBase::anchor() {}
-void IndirectStubsManagerBase::anchor() {}
+void JITCompileCallbackManager::anchor() {}
+void IndirectStubsManager::anchor() {}
 
 Constant* createIRTypedAddress(FunctionType &FT, TargetAddress Addr) {
   Constant *AddrIntVal =
@@ -64,9 +64,7 @@ class GlobalRenamer {
 public:
 
   static bool needsRenaming(const Value &New) {
-    if (!New.hasName() || New.getName().startswith("\01L"))
-      return true;
-    return false;
+    return !New.hasName() || New.getName().startswith("\01L");
   }
 
   const std::string& getRename(const Value &Orig) {

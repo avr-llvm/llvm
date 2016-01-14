@@ -11,15 +11,12 @@
 
 #include "llvm-pdbdump.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Regex.h"
 
 #include <algorithm>
 
 namespace {
-template <class T, class Pred> bool any_of_range(T &&R, Pred P) {
-  return std::any_of(R.begin(), R.end(), P);
-}
-
 bool IsItemExcluded(llvm::StringRef Item,
                     std::list<llvm::Regex> &IncludeFilters,
                     std::list<llvm::Regex> &ExcludeFilters) {
@@ -30,10 +27,10 @@ bool IsItemExcluded(llvm::StringRef Item,
 
   // Include takes priority over exclude.  If the user specified include
   // filters, and none of them include this item, them item is gone.
-  if (!IncludeFilters.empty() && !any_of_range(IncludeFilters, match_pred))
+  if (!IncludeFilters.empty() && !any_of(IncludeFilters, match_pred))
     return true;
 
-  if (any_of_range(ExcludeFilters, match_pred))
+  if (any_of(ExcludeFilters, match_pred))
     return true;
 
   return false;
@@ -84,54 +81,40 @@ bool LinePrinter::IsCompilandExcluded(llvm::StringRef CompilandName) {
 }
 
 WithColor::WithColor(LinePrinter &P, PDB_ColorItem C) : OS(P.OS) {
-  if (C == PDB_ColorItem::None)
-    OS.resetColor();
-  else {
-    raw_ostream::Colors Color;
-    bool Bold;
-    translateColor(C, Color, Bold);
-    OS.changeColor(Color, Bold);
-  }
+  applyColor(C);
 }
 
 WithColor::~WithColor() { OS.resetColor(); }
 
-void WithColor::translateColor(PDB_ColorItem C, raw_ostream::Colors &Color,
-                               bool &Bold) const {
+void WithColor::applyColor(PDB_ColorItem C) {
   switch (C) {
+  case PDB_ColorItem::None:
+    OS.resetColor();
+    return;
   case PDB_ColorItem::Address:
-    Color = raw_ostream::YELLOW;
-    Bold = true;
+    OS.changeColor(raw_ostream::YELLOW, /*bold=*/true);
     return;
   case PDB_ColorItem::Keyword:
-    Color = raw_ostream::MAGENTA;
-    Bold = true;
+    OS.changeColor(raw_ostream::MAGENTA, true);
     return;
   case PDB_ColorItem::Register:
   case PDB_ColorItem::Offset:
-    Color = raw_ostream::YELLOW;
-    Bold = false;
+    OS.changeColor(raw_ostream::YELLOW, false);
     return;
   case PDB_ColorItem::Type:
-    Color = raw_ostream::CYAN;
-    Bold = true;
+    OS.changeColor(raw_ostream::CYAN, true);
     return;
   case PDB_ColorItem::Identifier:
-    Color = raw_ostream::CYAN;
-    Bold = false;
+    OS.changeColor(raw_ostream::CYAN, false);
     return;
   case PDB_ColorItem::Path:
-    Color = raw_ostream::CYAN;
-    Bold = false;
+    OS.changeColor(raw_ostream::CYAN, false);
     return;
   case PDB_ColorItem::SectionHeader:
-    Color = raw_ostream::RED;
-    Bold = true;
+    OS.changeColor(raw_ostream::RED, true);
     return;
   case PDB_ColorItem::LiteralValue:
-    Color = raw_ostream::GREEN;
-    Bold = true;
-  default:
+    OS.changeColor(raw_ostream::GREEN, true);
     return;
   }
 }

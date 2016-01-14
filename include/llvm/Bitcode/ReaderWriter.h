@@ -37,30 +37,33 @@ namespace llvm {
   ErrorOr<std::unique_ptr<Module>>
   getLazyBitcodeModule(std::unique_ptr<MemoryBuffer> &&Buffer,
                        LLVMContext &Context,
-                       DiagnosticHandlerFunction DiagnosticHandler = nullptr,
                        bool ShouldLazyLoadMetadata = false);
 
   /// Read the header of the specified stream and prepare for lazy
   /// deserialization and streaming of function bodies.
-  ErrorOr<std::unique_ptr<Module>> getStreamedBitcodeModule(
-      StringRef Name, std::unique_ptr<DataStreamer> Streamer,
-      LLVMContext &Context,
-      DiagnosticHandlerFunction DiagnosticHandler = nullptr);
+  ErrorOr<std::unique_ptr<Module>>
+  getStreamedBitcodeModule(StringRef Name,
+                           std::unique_ptr<DataStreamer> Streamer,
+                           LLVMContext &Context);
 
   /// Read the header of the specified bitcode buffer and extract just the
   /// triple information. If successful, this returns a string. On error, this
   /// returns "".
-  std::string
-  getBitcodeTargetTriple(MemoryBufferRef Buffer, LLVMContext &Context,
-                         DiagnosticHandlerFunction DiagnosticHandler = nullptr);
+  std::string getBitcodeTargetTriple(MemoryBufferRef Buffer,
+                                     LLVMContext &Context);
+
+  /// Read the header of the specified bitcode buffer and extract just the
+  /// producer string information. If successful, this returns a string. On
+  /// error, this returns "".
+  std::string getBitcodeProducerString(MemoryBufferRef Buffer,
+                                       LLVMContext &Context);
 
   /// Read the specified bitcode file, returning the module.
-  ErrorOr<std::unique_ptr<Module>>
-  parseBitcodeFile(MemoryBufferRef Buffer, LLVMContext &Context,
-                   DiagnosticHandlerFunction DiagnosticHandler = nullptr);
+  ErrorOr<std::unique_ptr<Module>> parseBitcodeFile(MemoryBufferRef Buffer,
+                                                    LLVMContext &Context);
 
   /// Check if the given bitcode buffer contains a function summary block.
-  bool hasFunctionSummary(MemoryBufferRef Buffer, LLVMContext &Context,
+  bool hasFunctionSummary(MemoryBufferRef Buffer,
                           DiagnosticHandlerFunction DiagnosticHandler);
 
   /// Parse the specified bitcode buffer, returning the function info index.
@@ -68,9 +71,10 @@ namespace llvm {
   /// the index. Otherwise skip the function summary section, and only create
   /// an index object with a map from function name to function summary offset.
   /// The index is used to perform lazy function summary reading later.
-  ErrorOr<std::unique_ptr<FunctionInfoIndex>> getFunctionInfoIndex(
-      MemoryBufferRef Buffer, LLVMContext &Context,
-      DiagnosticHandlerFunction DiagnosticHandler, bool IsLazy = false);
+  ErrorOr<std::unique_ptr<FunctionInfoIndex>>
+  getFunctionInfoIndex(MemoryBufferRef Buffer,
+                       DiagnosticHandlerFunction DiagnosticHandler,
+                       bool IsLazy = false);
 
   /// This method supports lazy reading of function summary data from the
   /// combined index during function importing. When reading the combined index
@@ -79,9 +83,8 @@ namespace llvm {
   /// to parse the summary information for the given function name into
   /// the index.
   std::error_code readFunctionSummary(
-      MemoryBufferRef Buffer, LLVMContext &Context,
-      DiagnosticHandlerFunction DiagnosticHandler, StringRef FunctionName,
-      std::unique_ptr<FunctionInfoIndex> Index);
+      MemoryBufferRef Buffer, DiagnosticHandlerFunction DiagnosticHandler,
+      StringRef FunctionName, std::unique_ptr<FunctionInfoIndex> Index);
 
   /// \brief Write the specified module to the specified raw output stream.
   ///

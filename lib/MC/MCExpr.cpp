@@ -202,6 +202,7 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_SIZE: return "SIZE";
   case VK_WEAKREF: return "WEAKREF";
   case VK_ARM_NONE: return "none";
+  case VK_ARM_GOT_PREL: return "GOT_PREL";
   case VK_ARM_TARGET1: return "target1";
   case VK_ARM_TARGET2: return "target2";
   case VK_ARM_PREL31: return "prel31";
@@ -299,6 +300,7 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_Hexagon_LD_PLT: return "LDPLT";
   case VK_Hexagon_IE: return "IE";
   case VK_Hexagon_IE_GOT: return "IEGOT";
+  case VK_WebAssembly_FUNCTION: return "FUNCTION";
   case VK_TPREL: return "tprel";
   case VK_DTPREL: return "dtprel";
   }
@@ -311,7 +313,6 @@ MCSymbolRefExpr::getVariantKindForName(StringRef Name) {
     .Case("got", VK_GOT)
     .Case("gotoff", VK_GOTOFF)
     .Case("gotpcrel", VK_GOTPCREL)
-    .Case("got_prel", VK_GOTPCREL)
     .Case("gottpoff", VK_GOTTPOFF)
     .Case("indntpoff", VK_INDNTPOFF)
     .Case("ntpoff", VK_NTPOFF)
@@ -382,7 +383,15 @@ MCSymbolRefExpr::getVariantKindForName(StringRef Name) {
     .Case("got@tlsld@l", VK_PPC_GOT_TLSLD_LO)
     .Case("got@tlsld@h", VK_PPC_GOT_TLSLD_HI)
     .Case("got@tlsld@ha", VK_PPC_GOT_TLSLD_HA)
+    .Case("gdgot", VK_Hexagon_GD_GOT)
+    .Case("gdplt", VK_Hexagon_GD_PLT)
+    .Case("iegot", VK_Hexagon_IE_GOT)
+    .Case("ie", VK_Hexagon_IE)
+    .Case("ldgot", VK_Hexagon_LD_GOT)
+    .Case("ldplt", VK_Hexagon_LD_PLT)
+    .Case("pcrel", VK_Hexagon_PCREL)
     .Case("none", VK_ARM_NONE)
+    .Case("got_prel", VK_ARM_GOT_PREL)
     .Case("target1", VK_ARM_TARGET1)
     .Case("target2", VK_ARM_TARGET2)
     .Case("prel31", VK_ARM_PREL31)
@@ -583,11 +592,6 @@ EvaluateSymbolicAdd(const MCAssembler *Asm, const MCAsmLayout *Layout,
   // symbol -- find them.
   const MCSymbolRefExpr *A = LHS_A ? LHS_A : RHS_A;
   const MCSymbolRefExpr *B = LHS_B ? LHS_B : RHS_B;
-
-  // If we have a negated symbol, then we must have also have a non-negated
-  // symbol in order to encode the expression.
-  if (B && !A)
-    return false;
 
   Res = MCValue::get(A, B, Result_Cst);
   return true;

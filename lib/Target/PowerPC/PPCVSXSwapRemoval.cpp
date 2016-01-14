@@ -164,9 +164,7 @@ private:
   bool isRegInClass(unsigned Reg, const TargetRegisterClass *RC) {
     if (TargetRegisterInfo::isVirtualRegister(Reg))
       return RC->hasSubClassEq(MRI->getRegClass(Reg));
-    if (RC->contains(Reg))
-      return true;
-    return false;
+    return RC->contains(Reg);
   }
 
   // Return true iff the given register is a full vector register.
@@ -220,7 +218,7 @@ public:
 void PPCVSXSwapRemoval::initialize(MachineFunction &MFParm) {
   MF = &MFParm;
   MRI = &MF->getRegInfo();
-  TII = static_cast<const PPCInstrInfo*>(MF->getSubtarget().getInstrInfo());
+  TII = MF->getSubtarget<PPCSubtarget>().getInstrInfo();
 
   // An initial vector size of 256 appears to work well in practice.
   // Small/medium functions with vector content tend not to incur a
@@ -789,8 +787,7 @@ void PPCVSXSwapRemoval::handleSpecialSwappables(int EntryIdx) {
   switch (SwapVector[EntryIdx].SpecialHandling) {
 
   default:
-    assert(false && "Unexpected special handling type");
-    break;
+    llvm_unreachable("Unexpected special handling type");
 
   // For splats based on an index into a vector, add N/2 modulo N
   // to the index, where N is the number of vector elements.
@@ -803,7 +800,7 @@ void PPCVSXSwapRemoval::handleSpecialSwappables(int EntryIdx) {
 
     switch (MI->getOpcode()) {
     default:
-      assert(false && "Unexpected splat opcode");
+      llvm_unreachable("Unexpected splat opcode");
     case PPC::VSPLTB: NElts = 16; break;
     case PPC::VSPLTH: NElts = 8;  break;
     case PPC::VSPLTW: NElts = 4;  break;

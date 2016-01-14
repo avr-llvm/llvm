@@ -316,9 +316,8 @@ Value *GenericToNVVM::remapConstantExpr(Module *M, Function *F, ConstantExpr *C,
                               NewOperands[0], NewOperands[1]);
   case Instruction::FCmp:
     // CompareConstantExpr (fcmp)
-    assert(false && "Address space conversion should have no effect "
-                    "on float point CompareConstantExpr (fcmp)!");
-    return C;
+    llvm_unreachable("Address space conversion should have no effect "
+                     "on float point CompareConstantExpr (fcmp)!");
   case Instruction::ExtractElement:
     // ExtractElementConstantExpr
     return Builder.CreateExtractElement(NewOperands[0], NewOperands[1]);
@@ -362,8 +361,7 @@ Value *GenericToNVVM::remapConstantExpr(Module *M, Function *F, ConstantExpr *C,
       return Builder.CreateCast(Instruction::CastOps(C->getOpcode()),
                                 NewOperands[0], C->getType());
     }
-    assert(false && "GenericToNVVM encountered an unsupported ConstantExpr");
-    return C;
+    llvm_unreachable("GenericToNVVM encountered an unsupported ConstantExpr");
   }
 }
 

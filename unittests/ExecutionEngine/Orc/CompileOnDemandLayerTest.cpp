@@ -16,24 +16,21 @@ using namespace llvm::orc;
 
 namespace {
 
-class DummyCallbackManager : public orc::JITCompileCallbackManagerBase {
+class DummyCallbackManager : public orc::JITCompileCallbackManager {
 public:
-  DummyCallbackManager()
-      : JITCompileCallbackManagerBase(0, 0), NextStubAddress(0),
-        UniversalCompile([]() { return 0; }) {
-  }
-
-  CompileCallbackInfo getCompileCallback(LLVMContext &Context) override {
-    return CompileCallbackInfo(++NextStubAddress, UniversalCompile);
-  }
+  DummyCallbackManager() : JITCompileCallbackManager(0) { }
 public:
-  TargetAddress NextStubAddress;
-  CompileFtor UniversalCompile;
+  void grow() override { llvm_unreachable("not implemented"); }
 };
 
-class DummyStubsManager : public orc::IndirectStubsManagerBase {
+class DummyStubsManager : public orc::IndirectStubsManager {
 public:
-  std::error_code init(const StubInitsMap &StubInits) override {
+  std::error_code createStub(StringRef StubName, TargetAddress InitAddr,
+                             JITSymbolFlags Flags) override {
+    llvm_unreachable("Not implemented");
+  }
+
+  std::error_code createStubs(const StubInitsMap &StubInits) override {
     llvm_unreachable("Not implemented");
   }
 
@@ -64,15 +61,11 @@ TEST(CompileOnDemandLayerTest, FindSymbol) {
 
   typedef decltype(MockBaseLayer) MockBaseLayerT;
   DummyCallbackManager CallbackMgr;
-  auto StubsMgrBuilder =
-    []() {
-      return llvm::make_unique<DummyStubsManager>();
-    };
 
-  llvm::orc::CompileOnDemandLayer<MockBaseLayerT>
-    COD(MockBaseLayer,
-        [](Function &F) { std::set<Function*> S; S.insert(&F); return S; },
-        CallbackMgr, StubsMgrBuilder, true);
+  llvm::orc::CompileOnDemandLayer<MockBaseLayerT> COD(
+      MockBaseLayer, [](Function &F) { return std::set<Function *>{&F}; },
+      CallbackMgr, [] { return llvm::make_unique<DummyStubsManager>(); }, true);
+
   auto Sym = COD.findSymbol("foo", true);
 
   EXPECT_TRUE(!!Sym)

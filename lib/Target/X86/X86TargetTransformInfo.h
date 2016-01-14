@@ -76,7 +76,8 @@ public:
                       unsigned AddressSpace);
   int getMaskedMemoryOpCost(unsigned Opcode, Type *Src, unsigned Alignment,
                             unsigned AddressSpace);
-
+  int getGatherScatterOpCost(unsigned Opcode, Type *DataTy, Value *Ptr,
+                             bool VariableMask, unsigned Alignment);
   int getAddressComputationCost(Type *PtrTy, bool IsComplex);
 
   int getReductionCost(unsigned Opcode, Type *Ty, bool IsPairwiseForm);
@@ -90,8 +91,15 @@ public:
                     Type *Ty);
   bool isLegalMaskedLoad(Type *DataType);
   bool isLegalMaskedStore(Type *DataType);
+  bool isLegalMaskedGather(Type *DataType);
+  bool isLegalMaskedScatter(Type *DataType);
   bool areInlineCompatible(const Function *Caller,
                            const Function *Callee) const;
+private:
+  int getGSScalarCost(unsigned Opcode, Type *DataTy, bool VariableMask,
+                      unsigned Alignment, unsigned AddressSpace);
+  int getGSVectorCost(unsigned Opcode, Type *DataTy, Value *Ptr,
+                      unsigned Alignment, unsigned AddressSpace);
 
   /// @}
 };

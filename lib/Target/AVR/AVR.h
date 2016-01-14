@@ -12,31 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-/**
- * \mainpage AVR-LLVM Documentation
- *
- * AVR-LLVM adds support for the Atmel AVR microcontroller
- * architecture to LLVM.
- *
- * This enables the use of AVR in different compiler projects.
- *
- * AVR-specific code can be found inside `lib/Target/AVR`.
- *
- * Links:
- * * [GitHub](https://github.com/avr-llvm/llvm)
- * * [Wiki](https://github.com/avr-llvm/llvm/wiki)
- * * [Mailing lists](http://lists.avr-llvm.org/mailman/listinfo)
- */
-
 #ifndef LLVM_AVR_H
 #define LLVM_AVR_H
 
-#include "AVRConfig.h"
-
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
-
-#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 namespace llvm {
 

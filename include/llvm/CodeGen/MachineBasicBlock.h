@@ -16,6 +16,7 @@
 
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/Support/BranchProbability.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/DataTypes.h"
 #include <functional>
@@ -64,7 +65,8 @@ private:
   void createNode(const MachineInstr &);
 };
 
-class MachineBasicBlock : public ilist_node<MachineBasicBlock> {
+class MachineBasicBlock
+    : public ilist_node_with_parent<MachineBasicBlock, MachineFunction> {
 public:
   /// Pair of physical register and lane mask.
   /// This is not simply a std::pair typedef because the members should be named
@@ -89,12 +91,13 @@ private:
   std::vector<MachineBasicBlock *> Predecessors;
   std::vector<MachineBasicBlock *> Successors;
 
-  /// Keep track of the weights to the successors. This vector has the same
-  /// order as Successors, or it is empty if we don't use it (disable
+  /// Keep track of the probabilities to the successors. This vector has the
+  /// same order as Successors, or it is empty if we don't use it (disable
   /// optimization).
-  std::vector<uint32_t> Weights;
-  typedef std::vector<uint32_t>::iterator weight_iterator;
-  typedef std::vector<uint32_t>::const_iterator const_weight_iterator;
+  std::vector<BranchProbability> Probs;
+  typedef std::vector<BranchProbability>::iterator probability_iterator;
+  typedef std::vector<BranchProbability>::const_iterator
+      const_probability_iterator;
 
   /// Keep track of the physical registers that are livein of the basicblock.
   typedef std::vector<RegisterMaskPair> LiveInVector;
@@ -263,11 +266,16 @@ public:
   reverse_iterator       rend  ()       { return instr_rend();   }
   const_reverse_iterator rend  () const { return instr_rend();   }
 
+  /// Support for MachineInstr::getNextNode().
+  static Instructions MachineBasicBlock::*getSublistAccess(MachineInstr *) {
+    return &MachineBasicBlock::Insts;
+  }
+
   inline iterator_range<iterator> terminators() {
-    return iterator_range<iterator>(getFirstTerminator(), end());
+    return make_range(getFirstTerminator(), end());
   }
   inline iterator_range<const_iterator> terminators() const {
-    return iterator_range<const_iterator>(getFirstTerminator(), end());
+    return make_range(getFirstTerminator(), end());
   }
 
   // Machine-CFG iterators
@@ -317,16 +325,16 @@ public:
   bool                 succ_empty() const { return Successors.empty();   }
 
   inline iterator_range<pred_iterator> predecessors() {
-    return iterator_range<pred_iterator>(pred_begin(), pred_end());
+    return make_range(pred_begin(), pred_end());
   }
   inline iterator_range<const_pred_iterator> predecessors() const {
-    return iterator_range<const_pred_iterator>(pred_begin(), pred_end());
+    return make_range(pred_begin(), pred_end());
   }
   inline iterator_range<succ_iterator> successors() {
-    return iterator_range<succ_iterator>(succ_begin(), succ_end());
+    return make_range(succ_begin(), succ_end());
   }
   inline iterator_range<const_succ_iterator> successors() const {
-    return iterator_range<const_succ_iterator>(succ_begin(), succ_end());
+    return make_range(succ_begin(), succ_end());
   }
 
   // LiveIn management methods.
@@ -366,6 +374,14 @@ public:
   iterator_range<livein_iterator> liveins() const {
     return make_range(livein_begin(), livein_end());
   }
+
+  /// Get the clobber mask for the start of this basic block. Funclets use this
+  /// to prevent register allocation across funclet transitions.
+  const uint32_t *getBeginClobberMask(const TargetRegisterInfo *TRI) const;
+
+  /// Get the clobber mask for the end of the basic block.
+  /// \see getBeginClobberMask()
+  const uint32_t *getEndClobberMask(const TargetRegisterInfo *TRI) const;
 
   /// Return alignment of the basic block. The alignment is specified as
   /// log2(bytes).
@@ -418,26 +434,54 @@ public:
   // Machine-CFG mutators
 
   /// Add Succ as a successor of this MachineBasicBlock.  The Predecessors list
-  /// of Succ is automatically updated. WEIGHT parameter is stored in Weights
-  /// list and it may be used by MachineBranchProbabilityInfo analysis to
-  /// calculate branch probability.
+  /// of Succ is automatically updated. PROB parameter is stored in
+  /// Probabilities list. The default probability is set as unknown. Mixing
+  /// known and unknown probabilities in successor list is not allowed. When all
+  /// successors have unknown probabilities, 1 / N is returned as the
+  /// probability for each successor, where N is the number of successors.
   ///
   /// Note that duplicate Machine CFG edges are not allowed.
-  void addSuccessor(MachineBasicBlock *Succ, uint32_t Weight = 0);
+  void addSuccessor(MachineBasicBlock *Succ,
+                    BranchProbability Prob = BranchProbability::getUnknown());
 
-  /// Set successor weight of a given iterator.
-  void setSuccWeight(succ_iterator I, uint32_t Weight);
+  /// Add Succ as a successor of this MachineBasicBlock.  The Predecessors list
+  /// of Succ is automatically updated. The probability is not provided because
+  /// BPI is not available (e.g. -O0 is used), in which case edge probabilities
+  /// won't be used. Using this interface can save some space.
+  void addSuccessorWithoutProb(MachineBasicBlock *Succ);
+
+  /// Set successor probability of a given iterator.
+  void setSuccProbability(succ_iterator I, BranchProbability Prob);
+
+  /// Normalize probabilities of all successors so that the sum of them becomes
+  /// one. This is usually done when the current update on this MBB is done, and
+  /// the sum of its successors' probabilities is not guaranteed to be one. The
+  /// user is responsible for the correct use of this function.
+  /// MBB::removeSuccessor() has an option to do this automatically.
+  void normalizeSuccProbs() {
+    BranchProbability::normalizeProbabilities(Probs.begin(), Probs.end());
+  }
+
+  /// Validate successors' probabilities and check if the sum of them is
+  /// approximate one. This only works in DEBUG mode.
+  void validateSuccProbs() const;
 
   /// Remove successor from the successors list of this MachineBasicBlock. The
   /// Predecessors list of Succ is automatically updated.
-  void removeSuccessor(MachineBasicBlock *Succ);
+  /// If NormalizeSuccProbs is true, then normalize successors' probabilities
+  /// after the successor is removed.
+  void removeSuccessor(MachineBasicBlock *Succ,
+                       bool NormalizeSuccProbs = false);
 
   /// Remove specified successor from the successors list of this
   /// MachineBasicBlock. The Predecessors list of Succ is automatically updated.
+  /// If NormalizeSuccProbs is true, then normalize successors' probabilities
+  /// after the successor is removed.
   /// Return the iterator to the element after the one removed.
-  succ_iterator removeSuccessor(succ_iterator I);
+  succ_iterator removeSuccessor(succ_iterator I,
+                                bool NormalizeSuccProbs = false);
 
-  /// Replace successor OLD with NEW and update weight info.
+  /// Replace successor OLD with NEW and update probability info.
   void replaceSuccessor(MachineBasicBlock *Old, MachineBasicBlock *New);
 
   /// Transfers all the successors from MBB to this machine basic block (i.e.,
@@ -449,8 +493,8 @@ public:
   /// operands in the successor blocks which refer to FromMBB to refer to this.
   void transferSuccessorsAndUpdatePHIs(MachineBasicBlock *FromMBB);
 
-  /// Return true if any of the successors have weights attached to them.
-  bool hasSuccessorWeights() const { return !Weights.empty(); }
+  /// Return true if any of the successors have probabilities attached to them.
+  bool hasSuccessorProbabilities() const { return !Probs.empty(); }
 
   /// Return true if the specified MBB is a predecessor of this block.
   bool isPredecessor(const MachineBasicBlock *MBB) const;
@@ -508,8 +552,8 @@ public:
     return const_cast<MachineBasicBlock *>(this)->getLastNonDebugInstr();
   }
 
-  /// Convenience function that returns true if the block has no successors and
-  /// contains a return instruction.
+  /// Convenience function that returns true if the block ends in a return
+  /// instruction.
   bool isReturnBlock() const {
     return !empty() && back().isReturn();
   }
@@ -665,12 +709,9 @@ public:
 
   /// Possible outcome of a register liveness query to computeRegisterLiveness()
   enum LivenessQueryResult {
-    LQR_Live,            ///< Register is known to be live.
-    LQR_OverlappingLive, ///< Register itself is not live, but some overlapping
-                         ///< register is.
-    LQR_Dead,            ///< Register is known to be dead.
-    LQR_Unknown          ///< Register liveness not decidable from local
-                         ///< neighborhood.
+    LQR_Live,   ///< Register is known to be (at least partially) live.
+    LQR_Dead,   ///< Register is known to be fully dead.
+    LQR_Unknown ///< Register liveness not decidable from local neighborhood.
   };
 
   /// Return whether (physical) register \p Reg has been <def>ined and not
@@ -705,18 +746,18 @@ public:
 
 
 private:
-  /// Return weight iterator corresponding to the I successor iterator.
-  weight_iterator getWeightIterator(succ_iterator I);
-  const_weight_iterator getWeightIterator(const_succ_iterator I) const;
+  /// Return probability iterator corresponding to the I successor iterator.
+  probability_iterator getProbabilityIterator(succ_iterator I);
+  const_probability_iterator
+  getProbabilityIterator(const_succ_iterator I) const;
 
   friend class MachineBranchProbabilityInfo;
   friend class MIPrinter;
 
-  /// Return weight of the edge from this block to MBB. This method should NOT
-  /// be called directly, but by using getEdgeWeight method from
+  /// Return probability of the edge from this block to MBB. This method should
+  /// NOT be called directly, but by using getEdgeProbability method from
   /// MachineBranchProbabilityInfo class.
-  uint32_t getSuccWeight(const_succ_iterator Succ) const;
-
+  BranchProbability getSuccProbability(const_succ_iterator Succ) const;
 
   // Methods used to maintain doubly linked list of blocks...
   friend struct ilist_traits<MachineBasicBlock>;

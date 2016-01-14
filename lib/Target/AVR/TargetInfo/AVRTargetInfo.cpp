@@ -7,8 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AVRConfig.h"
-
 #include "llvm/IR/Module.h"
 #include "llvm/Support/TargetRegistry.h"
 
@@ -20,5 +18,5 @@ Target TheAVRTarget;
 
 extern "C" void LLVMInitializeAVRTargetInfo() {
   llvm::RegisterTarget<llvm::Triple::avr> X(
-      llvm::TheAVRTarget, "avr", "Atmel AVR Microcontroller [experimental]");
+      llvm::TheAVRTarget, "avr", "Atmel AVR Microcontroller");
 }
