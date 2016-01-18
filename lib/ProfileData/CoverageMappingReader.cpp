@@ -322,12 +322,12 @@ struct CovMapFuncRecordReader {
 };
 
 // A class for reading coverage mapping function records for a module.
-template <coverage::CovMapVersion CovMapVersion, class IntPtrT,
+template <coverage::CovMapVersion Version, class IntPtrT,
           support::endianness Endian>
 class VersionedCovMapFuncRecordReader : public CovMapFuncRecordReader {
   typedef typename coverage::CovMapTraits<
-      CovMapVersion, IntPtrT>::CovMapFuncRecordType FuncRecordType;
-  typedef typename coverage::CovMapTraits<CovMapVersion, IntPtrT>::NameRefType
+      Version, IntPtrT>::CovMapFuncRecordType FuncRecordType;
+  typedef typename coverage::CovMapTraits<Version, IntPtrT>::NameRefType
       NameRefType;
 
   llvm::DenseSet<NameRefType> UniqueFunctionMappingData;
@@ -352,7 +352,7 @@ public:
     uint32_t NRecords = CovHeader->getNRecords<Endian>();
     uint32_t FilenamesSize = CovHeader->getFilenamesSize<Endian>();
     uint32_t CoverageSize = CovHeader->getCoverageSize<Endian>();
-    assert((CovMapVersion)CovHeader->getVersion<Endian>() == CovMapVersion);
+    assert((CovMapVersion)CovHeader->getVersion<Endian>() == Version);
     Buf = reinterpret_cast<const char *>(CovHeader + 1);
 
     // Skip past the function records, saving the start and end for later.
@@ -404,7 +404,7 @@ public:
               CFR->template getFuncName<Endian>(ProfileNames, FuncName))
         return EC;
       Records.push_back(BinaryCoverageReader::ProfileMappingRecord(
-          CovMapVersion, FuncName, FuncHash, Mapping, FilenamesBegin,
+          Version, FuncName, FuncHash, Mapping, FilenamesBegin,
           Filenames.size() - FilenamesBegin));
       CFR++;
     }
@@ -546,33 +546,36 @@ BinaryCoverageReader::create(std::unique_ptr<MemoryBuffer> &ObjectBuffer,
                              StringRef Arch) {
   std::unique_ptr<BinaryCoverageReader> Reader(new BinaryCoverageReader());
 
-  InstrProfSymtab ProfileNames;
   StringRef Coverage;
   uint8_t BytesInAddress;
   support::endianness Endian;
   std::error_code EC;
   if (ObjectBuffer->getBuffer().startswith(TestingFormatMagic))
     // This is a special format used for testing.
-    EC = loadTestingFormat(ObjectBuffer->getBuffer(), ProfileNames, Coverage,
-                           BytesInAddress, Endian);
+    EC = loadTestingFormat(ObjectBuffer->getBuffer(), Reader->ProfileNames,
+                           Coverage, BytesInAddress, Endian);
   else
-    EC = loadBinaryFormat(ObjectBuffer->getMemBufferRef(), ProfileNames,
+    EC = loadBinaryFormat(ObjectBuffer->getMemBufferRef(), Reader->ProfileNames,
                           Coverage, BytesInAddress, Endian, Arch);
   if (EC)
     return EC;
 
   if (BytesInAddress == 4 && Endian == support::endianness::little)
     EC = readCoverageMappingData<uint32_t, support::endianness::little>(
-        ProfileNames, Coverage, Reader->MappingRecords, Reader->Filenames);
+        Reader->ProfileNames, Coverage, Reader->MappingRecords,
+        Reader->Filenames);
   else if (BytesInAddress == 4 && Endian == support::endianness::big)
     EC = readCoverageMappingData<uint32_t, support::endianness::big>(
-        ProfileNames, Coverage, Reader->MappingRecords, Reader->Filenames);
+        Reader->ProfileNames, Coverage, Reader->MappingRecords,
+        Reader->Filenames);
   else if (BytesInAddress == 8 && Endian == support::endianness::little)
     EC = readCoverageMappingData<uint64_t, support::endianness::little>(
-        ProfileNames, Coverage, Reader->MappingRecords, Reader->Filenames);
+        Reader->ProfileNames, Coverage, Reader->MappingRecords,
+        Reader->Filenames);
   else if (BytesInAddress == 8 && Endian == support::endianness::big)
     EC = readCoverageMappingData<uint64_t, support::endianness::big>(
-        ProfileNames, Coverage, Reader->MappingRecords, Reader->Filenames);
+        Reader->ProfileNames, Coverage, Reader->MappingRecords,
+        Reader->Filenames);
   else
     return coveragemap_error::malformed;
   if (EC)

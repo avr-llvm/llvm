@@ -35,8 +35,15 @@ public:
   typedef std::function<TargetAddress(const std::string &Name)>
       SymbolLookupFtor;
 
-  OrcRemoteTargetServer(ChannelT &Channel, SymbolLookupFtor SymbolLookup)
-      : Channel(Channel), SymbolLookup(std::move(SymbolLookup)) {}
+  typedef std::function<void(uint8_t *Addr, uint32_t Size)>
+      EHFrameRegistrationFtor;
+
+  OrcRemoteTargetServer(ChannelT &Channel, SymbolLookupFtor SymbolLookup,
+                        EHFrameRegistrationFtor EHFramesRegister,
+                        EHFrameRegistrationFtor EHFramesDeregister)
+      : Channel(Channel), SymbolLookup(std::move(SymbolLookup)),
+        EHFramesRegister(std::move(EHFramesRegister)),
+        EHFramesDeregister(std::move(EHFramesDeregister)) {}
 
   std::error_code getNextProcId(JITProcId &Id) {
     return deserialize(Channel, Id);
@@ -60,6 +67,9 @@ public:
     case CreateIndirectStubsOwnerId:
       return handle<CreateIndirectStubsOwner>(
           Channel, *this, &ThisT::handleCreateIndirectStubsOwner);
+    case DeregisterEHFramesId:
+      return handle<DeregisterEHFrames>(Channel, *this,
+                                        &ThisT::handleDeregisterEHFrames);
     case DestroyRemoteAllocatorId:
       return handle<DestroyRemoteAllocator>(
           Channel, *this, &ThisT::handleDestroyRemoteAllocator);
@@ -82,6 +92,9 @@ public:
       return handle<GetRemoteInfo>(Channel, *this, &ThisT::handleGetRemoteInfo);
     case ReadMemId:
       return handle<ReadMem>(Channel, *this, &ThisT::handleReadMem);
+    case RegisterEHFramesId:
+      return handle<RegisterEHFrames>(Channel, *this,
+                                      &ThisT::handleRegisterEHFrames);
     case ReserveMemId:
       return handle<ReserveMem>(Channel, *this, &ThisT::handleReserveMem);
     case SetProtectionsId:
@@ -178,9 +191,7 @@ private:
     IntVoidFnTy Fn =
         reinterpret_cast<IntVoidFnTy>(static_cast<uintptr_t>(Addr));
 
-    DEBUG(dbgs() << "  Calling "
-                 << reinterpret_cast<void *>(reinterpret_cast<intptr_t>(Fn))
-                 << "\n");
+    DEBUG(dbgs() << "  Calling " << format("0x%016x", Addr) << "\n");
     int Result = Fn();
     DEBUG(dbgs() << "  Result = " << Result << "\n");
 
@@ -199,7 +210,7 @@ private:
     for (auto &Arg : Args)
       ArgV[Idx++] = Arg.c_str();
 
-    DEBUG(dbgs() << "  Calling " << reinterpret_cast<void *>(Fn) << "\n");
+    DEBUG(dbgs() << "  Calling " << format("0x%016x", Addr) << "\n");
     int Result = Fn(ArgC, ArgV.get());
     DEBUG(dbgs() << "  Result = " << Result << "\n");
 
@@ -211,7 +222,7 @@ private:
     VoidVoidFnTy Fn =
         reinterpret_cast<VoidVoidFnTy>(static_cast<uintptr_t>(Addr));
 
-    DEBUG(dbgs() << "  Calling " << reinterpret_cast<void *>(Fn) << "\n");
+    DEBUG(dbgs() << "  Calling " << format("0x%016x", Addr) << "\n");
     Fn();
     DEBUG(dbgs() << "  Complete.\n");
 
@@ -233,6 +244,14 @@ private:
       return orcError(OrcErrorCode::RemoteIndirectStubsOwnerIdAlreadyInUse);
     DEBUG(dbgs() << "  Create indirect stubs owner " << Id << "\n");
     IndirectStubsOwners[Id] = ISBlockOwnerList();
+    return std::error_code();
+  }
+
+  std::error_code handleDeregisterEHFrames(TargetAddress TAddr, uint32_t Size) {
+    uint8_t *Addr = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(TAddr));
+    DEBUG(dbgs() << "  Registering EH frames at " << format("0x%016x", TAddr)
+                 << ", Size = " << Size << " bytes\n");
+    EHFramesDeregister(Addr, Size);
     return std::error_code();
   }
 
@@ -354,7 +373,7 @@ private:
     char *Src = reinterpret_cast<char *>(static_cast<uintptr_t>(RSrc));
 
     DEBUG(dbgs() << "  Reading " << Size << " bytes from "
-                 << static_cast<void *>(Src) << "\n");
+                 << format("0x%016x", RSrc) << "\n");
 
     if (auto EC = call<ReadMemResponse>(Channel))
       return EC;
@@ -363,6 +382,14 @@ private:
       return EC;
 
     return Channel.send();
+  }
+
+  std::error_code handleRegisterEHFrames(TargetAddress TAddr, uint32_t Size) {
+    uint8_t *Addr = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(TAddr));
+    DEBUG(dbgs() << "  Registering EH frames at " << format("0x%016x", TAddr)
+                 << ", Size = " << Size << " bytes\n");
+    EHFramesRegister(Addr, Size);
+    return std::error_code();
   }
 
   std::error_code handleReserveMem(ResourceIdMgr::ResourceId Id, uint64_t Size,
@@ -416,6 +443,7 @@ private:
 
   ChannelT &Channel;
   SymbolLookupFtor SymbolLookup;
+  EHFrameRegistrationFtor EHFramesRegister, EHFramesDeregister;
   std::map<ResourceIdMgr::ResourceId, Allocator> Allocators;
   typedef std::vector<typename TargetT::IndirectStubsInfo> ISBlockOwnerList;
   std::map<ResourceIdMgr::ResourceId, ISBlockOwnerList> IndirectStubsOwners;

@@ -10,10 +10,14 @@
 #ifndef LLVM_DEBUGINFO_CODEVIEW_LINE_H
 #define LLVM_DEBUGINFO_CODEVIEW_LINE_H
 
+#include "llvm/DebugInfo/CodeView/TypeIndex.h"
+#include "llvm/Support/Endian.h"
 #include <cinttypes>
 
 namespace llvm {
 namespace codeview {
+
+using llvm::support::ulittle32_t;
 
 class LineInfo {
 public:
@@ -118,7 +122,36 @@ public:
 
   bool isNeverStepInto() const { return LineInf.isNeverStepInto(); }
 };
-}
-}
+
+enum class InlineeLinesSignature : uint32_t {
+  Normal,    // CV_INLINEE_SOURCE_LINE_SIGNATURE
+  ExtraFiles // CV_INLINEE_SOURCE_LINE_SIGNATURE_EX
+};
+
+struct InlineeSourceLine {
+  TypeIndex Inlinee;         // ID of the function that was inlined.
+  ulittle32_t FileID;        // Offset into FileChecksums subsection.
+  ulittle32_t SourceLineNum; // First line of inlined code.
+  // If extra files present:
+  //   ulittle32_t ExtraFileCount;
+  //   ulittle32_t Files[];
+};
+
+enum class FileChecksumKind : uint8_t {
+  None,
+  MD5,
+  SHA1,
+  SHA256
+};
+
+struct FileChecksum {
+  ulittle32_t FileNameOffset; // Offset of filename in string table substream.
+  uint8_t ChecksumSize;
+  uint8_t ChecksumKind; // FileChecksumKind
+  // Checksum bytes follow.
+};
+
+} // namespace codeview
+} // namespace llvm
 
 #endif

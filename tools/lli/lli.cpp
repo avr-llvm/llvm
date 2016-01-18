@@ -16,6 +16,7 @@
 #include "OrcLazyJIT.h"
 #include "RemoteJITUtils.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/CodeGen/LinkAllCodegenComponents.h"
@@ -586,7 +587,7 @@ int main(int argc, char **argv, char * const *envp) {
   if (RemoteMCJIT) {
 #ifndef LLVM_ON_UNIX
     errs() << "Warning: host does not support external remote targets.\n"
-           << "  Defaulting to local execution execution\n";
+           << "  Defaulting to local execution\n";
     return -1;
 #else
     if (ChildExecPath.empty()) {
@@ -741,11 +742,11 @@ std::unique_ptr<FDRPCChannel> launchRemote() {
       ChildPath.reset(new char[ChildExecPath.size() + 1]);
       std::copy(ChildExecPath.begin(), ChildExecPath.end(), &ChildPath[0]);
       ChildPath[ChildExecPath.size()] = '\0';
-      std::string ChildInStr = std::to_string(PipeFD[0][0]);
+      std::string ChildInStr = utostr(PipeFD[0][0]);
       ChildIn.reset(new char[ChildInStr.size() + 1]);
       std::copy(ChildInStr.begin(), ChildInStr.end(), &ChildIn[0]);
       ChildIn[ChildInStr.size()] = '\0';
-      std::string ChildOutStr = std::to_string(PipeFD[1][1]);
+      std::string ChildOutStr = utostr(PipeFD[1][1]);
       ChildOut.reset(new char[ChildOutStr.size() + 1]);
       std::copy(ChildOutStr.begin(), ChildOutStr.end(), &ChildOut[0]);
       ChildOut[ChildOutStr.size()] = '\0';

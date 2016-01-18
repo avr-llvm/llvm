@@ -351,13 +351,19 @@ public:
     assertModuleIsMaterialized();
     return *materialized_user_begin();
   }
+  iterator_range<user_iterator> materialized_users() {
+    return make_range(materialized_user_begin(), user_end());
+  }
+  iterator_range<const_user_iterator> materialized_users() const {
+    return make_range(materialized_user_begin(), user_end());
+  }
   iterator_range<user_iterator> users() {
     assertModuleIsMaterialized();
-    return make_range(materialized_user_begin(), user_end());
+    return materialized_users();
   }
   iterator_range<const_user_iterator> users() const {
     assertModuleIsMaterialized();
-    return make_range(materialized_user_begin(), user_end());
+    return materialized_users();
   }
 
   /// \brief Return true if there is exactly one user of this value.

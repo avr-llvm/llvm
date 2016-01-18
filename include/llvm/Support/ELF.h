@@ -1116,6 +1116,8 @@ enum {
   DT_HIPROC       = 0x7FFFFFFF, // End of processor specific tags.
 
   DT_GNU_HASH     = 0x6FFFFEF5, // Reference to the GNU hash table.
+  DT_TLSDESC_PLT  = 0x6FFFFEF6, // Location of PLT entry for TLS descriptor resolver calls.
+  DT_TLSDESC_GOT  = 0x6FFFFEF7, // Location of GOT entry used by TLS descriptor resolver PLT entry.
   DT_RELACOUNT    = 0x6FFFFFF9, // ELF32_Rela count.
   DT_RELCOUNT     = 0x6FFFFFFA, // ELF32_Rel count.
 
@@ -1199,8 +1201,12 @@ enum {
   DT_MIPS_PLTGOT            = 0x70000032, // Address of the base of the PLTGOT.
   DT_MIPS_RWPLT             = 0x70000034, // Points to the base
                                           // of a writable PLT.
-  DT_MIPS_RLD_MAP_REL       = 0x70000035  // Relative offset of run time loader
-                                          // map, used for debugging.
+  DT_MIPS_RLD_MAP_REL       = 0x70000035, // Relative offset of run time loader
+
+  // Sun machine-independent extensions.
+  DT_AUXILIARY              = 0x7FFFFFFD, // Shared object to load before self
+  DT_FILTER                 = 0x7FFFFFFF, // Shared object to get values from
+  DT_EXTRANUM               = 3
 };
 
 // DT_FLAGS values.

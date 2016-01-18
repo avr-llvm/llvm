@@ -1,4 +1,4 @@
-//===-- llvm/lib/CodeGen/AsmPrinter/WinCodeViewLineTables.h ----*- C++ -*--===//
+//===-- llvm/lib/CodeGen/AsmPrinter/CodeViewDebug.h ----*- C++ -*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,12 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains support for writing line tables info into COFF files.
+// This file contains support for writing Microsoft CodeView debug info.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIB_CODEGEN_ASMPRINTER_WINCODEVIEWLINETABLES_H
-#define LLVM_LIB_CODEGEN_ASMPRINTER_WINCODEVIEWLINETABLES_H
+#ifndef LLVM_LIB_CODEGEN_ASMPRINTER_CODEVIEWDEBUG_H
+#define LLVM_LIB_CODEGEN_ASMPRINTER_CODEVIEWDEBUG_H
 
 #include "AsmPrinterHandler.h"
 #include "llvm/ADT/DenseMap.h"
@@ -29,17 +29,19 @@
 
 namespace llvm {
 /// \brief Collects and handles line tables information in a CodeView format.
-class LLVM_LIBRARY_VISIBILITY WinCodeViewLineTables : public AsmPrinterHandler {
+class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public AsmPrinterHandler {
   AsmPrinter *Asm;
   DebugLoc PrevInstLoc;
 
   // For each function, store a vector of labels to its instructions, as well as
   // to the end of the function.
   struct FunctionInfo {
+    DebugLoc LastLoc;
     SmallVector<MCSymbol *, 10> Instrs;
     MCSymbol *End;
     FunctionInfo() : End(nullptr) {}
-  } *CurFn;
+  };
+  FunctionInfo *CurFn;
 
   typedef DenseMap<const Function *, FunctionInfo> FnDebugInfoTy;
   FnDebugInfoTy FnDebugInfo;
@@ -47,20 +49,7 @@ class LLVM_LIBRARY_VISIBILITY WinCodeViewLineTables : public AsmPrinterHandler {
   // order while emitting subsections.
   SmallVector<const Function *, 10> VisitedFunctions;
 
-  // InstrInfoTy - Holds the Filename:LineNumber information for every
-  // instruction with a unique debug location.
-  struct InstrInfoTy {
-    StringRef Filename;
-    unsigned LineNumber;
-    unsigned ColumnNumber;
-
-    InstrInfoTy() : LineNumber(0), ColumnNumber(0) {}
-
-    InstrInfoTy(StringRef Filename, unsigned LineNumber, unsigned ColumnNumber)
-        : Filename(Filename), LineNumber(LineNumber),
-          ColumnNumber(ColumnNumber) {}
-  };
-  DenseMap<MCSymbol *, InstrInfoTy> InstrInfo;
+  DenseMap<MCSymbol *, DebugLoc> LabelsAndLocs;
 
   // FileNameRegistry - Manages filenames observed while generating debug info
   // by filtering out duplicates and bookkeeping the offsets in the string
@@ -81,14 +70,17 @@ class LLVM_LIBRARY_VISIBILITY WinCodeViewLineTables : public AsmPrinterHandler {
     }
 
     // Add Filename to the registry, if it was not observed before.
-    void add(StringRef Filename) {
-      if (Infos.count(Filename))
-        return;
+    size_t add(StringRef Filename) {
       size_t OldSize = Infos.size();
-      Infos[Filename].FilenameID = OldSize;
-      Infos[Filename].StartOffset = LastOffset;
-      LastOffset += Filename.size() + 1;
-      Filenames.push_back(Filename);
+      bool Inserted;
+      StringMap<PerFileInfo>::iterator It;
+      std::tie(It, Inserted) = Infos.insert(
+          std::make_pair(Filename, PerFileInfo{OldSize, LastOffset}));
+      if (Inserted) {
+        LastOffset += Filename.size() + 1;
+        Filenames.push_back(Filename);
+      }
+      return It->second.FilenameID;
     }
 
     void clear() {
@@ -98,23 +90,22 @@ class LLVM_LIBRARY_VISIBILITY WinCodeViewLineTables : public AsmPrinterHandler {
     }
   } FileNameRegistry;
 
-  typedef std::map<std::pair<StringRef, StringRef>, std::string>
-      DirAndFilenameToFilepathMapTy;
-  DirAndFilenameToFilepathMapTy DirAndFilenameToFilepathMap;
-  StringRef getFullFilepath(const MDNode *S);
+  typedef std::map<const DIFile *, std::string> FileToFilepathMapTy;
+  FileToFilepathMapTy FileToFilepathMap;
+  StringRef getFullFilepath(const DIFile *S);
 
   void maybeRecordLocation(DebugLoc DL, const MachineFunction *MF);
 
   void clear() {
     assert(CurFn == nullptr);
     FileNameRegistry.clear();
-    InstrInfo.clear();
+    LabelsAndLocs.clear();
   }
 
   void emitDebugInfoForFunction(const Function *GV);
 
 public:
-  WinCodeViewLineTables(AsmPrinter *Asm);
+  CodeViewDebug(AsmPrinter *Asm);
 
   void setSymbolSize(const llvm::MCSymbol *, uint64_t) override {}
 
