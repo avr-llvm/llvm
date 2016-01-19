@@ -944,9 +944,6 @@ class AsmParser {
   // ShouldEmitMatchRegisterAltName - Set to false if the target needs a hand
   // written register alternative name matcher
   bit ShouldEmitMatchRegisterAltName = 0;
-
-  /// Does the instruction mnemonic allow '.'
-  bit MnemonicContainsDot = 0;
 }
 def DefaultAsmParser : AsmParser;
 
