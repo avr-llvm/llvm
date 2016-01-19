@@ -10,8 +10,6 @@
 #ifndef LLVM_AVR_TARGET_STREAMER_H
 #define LLVM_AVR_TARGET_STREAMER_H
 
-#include "AVRConfig.h"
-
 #include "llvm/MC/MCELFStreamer.h"
 #include "llvm/MC/MCStreamer.h"
 

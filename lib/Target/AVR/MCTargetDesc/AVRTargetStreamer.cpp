@@ -17,7 +17,6 @@
 #include "llvm/Support/FormattedStream.h"
 
 #include "InstPrinter/AVRInstPrinter.h"
-#include "AVRSubtarget.h"
 
 namespace llvm {
 
