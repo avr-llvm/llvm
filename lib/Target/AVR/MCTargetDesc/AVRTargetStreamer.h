@@ -44,9 +44,6 @@ public:
   MCELFStreamer &getStreamer() {
     return static_cast<MCELFStreamer &>(Streamer);
   }
-
-private:
-  const MCSubtargetInfo &STI;
 };
 
 } // end namespace llvm

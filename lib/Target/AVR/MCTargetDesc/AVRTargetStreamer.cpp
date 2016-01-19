@@ -29,7 +29,7 @@ AVRTargetAsmStreamer::AVRTargetAsmStreamer(MCStreamer &S)
 
 AVRTargetELFStreamer::AVRTargetELFStreamer(MCStreamer &S,
                                            const MCSubtargetInfo &STI)
-    : AVRTargetStreamer(S), STI(STI) {
+    : AVRTargetStreamer(S) {
 
   MCAssembler &MCA = getStreamer().getAssembler();
 
