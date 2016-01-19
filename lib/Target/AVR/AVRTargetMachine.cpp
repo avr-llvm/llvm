@@ -20,6 +20,7 @@
 
 #include "AVRTargetObjectFile.h"
 #include "AVR.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 namespace llvm {
 

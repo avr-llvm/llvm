@@ -18,6 +18,7 @@
 
 #include "AVR.h"
 #include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 #define DEBUG_TYPE "avr-subtarget"
 

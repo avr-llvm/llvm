@@ -15,8 +15,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AVRConfig.h"
-
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -24,6 +22,7 @@
 #include "AVR.h"
 #include "AVRInstrInfo.h"
 #include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 #define DEBUG_TYPE "avr-branch-select"
 
@@ -85,15 +84,15 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
   for (MachineFunction::const_iterator MFI = Fn.begin(), MFE = Fn.end();
        MFI != MFE; ++MFI) {
     unsigned BlockSize = 0;
-    const MachineBasicBlock *MBB = MFI;
+    const MachineBasicBlock &MBB = *MFI;
 
-    for (MachineBasicBlock::const_iterator MBBI = MBB->begin(),
-                                           MBBE = MBB->end();
+    for (MachineBasicBlock::const_iterator MBBI = MBB.begin(),
+                                           MBBE = MBB.end();
          MBBI != MBBE; ++MBBI) {
       BlockSize += TII->GetInstSizeInBytes(MBBI);
     }
 
-    BlockSizes[MBB->getNumber()] = BlockSize;
+    BlockSizes[MBB.getNumber()] = BlockSize;
     FuncSize += BlockSize;
   }
 

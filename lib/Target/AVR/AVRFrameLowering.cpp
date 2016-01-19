@@ -24,6 +24,7 @@
 #include "AVRInstrInfo.h"
 #include "AVRMachineFunctionInfo.h"
 #include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 namespace llvm {
 

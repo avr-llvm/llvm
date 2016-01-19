@@ -26,6 +26,7 @@
 #include "AVR.h"
 #include "AVRMachineFunctionInfo.h"
 #include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 namespace llvm {
 
@@ -1357,7 +1358,7 @@ MachineBasicBlock *AVRTargetLowering::insertShift(MachineInstr *MI,
   }
 
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
-  MachineFunction::iterator I = BB;
+  MachineFunction::iterator I = BB->getParent()->begin();
   ++I;
 
   // Create loop block.
@@ -1485,7 +1486,7 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   // to set, the condition code register to branch on, the true/false values to
   // select between, and a branch opcode to use.
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
-  MachineFunction::iterator I = BB;
+  MachineFunction::iterator I = BB->getParent()->begin();
   ++I;
 
   //  thisMBB:

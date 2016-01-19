@@ -22,6 +22,7 @@
 #include "AVR.h"
 #include "AVRInstrInfo.h"
 #include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 #define UNUSED_VARIABLE(x) (void)(x)
 

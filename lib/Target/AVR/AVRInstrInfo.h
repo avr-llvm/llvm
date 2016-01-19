@@ -14,8 +14,6 @@
 #ifndef LLVM_AVR_INSTR_INFO_H
 #define LLVM_AVR_INSTR_INFO_H
 
-#include "AVRConfig.h"
-
 #include "llvm/Target/TargetInstrInfo.h"
 
 #include "AVRRegisterInfo.h"

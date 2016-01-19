@@ -23,6 +23,7 @@
 #include "AVR.h"
 #include "AVRInstrInfo.h"
 #include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 #define GET_REGINFO_TARGET_DESC
 #include "AVRGenRegisterInfo.inc"

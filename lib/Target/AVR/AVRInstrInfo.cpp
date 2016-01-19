@@ -28,6 +28,7 @@
 #include "AVR.h"
 #include "AVRMachineFunctionInfo.h"
 #include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 #define GET_INSTRINFO_CTOR_DTOR
 #include "AVRGenInstrInfo.inc"
