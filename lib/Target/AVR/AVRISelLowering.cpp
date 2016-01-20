@@ -835,8 +835,8 @@ bool AVRTargetLowering::isOffsetFoldingLegal(
 static void parseFunctionArgs(const Function *F, const DataLayout *TD,
                               SmallVectorImpl<unsigned> &Out) {
   for (Argument const &Arg : F->args()) {
-    unsigned Bytes = TD->getTypeSizeInBits(Arg.getType()) / 8;
-    Out.push_back(((Bytes == 1) || (Bytes == 2)) ? 1 : Bytes / 2);
+    unsigned Bytes = (TD->getTypeSizeInBits(Arg.getType()) + 7) / 8;
+    Out.push_back((Bytes + 1) / 2);
   }
 }
 
