@@ -183,10 +183,10 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm)
       setLibcallName(RTLIB::UDIVREM_I128, "__udivmodti4");
 
       // Several of the runtime library functions use a special calling conv
-      setLibcallCallingConv(RTLIB::SDIVREM_I8, CallingConv::AVR_RT_DIV);
-      setLibcallCallingConv(RTLIB::SDIVREM_I16, CallingConv::AVR_RT_DIV);
-      setLibcallCallingConv(RTLIB::UDIVREM_I8, CallingConv::AVR_RT_DIV);
-      setLibcallCallingConv(RTLIB::UDIVREM_I16, CallingConv::AVR_RT_DIV);
+      setLibcallCallingConv(RTLIB::SDIVREM_I8, CallingConv::AVR_BUILTIN);
+      setLibcallCallingConv(RTLIB::SDIVREM_I16, CallingConv::AVR_BUILTIN);
+      setLibcallCallingConv(RTLIB::UDIVREM_I8, CallingConv::AVR_BUILTIN);
+      setLibcallCallingConv(RTLIB::UDIVREM_I16, CallingConv::AVR_BUILTIN);
     }
 
     // Trigonometric rtlib functions
@@ -856,32 +856,35 @@ static void parseExternFuncCallArgs(const SmallVectorImpl<ISD::OutputArg> &In,
   }
 }
 
+static StringRef GetFunctionName(TargetLowering::CallLoweringInfo &CLI) {
+  SDValue Callee = CLI.Callee;
+
+  if (const ExternalSymbolSDNode *G = dyn_cast<ExternalSymbolSDNode>(Callee)) {
+    return G->getSymbol();
+  } else if (const GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
+    return G->getGlobal()->getName();
+  } else {
+    llvm_unreachable("don't know how to get the name for this callee");
+  }
+}
+
 /// Analyze incoming and outgoing function arguments. We need custom C++ code
 /// to handle special constraints in the ABI like reversing the order of the
 /// pieces of splitted arguments. In addition, all pieces of a certain argument
 /// have to be passed either using registers or the stack but never mixing both.
-static void analyzeArguments(const Function *F, const DataLayout *TD,
-                             const SmallVectorImpl<ISD::OutputArg> *Outs,
-                             const SmallVectorImpl<ISD::InputArg> *Ins,
-                             CallingConv::ID CallConv,
-                             SmallVectorImpl<CCValAssign> &ArgLocs,
-                             CCState &CCInfo, bool IsCall, bool IsVarArg) {
+static void analyzeStandardArguments(TargetLowering::CallLoweringInfo *CLI,
+                                     const Function *F, const DataLayout *TD,
+                                     const SmallVectorImpl<ISD::OutputArg> *Outs,
+                                     const SmallVectorImpl<ISD::InputArg> *Ins,
+                                     CallingConv::ID CallConv,
+                                     SmallVectorImpl<CCValAssign> &ArgLocs,
+                                     CCState &CCInfo, bool IsCall, bool IsVarArg) {
   static const MCPhysReg RegList8[] = {AVR::R24, AVR::R22, AVR::R20,
                                        AVR::R18, AVR::R16, AVR::R14,
                                        AVR::R12, AVR::R10, AVR::R8};
   static const MCPhysReg RegList16[] = {AVR::R25R24, AVR::R23R22, AVR::R21R20,
                                         AVR::R19R18, AVR::R17R16, AVR::R15R14,
                                         AVR::R13R12, AVR::R11R10, AVR::R9R8};
-
-  // If the calling convention is AVR_RT, handle it appropriately
-  if (CallConv == CallingConv::AVR_RT_MUL) {
-    CCInfo.AnalyzeCallOperands(*Outs, ArgCC_AVR_RT_MUL);
-    return;
-  } else if (CallConv == CallingConv::AVR_RT_DIV) {
-    CCInfo.AnalyzeCallOperands(*Outs, ArgCC_AVR_RT_DIV);
-    return;
-  }
-
   if (IsVarArg) {
     // Variadic functions do not need all the analisys below.
     if (IsCall) {
@@ -939,6 +942,47 @@ static void analyzeArguments(const Function *F, const DataLayout *TD,
   }
 }
 
+static void analyzeBuiltinArguments(TargetLowering::CallLoweringInfo &CLI,
+                                    const Function *F, const DataLayout *TD,
+                                    const SmallVectorImpl<ISD::OutputArg> *Outs,
+                                    const SmallVectorImpl<ISD::InputArg> *Ins,
+                                    CallingConv::ID CallConv,
+                                    SmallVectorImpl<CCValAssign> &ArgLocs,
+                                    CCState &CCInfo, bool IsCall, bool IsVarArg) {
+  StringRef FuncName = GetFunctionName(CLI);
+
+  if (FuncName.startswith("__udivmod") || FuncName.startswith("__divmod")) {
+    CCInfo.AnalyzeCallOperands(*Outs, ArgCC_AVR_BUILTIN_DIV);
+  } else {
+    analyzeStandardArguments(&CLI, F, TD, Outs, Ins,
+                             CallConv, ArgLocs, CCInfo,
+                             IsCall, IsVarArg);
+  }
+}
+
+static void analyzeArguments(TargetLowering::CallLoweringInfo *CLI,
+                             const Function *F, const DataLayout *TD,
+                             const SmallVectorImpl<ISD::OutputArg> *Outs,
+                             const SmallVectorImpl<ISD::InputArg> *Ins,
+                             CallingConv::ID CallConv,
+                             SmallVectorImpl<CCValAssign> &ArgLocs,
+                             CCState &CCInfo, bool IsCall, bool IsVarArg) {
+  switch (CallConv) {
+    case CallingConv::AVR_BUILTIN: {
+      analyzeBuiltinArguments(*CLI, F, TD, Outs, Ins,
+                              CallConv, ArgLocs, CCInfo,
+                              IsCall, IsVarArg);
+      return;
+    }
+    default: {
+      analyzeStandardArguments(CLI, F, TD, Outs, Ins,
+                               CallConv, ArgLocs, CCInfo,
+                               IsCall, IsVarArg);
+      return;
+    }
+  }
+}
+
 SDValue AVRTargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc dl, SelectionDAG &DAG,
@@ -952,7 +996,7 @@ SDValue AVRTargetLowering::LowerFormalArguments(
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), ArgLocs,
                  *DAG.getContext());
 
-  analyzeArguments(MF.getFunction(), &DL, 0, &Ins, CallConv, ArgLocs, CCInfo,
+  analyzeArguments(nullptr, MF.getFunction(), &DL, 0, &Ins, CallConv, ArgLocs, CCInfo,
                    false, isVarArg);
 
   SDValue ArgValue;
@@ -1074,7 +1118,7 @@ SDValue AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                                          getPointerTy(DAG.getDataLayout()));
   }
 
-  analyzeArguments(F, &DAG.getDataLayout(), &Outs, 0, CallConv, ArgLocs, CCInfo,
+  analyzeArguments(&CLI, F, &DAG.getDataLayout(), &Outs, 0, CallConv, ArgLocs, CCInfo,
                    true, isVarArg);
 
   // Get a count of how many bytes are to be pushed on the stack.
@@ -1215,9 +1259,8 @@ SDValue AVRTargetLowering::LowerCallResult(
                  *DAG.getContext());
 
   // Handle runtime calling convs.
-  if (CallConv == CallingConv::AVR_RT_MUL ||
-      CallConv == CallingConv::AVR_RT_DIV) {
-    CCInfo.AnalyzeCallResult(Ins, RetCC_AVR_RT);
+  if (CallConv == CallingConv::AVR_BUILTIN) {
+    CCInfo.AnalyzeCallResult(Ins, RetCC_AVR_BUILTIN);
 
     ShouldReverseVals = false;
   } else {
@@ -1262,9 +1305,8 @@ AVRTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                  *DAG.getContext());
 
   // Analize return values.
-  if (CallConv == CallingConv::AVR_RT_MUL ||
-      CallConv == CallingConv::AVR_RT_DIV)
-    CCInfo.AnalyzeReturn(Outs, RetCC_AVR_RT);
+  if (CallConv == CallingConv::AVR_BUILTIN)
+    CCInfo.AnalyzeReturn(Outs, RetCC_AVR_BUILTIN);
   else
     CCInfo.AnalyzeReturn(Outs, RetCC_AVR);
 
