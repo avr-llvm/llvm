@@ -83,7 +83,7 @@ static cl::opt<bool>
 /// This is purely to provide a debugging and dianostic hook until the vector
 /// split is replaced with vector relocations.
 static cl::opt<bool> UseVectorSplit("rs4gc-split-vector-values", cl::Hidden,
-                                    cl::init(true));
+                                    cl::init(false));
 
 namespace {
 struct RewriteStatepointsForGC : public ModulePass {
@@ -2108,7 +2108,7 @@ chainToBasePointerCost(SmallVectorImpl<Instruction*> &Chain,
 
     } else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Instr)) {
       // Cost of the address calculation
-      Type *ValTy = GEP->getPointerOperandType()->getPointerElementType();
+      Type *ValTy = GEP->getSourceElementType();
       Cost += TTI.getAddressComputationCost(ValTy);
 
       // And cost of the GEP itself
