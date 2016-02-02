@@ -201,7 +201,8 @@ struct PartiallyConstructedSafepointRecord {
 static ArrayRef<Use> GetDeoptBundleOperands(ImmutableCallSite CS) {
   assert(UseDeoptBundles && "Should not be called otherwise!");
 
-  Optional<OperandBundleUse> DeoptBundle = CS.getOperandBundle("deopt");
+  Optional<OperandBundleUse> DeoptBundle =
+      CS.getOperandBundle(LLVMContext::OB_deopt);
 
   if (!DeoptBundle.hasValue()) {
     assert(AllowStatepointWithNoDeoptInfo &&
@@ -1404,8 +1405,11 @@ makeStatepointExplicitImpl(const CallSite CS, /* to replace */
   if (UseDeoptBundles) {
     CallArgs = {CS.arg_begin(), CS.arg_end()};
     DeoptArgs = GetDeoptBundleOperands(CS);
-    // TODO: we don't fill in TransitionArgs or Flags in this branch, but we
-    // could have an operand bundle for that too.
+    if (auto TransitionBundle =
+            CS.getOperandBundle(LLVMContext::OB_gc_transition)) {
+      Flags |= uint32_t(StatepointFlags::GCTransition);
+      TransitionArgs = TransitionBundle->Inputs;
+    }
     AttributeSet OriginalAttrs = CS.getAttributes();
 
     Attribute AttrID = OriginalAttrs.getAttribute(AttributeSet::FunctionIndex,

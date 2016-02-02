@@ -52,15 +52,15 @@ WebAssemblyRegisterInfo::getReservedRegs(const MachineFunction & /*MF*/) const {
 }
 
 void WebAssemblyRegisterInfo::eliminateFrameIndex(
-    MachineBasicBlock::iterator II, int SPAdj,
-    unsigned FIOperandNum, RegScavenger * /*RS*/) const {
+    MachineBasicBlock::iterator II, int SPAdj, unsigned FIOperandNum,
+    RegScavenger * /*RS*/) const {
   assert(SPAdj == 0);
   MachineInstr &MI = *II;
 
   MachineBasicBlock &MBB = *MI.getParent();
   MachineFunction &MF = *MBB.getParent();
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
-  const MachineFrameInfo& MFI = *MF.getFrameInfo();
+  const MachineFrameInfo &MFI = *MF.getFrameInfo();
   int64_t FrameOffset = MFI.getStackSize() + MFI.getObjectOffset(FrameIndex);
 
   if (MI.mayLoadOrStore()) {
@@ -81,13 +81,18 @@ void WebAssemblyRegisterInfo::eliminateFrameIndex(
     auto &MRI = MF.getRegInfo();
     const auto *TII = MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
 
-    unsigned OffsetReg = MRI.createVirtualRegister(&WebAssembly::I32RegClass);
-    BuildMI(MBB, MI, MI.getDebugLoc(), TII->get(WebAssembly::CONST_I32), OffsetReg)
-        .addImm(FrameOffset);
-    BuildMI(MBB, MI, MI.getDebugLoc(), TII->get(WebAssembly::ADD_I32), OffsetReg)
-        .addReg(WebAssembly::SP32)
-        .addReg(OffsetReg);
-    MI.getOperand(FIOperandNum).ChangeToRegister(OffsetReg, /*IsDef=*/false);
+    unsigned FIRegOperand = WebAssembly::SP32;
+    if (FrameOffset) {
+      FIRegOperand = MRI.createVirtualRegister(&WebAssembly::I32RegClass);
+      BuildMI(MBB, MI, MI.getDebugLoc(), TII->get(WebAssembly::CONST_I32),
+              FIRegOperand)
+          .addImm(FrameOffset);
+      BuildMI(MBB, MI, MI.getDebugLoc(), TII->get(WebAssembly::ADD_I32),
+              FIRegOperand)
+          .addReg(WebAssembly::SP32)
+          .addReg(FIRegOperand);
+    }
+    MI.getOperand(FIOperandNum).ChangeToRegister(FIRegOperand, /*IsDef=*/false);
   }
 }
 

@@ -57,7 +57,7 @@ define void @allocarray() {
  ; CHECK-NEXT: i32.store [[SP]]=, 0([[L2]]), [[SP]]
  %r = alloca [5 x i32]
 
- ; CHECK-NEXT: i32.const $push[[L4:.+]]=, 4
+ ; CHECK-NEXT: i32.const $push[[L4:.+]]=, 12
  ; CHECK-NEXT: i32.const [[L5:.+]]=, 12
  ; CHECK-NEXT: i32.add [[L5]]=, [[SP]], [[L5]]
  ; CHECK-NEXT: i32.add $push[[L6:.+]]=, [[L5]], $pop[[L4]]
@@ -66,13 +66,31 @@ define void @allocarray() {
  ; CHECK-NEXT: i32.store $discard=, 0($pop3), $pop[[L10]]{{$}}
  %p = getelementptr [5 x i32], [5 x i32]* %r, i32 0, i32 0
  store i32 1, i32* %p
- %p2 = getelementptr [5 x i32], [5 x i32]* %r, i32 0, i32 1
+ %p2 = getelementptr [5 x i32], [5 x i32]* %r, i32 0, i32 3
  store i32 1, i32* %p2
 
  ; CHECK-NEXT: i32.const [[L7:.+]]=, 32
  ; CHECK-NEXT: i32.add [[SP]]=, [[SP]], [[L7]]
  ; CHECK-NEXT: i32.const [[L8:.+]]=, __stack_pointer
  ; CHECK-NEXT: i32.store [[SP]]=, 0([[L8]]), [[SP]]
+ ret void
+}
+
+declare void @ext_func(i64* %ptr)
+; CHECK-LABEL: non_mem_use
+define void @non_mem_use() {
+ ; CHECK: i32.const [[L2:.+]]=, 16
+ ; CHECK-NEXT: i32.sub [[SP:.+]]=, {{.+}}, [[L2]]
+ %r = alloca i64
+ %r2 = alloca i64
+ ; %r is at SP+8
+ ; CHECK: i32.const [[OFF:.+]]=, 8
+ ; CHECK-NEXT: i32.add [[ARG1:.+]]=, [[SP]], [[OFF]]
+ ; CHECK-NEXT: call ext_func@FUNCTION, [[ARG1]]
+ call void @ext_func(i64* %r)
+ ; %r2 is at SP+0, no add needed
+ ; CHECK-NEXT: call ext_func@FUNCTION, [[SP]]
+ call void @ext_func(i64* %r2)
  ret void
 }
 
@@ -89,8 +107,8 @@ define void @allocarray_inbounds() {
  %p = getelementptr inbounds [5 x i32], [5 x i32]* %r, i32 0, i32 0
  store i32 1, i32* %p
  ; This store should have both the GEP and the FI folded into it.
- ; CHECK-NEXT: i32.store {{.*}}=, 16([[SP]]), $pop
- %p2 = getelementptr inbounds [5 x i32], [5 x i32]* %r, i32 0, i32 1
+ ; CHECK-NEXT: i32.store {{.*}}=, 24([[SP]]), $pop
+ %p2 = getelementptr inbounds [5 x i32], [5 x i32]* %r, i32 0, i32 3
  store i32 1, i32* %p2
  ; CHECK: i32.const [[L7:.+]]=, 32
  ; CHECK-NEXT: i32.add [[SP]]=, [[SP]], [[L7]]

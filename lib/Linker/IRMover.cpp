@@ -499,7 +499,12 @@ class IRLinker {
   /// from the source module that we don't need to link into the dest module,
   /// because the functions were not imported directly or via an inlined body
   /// in an imported function.
-  void findNeededSubprograms(ValueToValueMapTy &ValueMap);
+  void findNeededSubprograms();
+
+  /// Recursive helper for findNeededSubprograms to locate any DISubprogram
+  /// reached from the given Node, marking any found as needed.
+  void findReachedSubprograms(const MDNode *Node,
+                              SmallPtrSet<const MDNode *, 16> &Visited);
 
   /// The value mapper leaves nulls in the list of subprograms for any
   /// in the UnneededSubprograms map. Strip those out after metadata linking.
@@ -659,19 +664,16 @@ Metadata *IRLinker::mapTemporaryMetadata(Metadata *MD) {
     return nullptr;
   // If this temporary metadata has a value id recorded during function
   // parsing, record that in the ValIDToTempMDMap if one was provided.
-  if (MetadataToIDs.count(MD)) {
-    unsigned Idx = MetadataToIDs[MD];
-    // Check if we created a temp MD when importing a different function from
-    // this module. If so, reuse it the same temporary metadata, otherwise
-    // add this temporary metadata to the map.
-    if (!ValIDToTempMDMap->count(Idx)) {
-      MDNode *Node = cast<MDNode>(MD);
-      assert(Node->isTemporary());
-      (*ValIDToTempMDMap)[Idx] = Node;
-    }
-    return (*ValIDToTempMDMap)[Idx];
-  }
-  return nullptr;
+  auto I = MetadataToIDs.find(MD);
+  if (I == MetadataToIDs.end())
+    return nullptr;
+  unsigned Idx = I->second;
+  MDNode *Node = cast<MDNode>(MD);
+  assert(Node->isTemporary());
+  // If we created a temp MD when importing a different function from
+  // this module, reuse the same temporary metadata.
+  auto IterBool = ValIDToTempMDMap->insert(std::make_pair(Idx, Node));
+  return IterBool.first->second;
 }
 
 void IRLinker::replaceTemporaryMetadata(const Metadata *OrigMD,
@@ -686,17 +688,19 @@ void IRLinker::replaceTemporaryMetadata(const Metadata *OrigMD,
   // created during function importing was provided, and the source
   // metadata has a value id recorded during metadata parsing, replace
   // the temporary metadata with the final mapped metadata now.
-  if (MetadataToIDs.count(OrigMD)) {
-    unsigned Idx = MetadataToIDs[OrigMD];
-    // Nothing to do if we didn't need to create a temporary metadata during
-    // function importing.
-    if (!ValIDToTempMDMap->count(Idx))
-      return;
-    MDNode *TempMD = (*ValIDToTempMDMap)[Idx];
-    TempMD->replaceAllUsesWith(NewMD);
-    MDNode::deleteTemporary(TempMD);
-    ValIDToTempMDMap->erase(Idx);
-  }
+  auto I = MetadataToIDs.find(OrigMD);
+  if (I == MetadataToIDs.end())
+    return;
+  unsigned Idx = I->second;
+  auto VI = ValIDToTempMDMap->find(Idx);
+  // Nothing to do if we didn't need to create a temporary metadata during
+  // function importing.
+  if (VI == ValIDToTempMDMap->end())
+    return;
+  MDNode *TempMD = VI->second;
+  TempMD->replaceAllUsesWith(NewMD);
+  MDNode::deleteTemporary(TempMD);
+  ValIDToTempMDMap->erase(VI);
 }
 
 bool IRLinker::isMetadataNeeded(Metadata *MD) {
@@ -1005,23 +1009,6 @@ Constant *IRLinker::linkAppendingVarProto(GlobalVariable *DstGV,
   return Ret;
 }
 
-static bool useExistingDest(GlobalValue &SGV, GlobalValue *DGV,
-                            bool ShouldLink) {
-  if (!DGV)
-    return false;
-
-  if (SGV.isDeclaration())
-    return true;
-
-  if (DGV->isDeclarationForLinker() && !SGV.isDeclarationForLinker())
-    return false;
-
-  if (ShouldLink)
-    return false;
-
-  return true;
-}
-
 bool IRLinker::shouldLink(GlobalValue *DGV, GlobalValue &SGV) {
   // Already imported all the values. Just map to the Dest value
   // in case it is referenced in the metadata.
@@ -1037,7 +1024,7 @@ bool IRLinker::shouldLink(GlobalValue *DGV, GlobalValue &SGV) {
   if (SGV.hasLocalLinkage())
     return true;
 
-  if (DGV && !DGV->isDeclaration())
+  if (DGV && !DGV->isDeclarationForLinker())
     return false;
 
   if (SGV.hasAvailableExternallyLinkage())
@@ -1077,7 +1064,7 @@ Constant *IRLinker::linkGlobalValueProto(GlobalValue *SGV, bool ForAlias) {
                                  cast<GlobalVariable>(SGV));
 
   GlobalValue *NewGV;
-  if (useExistingDest(*SGV, DGV, ShouldLink)) {
+  if (DGV && !ShouldLink) {
     NewGV = DGV;
   } else {
     // If we are done linking global value bodies (i.e. we are performing
@@ -1087,7 +1074,7 @@ Constant *IRLinker::linkGlobalValueProto(GlobalValue *SGV, bool ForAlias) {
       return nullptr;
 
     NewGV = copyGlobalValueProto(SGV, ShouldLink);
-    if (!ForAlias)
+    if (ShouldLink || !ForAlias)
       forceRenaming(NewGV, SGV->getName());
   }
   if (ShouldLink || ForAlias) {
@@ -1212,7 +1199,22 @@ bool IRLinker::linkGlobalValueBody(GlobalValue &Dst, GlobalValue &Src) {
   return false;
 }
 
-void IRLinker::findNeededSubprograms(ValueToValueMapTy &ValueMap) {
+void IRLinker::findReachedSubprograms(
+    const MDNode *Node, SmallPtrSet<const MDNode *, 16> &Visited) {
+  if (!Visited.insert(Node).second)
+    return;
+  DISubprogram *SP = getDISubprogram(Node);
+  if (SP)
+    UnneededSubprograms.erase(SP);
+  for (auto &Op : Node->operands()) {
+    const MDNode *OpN = dyn_cast_or_null<MDNode>(Op.get());
+    if (!OpN)
+      continue;
+    findReachedSubprograms(OpN, Visited);
+  }
+}
+
+void IRLinker::findNeededSubprograms() {
   // Track unneeded nodes to make it simpler to handle the case
   // where we are checking if an already-mapped SP is needed.
   NamedMDNode *CompileUnits = SrcM.getNamedMetadata("llvm.dbg.cu");
@@ -1223,14 +1225,16 @@ void IRLinker::findNeededSubprograms(ValueToValueMapTy &ValueMap) {
     assert(CU && "Expected valid compile unit");
     // Ensure that we don't remove subprograms referenced by DIImportedEntity.
     // It is not legal to have a DIImportedEntity with a null entity or scope.
+    // Using getDISubprogram handles the case where the subprogram is reached
+    // via an intervening DILexicalBlock.
     // FIXME: The DISubprogram for functions not linked in but kept due to
     // being referenced by a DIImportedEntity should also get their
     // IsDefinition flag is unset.
     SmallPtrSet<DISubprogram *, 8> ImportedEntitySPs;
     for (auto *IE : CU->getImportedEntities()) {
-      if (auto *SP = dyn_cast<DISubprogram>(IE->getEntity()))
+      if (auto *SP = getDISubprogram(dyn_cast<MDNode>(IE->getEntity())))
         ImportedEntitySPs.insert(SP);
-      if (auto *SP = dyn_cast<DISubprogram>(IE->getScope()))
+      if (auto *SP = getDISubprogram(dyn_cast<MDNode>(IE->getScope())))
         ImportedEntitySPs.insert(SP);
     }
     for (auto *Op : CU->getSubprograms()) {
@@ -1247,17 +1251,18 @@ void IRLinker::findNeededSubprograms(ValueToValueMapTy &ValueMap) {
   if (!IsMetadataLinkingPostpass)
     return;
   // In the case of metadata linking as a postpass (e.g. for function
-  // importing), see which DISubprogram MD from the source has an associated
-  // temporary metadata node, which means the SP was needed by an imported
-  // function.
+  // importing), see which MD from the source has an associated
+  // temporary metadata node, which means that any DISubprogram
+  // reached from that MD was needed by an imported function.
+  SmallPtrSet<const MDNode *, 16> Visited;
   for (auto MDI : MetadataToIDs) {
     const MDNode *Node = dyn_cast<MDNode>(MDI.first);
     if (!Node)
       continue;
-    DISubprogram *SP = getDISubprogram(Node);
-    if (!SP || !ValIDToTempMDMap->count(MDI.second))
+    if (!ValIDToTempMDMap->count(MDI.second))
       continue;
-    UnneededSubprograms.erase(SP);
+    // Find any SP needed recursively from this needed Node.
+    findReachedSubprograms(Node, Visited);
   }
 }
 
@@ -1287,7 +1292,7 @@ void IRLinker::stripNullSubprograms() {
 
 /// Insert all of the named MDNodes in Src into the Dest module.
 void IRLinker::linkNamedMDNodes() {
-  findNeededSubprograms(ValueMap);
+  findNeededSubprograms();
   const NamedMDNode *SrcModFlags = SrcM.getModuleFlagsMetadata();
   for (const NamedMDNode &NMD : SrcM.named_metadata()) {
     // Don't link module flags here. Do them separately.

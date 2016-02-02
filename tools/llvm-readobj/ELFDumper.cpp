@@ -59,6 +59,7 @@ public:
   void printGnuHashTable() override;
   void printLoadName() override;
   void printVersionInfo() override;
+  void printGroupSections() override;
 
   void printAttributes() override;
   void printMipsPLTGOT() override;
@@ -792,6 +793,13 @@ static const char *getElfSectionType(unsigned Arch, unsigned Type) {
   }
 }
 
+static const char *getGroupType(uint32_t Flag) {
+  if (Flag & ELF::GRP_COMDAT)
+    return "COMDAT";
+  else
+    return "(unknown)";
+}
+
 static const EnumEntry<unsigned> ElfSectionFlags[] = {
   LLVM_READOBJ_ENUM_ENT(ELF, SHF_WRITE           ),
   LLVM_READOBJ_ENUM_ENT(ELF, SHF_ALLOC           ),
@@ -806,11 +814,32 @@ static const EnumEntry<unsigned> ElfSectionFlags[] = {
   LLVM_READOBJ_ENUM_ENT(ELF, SHF_TLS             ),
   LLVM_READOBJ_ENUM_ENT(ELF, XCORE_SHF_CP_SECTION),
   LLVM_READOBJ_ENUM_ENT(ELF, XCORE_SHF_DP_SECTION),
-  LLVM_READOBJ_ENUM_ENT(ELF, SHF_MIPS_NOSTRIP    ),
+};
+
+static const EnumEntry<unsigned> ElfAMDGPUSectionFlags[] = {
   LLVM_READOBJ_ENUM_ENT(ELF, SHF_AMDGPU_HSA_GLOBAL),
   LLVM_READOBJ_ENUM_ENT(ELF, SHF_AMDGPU_HSA_READONLY),
   LLVM_READOBJ_ENUM_ENT(ELF, SHF_AMDGPU_HSA_CODE),
   LLVM_READOBJ_ENUM_ENT(ELF, SHF_AMDGPU_HSA_AGENT)
+};
+
+static const EnumEntry<unsigned> ElfHexagonSectionFlags[] = {
+  LLVM_READOBJ_ENUM_ENT(ELF, SHF_HEX_GPREL)
+};
+
+static const EnumEntry<unsigned> ElfMipsSectionFlags[] = {
+  LLVM_READOBJ_ENUM_ENT(ELF, SHF_MIPS_NODUPES),
+  LLVM_READOBJ_ENUM_ENT(ELF, SHF_MIPS_NAMES  ),
+  LLVM_READOBJ_ENUM_ENT(ELF, SHF_MIPS_LOCAL  ),
+  LLVM_READOBJ_ENUM_ENT(ELF, SHF_MIPS_NOSTRIP),
+  LLVM_READOBJ_ENUM_ENT(ELF, SHF_MIPS_GPREL  ),
+  LLVM_READOBJ_ENUM_ENT(ELF, SHF_MIPS_MERGE  ),
+  LLVM_READOBJ_ENUM_ENT(ELF, SHF_MIPS_ADDR   ),
+  LLVM_READOBJ_ENUM_ENT(ELF, SHF_MIPS_STRING )
+};
+
+static const EnumEntry<unsigned> ElfX86_64SectionFlags[] = {
+  LLVM_READOBJ_ENUM_ENT(ELF, SHF_X86_64_LARGE)
 };
 
 static const char *getElfSegmentType(unsigned Arch, unsigned Type) {
@@ -1118,7 +1147,31 @@ void ELFDumper<ELFT>::printSections() {
     W.printHex("Type",
                getElfSectionType(Obj->getHeader()->e_machine, Sec.sh_type),
                Sec.sh_type);
-    W.printFlags("Flags", Sec.sh_flags, makeArrayRef(ElfSectionFlags));
+    std::vector<EnumEntry<unsigned>> SectionFlags(std::begin(ElfSectionFlags),
+                                                  std::end(ElfSectionFlags));
+    switch (Obj->getHeader()->e_machine) {
+    case EM_AMDGPU:
+      SectionFlags.insert(SectionFlags.end(), std::begin(ElfAMDGPUSectionFlags),
+                          std::end(ElfAMDGPUSectionFlags));
+      break;
+    case EM_HEXAGON:
+      SectionFlags.insert(SectionFlags.end(),
+                          std::begin(ElfHexagonSectionFlags),
+                          std::end(ElfHexagonSectionFlags));
+      break;
+    case EM_MIPS:
+      SectionFlags.insert(SectionFlags.end(), std::begin(ElfMipsSectionFlags),
+                          std::end(ElfMipsSectionFlags));
+      break;
+    case EM_X86_64:
+      SectionFlags.insert(SectionFlags.end(), std::begin(ElfX86_64SectionFlags),
+                          std::end(ElfX86_64SectionFlags));
+      break;
+    default:
+      // Nothing to do.
+      break;
+    }
+    W.printFlags("Flags", Sec.sh_flags, makeArrayRef(SectionFlags));
     W.printHex("Address", Sec.sh_addr);
     W.printHex("Offset", Sec.sh_offset);
     W.printNumber("Size", Sec.sh_size);
@@ -2204,4 +2257,42 @@ template <class ELFT> void ELFDumper<ELFT>::printStackMap() const {
   prettyPrintStackMap(
               llvm::outs(),
               StackMapV1Parser<ELFT::TargetEndianness>(*StackMapContentsArray));
+}
+template <class ELFT> void ELFDumper<ELFT>::printGroupSections() {
+  DictScope Lists(W, "Groups");
+  uint32_t SectionIndex = 0;
+  bool HasGroups = false;
+  for (const Elf_Shdr &Sec : Obj->sections()) {
+    if (Sec.sh_type == ELF::SHT_GROUP) {
+      HasGroups = true;
+      ErrorOr<const Elf_Shdr *> Symtab =
+          errorOrDefault(Obj->getSection(Sec.sh_link));
+      ErrorOr<StringRef> StrTableOrErr = Obj->getStringTableForSymtab(**Symtab);
+      error(StrTableOrErr.getError());
+      StringRef StrTable = *StrTableOrErr;
+      const Elf_Sym *Sym =
+          Obj->template getEntry<Elf_Sym>(*Symtab, Sec.sh_info);
+      auto Data = errorOrDefault(
+          Obj->template getSectionContentsAsArray<Elf_Word>(&Sec));
+      DictScope D(W, "Group");
+      StringRef Name = errorOrDefault(Obj->getSectionName(&Sec));
+      W.printNumber("Name", Name, Sec.sh_name);
+      W.printNumber("Index", SectionIndex);
+      W.printHex("Type", getGroupType(Data[0]), Data[0]);
+      W.startLine() << "Signature: " << StrTable.data() + Sym->st_name << "\n";
+      {
+        ListScope L(W, "Section(s) in group");
+        size_t Member = 1;
+        while (Member < Data.size()) {
+          auto Sec = errorOrDefault(Obj->getSection(Data[Member]));
+          const StringRef Name = errorOrDefault(Obj->getSectionName(Sec));
+          W.startLine() << Name << " (" << std::to_string(Data[Member++])
+                        << ")\n";
+        }
+      }
+    }
+    ++SectionIndex;
+  }
+  if (!HasGroups)
+    W.startLine() << "There are no group sections in the file.\n";
 }

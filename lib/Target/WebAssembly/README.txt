@@ -13,14 +13,14 @@ binary encoding of WebAssembly itself:
   * https://github.com/WebAssembly/design/blob/master/BinaryEncoding.md
 
 The backend is built, tested and archived on the following waterfall:
-  https://build.chromium.org/p/client.wasm.llvm/console
+  https://wasm-stat.us
 
 The backend's bringup is done using the GCC torture test suite first since it
 doesn't require C library support. Current known failures are in
 known_gcc_test_failures.txt, all other tests should pass. The waterfall will
 turn red if not. Once most of these pass, further testing will use LLVM's own
 test suite. The tests can be run locally using:
-  github.com/WebAssembly/experimental/blob/master/buildbot/torture_test.py
+  https://github.com/WebAssembly/waterfall/blob/master/src/compile_torture_tests.py
 
 Interesting work that remains to be done:
 * Write a pass to restructurize irreducible control flow. This needs to be done
@@ -58,10 +58,6 @@ us too?
 
 //===---------------------------------------------------------------------===//
 
-When is it profitable to set isAsCheapAsAMove on instructions in WebAssembly?
-
-//===---------------------------------------------------------------------===//
-
 Register stackification uses the EXPR_STACK physical register to impose
 ordering dependencies on instructions with stack operands. This is pessimistic;
 we should consider alternate ways to model stack dependencies.
@@ -79,11 +75,6 @@ Instead of the OptimizeReturned pass, which should consider preserving the
 pass to do this optimization on calls too. That would also let the
 WebAssemblyPeephole pass clean up dead defs for such calls, as it does for
 stores.
-
-//===---------------------------------------------------------------------===//
-
-Memset/memcpy/memmove should be marked with the "returned" attribute somehow,
-even when they are translated through intrinsics.
 
 //===---------------------------------------------------------------------===//
 
