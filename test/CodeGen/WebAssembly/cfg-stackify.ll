@@ -949,9 +949,9 @@ bb6:
 ; CHECK-NEXT:  block{{$}}
 ; CHECK-NEXT:  block{{$}}
 ; CHECK:       br_if        {{[^,]+}}, 0{{$}}
-; CHECK-NEXT:  block{{$}}
 ; CHECK-NOT:   block
-; CHECK:       br_if        {{[^,]+}}, 0{{$}}
+; CHECK:       block{{$}}
+; CHECK-NEXT:  br_if        {{[^,]+}}, 0{{$}}
 ; CHECK-NOT:   block
 ; CHECK:       br_if        {{[^,]+}}, 2{{$}}
 ; CHECK-NEXT:  .LBB20_3:
@@ -979,10 +979,10 @@ bb6:
 ; OPT-LABEL: test11:
 ; OPT:       block{{$}}
 ; OPT-NEXT:  block{{$}}
-; OPT:       br_if        $0, 0{{$}}
-; OPT-NEXT:  block{{$}}
+; OPT:       br_if        $pop{{[0-9]+}}, 0{{$}}
 ; OPT-NOT:   block
-; OPT:       br_if        $0, 0{{$}}
+; OPT:       block{{$}}
+; OPT-NEXT:  br_if        $0, 0{{$}}
 ; OPT-NOT:   block
 ; OPT:       br_if        {{[^,]+}}, 2{{$}}
 ; OPT-NEXT:  .LBB20_3:
@@ -1121,31 +1121,33 @@ bb7:
 ; CHECK-LABEL: test13:
 ; CHECK-NEXT:  .local i32{{$}}
 ; CHECK:       block{{$}}
-; CHECK:       br_if $pop4, 0{{$}}
+; CHECK:       br_if $pop5, 0{{$}}
 ; CHECK-NEXT:  return{{$}}
 ; CHECK-NEXT:  .LBB22_2:
 ; CHECK-NEXT:  end_block{{$}}
 ; CHECK:       block{{$}}
-; CHECK-NEXT:  br_if $0, 0{{$}}
+; CHECK-NEXT:  i32.const $push3=, 0{{$}}
+; CHECK-NEXT:  br_if $pop3, 0{{$}}
 ; CHECK:       .LBB22_4:
 ; CHECK-NEXT:  end_block{{$}}
 ; CHECK:       block{{$}}
-; CHECK:       br_if $pop6, 0{{$}}
+; CHECK:       br_if $pop7, 0{{$}}
 ; CHECK-NEXT:  end_block{{$}}
 ; CHECK-NEXT:  unreachable{{$}}
 ; OPT-LABEL: test13:
 ; OPT-NEXT:  .local i32{{$}}
 ; OPT:       block{{$}}
-; OPT:       br_if $pop4, 0{{$}}
+; OPT:       br_if $pop5, 0{{$}}
 ; OPT-NEXT:  return{{$}}
 ; OPT-NEXT:  .LBB22_2:
 ; OPT-NEXT:  end_block{{$}}
 ; OPT:       block{{$}}
-; OPT-NEXT:  br_if $0, 0{{$}}
+; OPT-NEXT:  i32.const $push3=, 0{{$}}
+; OPT-NEXT:  br_if $pop3, 0{{$}}
 ; OPT:       .LBB22_4:
 ; OPT-NEXT:  end_block{{$}}
 ; OPT:       block{{$}}
-; OPT:       br_if $pop6, 0{{$}}
+; OPT:       br_if $pop7, 0{{$}}
 ; OPT-NEXT:  end_block{{$}}
 ; OPT-NEXT:  unreachable{{$}}
 define void @test13() noinline optnone {

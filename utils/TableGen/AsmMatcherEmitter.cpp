@@ -116,6 +116,7 @@
 #include <set>
 #include <sstream>
 #include <forward_list>
+
 using namespace llvm;
 
 #define DEBUG_TYPE "asm-matcher-emitter"
@@ -682,7 +683,6 @@ struct OperandMatchEntry {
   }
 };
 
-
 class AsmMatcherInfo {
 public:
   /// Tracked Records
@@ -767,7 +767,7 @@ public:
   }
 };
 
-} // End anonymous namespace
+} // end anonymous namespace
 
 void MatchableInfo::dump() const {
   errs() << TheDef->getName() << " -- " << "flattened:\"" << AsmString <<"\"\n";
@@ -878,7 +878,6 @@ extractSingletonRegisterForAsmOperand(MatchableInfo::AsmOperand &Op,
 
   // If there is no register prefix (i.e. "%" in "%eax"), then this may
   // be some random non-register token, just ignore it.
-  return;
 }
 
 void MatchableInfo::initialize(const AsmMatcherInfo &Info,
@@ -1155,7 +1154,6 @@ AsmMatcherInfo::getOperandClass(Record *Rec, int SubOpIdx) {
       return CI;
     PrintFatalError(Rec->getLoc(), "register class has no class info!");
   }
-
 
   if (Rec->isSubClassOf("RegisterClass")) {
     if (ClassInfo *CI = RegisterClassClasses[Rec])
@@ -1593,7 +1591,7 @@ void AsmMatcherInfo::buildInfo() {
       assert(I == J || !J->isSubsetOf(*I));
     }
   }
-#endif
+#endif // NDEBUG
 }
 
 /// buildInstructionOperandReference - The specified operand is a reference to a
@@ -1798,7 +1796,6 @@ static unsigned getConverterOperandID(const std::string &Name,
 
   return ID;
 }
-
 
 static void emitConvertFuncs(CodeGenTarget &Target, StringRef ClassName,
                              std::vector<std::unique_ptr<MatchableInfo>> &Infos,
@@ -2070,7 +2067,6 @@ static void emitConvertFuncs(CodeGenTarget &Target, StringRef ClassName,
   OS << "  CVT_NUM_SIGNATURES\n";
   OS << "};\n\n";
 
-
   OS << "} // end anonymous namespace\n\n";
 
   // Output the conversion table.
@@ -2291,11 +2287,11 @@ static void emitMatchRegisterAltName(CodeGenTarget &Target, Record *AsmParser,
 
     auto AltNames = Reg.TheDef->getValueAsListOfStrings("AltNames");
 
-    for(auto AltName : AltNames) {
+    for (auto AltName : AltNames) {
       AltName = StringRef(AltName).trim();
 
       // don't handle empty alternative names
-      if(AltName.empty())
+      if (AltName.empty())
         continue;
 
       Matches.emplace_back(AltName,
@@ -2759,7 +2755,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
       assert(!(**J < **I));
     }
   }
-#endif
+#endif // NDEBUG
 
   DEBUG_WITH_TYPE("instruction_info", {
       for (const auto &MI : Info.Matchables)
@@ -2840,7 +2836,6 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   emitOperandDiagnosticTypes(Info, OS);
   OS << "#endif // GET_OPERAND_DIAGNOSTIC_TYPES\n\n";
 
-
   OS << "\n#ifdef GET_REGISTER_MATCHER\n";
   OS << "#undef GET_REGISTER_MATCHER\n\n";
 
@@ -2852,9 +2847,8 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   if (AsmParser->getValueAsBit("ShouldEmitMatchRegisterName"))
     emitMatchRegisterName(Target, AsmParser, OS);
 
-  if (AsmParser->getValueAsBit("ShouldEmitMatchRegisterAltName")) {
+  if (AsmParser->getValueAsBit("ShouldEmitMatchRegisterAltName"))
     emitMatchRegisterAltName(Target, AsmParser, OS);
-  }
 
   OS << "#endif // GET_REGISTER_MATCHER\n\n";
 
@@ -2891,7 +2885,6 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
 
   // Emit the available features compute function.
   emitComputeAvailableFeatures(Info, OS);
-
 
   StringToOffsetTable StringTable;
 
@@ -3218,4 +3211,4 @@ void EmitAsmMatcher(RecordKeeper &RK, raw_ostream &OS) {
   AsmMatcherEmitter(RK).run(OS);
 }
 
-} // End llvm namespace
+} // end namespace llvm

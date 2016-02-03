@@ -156,16 +156,6 @@ Pass *createLoopStrengthReducePass();
 
 //===----------------------------------------------------------------------===//
 //
-// GlobalMerge - This pass merges internal (by default) globals into structs
-// to enable reuse of a base pointer by indexed addressing modes.
-// It can also be configured to focus on size optimizations only.
-//
-Pass *createGlobalMergePass(const TargetMachine *TM, unsigned MaximalOffset,
-                            bool OnlyOptimizeForSize = false,
-                            bool MergeExternalByDefault = false);
-
-//===----------------------------------------------------------------------===//
-//
 // LoopUnswitch - This pass is a simple loop unswitching pass.
 //
 Pass *createLoopUnswitchPass(bool OptimizeForSize = false);
@@ -382,13 +372,6 @@ Pass *createLowerAtomicPass();
 
 //===----------------------------------------------------------------------===//
 //
-// LowerEmuTLS - This pass generates __emutls_[vt].xyz variables for all
-// TLS variables for the emulated TLS model.
-//
-ModulePass *createLowerEmuTLSPass(const TargetMachine *TM);
-
-//===----------------------------------------------------------------------===//
-//
 // ValuePropagation - Propagate CFG-derived value information
 //
 Pass *createCorrelatedValuePropagationPass();
@@ -492,6 +475,19 @@ FunctionPass *createLoopDistributePass();
 // LoopLoadElimination - Perform loop-aware load elimination.
 //
 FunctionPass *createLoopLoadEliminationPass();
+
+//===----------------------------------------------------------------------===//
+//
+// LoopSimplifyCFG - This pass performs basic CFG simplification on loops,
+// primarily to help other loop passes.
+//
+Pass *createLoopSimplifyCFGPass();
+
+//===----------------------------------------------------------------------===//
+//
+// LoopVersioning - Perform loop multi-versioning.
+//
+FunctionPass *createLoopVersioningPass();
 
 } // End llvm namespace
 

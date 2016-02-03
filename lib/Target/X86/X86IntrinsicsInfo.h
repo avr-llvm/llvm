@@ -14,6 +14,9 @@
 #ifndef LLVM_LIB_TARGET_X86_X86INTRINSICSINFO_H
 #define LLVM_LIB_TARGET_X86_X86INTRINSICSINFO_H
 
+#include "X86ISelLowering.h"
+#include "X86InstrInfo.h"
+
 namespace llvm {
 
 enum IntrinsicType {
@@ -1339,6 +1342,12 @@ static const IntrinsicData  IntrinsicsWithoutChain[] = {
   X86_INTRINSIC_DATA(avx512_mask_pmull_w_128, INTR_TYPE_2OP_MASK, ISD::MUL, 0),
   X86_INTRINSIC_DATA(avx512_mask_pmull_w_256, INTR_TYPE_2OP_MASK, ISD::MUL, 0),
   X86_INTRINSIC_DATA(avx512_mask_pmull_w_512, INTR_TYPE_2OP_MASK, ISD::MUL, 0),
+  X86_INTRINSIC_DATA(avx512_mask_pmultishift_qb_128, INTR_TYPE_2OP_MASK,
+                     X86ISD::MULTISHIFT, 0),
+  X86_INTRINSIC_DATA(avx512_mask_pmultishift_qb_256, INTR_TYPE_2OP_MASK,
+                     X86ISD::MULTISHIFT, 0),
+  X86_INTRINSIC_DATA(avx512_mask_pmultishift_qb_512, INTR_TYPE_2OP_MASK, 
+                     X86ISD::MULTISHIFT, 0),
   X86_INTRINSIC_DATA(avx512_mask_pmulu_dq_128, INTR_TYPE_2OP_MASK,
                      X86ISD::PMULUDQ, 0),
   X86_INTRINSIC_DATA(avx512_mask_pmulu_dq_256, INTR_TYPE_2OP_MASK,
@@ -2050,8 +2059,10 @@ static const IntrinsicData  IntrinsicsWithoutChain[] = {
   X86_INTRINSIC_DATA(avx512_ptestm_b_512, CMP_MASK, X86ISD::TESTM, 0),
   X86_INTRINSIC_DATA(avx512_ptestm_d_128, CMP_MASK, X86ISD::TESTM, 0),
   X86_INTRINSIC_DATA(avx512_ptestm_d_256, CMP_MASK, X86ISD::TESTM, 0),
+  X86_INTRINSIC_DATA(avx512_ptestm_d_512, CMP_MASK, X86ISD::TESTM, 0),
   X86_INTRINSIC_DATA(avx512_ptestm_q_128, CMP_MASK, X86ISD::TESTM, 0),
   X86_INTRINSIC_DATA(avx512_ptestm_q_256, CMP_MASK, X86ISD::TESTM, 0),
+  X86_INTRINSIC_DATA(avx512_ptestm_q_512, CMP_MASK, X86ISD::TESTM, 0),
   X86_INTRINSIC_DATA(avx512_ptestm_w_128, CMP_MASK, X86ISD::TESTM, 0),
   X86_INTRINSIC_DATA(avx512_ptestm_w_256, CMP_MASK, X86ISD::TESTM, 0),
   X86_INTRINSIC_DATA(avx512_ptestm_w_512, CMP_MASK, X86ISD::TESTM, 0),

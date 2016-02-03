@@ -21,6 +21,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstring>
+#include <cstdlib>
 #include <iterator>
 #include <utility>
 
@@ -63,16 +64,20 @@ protected:
   unsigned NumTombstones;
 
   // Helpers to copy and move construct a SmallPtrSet.
-  SmallPtrSetImplBase(const void **SmallStorage, const SmallPtrSetImplBase &that);
+  SmallPtrSetImplBase(const void **SmallStorage,
+                      const SmallPtrSetImplBase &that);
   SmallPtrSetImplBase(const void **SmallStorage, unsigned SmallSize,
-                  SmallPtrSetImplBase &&that);
+                      SmallPtrSetImplBase &&that);
   explicit SmallPtrSetImplBase(const void **SmallStorage, unsigned SmallSize) :
     SmallArray(SmallStorage), CurArray(SmallStorage), CurArraySize(SmallSize) {
     assert(SmallSize && (SmallSize & (SmallSize-1)) == 0 &&
            "Initial size must be a power of two!");
     clear();
   }
-  ~SmallPtrSetImplBase();
+  ~SmallPtrSetImplBase() {
+    if (!isSmall())
+      free(CurArray);
+  }
 
 public:
   typedef unsigned size_type;
@@ -160,6 +165,12 @@ protected:
 
   void CopyFrom(const SmallPtrSetImplBase &RHS);
   void MoveFrom(unsigned SmallSize, SmallPtrSetImplBase &&RHS);
+
+private:
+  /// Code shared by MoveFrom() and move constructor.
+  void MoveHelper(unsigned SmallSize, SmallPtrSetImplBase &&RHS);
+  /// Code shared by CopyFrom() and copy constructor.
+  void CopyHelper(const SmallPtrSetImplBase &RHS);
 };
 
 /// SmallPtrSetIteratorImpl - This is the common base class shared between all
@@ -172,7 +183,7 @@ protected:
 public:
   explicit SmallPtrSetIteratorImpl(const void *const *BP, const void*const *E)
     : Bucket(BP), End(E) {
-      AdvanceIfNotValid();
+    AdvanceIfNotValid();
   }
 
   bool operator==(const SmallPtrSetIteratorImpl &RHS) const {
@@ -318,6 +329,11 @@ public:
 /// SmallPtrSetImplBase for details of the algorithm.
 template<class PtrType, unsigned SmallSize>
 class SmallPtrSet : public SmallPtrSetImpl<PtrType> {
+  // In small mode SmallPtrSet uses linear search for the elements, so it is
+  // not a good idea to choose this value too high. You may consider using a
+  // DenseSet<> instead if you expect many elements in the set.
+  static_assert(SmallSize <= 32, "SmallSize should be small");
+
   typedef SmallPtrSetImpl<PtrType> BaseT;
 
   // Make sure that SmallSize is a power of two, round up if not.

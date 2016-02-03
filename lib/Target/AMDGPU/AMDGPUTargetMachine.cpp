@@ -52,6 +52,7 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeSILoadStoreOptimizerPass(*PR);
   initializeAMDGPUAnnotateKernelFeaturesPass(*PR);
   initializeAMDGPUAnnotateUniformValuesPass(*PR);
+  initializeAMDGPUPromoteAllocaPass(*PR);
   initializeSIAnnotateControlFlowPass(*PR);
 }
 
@@ -226,9 +227,10 @@ void AMDGPUPassConfig::addIRPasses() {
 }
 
 void AMDGPUPassConfig::addCodeGenPrepare() {
-  const AMDGPUSubtarget &ST = *getAMDGPUTargetMachine().getSubtargetImpl();
-  if (ST.isPromoteAllocaEnabled()) {
-    addPass(createAMDGPUPromoteAlloca(ST));
+  const AMDGPUTargetMachine &TM = getAMDGPUTargetMachine();
+  const AMDGPUSubtarget &ST = *TM.getSubtargetImpl();
+  if (TM.getOptLevel() > CodeGenOpt::None && ST.isPromoteAllocaEnabled()) {
+    addPass(createAMDGPUPromoteAlloca(&TM));
     addPass(createSROAPass());
   }
   TargetPassConfig::addCodeGenPrepare();

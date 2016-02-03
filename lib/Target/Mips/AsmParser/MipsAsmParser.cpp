@@ -233,6 +233,9 @@ class MipsAsmParser : public MCTargetAsmParser {
   bool expandDRotationImm(MCInst &Inst, SMLoc IDLoc,
                           SmallVectorImpl<MCInst> &Instructions);
 
+  bool expandAbs(MCInst &Inst, SMLoc IDLoc,
+                 SmallVectorImpl<MCInst> &Instructions);
+
   void createNop(bool hasShortDelaySlot, SMLoc IDLoc,
                  SmallVectorImpl<MCInst> &Instructions);
 
@@ -938,6 +941,15 @@ public:
     Inst.addOperand(MCOperand::createImm(Imm));
   }
 
+  template <unsigned Bits>
+  void addUImmOperands(MCInst &Inst, unsigned N) const {
+    if (isImm() && !isConstantImm()) {
+      addExpr(Inst, getImm());
+      return;
+    }
+    addConstantUImmOperands<Bits, 0, 0>(Inst, N);
+  }
+
   void addImmOperands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
     const MCExpr *Expr = getImm();
@@ -1002,6 +1014,14 @@ public:
   }
   template <unsigned Bits, int Offset = 0> bool isConstantUImm() const {
     return isConstantImm() && isUInt<Bits>(getConstantImm() - Offset);
+  }
+  template <unsigned Bits> bool isUImm() const {
+    return isConstantImm() ? isUInt<Bits>(getConstantImm()) : isImm();
+  }
+  template <unsigned Bits> bool isAnyImm() const {
+    return isConstantImm() ? (isInt<Bits>(getConstantImm()) ||
+                              isUInt<Bits>(getConstantImm()))
+                           : isImm();
   }
   template <unsigned Bits> bool isConstantSImm() const {
     return isConstantImm() && isInt<Bits>(getConstantImm());
@@ -1851,12 +1871,6 @@ bool MipsAsmParser::processInstruction(MCInst &Inst, SMLoc IDLoc,
         if (Imm < -1 || Imm > 14)
           return Error(IDLoc, "immediate operand value out of range");
         break;
-      case Mips::TEQ_MM:
-      case Mips::TGE_MM:
-      case Mips::TGEU_MM:
-      case Mips::TLT_MM:
-      case Mips::TLTU_MM:
-      case Mips::TNE_MM:
       case Mips::SB16_MM:
       case Mips::SB16_MMR6:
         Opnd = Inst.getOperand(2);
@@ -2087,6 +2101,9 @@ MipsAsmParser::tryExpandInstruction(MCInst &Inst, SMLoc IDLoc,
   case Mips::DRORImm:
     return expandDRotationImm(Inst, IDLoc, Instructions) ? MER_Fail
                                                          : MER_Success;
+  case Mips::ABSMacro:
+    return expandAbs(Inst, IDLoc, Instructions) ? MER_Fail
+                                                : MER_Success;
   }
 }
 
@@ -3531,6 +3548,22 @@ bool MipsAsmParser::expandDRotationImm(MCInst &Inst, SMLoc IDLoc,
   return true;
 }
 
+bool MipsAsmParser::expandAbs(MCInst &Inst, SMLoc IDLoc,
+                              SmallVectorImpl<MCInst> &Instructions) {
+
+  unsigned FirstRegOp = Inst.getOperand(0).getReg();
+  unsigned SecondRegOp = Inst.getOperand(1).getReg();
+
+  emitRI(Mips::BGEZ, SecondRegOp, 8, IDLoc, Instructions);
+  if (FirstRegOp != SecondRegOp)
+    emitRRR(Mips::ADDu, FirstRegOp, SecondRegOp, Mips::ZERO, IDLoc, Instructions);
+  else
+    createNop(false, IDLoc, Instructions);
+  emitRRR(Mips::SUB, FirstRegOp, Mips::ZERO, SecondRegOp, IDLoc, Instructions);
+
+  return false;
+}
+
 void MipsAsmParser::createNop(bool hasShortDelaySlot, SMLoc IDLoc,
                               SmallVectorImpl<MCInst> &Instructions) {
   if (hasShortDelaySlot)
@@ -3678,6 +3711,10 @@ bool MipsAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_UImm10_0:
     return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
                  "expected 10-bit unsigned immediate");
+  case Match_UImm16:
+  case Match_UImm16_Relaxed:
+    return Error(RefineErrorLoc(IDLoc, Operands, ErrorInfo),
+                 "expected 16-bit unsigned immediate");
   }
 
   llvm_unreachable("Implement any new match types added!");

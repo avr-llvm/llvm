@@ -62,6 +62,7 @@ private:
 
 typedef FixedWord<27> Word; // 28 bytes.
 
+bool IsFile(const std::string &Path);
 std::string FileToString(const std::string &Path);
 Unit FileToVector(const std::string &Path);
 void ReadDirToVectorOfUnits(const char *Path, std::vector<Unit> *V,
@@ -175,6 +176,7 @@ public:
     int MaxLen = 0;
     int UnitTimeoutSec = 300;
     bool AbortOnTimeout = false;
+    int TimeoutExitCode = 77;
     int MaxTotalTimeSec = 0;
     bool DoCrossOver = true;
     int MutateDepth = 5;

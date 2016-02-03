@@ -88,6 +88,9 @@ struct AArch64LoadStoreOpt : public MachineFunctionPass {
   const TargetRegisterInfo *TRI;
   const AArch64Subtarget *Subtarget;
 
+  // Track which registers have been modified and used.
+  BitVector ModifiedRegs, UsedRegs;
+
   // Scan the instructions looking for a load/store that can be combined
   // with the current instruction into a load/store pair.
   // Return the matching instruction if one is found, else MBB->end().
@@ -1015,10 +1018,11 @@ bool AArch64LoadStoreOpt::findMatchingStore(
 
   // Track which registers have been modified and used between the first insn
   // and the second insn.
-  BitVector ModifiedRegs, UsedRegs;
-  ModifiedRegs.resize(TRI->getNumRegs());
-  UsedRegs.resize(TRI->getNumRegs());
+  ModifiedRegs.reset();
+  UsedRegs.reset();
 
+  // FIXME: We miss the case where the matching store is the first instruction
+  // in the basic block.
   for (unsigned Count = 0; MBBI != E && Count < Limit;) {
     --MBBI;
     MachineInstr *MI = MBBI;
@@ -1096,9 +1100,8 @@ AArch64LoadStoreOpt::findMatchingInsn(MachineBasicBlock::iterator I,
 
   // Track which registers have been modified and used between the first insn
   // (inclusive) and the second insn.
-  BitVector ModifiedRegs, UsedRegs;
-  ModifiedRegs.resize(TRI->getNumRegs());
-  UsedRegs.resize(TRI->getNumRegs());
+  ModifiedRegs.reset();
+  UsedRegs.reset();
 
   // Remember any instructions that read/write memory between FirstMI and MI.
   SmallVector<MachineInstr *, 4> MemInsns;
@@ -1264,7 +1267,8 @@ AArch64LoadStoreOpt::mergeUpdateInsn(MachineBasicBlock::iterator I,
               .addOperand(getLdStRegOp(Update))
               .addOperand(getLdStRegOp(I))
               .addOperand(getLdStBaseOp(I))
-              .addImm(Value);
+              .addImm(Value)
+              .setMemRefs(I->memoperands_begin(), I->memoperands_end());
   } else {
     // Paired instruction.
     int Scale = getMemScale(I);
@@ -1273,7 +1277,8 @@ AArch64LoadStoreOpt::mergeUpdateInsn(MachineBasicBlock::iterator I,
               .addOperand(getLdStRegOp(I, 0))
               .addOperand(getLdStRegOp(I, 1))
               .addOperand(getLdStBaseOp(I))
-              .addImm(Value / Scale);
+              .addImm(Value / Scale)
+              .setMemRefs(I->memoperands_begin(), I->memoperands_end());
   }
   (void)MIB;
 
@@ -1376,9 +1381,8 @@ MachineBasicBlock::iterator AArch64LoadStoreOpt::findMatchingUpdateInsnForward(
 
   // Track which registers have been modified and used between the first insn
   // (inclusive) and the second insn.
-  BitVector ModifiedRegs, UsedRegs;
-  ModifiedRegs.resize(TRI->getNumRegs());
-  UsedRegs.resize(TRI->getNumRegs());
+  ModifiedRegs.reset();
+  UsedRegs.reset();
   ++MBBI;
   for (; MBBI != E; ++MBBI) {
     MachineInstr *MI = MBBI;
@@ -1426,9 +1430,8 @@ MachineBasicBlock::iterator AArch64LoadStoreOpt::findMatchingUpdateInsnBackward(
 
   // Track which registers have been modified and used between the first insn
   // (inclusive) and the second insn.
-  BitVector ModifiedRegs, UsedRegs;
-  ModifiedRegs.resize(TRI->getNumRegs());
-  UsedRegs.resize(TRI->getNumRegs());
+  ModifiedRegs.reset();
+  UsedRegs.reset();
   --MBBI;
   for (; MBBI != B; --MBBI) {
     MachineInstr *MI = MBBI;
@@ -1519,7 +1522,7 @@ bool AArch64LoadStoreOpt::tryToMergeLdStInst(
 bool AArch64LoadStoreOpt::optimizeBlock(MachineBasicBlock &MBB,
                                         bool enableNarrowLdOpt) {
   bool Modified = false;
-  // Three tranformations to do here:
+  // Four tranformations to do here:
   // 1) Find loads that directly read from stores and promote them by
   //    replacing with mov instructions. If the store is wider than the load,
   //    the load will be replaced with a bitfield extract.
@@ -1529,30 +1532,6 @@ bool AArch64LoadStoreOpt::optimizeBlock(MachineBasicBlock &MBB,
   //        ; becomes
   //        str w1, [x0, #4]
   //        lsr	w2, w1, #16
-  // 2) Find narrow loads that can be converted into a single wider load
-  //    with bitfield extract instructions.
-  //      e.g.,
-  //        ldrh w0, [x2]
-  //        ldrh w1, [x2, #2]
-  //        ; becomes
-  //        ldr w0, [x2]
-  //        ubfx w1, w0, #16, #16
-  //        and w0, w0, #ffff
-  // 3) Find loads and stores that can be merged into a single load or store
-  //    pair instruction.
-  //      e.g.,
-  //        ldr x0, [x2]
-  //        ldr x1, [x2, #8]
-  //        ; becomes
-  //        ldp x0, x1, [x2]
-  // 4) Find base register updates that can be merged into the load or store
-  //    as a base-reg writeback.
-  //      e.g.,
-  //        ldr x0, [x2]
-  //        add x2, x2, #4
-  //        ; becomes
-  //        ldr x0, [x2], #4
-
   for (MachineBasicBlock::iterator MBBI = MBB.begin(), E = MBB.end();
        MBBI != E;) {
     MachineInstr *MI = MBBI;
@@ -1580,7 +1559,15 @@ bool AArch64LoadStoreOpt::optimizeBlock(MachineBasicBlock &MBB,
     }
     }
   }
-
+  // 2) Find narrow loads that can be converted into a single wider load
+  //    with bitfield extract instructions.
+  //      e.g.,
+  //        ldrh w0, [x2]
+  //        ldrh w1, [x2, #2]
+  //        ; becomes
+  //        ldr w0, [x2]
+  //        ubfx w1, w0, #16, #16
+  //        and w0, w0, #ffff
   for (MachineBasicBlock::iterator MBBI = MBB.begin(), E = MBB.end();
        enableNarrowLdOpt && MBBI != E;) {
     MachineInstr *MI = MBBI;
@@ -1612,7 +1599,13 @@ bool AArch64LoadStoreOpt::optimizeBlock(MachineBasicBlock &MBB,
     }
     }
   }
-
+  // 3) Find loads and stores that can be merged into a single load or store
+  //    pair instruction.
+  //      e.g.,
+  //        ldr x0, [x2]
+  //        ldr x1, [x2, #8]
+  //        ; becomes
+  //        ldp x0, x1, [x2]
   for (MachineBasicBlock::iterator MBBI = MBB.begin(), E = MBB.end();
        MBBI != E;) {
     MachineInstr *MI = MBBI;
@@ -1654,12 +1647,18 @@ bool AArch64LoadStoreOpt::optimizeBlock(MachineBasicBlock &MBB,
     }
     }
   }
-
+  // 4) Find base register updates that can be merged into the load or store
+  //    as a base-reg writeback.
+  //      e.g.,
+  //        ldr x0, [x2]
+  //        add x2, x2, #4
+  //        ; becomes
+  //        ldr x0, [x2], #4
   for (MachineBasicBlock::iterator MBBI = MBB.begin(), E = MBB.end();
        MBBI != E;) {
     MachineInstr *MI = MBBI;
     // Do update merging. It's simpler to keep this separate from the above
-    // switch, though not strictly necessary.
+    // switchs, though not strictly necessary.
     unsigned Opc = MI->getOpcode();
     switch (Opc) {
     default:
@@ -1785,6 +1784,12 @@ bool AArch64LoadStoreOpt::runOnMachineFunction(MachineFunction &Fn) {
   Subtarget = &static_cast<const AArch64Subtarget &>(Fn.getSubtarget());
   TII = static_cast<const AArch64InstrInfo *>(Subtarget->getInstrInfo());
   TRI = Subtarget->getRegisterInfo();
+
+  // Resize the modified and used register bitfield trackers.  We do this once
+  // per function and then clear the bitfield each time we optimize a load or
+  // store.
+  ModifiedRegs.resize(TRI->getNumRegs());
+  UsedRegs.resize(TRI->getNumRegs());
 
   bool Modified = false;
   bool enableNarrowLdOpt = enableNarrowLdMerge(Fn);

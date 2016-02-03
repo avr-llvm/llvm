@@ -88,6 +88,13 @@ static void findPartitions(Module *M, ClusterIDMapType &ClusterIDMap,
         Member = &GV;
     }
 
+    // For aliases we should not separate them from their aliasees regardless
+    // of linkage.
+    if (GlobalAlias *GA = dyn_cast<GlobalAlias>(&GV)) {
+      if (const GlobalObject *Base = GA->getBaseObject())
+        GVtoClusterMap.unionSets(&GV, Base);
+    }
+
     // Further only iterate over local GVs.
     if (!GV.hasLocalLinkage())
       return;
@@ -131,7 +138,7 @@ static void findPartitions(Module *M, ClusterIDMapType &ClusterIDMap,
 
   typedef std::pair<unsigned, ClusterMapType::iterator> SortType;
   SmallVector<SortType, 64> Sets;
-  SmallPtrSet<const GlobalValue *, 64> Visited;
+  SmallPtrSet<const GlobalValue *, 32> Visited;
 
   // To guarantee determinism, we have to sort SCC according to size.
   // When size is the same, use leader's name.

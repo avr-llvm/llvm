@@ -498,13 +498,6 @@ AttributeSetNode *AttributeSetNode::get(LLVMContext &C,
   return PA;
 }
 
-bool AttributeSetNode::hasAttribute(Attribute::AttrKind Kind) const {
-  for (iterator I = begin(), E = end(); I != E; ++I)
-    if (I->hasAttribute(Kind))
-      return true;
-  return false;
-}
-
 bool AttributeSetNode::hasAttribute(StringRef Kind) const {
   for (iterator I = begin(), E = end(); I != E; ++I)
     if (I->hasAttribute(Kind))
@@ -513,9 +506,11 @@ bool AttributeSetNode::hasAttribute(StringRef Kind) const {
 }
 
 Attribute AttributeSetNode::getAttribute(Attribute::AttrKind Kind) const {
-  for (iterator I = begin(), E = end(); I != E; ++I)
-    if (I->hasAttribute(Kind))
-      return *I;
+  if (hasAttribute(Kind)) {
+    for (iterator I = begin(), E = end(); I != E; ++I)
+      if (I->hasAttribute(Kind))
+        return *I;
+  }
   return Attribute();
 }
 
@@ -599,7 +594,7 @@ uint64_t AttributeSetImpl::Raw(unsigned Index) const {
   return 0;
 }
 
-void AttributeSetImpl::dump() const {
+LLVM_DUMP_METHOD void AttributeSetImpl::dump() const {
   AttributeSet(const_cast<AttributeSetImpl *>(this)).dump();
 }
 
@@ -1004,6 +999,10 @@ bool AttributeSet::hasAttributes(unsigned Index) const {
   return ASN && ASN->hasAttributes();
 }
 
+bool AttributeSet::hasFnAttribute(Attribute::AttrKind Kind) const {
+  return pImpl && pImpl->hasFnAttribute(Kind);
+}
+
 bool AttributeSet::hasAttrSomewhere(Attribute::AttrKind Attr) const {
   if (!pImpl) return false;
 
@@ -1102,7 +1101,7 @@ uint64_t AttributeSet::Raw(unsigned Index) const {
   return pImpl ? pImpl->Raw(Index) : 0;
 }
 
-void AttributeSet::dump() const {
+LLVM_DUMP_METHOD void AttributeSet::dump() const {
   dbgs() << "PAL[\n";
 
   for (unsigned i = 0, e = getNumSlots(); i < e; ++i) {

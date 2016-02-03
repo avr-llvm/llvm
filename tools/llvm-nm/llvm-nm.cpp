@@ -260,15 +260,11 @@ static void darwinPrintSymbol(SymbolicFile &Obj, SymbolListT::iterator I,
       // use 1, 2 and 3 for section numbers.  See below where they are used to
       // print out fake section names.
       NType |= MachO::N_SECT;
-      if(SymFlags & SymbolRef::SF_Const)
+      if (SymFlags & SymbolRef::SF_Const)
         NSect = 3;
       else {
         IRObjectFile *IRobj = dyn_cast<IRObjectFile>(&Obj);
-        char c = getSymbolNMTypeChar(*IRobj, I->Sym);
-        if (c == 't')
-          NSect = 1;
-        else
-          NSect = 2;
+        NSect = (getSymbolNMTypeChar(*IRobj, I->Sym) == 't') ? 1 : 2;
       }
     }
     if (SymFlags & SymbolRef::SF_Weak)
@@ -1240,9 +1236,7 @@ static void dumpSymbolNamesFromFile(std::string &Filename) {
     if (!checkMachOAndArchFlags(O, Filename))
       return;
     dumpSymbolNamesFromObject(*O, true);
-    return;
   }
-  error("unrecognizable file type", Filename);
 }
 
 int main(int argc, char **argv) {
@@ -1257,6 +1251,7 @@ int main(int argc, char **argv) {
   if (error(sys::ChangeStdinToBinary()))
     return 1;
 
+  // These calls are needed so that we can read bitcode correctly.
   llvm::InitializeAllTargetInfos();
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllAsmParsers();

@@ -78,9 +78,10 @@ define void @allocarray() {
 
 declare void @ext_func(i64* %ptr)
 ; CHECK-LABEL: non_mem_use
-define void @non_mem_use() {
- ; CHECK: i32.const [[L2:.+]]=, 16
+define void @non_mem_use(i8** %addr) {
+ ; CHECK: i32.const [[L2:.+]]=, 48
  ; CHECK-NEXT: i32.sub [[SP:.+]]=, {{.+}}, [[L2]]
+ %buf = alloca [27 x i8], align 16
  %r = alloca i64
  %r2 = alloca i64
  ; %r is at SP+8
@@ -91,6 +92,13 @@ define void @non_mem_use() {
  ; %r2 is at SP+0, no add needed
  ; CHECK-NEXT: call ext_func@FUNCTION, [[SP]]
  call void @ext_func(i64* %r2)
+ ; Use as a value, but in a store
+ ; %buf is at SP+16
+ ; CHECK: i32.const [[OFF:.+]]=, 16
+ ; CHECK-NEXT: i32.add [[VAL:.+]]=, [[SP]], [[OFF]]
+ ; CHECK-NEXT: i32.store {{.*}}=, 0($0), [[VAL]]
+ %gep = getelementptr inbounds [27 x i8], [27 x i8]* %buf, i32 0, i32 0
+ store i8* %gep, i8** %addr
  ret void
 }
 
@@ -119,9 +127,37 @@ define void @allocarray_inbounds() {
 
 ; CHECK-LABEL: dynamic_alloca:
 define void @dynamic_alloca(i32 %alloc) {
- ; TODO: Support frame pointers
- ;%r = alloca i32, i32 %alloc
- ;store i32 0, i32* %r
+ ; CHECK: i32.const [[L0:.+]]=, __stack_pointer
+ ; CHECK-NEXT: i32.load [[SP:.+]]=, 0([[L0]])
+ ; CHECK-NEXT: copy_local [[FP:.+]]=, [[SP]]
+ ; Target independent codegen bumps the stack pointer
+ ; FIXME: we need to write the value back to memory
+ %r = alloca i32, i32 %alloc
+ ; Target-independent codegen also calculates the store addr
+ store i32 0, i32* %r
+ ; CHECK: i32.const [[L3:.+]]=, __stack_pointer
+ ; CHECK-NEXT: i32.store [[SP]]=, 0([[L3]]), [[FP]]
  ret void
 }
-; TODO: test aligned alloc
+
+
+; CHECK-LABEL: dynamic_static_alloca:
+define void @dynamic_static_alloca(i32 %alloc) {
+ ; CHECK: i32.const [[L0:.+]]=, __stack_pointer
+ ; CHECK-NEXT: i32.load [[L0]]=, 0([[L0]])
+ ; CHECK-NEXT: i32.const [[L2:.+]]=, 16
+ ; CHECK-NEXT: i32.sub [[SP:.+]]=, [[L0]], [[L2]]
+ ; CHECK-NEXT: copy_local [[FP:.+]]=, [[SP]]
+ ; CHECK-NEXT: i32.const [[L3:.+]]=, __stack_pointer
+ ; CHECK-NEXT: i32.store {{.*}}=, 0([[L3]]), [[SP]]
+ %r1 = alloca i32
+ %r = alloca i32, i32 %alloc
+ store i32 0, i32* %r
+ ; CHECK: i32.const [[L3:.+]]=, 16
+ ; CHECK: i32.add [[SP]]=, [[FP]], [[L3]]
+ ; CHECK: i32.const [[L4:.+]]=, __stack_pointer
+ ; CHECK-NEXT: i32.store [[SP]]=, 0([[L4]]), [[SP]]
+ ret void
+}
+
+; TODO: test over-aligned alloca

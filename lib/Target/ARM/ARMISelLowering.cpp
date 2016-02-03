@@ -240,7 +240,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
 
     // Set the correct calling convention for ARMv7k WatchOS. It's just
     // AAPCS_VFP for functions as simple as libcalls.
-    if (Subtarget->isTargetWatchOS()) {
+    if (Subtarget->isTargetWatchABI()) {
       for (int i = 0; i < RTLIB::UNKNOWN_LIBCALL; ++i)
         setLibcallCallingConv((RTLIB::Libcall)i, CallingConv::ARM_AAPCS_VFP);
     }
@@ -958,7 +958,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   if (Subtarget->hasSinCos()) {
     setLibcallName(RTLIB::SINCOS_F32, "sincosf");
     setLibcallName(RTLIB::SINCOS_F64, "sincos");
-    if (Subtarget->isTargetWatchOS()) {
+    if (Subtarget->isTargetWatchABI()) {
       setLibcallCallingConv(RTLIB::SINCOS_F32, CallingConv::ARM_AAPCS_VFP);
       setLibcallCallingConv(RTLIB::SINCOS_F64, CallingConv::ARM_AAPCS_VFP);
     }
@@ -7184,7 +7184,7 @@ void ARMTargetLowering::EmitSjLjDispatchBlock(MachineInstr *MI,
 
   // Get an ordered list of the machine basic blocks for the jump table.
   std::vector<MachineBasicBlock*> LPadList;
-  SmallPtrSet<MachineBasicBlock*, 64> InvokeBBs;
+  SmallPtrSet<MachineBasicBlock*, 32> InvokeBBs;
   LPadList.reserve(CallSiteNumToLPad.size());
   for (unsigned I = 1; I <= MaxCSNum; ++I) {
     SmallVectorImpl<MachineBasicBlock*> &MBBList = CallSiteNumToLPad[I];
