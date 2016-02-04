@@ -952,10 +952,6 @@ class AsmParser {
   // HasMnemonicFirst - Set to false if target instructions don't always
   // start with a mnemonic as the first token.
   bit HasMnemonicFirst = 1;
-
-  // ShouldEmitMatchRegisterAltName - Set to false if the target needs a hand
-  // written register alternative name matcher
-  bit ShouldEmitMatchRegisterAltName = 0;
 }
 def DefaultAsmParser : AsmParser;
 
