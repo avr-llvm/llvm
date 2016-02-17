@@ -20,10 +20,26 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/COFF.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
+#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/TargetFrameLowering.h"
 
+using namespace llvm;
 using namespace llvm::codeview;
 
-namespace llvm {
+CodeViewDebug::CodeViewDebug(AsmPrinter *AP)
+    : DebugHandlerBase(AP), OS(*Asm->OutStreamer), CurFn(nullptr) {
+  // If module doesn't have named metadata anchors or COFF debug section
+  // is not available, skip any debug info related stuff.
+  if (!MMI->getModule()->getNamedMetadata("llvm.dbg.cu") ||
+      !AP->getObjFileLowering().getCOFFDebugSymbolsSection()) {
+    Asm = nullptr;
+    return;
+  }
+
+  // Tell MMI that we have debug info.
+  MMI->setDebugInfoAvailability(true);
+}
 
 StringRef CodeViewDebug::getFullFilepath(const DIFile *File) {
   std::string &Filepath = FileToFilepathMap[File];
@@ -83,22 +99,43 @@ unsigned CodeViewDebug::maybeRecordFile(const DIFile *F) {
   if (Insertion.second) {
     // We have to compute the full filepath and emit a .cv_file directive.
     StringRef FullPath = getFullFilepath(F);
-    NextId = Asm->OutStreamer->EmitCVFileDirective(NextId, FullPath);
+    NextId = OS.EmitCVFileDirective(NextId, FullPath);
     assert(NextId == FileIdMap.size() && ".cv_file directive failed");
   }
   return Insertion.first->second;
 }
 
-CodeViewDebug::InlineSite &CodeViewDebug::getInlineSite(const DILocation *Loc) {
-  const DILocation *InlinedAt = Loc->getInlinedAt();
+CodeViewDebug::InlineSite &
+CodeViewDebug::getInlineSite(const DILocation *InlinedAt,
+                             const DISubprogram *Inlinee) {
   auto Insertion = CurFn->InlineSites.insert({InlinedAt, InlineSite()});
+  InlineSite *Site = &Insertion.first->second;
   if (Insertion.second) {
-    InlineSite &Site = Insertion.first->second;
-    Site.SiteFuncId = NextFuncId++;
-    Site.Inlinee = Loc->getScope()->getSubprogram();
-    InlinedSubprograms.insert(Loc->getScope()->getSubprogram());
+    Site->SiteFuncId = NextFuncId++;
+    Site->Inlinee = Inlinee;
+    InlinedSubprograms.insert(Inlinee);
   }
-  return Insertion.first->second;
+  return *Site;
+}
+
+void CodeViewDebug::recordLocalVariable(LocalVariable &&Var,
+                                        const DILocation *InlinedAt) {
+  if (InlinedAt) {
+    // This variable was inlined. Associate it with the InlineSite.
+    const DISubprogram *Inlinee = Var.DIVar->getScope()->getSubprogram();
+    InlineSite &Site = getInlineSite(InlinedAt, Inlinee);
+    Site.InlinedLocals.emplace_back(Var);
+  } else {
+    // This variable goes in the main ProcSym.
+    CurFn->Locals.emplace_back(Var);
+  }
+}
+
+static void addLocIfNotPresent(SmallVectorImpl<const DILocation *> &Locs,
+                               const DILocation *Loc) {
+  auto B = Locs.begin(), E = Locs.end();
+  if (std::find(B, E, Loc) == E)
+    Locs.push_back(Loc);
 }
 
 void CodeViewDebug::maybeRecordLocation(DebugLoc DL,
@@ -131,43 +168,30 @@ void CodeViewDebug::maybeRecordLocation(DebugLoc DL,
   CurFn->LastLoc = DL;
 
   unsigned FuncId = CurFn->FuncId;
-  if (const DILocation *Loc = DL->getInlinedAt()) {
+  if (const DILocation *SiteLoc = DL->getInlinedAt()) {
+    const DILocation *Loc = DL.get();
+
     // If this location was actually inlined from somewhere else, give it the ID
     // of the inline call site.
-    FuncId = getInlineSite(DL.get()).SiteFuncId;
+    FuncId =
+        getInlineSite(SiteLoc, Loc->getScope()->getSubprogram()).SiteFuncId;
+
     // Ensure we have links in the tree of inline call sites.
-    const DILocation *ChildLoc = nullptr;
-    while (Loc->getInlinedAt()) {
-      InlineSite &Site = getInlineSite(Loc);
-      if (ChildLoc) {
-        // Record the child inline site if not already present.
-        auto B = Site.ChildSites.begin(), E = Site.ChildSites.end();
-        if (std::find(B, E, Loc) != E)
-          break;
-        Site.ChildSites.push_back(Loc);
-      }
-      ChildLoc = Loc;
+    bool FirstLoc = true;
+    while ((SiteLoc = Loc->getInlinedAt())) {
+      InlineSite &Site =
+          getInlineSite(SiteLoc, Loc->getScope()->getSubprogram());
+      if (!FirstLoc)
+        addLocIfNotPresent(Site.ChildSites, Loc);
+      FirstLoc = false;
+      Loc = SiteLoc;
     }
+    addLocIfNotPresent(CurFn->ChildSites, Loc);
   }
 
-  Asm->OutStreamer->EmitCVLocDirective(FuncId, FileId, DL.getLine(),
-                                       DL.getCol(), /*PrologueEnd=*/false,
-                                       /*IsStmt=*/false, DL->getFilename());
-}
-
-CodeViewDebug::CodeViewDebug(AsmPrinter *AP)
-    : Asm(nullptr), CurFn(nullptr) {
-  MachineModuleInfo *MMI = AP->MMI;
-
-  // If module doesn't have named metadata anchors or COFF debug section
-  // is not available, skip any debug info related stuff.
-  if (!MMI->getModule()->getNamedMetadata("llvm.dbg.cu") ||
-      !AP->getObjFileLowering().getCOFFDebugSymbolsSection())
-    return;
-
-  // Tell MMI that we have debug info.
-  MMI->setDebugInfoAvailability(true);
-  Asm = AP;
+  OS.EmitCVLocDirective(FuncId, FileId, DL.getLine(), DL.getCol(),
+                        /*PrologueEnd=*/false,
+                        /*IsStmt=*/false, DL->getFilename());
 }
 
 void CodeViewDebug::endModule() {
@@ -180,10 +204,9 @@ void CodeViewDebug::endModule() {
   // sections that are comdat associative with the main function instead of
   // having one big .debug$S section.
   assert(Asm != nullptr);
-  Asm->OutStreamer->SwitchSection(
-      Asm->getObjFileLowering().getCOFFDebugSymbolsSection());
-  Asm->OutStreamer->AddComment("Debug section magic");
-  Asm->EmitInt32(COFF::DEBUG_SECTION_MAGIC);
+  OS.SwitchSection(Asm->getObjFileLowering().getCOFFDebugSymbolsSection());
+  OS.AddComment("Debug section magic");
+  OS.EmitIntValue(COFF::DEBUG_SECTION_MAGIC, 4);
 
   // The COFF .debug$S section consists of several subsections, each starting
   // with a 4-byte control code (e.g. 0xF1, 0xF2, etc) and then a 4-byte length
@@ -198,25 +221,24 @@ void CodeViewDebug::endModule() {
     emitDebugInfoForFunction(P.first, P.second);
 
   // This subsection holds a file index to offset in string table table.
-  Asm->OutStreamer->AddComment("File index to string table offset subsection");
-  Asm->OutStreamer->EmitCVFileChecksumsDirective();
+  OS.AddComment("File index to string table offset subsection");
+  OS.EmitCVFileChecksumsDirective();
 
   // This subsection holds the string table.
-  Asm->OutStreamer->AddComment("String table");
-  Asm->OutStreamer->EmitCVStringTableDirective();
+  OS.AddComment("String table");
+  OS.EmitCVStringTableDirective();
 
   clear();
 }
 
 void CodeViewDebug::emitTypeInformation() {
   // Start the .debug$T section with 0x4.
-  Asm->OutStreamer->SwitchSection(
-      Asm->getObjFileLowering().getCOFFDebugTypesSection());
-  Asm->OutStreamer->AddComment("Debug section magic");
-  Asm->EmitInt32(COFF::DEBUG_SECTION_MAGIC);
+  OS.SwitchSection(Asm->getObjFileLowering().getCOFFDebugTypesSection());
+  OS.AddComment("Debug section magic");
+  OS.EmitIntValue(COFF::DEBUG_SECTION_MAGIC, 4);
 
   NamedMDNode *CU_Nodes =
-      Asm->MMI->getModule()->getNamedMetadata("llvm.dbg.cu");
+      MMI->getModule()->getNamedMetadata("llvm.dbg.cu");
   if (!CU_Nodes)
     return;
 
@@ -224,48 +246,48 @@ void CodeViewDebug::emitTypeInformation() {
   // frame info. All functions are assigned a simple 'void ()' type. Emit that
   // type here.
   TypeIndex ArgListIdx = getNextTypeIndex();
-  Asm->OutStreamer->AddComment("Type record length");
-  Asm->EmitInt16(2 + sizeof(ArgList));
-  Asm->OutStreamer->AddComment("Leaf type: LF_ARGLIST");
-  Asm->EmitInt16(LF_ARGLIST);
-  Asm->OutStreamer->AddComment("Number of arguments");
-  Asm->EmitInt32(0);
+  OS.AddComment("Type record length");
+  OS.EmitIntValue(2 + sizeof(ArgList), 2);
+  OS.AddComment("Leaf type: LF_ARGLIST");
+  OS.EmitIntValue(LF_ARGLIST, 2);
+  OS.AddComment("Number of arguments");
+  OS.EmitIntValue(0, 4);
 
   TypeIndex VoidProcIdx = getNextTypeIndex();
-  Asm->OutStreamer->AddComment("Type record length");
-  Asm->EmitInt16(2 + sizeof(ProcedureType));
-  Asm->OutStreamer->AddComment("Leaf type: LF_PROCEDURE");
-  Asm->EmitInt16(LF_PROCEDURE);
-  Asm->OutStreamer->AddComment("Return type index");
-  Asm->EmitInt32(TypeIndex::Void().getIndex());
-  Asm->OutStreamer->AddComment("Calling convention");
-  Asm->EmitInt8(char(CallingConvention::NearC));
-  Asm->OutStreamer->AddComment("Function options");
-  Asm->EmitInt8(char(FunctionOptions::None));
-  Asm->OutStreamer->AddComment("# of parameters");
-  Asm->EmitInt16(0);
-  Asm->OutStreamer->AddComment("Argument list type index");
-  Asm->EmitInt32(ArgListIdx.getIndex());
+  OS.AddComment("Type record length");
+  OS.EmitIntValue(2 + sizeof(ProcedureType), 2);
+  OS.AddComment("Leaf type: LF_PROCEDURE");
+  OS.EmitIntValue(LF_PROCEDURE, 2);
+  OS.AddComment("Return type index");
+  OS.EmitIntValue(TypeIndex::Void().getIndex(), 4);
+  OS.AddComment("Calling convention");
+  OS.EmitIntValue(char(CallingConvention::NearC), 1);
+  OS.AddComment("Function options");
+  OS.EmitIntValue(char(FunctionOptions::None), 1);
+  OS.AddComment("# of parameters");
+  OS.EmitIntValue(0, 2);
+  OS.AddComment("Argument list type index");
+  OS.EmitIntValue(ArgListIdx.getIndex(), 4);
 
   for (MDNode *N : CU_Nodes->operands()) {
     auto *CUNode = cast<DICompileUnit>(N);
     for (auto *SP : CUNode->getSubprograms()) {
       StringRef DisplayName = SP->getDisplayName();
-      Asm->OutStreamer->AddComment("Type record length");
-      Asm->EmitInt16(2 + sizeof(FuncId) + DisplayName.size() + 1);
-      Asm->OutStreamer->AddComment("Leaf type: LF_FUNC_ID");
-      Asm->EmitInt16(LF_FUNC_ID);
+      OS.AddComment("Type record length");
+      OS.EmitIntValue(2 + sizeof(FuncId) + DisplayName.size() + 1, 2);
+      OS.AddComment("Leaf type: LF_FUNC_ID");
+      OS.EmitIntValue(LF_FUNC_ID, 2);
 
-      Asm->OutStreamer->AddComment("Scope type index");
-      Asm->EmitInt32(TypeIndex().getIndex());
-      Asm->OutStreamer->AddComment("Function type");
-      Asm->EmitInt32(VoidProcIdx.getIndex());
+      OS.AddComment("Scope type index");
+      OS.EmitIntValue(TypeIndex().getIndex(), 4);
+      OS.AddComment("Function type");
+      OS.EmitIntValue(VoidProcIdx.getIndex(), 4);
       {
         SmallString<32> NullTerminatedString(DisplayName);
         if (NullTerminatedString.empty() || NullTerminatedString.back() != '\0')
           NullTerminatedString.push_back('\0');
-        Asm->OutStreamer->AddComment("Function name");
-        Asm->OutStreamer->EmitBytes(NullTerminatedString);
+        OS.AddComment("Function name");
+        OS.EmitBytes(NullTerminatedString);
       }
 
       TypeIndex FuncIdIdx = getNextTypeIndex();
@@ -278,9 +300,8 @@ void CodeViewDebug::emitInlineeLinesSubsection() {
   if (InlinedSubprograms.empty())
     return;
 
-  MCStreamer &OS = *Asm->OutStreamer;
-  MCSymbol *InlineBegin = Asm->MMI->getContext().createTempSymbol(),
-           *InlineEnd = Asm->MMI->getContext().createTempSymbol();
+  MCSymbol *InlineBegin = MMI->getContext().createTempSymbol(),
+           *InlineEnd = MMI->getContext().createTempSymbol();
 
   OS.AddComment("Inlinee lines subsection");
   OS.EmitIntValue(unsigned(ModuleSubstreamKind::InlineeLines), 4);
@@ -314,24 +335,11 @@ void CodeViewDebug::emitInlineeLinesSubsection() {
   OS.EmitLabel(InlineEnd);
 }
 
-static void EmitLabelDiff(MCStreamer &Streamer,
-                          const MCSymbol *From, const MCSymbol *To,
-                          unsigned int Size = 4) {
-  MCSymbolRefExpr::VariantKind Variant = MCSymbolRefExpr::VK_None;
-  MCContext &Context = Streamer.getContext();
-  const MCExpr *FromRef = MCSymbolRefExpr::create(From, Variant, Context),
-               *ToRef   = MCSymbolRefExpr::create(To, Variant, Context);
-  const MCExpr *AddrDelta =
-      MCBinaryExpr::create(MCBinaryExpr::Sub, ToRef, FromRef, Context);
-  Streamer.EmitValue(AddrDelta, Size);
-}
-
 void CodeViewDebug::collectInlineSiteChildren(
     SmallVectorImpl<unsigned> &Children, const FunctionInfo &FI,
     const InlineSite &Site) {
   for (const DILocation *ChildSiteLoc : Site.ChildSites) {
     auto I = FI.InlineSites.find(ChildSiteLoc);
-    assert(I != FI.InlineSites.end());
     const InlineSite &ChildSite = I->second;
     Children.push_back(ChildSite.SiteFuncId);
     collectInlineSiteChildren(Children, FI, ChildSite);
@@ -341,27 +349,25 @@ void CodeViewDebug::collectInlineSiteChildren(
 void CodeViewDebug::emitInlinedCallSite(const FunctionInfo &FI,
                                         const DILocation *InlinedAt,
                                         const InlineSite &Site) {
-  MCStreamer &OS = *Asm->OutStreamer;
-
-  MCSymbol *InlineBegin = Asm->MMI->getContext().createTempSymbol(),
-           *InlineEnd = Asm->MMI->getContext().createTempSymbol();
+  MCSymbol *InlineBegin = MMI->getContext().createTempSymbol(),
+           *InlineEnd = MMI->getContext().createTempSymbol();
 
   assert(SubprogramToFuncId.count(Site.Inlinee));
   TypeIndex InlineeIdx = SubprogramToFuncId[Site.Inlinee];
 
   // SymbolRecord
-  Asm->OutStreamer->AddComment("Record length");
-  EmitLabelDiff(OS, InlineBegin, InlineEnd, 2);   // RecordLength
+  OS.AddComment("Record length");
+  OS.emitAbsoluteSymbolDiff(InlineEnd, InlineBegin, 2);   // RecordLength
   OS.EmitLabel(InlineBegin);
-  Asm->OutStreamer->AddComment("Record kind: S_INLINESITE");
-  Asm->EmitInt16(SymbolRecordKind::S_INLINESITE); // RecordKind
+  OS.AddComment("Record kind: S_INLINESITE");
+  OS.EmitIntValue(SymbolRecordKind::S_INLINESITE, 2); // RecordKind
 
-  Asm->OutStreamer->AddComment("PtrParent");
-  Asm->OutStreamer->EmitIntValue(0, 4);
-  Asm->OutStreamer->AddComment("PtrEnd");
-  Asm->OutStreamer->EmitIntValue(0, 4);
-  Asm->OutStreamer->AddComment("Inlinee type index");
-  Asm->EmitInt32(InlineeIdx.getIndex());
+  OS.AddComment("PtrParent");
+  OS.EmitIntValue(0, 4);
+  OS.AddComment("PtrEnd");
+  OS.EmitIntValue(0, 4);
+  OS.AddComment("Inlinee type index");
+  OS.EmitIntValue(InlineeIdx.getIndex(), 4);
 
   unsigned FileId = maybeRecordFile(Site.Inlinee->getFile());
   unsigned StartLineNum = Site.Inlinee->getLine();
@@ -373,6 +379,9 @@ void CodeViewDebug::emitInlinedCallSite(const FunctionInfo &FI,
 
   OS.EmitLabel(InlineEnd);
 
+  for (const LocalVariable &Var : Site.InlinedLocals)
+    emitLocalVariable(Var);
+
   // Recurse on child inlined call sites before closing the scope.
   for (const DILocation *ChildSite : Site.ChildSites) {
     auto I = FI.InlineSites.find(ChildSite);
@@ -382,10 +391,17 @@ void CodeViewDebug::emitInlinedCallSite(const FunctionInfo &FI,
   }
 
   // Close the scope.
-  Asm->OutStreamer->AddComment("Record length");
-  Asm->EmitInt16(2);                                  // RecordLength
-  Asm->OutStreamer->AddComment("Record kind: S_INLINESITE_END");
-  Asm->EmitInt16(SymbolRecordKind::S_INLINESITE_END); // RecordKind
+  OS.AddComment("Record length");
+  OS.EmitIntValue(2, 2);                                  // RecordLength
+  OS.AddComment("Record kind: S_INLINESITE_END");
+  OS.EmitIntValue(SymbolRecordKind::S_INLINESITE_END, 2); // RecordKind
+}
+
+static void emitNullTerminatedString(MCStreamer &OS, StringRef S) {
+  SmallString<32> NullTerminatedString(S);
+  if (NullTerminatedString.empty() || NullTerminatedString.back() != '\0')
+    NullTerminatedString.push_back('\0');
+  OS.EmitBytes(NullTerminatedString);
 }
 
 void CodeViewDebug::emitDebugInfoForFunction(const Function *GV,
@@ -404,84 +420,230 @@ void CodeViewDebug::emitDebugInfoForFunction(const Function *GV,
     FuncName = GlobalValue::getRealLinkageName(GV->getName());
 
   // Emit a symbol subsection, required by VS2012+ to find function boundaries.
-  MCSymbol *SymbolsBegin = Asm->MMI->getContext().createTempSymbol(),
-           *SymbolsEnd = Asm->MMI->getContext().createTempSymbol();
-  Asm->OutStreamer->AddComment("Symbol subsection for " + Twine(FuncName));
-  Asm->EmitInt32(unsigned(ModuleSubstreamKind::Symbols));
-  Asm->OutStreamer->AddComment("Subsection size");
-  EmitLabelDiff(*Asm->OutStreamer, SymbolsBegin, SymbolsEnd);
-  Asm->OutStreamer->EmitLabel(SymbolsBegin);
+  MCSymbol *SymbolsBegin = MMI->getContext().createTempSymbol(),
+           *SymbolsEnd = MMI->getContext().createTempSymbol();
+  OS.AddComment("Symbol subsection for " + Twine(FuncName));
+  OS.EmitIntValue(unsigned(ModuleSubstreamKind::Symbols), 4);
+  OS.AddComment("Subsection size");
+  OS.emitAbsoluteSymbolDiff(SymbolsEnd, SymbolsBegin, 4);
+  OS.EmitLabel(SymbolsBegin);
   {
-    MCSymbol *ProcRecordBegin = Asm->MMI->getContext().createTempSymbol(),
-             *ProcRecordEnd = Asm->MMI->getContext().createTempSymbol();
-    Asm->OutStreamer->AddComment("Record length");
-    EmitLabelDiff(*Asm->OutStreamer, ProcRecordBegin, ProcRecordEnd, 2);
-    Asm->OutStreamer->EmitLabel(ProcRecordBegin);
+    MCSymbol *ProcRecordBegin = MMI->getContext().createTempSymbol(),
+             *ProcRecordEnd = MMI->getContext().createTempSymbol();
+    OS.AddComment("Record length");
+    OS.emitAbsoluteSymbolDiff(ProcRecordEnd, ProcRecordBegin, 2);
+    OS.EmitLabel(ProcRecordBegin);
 
-    Asm->OutStreamer->AddComment("Record kind: S_GPROC32_ID");
-    Asm->EmitInt16(unsigned(SymbolRecordKind::S_GPROC32_ID));
+    OS.AddComment("Record kind: S_GPROC32_ID");
+    OS.EmitIntValue(unsigned(SymbolRecordKind::S_GPROC32_ID), 2);
 
     // These fields are filled in by tools like CVPACK which run after the fact.
-    Asm->OutStreamer->AddComment("PtrParent");
-    Asm->OutStreamer->EmitIntValue(0, 4);
-    Asm->OutStreamer->AddComment("PtrEnd");
-    Asm->OutStreamer->EmitIntValue(0, 4);
-    Asm->OutStreamer->AddComment("PtrNext");
-    Asm->OutStreamer->EmitIntValue(0, 4);
+    OS.AddComment("PtrParent");
+    OS.EmitIntValue(0, 4);
+    OS.AddComment("PtrEnd");
+    OS.EmitIntValue(0, 4);
+    OS.AddComment("PtrNext");
+    OS.EmitIntValue(0, 4);
     // This is the important bit that tells the debugger where the function
     // code is located and what's its size:
-    Asm->OutStreamer->AddComment("Code size");
-    EmitLabelDiff(*Asm->OutStreamer, Fn, FI.End);
-    Asm->OutStreamer->AddComment("Offset after prologue");
-    Asm->OutStreamer->EmitIntValue(0, 4);
-    Asm->OutStreamer->AddComment("Offset before epilogue");
-    Asm->OutStreamer->EmitIntValue(0, 4);
-    Asm->OutStreamer->AddComment("Function type index");
-    Asm->OutStreamer->EmitIntValue(0, 4);
-    Asm->OutStreamer->AddComment("Function section relative address");
-    Asm->OutStreamer->EmitCOFFSecRel32(Fn);
-    Asm->OutStreamer->AddComment("Function section index");
-    Asm->OutStreamer->EmitCOFFSectionIndex(Fn);
-    Asm->OutStreamer->AddComment("Flags");
-    Asm->EmitInt8(0);
+    OS.AddComment("Code size");
+    OS.emitAbsoluteSymbolDiff(FI.End, Fn, 4);
+    OS.AddComment("Offset after prologue");
+    OS.EmitIntValue(0, 4);
+    OS.AddComment("Offset before epilogue");
+    OS.EmitIntValue(0, 4);
+    OS.AddComment("Function type index");
+    OS.EmitIntValue(0, 4);
+    OS.AddComment("Function section relative address");
+    OS.EmitCOFFSecRel32(Fn);
+    OS.AddComment("Function section index");
+    OS.EmitCOFFSectionIndex(Fn);
+    OS.AddComment("Flags");
+    OS.EmitIntValue(0, 1);
     // Emit the function display name as a null-terminated string.
-    Asm->OutStreamer->AddComment("Function name");
-    {
-      SmallString<32> NullTerminatedString(FuncName);
-      if (NullTerminatedString.empty() || NullTerminatedString.back() != '\0')
-        NullTerminatedString.push_back('\0');
-      Asm->OutStreamer->EmitBytes(NullTerminatedString);
-    }
-    Asm->OutStreamer->EmitLabel(ProcRecordEnd);
+    OS.AddComment("Function name");
+    emitNullTerminatedString(OS, FuncName);
+    OS.EmitLabel(ProcRecordEnd);
+
+    for (const LocalVariable &Var : FI.Locals)
+      emitLocalVariable(Var);
 
     // Emit inlined call site information. Only emit functions inlined directly
     // into the parent function. We'll emit the other sites recursively as part
     // of their parent inline site.
-    for (auto &KV : FI.InlineSites) {
-      const DILocation *InlinedAt = KV.first;
-      if (!InlinedAt->getInlinedAt())
-        emitInlinedCallSite(FI, InlinedAt, KV.second);
+    for (const DILocation *InlinedAt : FI.ChildSites) {
+      auto I = FI.InlineSites.find(InlinedAt);
+      assert(I != FI.InlineSites.end() &&
+             "child site not in function inline site map");
+      emitInlinedCallSite(FI, InlinedAt, I->second);
     }
 
     // We're done with this function.
-    Asm->OutStreamer->AddComment("Record length");
-    Asm->EmitInt16(0x0002);
-    Asm->OutStreamer->AddComment("Record kind: S_PROC_ID_END");
-    Asm->EmitInt16(unsigned(SymbolRecordKind::S_PROC_ID_END));
+    OS.AddComment("Record length");
+    OS.EmitIntValue(0x0002, 2);
+    OS.AddComment("Record kind: S_PROC_ID_END");
+    OS.EmitIntValue(unsigned(SymbolRecordKind::S_PROC_ID_END), 2);
   }
-  Asm->OutStreamer->EmitLabel(SymbolsEnd);
+  OS.EmitLabel(SymbolsEnd);
   // Every subsection must be aligned to a 4-byte boundary.
-  Asm->OutStreamer->EmitValueToAlignment(4);
+  OS.EmitValueToAlignment(4);
 
   // We have an assembler directive that takes care of the whole line table.
-  Asm->OutStreamer->EmitCVLinetableDirective(FI.FuncId, Fn, FI.End);
+  OS.EmitCVLinetableDirective(FI.FuncId, Fn, FI.End);
+}
+
+CodeViewDebug::LocalVarDefRange
+CodeViewDebug::createDefRangeMem(uint16_t CVRegister, int Offset) {
+  LocalVarDefRange DR;
+  DR.InMemory = 1;
+  DR.DataOffset = Offset;
+  assert(DR.DataOffset == Offset && "truncation");
+  DR.StructOffset = 0;
+  DR.CVRegister = CVRegister;
+  return DR;
+}
+
+CodeViewDebug::LocalVarDefRange
+CodeViewDebug::createDefRangeReg(uint16_t CVRegister) {
+  LocalVarDefRange DR;
+  DR.InMemory = 0;
+  DR.DataOffset = 0;
+  DR.StructOffset = 0;
+  DR.CVRegister = CVRegister;
+  return DR;
+}
+
+void CodeViewDebug::collectVariableInfoFromMMITable(
+    DenseSet<InlinedVariable> &Processed) {
+  const TargetSubtargetInfo &TSI = Asm->MF->getSubtarget();
+  const TargetFrameLowering *TFI = TSI.getFrameLowering();
+  const TargetRegisterInfo *TRI = TSI.getRegisterInfo();
+
+  for (const MachineModuleInfo::VariableDbgInfo &VI :
+       MMI->getVariableDbgInfo()) {
+    if (!VI.Var)
+      continue;
+    assert(VI.Var->isValidLocationForIntrinsic(VI.Loc) &&
+           "Expected inlined-at fields to agree");
+
+    Processed.insert(InlinedVariable(VI.Var, VI.Loc->getInlinedAt()));
+    LexicalScope *Scope = LScopes.findLexicalScope(VI.Loc);
+
+    // If variable scope is not found then skip this variable.
+    if (!Scope)
+      continue;
+
+    // Get the frame register used and the offset.
+    unsigned FrameReg = 0;
+    int FrameOffset = TFI->getFrameIndexReference(*Asm->MF, VI.Slot, FrameReg);
+    uint16_t CVReg = TRI->getCodeViewRegNum(FrameReg);
+
+    // Calculate the label ranges.
+    LocalVarDefRange DefRange = createDefRangeMem(CVReg, FrameOffset);
+    for (const InsnRange &Range : Scope->getRanges()) {
+      const MCSymbol *Begin = getLabelBeforeInsn(Range.first);
+      const MCSymbol *End = getLabelAfterInsn(Range.second);
+      End = End ? End : Asm->getFunctionEnd();
+      DefRange.Ranges.emplace_back(Begin, End);
+    }
+
+    LocalVariable Var;
+    Var.DIVar = VI.Var;
+    Var.DefRanges.emplace_back(std::move(DefRange));
+    recordLocalVariable(std::move(Var), VI.Loc->getInlinedAt());
+  }
+}
+
+void CodeViewDebug::collectVariableInfo(const DISubprogram *SP) {
+  DenseSet<InlinedVariable> Processed;
+  // Grab the variable info that was squirreled away in the MMI side-table.
+  collectVariableInfoFromMMITable(Processed);
+
+  const TargetRegisterInfo *TRI = Asm->MF->getSubtarget().getRegisterInfo();
+
+  for (const auto &I : DbgValues) {
+    InlinedVariable IV = I.first;
+    if (Processed.count(IV))
+      continue;
+    const DILocalVariable *DIVar = IV.first;
+    const DILocation *InlinedAt = IV.second;
+
+    // Instruction ranges, specifying where IV is accessible.
+    const auto &Ranges = I.second;
+
+    LexicalScope *Scope = nullptr;
+    if (InlinedAt)
+      Scope = LScopes.findInlinedScope(DIVar->getScope(), InlinedAt);
+    else
+      Scope = LScopes.findLexicalScope(DIVar->getScope());
+    // If variable scope is not found then skip this variable.
+    if (!Scope)
+      continue;
+
+    LocalVariable Var;
+    Var.DIVar = DIVar;
+
+    // Calculate the definition ranges.
+    for (auto I = Ranges.begin(), E = Ranges.end(); I != E; ++I) {
+      const InsnRange &Range = *I;
+      const MachineInstr *DVInst = Range.first;
+      assert(DVInst->isDebugValue() && "Invalid History entry");
+      const DIExpression *DIExpr = DVInst->getDebugExpression();
+
+      // Bail if there is a complex DWARF expression for now.
+      if (DIExpr && DIExpr->getNumElements() > 0)
+        continue;
+
+      // Handle the two cases we can handle: indirect in memory and in register.
+      bool IsIndirect = DVInst->getOperand(1).isImm();
+      unsigned CVReg = TRI->getCodeViewRegNum(DVInst->getOperand(0).getReg());
+      {
+        LocalVarDefRange DefRange;
+        if (IsIndirect) {
+          int64_t Offset = DVInst->getOperand(1).getImm();
+          DefRange = createDefRangeMem(CVReg, Offset);
+        } else {
+          DefRange = createDefRangeReg(CVReg);
+        }
+        if (Var.DefRanges.empty() ||
+            Var.DefRanges.back().isDifferentLocation(DefRange)) {
+          Var.DefRanges.emplace_back(std::move(DefRange));
+        }
+      }
+
+      // Compute the label range.
+      const MCSymbol *Begin = getLabelBeforeInsn(Range.first);
+      const MCSymbol *End = getLabelAfterInsn(Range.second);
+      if (!End) {
+        if (std::next(I) != E)
+          End = getLabelBeforeInsn(std::next(I)->first);
+        else
+          End = Asm->getFunctionEnd();
+      }
+
+      // If the last range end is our begin, just extend the last range.
+      // Otherwise make a new range.
+      SmallVectorImpl<std::pair<const MCSymbol *, const MCSymbol *>> &Ranges =
+          Var.DefRanges.back().Ranges;
+      if (!Ranges.empty() && Ranges.back().second == Begin)
+        Ranges.back().second = End;
+      else
+        Ranges.emplace_back(Begin, End);
+
+      // FIXME: Do more range combining.
+    }
+
+    recordLocalVariable(std::move(Var), InlinedAt);
+  }
 }
 
 void CodeViewDebug::beginFunction(const MachineFunction *MF) {
   assert(!CurFn && "Can't process two functions at once!");
 
-  if (!Asm || !Asm->MMI->hasDebugInfo())
+  if (!Asm || !MMI->hasDebugInfo())
     return;
+
+  DebugHandlerBase::beginFunction(MF);
 
   const Function *GV = MF->getFunction();
   assert(FnDebugInfo.count(GV) == false);
@@ -489,32 +651,87 @@ void CodeViewDebug::beginFunction(const MachineFunction *MF) {
   CurFn->FuncId = NextFuncId++;
   CurFn->Begin = Asm->getFunctionBegin();
 
-  // Find the end of the function prolog.
+  // Find the end of the function prolog.  First known non-DBG_VALUE and
+  // non-frame setup location marks the beginning of the function body.
   // FIXME: is there a simpler a way to do this? Can we just search
   // for the first instruction of the function, not the last of the prolog?
   DebugLoc PrologEndLoc;
   bool EmptyPrologue = true;
   for (const auto &MBB : *MF) {
-    if (PrologEndLoc)
-      break;
     for (const auto &MI : MBB) {
-      if (MI.isDebugValue())
-        continue;
-
-      // First known non-DBG_VALUE and non-frame setup location marks
-      // the beginning of the function body.
-      // FIXME: do we need the first subcondition?
-      if (!MI.getFlag(MachineInstr::FrameSetup) && MI.getDebugLoc()) {
+      if (!MI.isDebugValue() && !MI.getFlag(MachineInstr::FrameSetup) &&
+          MI.getDebugLoc()) {
         PrologEndLoc = MI.getDebugLoc();
         break;
+      } else if (!MI.isDebugValue()) {
+        EmptyPrologue = false;
       }
-      EmptyPrologue = false;
     }
   }
+
   // Record beginning of function if we have a non-empty prologue.
   if (PrologEndLoc && !EmptyPrologue) {
     DebugLoc FnStartDL = PrologEndLoc.getFnDebugLoc();
     maybeRecordLocation(FnStartDL, MF);
+  }
+}
+
+void CodeViewDebug::emitLocalVariable(const LocalVariable &Var) {
+  // LocalSym record, see SymbolRecord.h for more info.
+  MCSymbol *LocalBegin = MMI->getContext().createTempSymbol(),
+           *LocalEnd = MMI->getContext().createTempSymbol();
+  OS.AddComment("Record length");
+  OS.emitAbsoluteSymbolDiff(LocalEnd, LocalBegin, 2);
+  OS.EmitLabel(LocalBegin);
+
+  OS.AddComment("Record kind: S_LOCAL");
+  OS.EmitIntValue(unsigned(SymbolRecordKind::S_LOCAL), 2);
+
+  uint16_t Flags = 0;
+  if (Var.DIVar->isParameter())
+    Flags |= LocalSym::IsParameter;
+  if (Var.DefRanges.empty())
+    Flags |= LocalSym::IsOptimizedOut;
+
+  OS.AddComment("TypeIndex");
+  OS.EmitIntValue(TypeIndex::Int32().getIndex(), 4);
+  OS.AddComment("Flags");
+  OS.EmitIntValue(Flags, 2);
+  emitNullTerminatedString(OS, Var.DIVar->getName());
+  OS.EmitLabel(LocalEnd);
+
+  // Calculate the on disk prefix of the appropriate def range record. The
+  // records and on disk formats are described in SymbolRecords.h. BytePrefix
+  // should be big enough to hold all forms without memory allocation.
+  SmallString<20> BytePrefix;
+  for (const LocalVarDefRange &DefRange : Var.DefRanges) {
+    BytePrefix.clear();
+    // FIXME: Handle bitpieces.
+    if (DefRange.StructOffset != 0)
+      continue;
+
+    if (DefRange.InMemory) {
+      DefRangeRegisterRelSym Sym{};
+      ulittle16_t SymKind = ulittle16_t(S_DEFRANGE_REGISTER_REL);
+      Sym.BaseRegister = DefRange.CVRegister;
+      Sym.Flags = 0; // Unclear what matters here.
+      Sym.BasePointerOffset = DefRange.DataOffset;
+      BytePrefix +=
+          StringRef(reinterpret_cast<const char *>(&SymKind), sizeof(SymKind));
+      BytePrefix += StringRef(reinterpret_cast<const char *>(&Sym),
+                              sizeof(Sym) - sizeof(LocalVariableAddrRange));
+    } else {
+      assert(DefRange.DataOffset == 0 && "unexpected offset into register");
+      DefRangeRegisterSym Sym{};
+      ulittle16_t SymKind = ulittle16_t(S_DEFRANGE_REGISTER);
+      Sym.Register = DefRange.CVRegister;
+      Sym.MayHaveNoName = 0; // Unclear what matters here.
+      BytePrefix +=
+          StringRef(reinterpret_cast<const char *>(&SymKind), sizeof(SymKind));
+      BytePrefix += StringRef(reinterpret_cast<const char *>(&Sym),
+                              sizeof(Sym) - sizeof(LocalVariableAddrRange));
+    }
+    OS.EmitCVDefRangeDirective(DefRange.Ranges, BytePrefix);
   }
 }
 
@@ -526,16 +743,25 @@ void CodeViewDebug::endFunction(const MachineFunction *MF) {
   assert(FnDebugInfo.count(GV));
   assert(CurFn == &FnDebugInfo[GV]);
 
+  collectVariableInfo(getDISubprogram(GV));
+
+  DebugHandlerBase::endFunction(MF);
+
   // Don't emit anything if we don't have any line tables.
   if (!CurFn->HaveLineInfo) {
     FnDebugInfo.erase(GV);
-  } else {
-    CurFn->End = Asm->getFunctionEnd();
+    CurFn = nullptr;
+    return;
   }
+
+  CurFn->End = Asm->getFunctionEnd();
+
   CurFn = nullptr;
 }
 
 void CodeViewDebug::beginInstruction(const MachineInstr *MI) {
+  DebugHandlerBase::beginInstruction(MI);
+
   // Ignore DBG_VALUE locations and function prologue.
   if (!Asm || MI->isDebugValue() || MI->getFlag(MachineInstr::FrameSetup))
     return;
@@ -543,5 +769,4 @@ void CodeViewDebug::beginInstruction(const MachineInstr *MI) {
   if (DL == PrevInstLoc || !DL)
     return;
   maybeRecordLocation(DL, Asm->MF);
-}
 }

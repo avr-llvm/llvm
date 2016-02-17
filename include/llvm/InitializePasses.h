@@ -176,6 +176,7 @@ void initializeGlobalMergePass(PassRegistry&);
 void initializeLoopRerollPass(PassRegistry&);
 void initializeLoopUnrollPass(PassRegistry&);
 void initializeLoopUnswitchPass(PassRegistry&);
+void initializeLoopVersioningLICMPass(PassRegistry&);
 void initializeLoopIdiomRecognizePass(PassRegistry&);
 void initializeLowerAtomicPass(PassRegistry&);
 void initializeLowerBitSetsPass(PassRegistry&);
@@ -315,6 +316,7 @@ void initializeFuncletLayoutPass(PassRegistry &);
 void initializeLoopLoadEliminationPass(PassRegistry&);
 void initializeFunctionImportPassPass(PassRegistry &);
 void initializeLoopVersioningPassPass(PassRegistry &);
+void initializeWholeProgramDevirtPass(PassRegistry &);
 }
 
 #endif

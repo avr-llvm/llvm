@@ -522,15 +522,19 @@ public:
   /// whether MemoryAccess \p A dominates MemoryAccess \p B.
   bool locallyDominates(const MemoryAccess *A, const MemoryAccess *B) const;
 
+  /// \brief Verify that MemorySSA is self consistent (IE definitions dominate
+  /// all uses, uses appear in the right places).  This is used by unit tests.
+  void verifyMemorySSA() const;
+
 protected:
   // Used by Memory SSA annotater, dumpers, and wrapper pass
   friend class MemorySSAAnnotatedWriter;
   friend class MemorySSAPrinterPass;
-  void verifyDefUses(Function &F);
-  void verifyDomination(Function &F);
+  void verifyDefUses(Function &F) const;
+  void verifyDomination(Function &F) const;
 
 private:
-  void verifyUseInDefs(MemoryAccess *, MemoryAccess *);
+  void verifyUseInDefs(MemoryAccess *, MemoryAccess *) const;
   using AccessMap =
       DenseMap<const BasicBlock *, std::unique_ptr<AccessListType>>;
 
@@ -551,7 +555,7 @@ private:
   Function &F;
 
   // Memory SSA mappings
-  DenseMap<const Value *, MemoryAccess *> InstructionToMemoryAccess;
+  DenseMap<const Value *, MemoryAccess *> ValueToMemoryAccess;
   AccessMap PerBlockAccesses;
   std::unique_ptr<MemoryAccess> LiveOnEntryDef;
 
@@ -678,6 +682,37 @@ using ConstMemoryAccessPair = std::pair<const MemoryAccess *, MemoryLocation>;
 
 /// \brief A MemorySSAWalker that does AA walks and caching of lookups to
 /// disambiguate accesses.
+///
+/// FIXME: The current implementation of this can take quadratic space in rare
+/// cases. This can be fixed, but it is something to note until it is fixed.
+///
+/// In order to trigger this behavior, you need to store to N distinct locations
+/// (that AA can prove don't alias), perform M stores to other memory
+/// locations that AA can prove don't alias any of the initial N locations, and
+/// then load from all of the N locations. In this case, we insert M cache
+/// entries for each of the N loads.
+///
+/// For example:
+/// define i32 @foo() {
+///   %a = alloca i32, align 4
+///   %b = alloca i32, align 4
+///   store i32 0, i32* %a, align 4
+///   store i32 0, i32* %b, align 4
+///
+///   ; Insert M stores to other memory that doesn't alias %a or %b here
+///
+///   %c = load i32, i32* %a, align 4 ; Caches M entries in
+///                                   ; CachedUpwardsClobberingAccess for the
+///                                   ; MemoryLocation %a
+///   %d = load i32, i32* %b, align 4 ; Caches M entries in
+///                                   ; CachedUpwardsClobberingAccess for the
+///                                   ; MemoryLocation %b
+///
+///   ; For completeness' sake, loading %a or %b again would not cache *another*
+///   ; M entries.
+///   %r = add i32 %c, %d
+///   ret i32 %r
+/// }
 class CachingMemorySSAWalker final : public MemorySSAWalker {
 public:
   CachingMemorySSAWalker(MemorySSA *, AliasAnalysis *, DominatorTree *);

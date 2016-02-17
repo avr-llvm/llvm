@@ -55,8 +55,7 @@ protected:
   };
 
   enum X86ProcFamilyEnum {
-    Others, IntelAtom, IntelSLM, IntelSNB, IntelIVB, IntelHSW, IntelBDW,
-    IntelKNL, IntelSKL, IntelSKX, IntelCNL
+    Others, IntelAtom, IntelSLM
   };
 
   /// X86 processor family: Intel Atom, and others
@@ -188,6 +187,10 @@ protected:
   /// True if the LEA instruction should be used for adjusting
   /// the stack pointer. This is an optimization for Intel Atom processors.
   bool UseLeaForSP;
+
+  /// True if there is no performance penalty to writing only the lower parts
+  /// of a YMM register without clearing the upper part.
+  bool HasFastPartialYMMWrite;
 
   /// True if 8-bit divisions are significantly faster than
   /// 32-bit divisions and should be used when possible.
@@ -421,6 +424,7 @@ public:
   bool hasSSEUnalignedMem() const { return HasSSEUnalignedMem; }
   bool hasCmpxchg16b() const { return HasCmpxchg16b; }
   bool useLeaForSP() const { return UseLeaForSP; }
+  bool hasFastPartialYMMWrite() const { return HasFastPartialYMMWrite; }
   bool hasSlowDivide32() const { return HasSlowDivide32; }
   bool hasSlowDivide64() const { return HasSlowDivide64; }
   bool padShortFunctions() const { return PadShortFunctions; }
@@ -440,6 +444,11 @@ public:
   bool isAtom() const { return X86ProcFamily == IntelAtom; }
   bool isSLM() const { return X86ProcFamily == IntelSLM; }
   bool useSoftFloat() const { return UseSoftFloat; }
+
+  /// Use mfence if we have SSE2 or we're on x86-64 (even if we asked for
+  /// no-sse2). There isn't any reason to disable it if the target processor
+  /// supports it.
+  bool hasMFence() const { return hasSSE2() || is64Bit(); }
 
   const Triple &getTargetTriple() const { return TargetTriple; }
 

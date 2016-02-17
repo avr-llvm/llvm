@@ -195,6 +195,12 @@ Pass *createLoopIdiomPass();
 
 //===----------------------------------------------------------------------===//
 //
+// LoopVersioningLICM - This pass is a loop versioning pass for LICM.
+//
+Pass *createLoopVersioningLICMPass();
+
+//===----------------------------------------------------------------------===//
+//
 // PromoteMemoryToRegister - This pass is used to promote memory references to
 // be register references. A simple example of the transformation performed by
 // this pass is:
@@ -252,7 +258,10 @@ FunctionPass *createFlattenCFGPass();
 //
 // CFG Structurization - Remove irreducible control flow
 //
-Pass *createStructurizeCFGPass();
+///
+/// When \p SkipUniformRegions is true the structizer will not structurize
+/// regions that only contain uniform branches.
+Pass *createStructurizeCFGPass(bool SkipUniformRegions = false);
 
 //===----------------------------------------------------------------------===//
 //

@@ -14,12 +14,11 @@
 #ifndef LLVM_LIB_CODEGEN_ASMPRINTER_CODEVIEWDEBUG_H
 #define LLVM_LIB_CODEGEN_ASMPRINTER_CODEVIEWDEBUG_H
 
-#include "AsmPrinterHandler.h"
+#include "DebugHandlerBase.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/CodeGen/AsmPrinter.h"
-#include "llvm/CodeGen/LexicalScopes.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/DebugInfo/CodeView/TypeIndex.h"
@@ -29,13 +28,52 @@
 #include "llvm/Target/TargetLoweringObjectFile.h"
 
 namespace llvm {
+
+class LexicalScope;
+
 /// \brief Collects and handles line tables information in a CodeView format.
-class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public AsmPrinterHandler {
-  AsmPrinter *Asm;
-  DebugLoc PrevInstLoc;
+class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public DebugHandlerBase {
+  MCStreamer &OS;
+
+  /// Represents the most general definition range.
+  struct LocalVarDefRange {
+    /// Indicates that variable data is stored in memory relative to the
+    /// specified register.
+    int InMemory : 1;
+
+    /// Offset of variable data in memory.
+    int DataOffset : 31;
+
+    /// Offset of the data into the user level struct. If zero, no splitting
+    /// occurred.
+    uint16_t StructOffset;
+
+    /// Register containing the data or the register base of the memory
+    /// location containing the data.
+    uint16_t CVRegister;
+
+    /// Compares all location fields. This includes all fields except the label
+    /// ranges.
+    bool isDifferentLocation(LocalVarDefRange &O) {
+      return InMemory != O.InMemory || DataOffset != O.DataOffset ||
+             StructOffset != O.StructOffset || CVRegister != O.CVRegister;
+    }
+
+    SmallVector<std::pair<const MCSymbol *, const MCSymbol *>, 1> Ranges;
+  };
+
+  static LocalVarDefRange createDefRangeMem(uint16_t CVRegister, int Offset);
+  static LocalVarDefRange createDefRangeReg(uint16_t CVRegister);
+
+  /// Similar to DbgVariable in DwarfDebug, but not dwarf-specific.
+  struct LocalVariable {
+    const DILocalVariable *DIVar = nullptr;
+    SmallVector<LocalVarDefRange, 1> DefRanges;
+  };
 
   struct InlineSite {
-    TinyPtrVector<const DILocation *> ChildSites;
+    SmallVector<LocalVariable, 1> InlinedLocals;
+    SmallVector<const DILocation *, 1> ChildSites;
     const DISubprogram *Inlinee = nullptr;
     unsigned SiteFuncId = 0;
   };
@@ -45,7 +83,12 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public AsmPrinterHandler {
   struct FunctionInfo {
     /// Map from inlined call site to inlined instructions and child inlined
     /// call sites. Listed in program order.
-    MapVector<const DILocation *, InlineSite> InlineSites;
+    std::unordered_map<const DILocation *, InlineSite> InlineSites;
+
+    /// Ordered list of top-level inlined call sites.
+    SmallVector<const DILocation *, 1> ChildSites;
+
+    SmallVector<LocalVariable, 1> Locals;
 
     DebugLoc LastLoc;
     const MCSymbol *Begin = nullptr;
@@ -58,7 +101,8 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public AsmPrinterHandler {
 
   unsigned NextFuncId = 0;
 
-  InlineSite &getInlineSite(const DILocation *Loc);
+  InlineSite &getInlineSite(const DILocation *InlinedAt,
+                            const DISubprogram *Inlinee);
 
   static void collectInlineSiteChildren(SmallVectorImpl<unsigned> &Children,
                                         const FunctionInfo &FI,
@@ -107,6 +151,18 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public AsmPrinterHandler {
   void emitInlinedCallSite(const FunctionInfo &FI, const DILocation *InlinedAt,
                            const InlineSite &Site);
 
+  typedef DbgValueHistoryMap::InlinedVariable InlinedVariable;
+
+  void collectVariableInfo(const DISubprogram *SP);
+
+  void collectVariableInfoFromMMITable(DenseSet<InlinedVariable> &Processed);
+
+  /// Records information about a local variable in the appropriate scope. In
+  /// particular, locals from inlined code live inside the inlining site.
+  void recordLocalVariable(LocalVariable &&Var, const DILocation *Loc);
+
+  void emitLocalVariable(const LocalVariable &Var);
+
 public:
   CodeViewDebug(AsmPrinter *Asm);
 
@@ -123,9 +179,6 @@ public:
 
   /// \brief Process beginning of an instruction.
   void beginInstruction(const MachineInstr *MI) override;
-
-  /// \brief Process end of an instruction.
-  void endInstruction() override {}
 };
 } // End of namespace llvm
 

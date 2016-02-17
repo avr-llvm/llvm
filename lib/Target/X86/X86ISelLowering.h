@@ -470,6 +470,8 @@ namespace llvm {
 
       // Vector float/double to signed/unsigned integer.
       FP_TO_SINT_RND, FP_TO_UINT_RND,
+      // Scalar float/double to signed/unsigned integer.
+      SCALAR_FP_TO_SINT_RND, SCALAR_FP_TO_UINT_RND,
       // Save xmm argument registers to the stack, according to %al. An operator
       // is needed so that this can be expanded with control flow.
       VASTART_SAVE_XMM_REGS,
@@ -1090,8 +1092,8 @@ namespace llvm {
 
     bool mayBeEmittedAsTailCall(CallInst *CI) const override;
 
-    EVT getTypeForExtArgOrReturn(LLVMContext &Context, EVT VT,
-                                 ISD::NodeType ExtendKind) const override;
+    EVT getTypeForExtReturn(LLVMContext &Context, EVT VT,
+                            ISD::NodeType ExtendKind) const override;
 
     bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
                         bool isVarArg,

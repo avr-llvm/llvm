@@ -911,6 +911,25 @@ bool LazyValueInfoCache::solveBlockValueSelect(LVILatticeVal &BBLV,
     return true;
   }
 
+  // Can we constrain the facts about the true and false values by using the
+  // condition itself?  This shows up with idioms like e.g. select(a > 5, a, 5).
+  // TODO: We could potentially refine an overdefined true value above.
+  if (auto *ICI = dyn_cast<ICmpInst>(SI->getCondition())) {
+    LVILatticeVal TrueValTaken, FalseValTaken;
+    if (!getValueFromFromCondition(SI->getTrueValue(), ICI,
+                                   TrueValTaken, true))
+      TrueValTaken.markOverdefined();
+    if (!getValueFromFromCondition(SI->getFalseValue(), ICI,
+                                   FalseValTaken, false))
+      FalseValTaken.markOverdefined();
+
+    TrueVal = intersect(TrueVal, TrueValTaken);
+    FalseVal = intersect(FalseVal, FalseValTaken);
+  }
+
+  // TODO: handle idioms like min & max where we can use a more precise merge
+  // when our inputs are constant ranges.
+  
   LVILatticeVal Result;  // Start Undefined.
   Result.mergeIn(TrueVal, DL);
   Result.mergeIn(FalseVal, DL);
@@ -942,6 +961,27 @@ bool LazyValueInfoCache::solveBlockValueConstantRange(LVILatticeVal &BBLV,
   if (isa<BinaryOperator>(BBI)) {
     if (ConstantInt *RHS = dyn_cast<ConstantInt>(BBI->getOperand(1))) {
       RHSRange = ConstantRange(RHS->getValue());
+
+      // Try to use information about wrap flags to refine the range LHS can
+      // legally have.  This is a slightly weird way to implement forward
+      // propagation over overflowing instructions, but it seems to be the only
+      // clean one we have.  NOTE: Because we may have speculated the
+      // instruction, we can't constrain other uses of LHS even if they would
+      // seem to be equivelent control dependent with this op.
+      if (auto *OBO = dyn_cast<OverflowingBinaryOperator>(BBI)) {
+        unsigned WrapKind = 0;
+        if (OBO->hasNoSignedWrap())
+          WrapKind |= OverflowingBinaryOperator::NoSignedWrap;
+        if (OBO->hasNoUnsignedWrap())
+          WrapKind |= OverflowingBinaryOperator::NoUnsignedWrap;
+
+        if (WrapKind) {
+          auto OpCode = static_cast<Instruction::BinaryOps>(BBI->getOpcode());
+          auto NoWrapCR =
+            ConstantRange::makeNoWrapRegion(OpCode, RHS->getValue(), WrapKind);
+          LHSRange = LHSRange.intersectWith(NoWrapCR);
+        }
+      }
     } else {
       BBLV.markOverdefined();
       return true;
@@ -1155,9 +1195,10 @@ LVILatticeVal LazyValueInfoCache::getValueInBlock(Value *V, BasicBlock *BB,
         << BB->getName() << "'\n");
 
   assert(BlockValueStack.empty() && BlockValueSet.empty());
-  pushBlockValue(std::make_pair(BB, V));
-
-  solve();
+  if (!hasBlockValue(V, BB)) {
+    pushBlockValue(std::make_pair(BB, V)); 
+    solve();
+  }
   LVILatticeVal Result = getBlockValue(V, BB);
   intersectAssumeBlockValueConstantRange(V, Result, CxtI);
 
@@ -1168,6 +1209,9 @@ LVILatticeVal LazyValueInfoCache::getValueInBlock(Value *V, BasicBlock *BB,
 LVILatticeVal LazyValueInfoCache::getValueAt(Value *V, Instruction *CxtI) {
   DEBUG(dbgs() << "LVI Getting value " << *V << " at '"
         << CxtI->getName() << "'\n");
+
+  if (auto *C = dyn_cast<Constant>(V))
+    return LVILatticeVal::get(C);
 
   LVILatticeVal Result = LVILatticeVal::getOverdefined();
   if (auto *I = dyn_cast<Instruction>(V))

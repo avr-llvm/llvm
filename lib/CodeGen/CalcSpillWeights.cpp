@@ -213,22 +213,25 @@ VirtRegAuxInfo::calculateSpillWeightAndHint(LiveInterval &li) {
   if (!Spillable)
     return;
 
-  // Mark li as unspillable if all live ranges are tiny.
-  if (li.isZeroLength(LIS.getSlotIndexes())) {
-     // HACK HACK: This is a workaround until PR14879 gets fixed!
-     // This code allows us to compile memory intensive functions when only the Z
-     // register is available, otherwise we get the "Ran out of registers ..."
-     // assertion inside the regalloc.
-     // Here we avoid marking as not spillable live intervals that use the
-     // PTRDISPREGS class and have a size greater than 8, smaller ones
-     // get filtered out, generating better code.
-     if (strcmp(MF.getSubtarget().getRegisterInfo()->getRegClassName(mri.getRegClass(li.reg)), "PTRDISPREGS") == 0 &&
-         li.getSize() > 8) {
-             totalWeight *= 10000.0F;
-             li.weight = normalizeSpillWeight(totalWeight, li.getSize(), numInstr);
-         } else {
-             li.markNotSpillable();
-     }
+  // Mark li as unspillable if all live ranges are tiny and the interval
+  // is not live at any reg mask.  If the interval is live at a reg mask
+  // spilling may be required.
+  if (li.isZeroLength(LIS.getSlotIndexes()) &&
+      !li.isLiveAtIndexes(LIS.getRegMaskSlots())) {
+    // HACK HACK: This is a workaround until PR14879 gets fixed!
+    // This code allows us to compile memory intensive functions when only the Z
+    // register is available, otherwise we get the "Ran out of registers ..."
+    // assertion inside the regalloc.
+    // Here we avoid marking as not spillable live intervals that use the
+    // PTRDISPREGS class and have a size greater than 8, smaller ones
+    // get filtered out, generating better code.
+    if (strcmp(MF.getSubtarget().getRegisterInfo()->getRegClassName(mri.getRegClass(li.reg)), "PTRDISPREGS") == 0 &&
+      li.getSize() > 8) {
+      totalWeight *= 10000.0F;
+      li.weight = normalizeSpillWeight(totalWeight, li.getSize(), numInstr);
+    } else {
+      li.markNotSpillable();
+    }
     return;
   }
 

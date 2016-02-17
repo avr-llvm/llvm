@@ -249,26 +249,69 @@ MemorySSAWalker *MemorySSA::buildMemorySSA(AliasAnalysis *AA,
   // could just look up the memory access for every possible instruction in the
   // stream.
   SmallPtrSet<BasicBlock *, 32> DefiningBlocks;
-
+  SmallPtrSet<BasicBlock *, 32> DefUseBlocks;
   // Go through each block, figure out where defs occur, and chain together all
   // the accesses.
   for (BasicBlock &B : F) {
+    bool InsertIntoDefUse = false;
+    bool InsertIntoDef = false;
     AccessListType *Accesses = nullptr;
     for (Instruction &I : B) {
       MemoryAccess *MA = createNewAccess(&I, true);
       if (!MA)
         continue;
       if (isa<MemoryDef>(MA))
-        DefiningBlocks.insert(&B);
+        InsertIntoDef = true;
+      else if (isa<MemoryUse>(MA))
+        InsertIntoDefUse = true;
+
       if (!Accesses)
         Accesses = getOrCreateAccessList(&B);
       Accesses->push_back(MA);
     }
+    if (InsertIntoDef)
+      DefiningBlocks.insert(&B);
+    if (InsertIntoDefUse)
+      DefUseBlocks.insert(&B);
+  }
+
+  // Compute live-in.
+  // Live in is normally defined as "all the blocks on the path from each def to
+  // each of it's uses".
+  // MemoryDef's are implicit uses of previous state, so they are also uses.
+  // This means we don't really have def-only instructions.  The only
+  // MemoryDef's that are not really uses are those that are of the LiveOnEntry
+  // variable (because LiveOnEntry can reach anywhere, and every def is a
+  // must-kill of LiveOnEntry).
+  // In theory, you could precisely compute live-in by using alias-analysis to
+  // disambiguate defs and uses to see which really pair up with which.
+  // In practice, this would be really expensive and difficult. So we simply
+  // assume all defs are also uses that need to be kept live.
+  // Because of this, the end result of this live-in computation will be "the
+  // entire set of basic blocks that reach any use".
+
+  SmallPtrSet<BasicBlock *, 32> LiveInBlocks;
+  SmallVector<BasicBlock *, 64> LiveInBlockWorklist(DefUseBlocks.begin(),
+                                                    DefUseBlocks.end());
+  // Now that we have a set of blocks where a value is live-in, recursively add
+  // predecessors until we find the full region the value is live.
+  while (!LiveInBlockWorklist.empty()) {
+    BasicBlock *BB = LiveInBlockWorklist.pop_back_val();
+
+    // The block really is live in here, insert it into the set.  If already in
+    // the set, then it has already been processed.
+    if (!LiveInBlocks.insert(BB).second)
+      continue;
+
+    // Since the value is live into BB, it is either defined in a predecessor or
+    // live into it to.
+    LiveInBlockWorklist.append(pred_begin(BB), pred_end(BB));
   }
 
   // Determine where our MemoryPhi's should go
   IDFCalculator IDFs(*DT);
   IDFs.setDefiningBlocks(DefiningBlocks);
+  IDFs.setLiveInBlocks(LiveInBlocks);
   SmallVector<BasicBlock *, 32> IDFBlocks;
   IDFs.calculate(IDFBlocks);
 
@@ -277,7 +320,7 @@ MemorySSAWalker *MemorySSA::buildMemorySSA(AliasAnalysis *AA,
     // Insert phi node
     AccessListType *Accesses = getOrCreateAccessList(BB);
     MemoryPhi *Phi = new MemoryPhi(F.getContext(), BB, NextID++);
-    InstructionToMemoryAccess.insert(std::make_pair(BB, Phi));
+    ValueToMemoryAccess.insert(std::make_pair(BB, Phi));
     // Phi's always are placed at the front of the block.
     Accesses->push_front(Phi);
   }
@@ -332,12 +375,10 @@ MemoryAccess *MemorySSA::createNewAccess(Instruction *I, bool IgnoreNonMemory) {
 
   MemoryUseOrDef *MA;
   if (Def)
-    MA = new MemoryDef(I->getModule()->getContext(), nullptr, I, I->getParent(),
-                       NextID++);
+    MA = new MemoryDef(I->getContext(), nullptr, I, I->getParent(), NextID++);
   else
-    MA =
-        new MemoryUse(I->getModule()->getContext(), nullptr, I, I->getParent());
-  InstructionToMemoryAccess.insert(std::make_pair(I, MA));
+    MA = new MemoryUse(I->getContext(), nullptr, I, I->getParent());
+  ValueToMemoryAccess.insert(std::make_pair(I, MA));
   return MA;
 }
 
@@ -396,9 +437,14 @@ void MemorySSA::dump() const {
   F.print(dbgs(), &Writer);
 }
 
+void MemorySSA::verifyMemorySSA() const {
+  verifyDefUses(F);
+  verifyDomination(F);
+}
+
 /// \brief Verify the domination properties of MemorySSA by checking that each
 /// definition dominates all of its uses.
-void MemorySSA::verifyDomination(Function &F) {
+void MemorySSA::verifyDomination(Function &F) const {
   for (BasicBlock &B : F) {
     // Phi nodes are attached to basic blocks
     if (MemoryPhi *MP = getMemoryAccess(&B)) {
@@ -453,7 +499,7 @@ void MemorySSA::verifyDomination(Function &F) {
 /// llvm_unreachable is used instead of asserts because this may be called in
 /// a build without asserts. In that case, we don't want this to turn into a
 /// nop.
-void MemorySSA::verifyUseInDefs(MemoryAccess *Def, MemoryAccess *Use) {
+void MemorySSA::verifyUseInDefs(MemoryAccess *Def, MemoryAccess *Use) const {
   // The live on entry use may cause us to get a NULL def here
   if (!Def) {
     if (!isLiveOnEntryDef(Use))
@@ -467,7 +513,7 @@ void MemorySSA::verifyUseInDefs(MemoryAccess *Def, MemoryAccess *Use) {
 /// \brief Verify the immediate use information, by walking all the memory
 /// accesses and verifying that, for each use, it appears in the
 /// appropriate def's use list
-void MemorySSA::verifyDefUses(Function &F) {
+void MemorySSA::verifyDefUses(Function &F) const {
   for (BasicBlock &B : F) {
     // Phi nodes are attached to basic blocks
     if (MemoryPhi *Phi = getMemoryAccess(&B))
@@ -485,7 +531,7 @@ void MemorySSA::verifyDefUses(Function &F) {
 }
 
 MemoryAccess *MemorySSA::getMemoryAccess(const Value *I) const {
-  return InstructionToMemoryAccess.lookup(I);
+  return ValueToMemoryAccess.lookup(I);
 }
 
 MemoryPhi *MemorySSA::getMemoryAccess(const BasicBlock *BB) const {
@@ -612,8 +658,7 @@ bool MemorySSAPrinterPass::runOnFunction(Function &F) {
   Walker.reset(MSSA->buildMemorySSA(AA, DT));
 
   if (VerifyMemorySSA) {
-    MSSA->verifyDefUses(F);
-    MSSA->verifyDomination(F);
+    MSSA->verifyMemorySSA();
   }
 
   return false;

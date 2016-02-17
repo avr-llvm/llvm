@@ -27,7 +27,7 @@ class AVRInst16<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst<outs, ins, asmstr, pattern>
 {
   field bits<16> Inst;
-  
+
   let Size = 2;
 }
 
@@ -36,7 +36,7 @@ class AVRInst32<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst<outs, ins, asmstr, pattern>
 {
   field bits<32> Inst;
-  
+
   let Size = 4;
 }
 
@@ -45,15 +45,16 @@ class AVRInst32<dag outs, dag ins, string asmstr, list<dag> pattern>
 // psuedo instructions which are replaced by real AVR instructions by
 // AVRExpandPseudoInsts.cpp.
 //
-// For example, the ADDW (add wide, as in add 16 bit values) instruction is defined
-// as a pseudo instruction. In AVRExpandPseudoInsts.cpp, the instruction is then replaced
-// by two add instructions - one for each byte.
+// For example, the ADDW (add wide, as in add 16 bit values) instruction
+// is defined as a pseudo instruction. In AVRExpandPseudoInsts.cpp,
+// the instruction is then replaced by two add instructions - one for each byte.
 class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
   let Pattern = pattern;
-  
+
   let isPseudo = 1;
+  let isCodeGenOnly = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -76,6 +77,7 @@ class FRdRr<bits<4> opcode, bits<2> f, dag outs, dag ins, string asmstr,
   let Inst{8-4} = rd;
   let Inst{3-0} = rr{3-0};
 }
+
 class FTST<bits<4> opcode, bits<2> f, dag outs, dag ins, string asmstr,
             list<dag> pattern> : AVRInst16<outs, ins, asmstr, pattern>
 {
@@ -87,6 +89,7 @@ class FTST<bits<4> opcode, bits<2> f, dag outs, dag ins, string asmstr,
   let Inst{8-4} = rd;
   let Inst{3-0} = rd{3-0};
 }
+
 //===----------------------------------------------------------------------===//
 // Instruction of the format `<mnemonic> Z, Rd`
 // <|1001|001r|rrrr|0ttt>
@@ -152,7 +155,7 @@ class FRd<bits<4> opcode, bits<7> f, dag outs, dag ins, string asmstr,
 // q = displacement (6 bits)
 // r = register (5 bits)
 // p = pointer register (1 bit) [1 for Y, 0 for Z]
-//===----------------------------------------------------------------------===//------------------------------------------------------------------===//Z
+//===----------------------------------------------------------------------===//
 class FSTDLDD<bit type, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
@@ -180,27 +183,28 @@ class FSTDLDD<bit type, dag outs, dag ins, string asmstr, list<dag> pattern>
 // a = regular/postinc/predec (reg = 0b00, postinc = 0b01, predec = 0b10)
 // p = pointer register
 // r = src/dst register
-// 
+//
 // Note that the bit labelled 'i' above does not follow a simple pattern,
 // so there exists a post encoder method to set it manually.
 //===---------------------------------------------------------------------===//
-class FSTLD<bit type, bits<2> mode, dag outs, dag ins, string asmstr, list<dag> pattern>
+class FSTLD<bit type, bits<2> mode, dag outs, dag ins,
+            string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
   bits<2> ptrreg;
   bits<5> reg;
-  
+
   let Inst{15-13} = 0b100;
   // This bit varies depending on the arguments and the mode.
   // We have a post encoder method to set this bit manually.
   let Inst{12} = 0;
-  
+
   let Inst{11-10} = 0b00;
   let Inst{9} = type;
   let Inst{8} = reg{4};
-  
+
   let Inst{7-4} = reg{3-0};
-  
+
   let Inst{3-2} = ptrreg{1-0};
   let Inst{1-0} = mode{1-0};
 
@@ -219,12 +223,12 @@ class FLPMX<bit e, bit p, dag outs, dag ins, string asmstr, list<dag> pattern>
   : AVRInst16<outs, ins, asmstr, pattern>
 {
    bits<5> reg;
-   
+
    let Inst{15-12} = 0b1001;
-   
+
    let Inst{11-9} = 0b000;
    let Inst{8} = reg{4};
-   
+
    let Inst{7-4} = reg{3-0};
 
    let Inst{3-2} = 0b01;
@@ -359,14 +363,14 @@ class FIOBIT<bits<2> t, dag outs, dag ins, string asmstr, list<dag> pattern>
 {
   bits<5> A;
   bits<3> b;
-  
+
   let Inst{15-12} = 0b1001;
-  
+
   let Inst{11-10} = 0b10;
   let Inst{9-8} = t;
-  
+
   let Inst{7-4} = A{4-1};
-  
+
   let Inst{3} = A{0};
   let Inst{2-0} = b{2-0};
 }
@@ -542,3 +546,32 @@ class FSK<bit f, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{3} = k{0};
   let Inst{2-0} = s;
 }
+
+class ExtensionPseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
+  : Pseudo<outs, ins, asmstr, pattern>
+{
+  let Defs = [SREG];
+}
+
+class StorePseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
+  : Pseudo<outs, ins, asmstr, pattern>
+{
+  let Defs = [SP];
+}
+
+class SelectPseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
+  : Pseudo<outs, ins, asmstr, pattern>
+{
+  let usesCustomInserter = 1;
+
+  let Uses = [SREG];
+}
+
+class ShiftPseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
+  : Pseudo<outs, ins, asmstr, pattern>
+{
+  let usesCustomInserter = 1;
+
+  let Defs = [SREG];
+}
+

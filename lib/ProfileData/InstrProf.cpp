@@ -17,6 +17,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Compression.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -79,25 +80,7 @@ std::string getPGOFuncName(StringRef RawFuncName,
                            GlobalValue::LinkageTypes Linkage,
                            StringRef FileName,
                            uint64_t Version LLVM_ATTRIBUTE_UNUSED) {
-
-  // Function names may be prefixed with a binary '1' to indicate
-  // that the backend should not modify the symbols due to any platform
-  // naming convention. Do not include that '1' in the PGO profile name.
-  if (RawFuncName[0] == '\1')
-    RawFuncName = RawFuncName.substr(1);
-
-  std::string FuncName = RawFuncName;
-  if (llvm::GlobalValue::isLocalLinkage(Linkage)) {
-    // For local symbols, prepend the main file name to distinguish them.
-    // Do not include the full path in the file name since there's no guarantee
-    // that it will stay the same, e.g., if the files are checked out from
-    // version control in different locations.
-    if (FileName.empty())
-      FuncName = FuncName.insert(0, "<unknown>:");
-    else
-      FuncName = FuncName.insert(0, FileName.str() + ":");
-  }
-  return FuncName;
+  return Function::getGlobalIdentifier(RawFuncName, Linkage, FileName);
 }
 
 std::string getPGOFuncName(const Function &F, uint64_t Version) {
@@ -208,7 +191,7 @@ int collectPGOFuncNameStrings(const std::vector<std::string> &NameStrs,
       std::string(CompressedNameStrings.data(), CompressedNameStrings.size()));
 }
 
-StringRef getPGOFuncNameInitializer(GlobalVariable *NameVar) {
+StringRef getPGOFuncNameVarInitializer(GlobalVariable *NameVar) {
   auto *Arr = cast<ConstantDataArray>(NameVar->getInitializer());
   StringRef NameStr =
       Arr->isCString() ? Arr->getAsCString() : Arr->getAsString();
@@ -219,7 +202,7 @@ int collectPGOFuncNameStrings(const std::vector<GlobalVariable *> &NameVars,
                               std::string &Result, bool doCompression) {
   std::vector<std::string> NameStrs;
   for (auto *NameVar : NameVars) {
-    NameStrs.push_back(getPGOFuncNameInitializer(NameVar));
+    NameStrs.push_back(getPGOFuncNameVarInitializer(NameVar));
   }
   return collectPGOFuncNameStrings(
       NameStrs, zlib::isAvailable() && doCompression, Result);
@@ -430,10 +413,9 @@ uint32_t getNumValueDataForSiteInstrProf(const void *R, uint32_t VK,
 }
 
 void getValueForSiteInstrProf(const void *R, InstrProfValueData *Dst,
-                              uint32_t K, uint32_t S,
-                              uint64_t (*Mapper)(uint32_t, uint64_t)) {
-  return reinterpret_cast<const InstrProfRecord *>(R)->getValueForSite(
-      Dst, K, S, Mapper);
+                              uint32_t K, uint32_t S) {
+  reinterpret_cast<const InstrProfRecord *>(R)->getValueForSite(Dst, K, S);
+  return;
 }
 
 ValueProfData *allocValueProfDataInstrProf(size_t TotalSizeInBytes) {
@@ -607,53 +589,97 @@ void ValueProfData::swapBytesFromHost(support::endianness Endianness) {
   sys::swapByteOrder<uint32_t>(NumValueKinds);
 }
 
-// The argument to this method is a vector of cutoff percentages and the return
-// value is a vector of (Cutoff, MinBlockCount, NumBlocks) triplets.
-void ProfileSummary::computeDetailedSummary() {
-  if (DetailedSummaryCutoffs.empty())
-    return;
-  auto Iter = CountFrequencies.begin();
-  auto End = CountFrequencies.end();
-  std::sort(DetailedSummaryCutoffs.begin(), DetailedSummaryCutoffs.end());
+void annotateValueSite(Module &M, Instruction &Inst,
+                       const InstrProfRecord &InstrProfR,
+                       InstrProfValueKind ValueKind, uint32_t SiteIdx,
+                       uint32_t MaxMDCount) {
+  uint32_t NV = InstrProfR.getNumValueDataForSite(ValueKind, SiteIdx);
 
-  uint32_t BlocksSeen = 0;
-  uint64_t CurrSum = 0, Count = 0;
+  uint64_t Sum = 0;
+  std::unique_ptr<InstrProfValueData[]> VD =
+      InstrProfR.getValueForSite(ValueKind, SiteIdx, &Sum);
 
-  for (uint32_t Cutoff : DetailedSummaryCutoffs) {
-    assert(Cutoff <= 999999);
-    APInt Temp(128, TotalCount);
-    APInt N(128, Cutoff);
-    APInt D(128, ProfileSummary::Scale);
-    Temp *= N;
-    Temp = Temp.sdiv(D);
-    uint64_t DesiredCount = Temp.getZExtValue();
-    assert(DesiredCount <= TotalCount);
-    while (CurrSum < DesiredCount && Iter != End) {
-      Count = Iter->first;
-      uint32_t Freq = Iter->second;
-      CurrSum += (Count * Freq);
-      BlocksSeen += Freq;
-      Iter++;
-    }
-    assert(CurrSum >= DesiredCount);
-    ProfileSummaryEntry PSE = {Cutoff, Count, BlocksSeen};
-    DetailedSummary.push_back(PSE);
-  }
+  annotateValueSite(M, Inst, VD.get(), NV, Sum, ValueKind, MaxMDCount);
 }
 
-ProfileSummary::ProfileSummary(const IndexedInstrProf::Summary &S)
-    : TotalCount(S.get(IndexedInstrProf::Summary::TotalBlockCount)),
-      MaxBlockCount(S.get(IndexedInstrProf::Summary::MaxBlockCount)),
-      MaxInternalBlockCount(
-          S.get(IndexedInstrProf::Summary::MaxInternalBlockCount)),
-      MaxFunctionCount(S.get(IndexedInstrProf::Summary::MaxFunctionCount)),
-      NumBlocks(S.get(IndexedInstrProf::Summary::TotalNumBlocks)),
-      NumFunctions(S.get(IndexedInstrProf::Summary::TotalNumFunctions)) {
-  for (unsigned I = 0; I < S.NumCutoffEntries; I++) {
-    const IndexedInstrProf::Summary::Entry &Ent = S.getEntry(I);
-    DetailedSummary.emplace_back((uint32_t)Ent.Cutoff, Ent.MinBlockCount,
-                                 Ent.NumBlocks);
+void annotateValueSite(Module &M, Instruction &Inst,
+                       const InstrProfValueData VD[], uint32_t NV,
+                       uint64_t Sum, InstrProfValueKind ValueKind,
+                       uint32_t MaxMDCount) {
+  LLVMContext &Ctx = M.getContext();
+  MDBuilder MDHelper(Ctx);
+  SmallVector<Metadata *, 3> Vals;
+  // Tag
+  Vals.push_back(MDHelper.createString("VP"));
+  // Value Kind
+  Vals.push_back(MDHelper.createConstant(
+      ConstantInt::get(Type::getInt32Ty(Ctx), ValueKind)));
+  // Total Count
+  Vals.push_back(
+      MDHelper.createConstant(ConstantInt::get(Type::getInt64Ty(Ctx), Sum)));
+
+  // Value Profile Data
+  uint32_t MDCount = MaxMDCount;
+  for (uint32_t I = 0; I < NV; ++I) {
+    Vals.push_back(MDHelper.createConstant(
+        ConstantInt::get(Type::getInt64Ty(Ctx), VD[I].Value)));
+    Vals.push_back(MDHelper.createConstant(
+        ConstantInt::get(Type::getInt64Ty(Ctx), VD[I].Count)));
+    if (--MDCount == 0)
+      break;
   }
+  Inst.setMetadata(LLVMContext::MD_prof, MDNode::get(Ctx, Vals));
 }
 
+bool getValueProfDataFromInst(const Instruction &Inst,
+                              InstrProfValueKind ValueKind,
+                              uint32_t MaxNumValueData,
+                              InstrProfValueData ValueData[],
+                              uint32_t &ActualNumValueData, uint64_t &TotalC) {
+  MDNode *MD = Inst.getMetadata(LLVMContext::MD_prof);
+  if (!MD)
+    return false;
+
+  unsigned NOps = MD->getNumOperands();
+
+  if (NOps < 5)
+    return false;
+
+  // Operand 0 is a string tag "VP":
+  MDString *Tag = cast<MDString>(MD->getOperand(0));
+  if (!Tag)
+    return false;
+
+  if (!Tag->getString().equals("VP"))
+    return false;
+
+  // Now check kind:
+  ConstantInt *KindInt = mdconst::dyn_extract<ConstantInt>(MD->getOperand(1));
+  if (!KindInt)
+    return false;
+  if (KindInt->getZExtValue() != ValueKind)
+    return false;
+
+  // Get total count
+  ConstantInt *TotalCInt = mdconst::dyn_extract<ConstantInt>(MD->getOperand(2));
+  if (!TotalCInt)
+    return false;
+  TotalC = TotalCInt->getZExtValue();
+
+  ActualNumValueData = 0;
+
+  for (unsigned I = 3; I < NOps; I += 2) {
+    if (ActualNumValueData >= MaxNumValueData)
+      break;
+    ConstantInt *Value = mdconst::dyn_extract<ConstantInt>(MD->getOperand(I));
+    ConstantInt *Count =
+        mdconst::dyn_extract<ConstantInt>(MD->getOperand(I + 1));
+    if (!Value || !Count)
+      return false;
+    ValueData[ActualNumValueData].Value = Value->getZExtValue();
+    ValueData[ActualNumValueData].Count = Count->getZExtValue();
+    ActualNumValueData++;
+  }
+  return true;
+}
 } // end namespace llvm

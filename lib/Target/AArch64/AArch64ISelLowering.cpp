@@ -21,6 +21,9 @@
 #include "MCTargetDesc/AArch64AddressingModes.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/CallingConvLower.h"
+#ifdef LLVM_BUILD_GLOBAL_ISEL
+#  include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
+#endif
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -634,7 +637,7 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
   }
 
   // Prefer likely predicted branches to selects on out-of-order cores.
-  if (Subtarget->isCortexA57())
+  if (Subtarget->isCortexA57() || Subtarget->isKryo())
     PredictableSelectIsExpensive = true;
 }
 
@@ -3392,6 +3395,81 @@ AArch64TargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   return DAG.getNode(AArch64ISD::RET_FLAG, DL, MVT::Other, RetOps);
 }
 
+#ifdef LLVM_BUILD_GLOBAL_ISEL
+bool AArch64TargetLowering::LowerReturn(MachineIRBuilder &MIRBuilder,
+                                        const Value *Val, unsigned VReg) const {
+  MachineInstr *Return = MIRBuilder.buildInstr(AArch64::RET_ReallyLR);
+  assert(Return && "Unable to build a return instruction?!");
+
+  assert(((Val && VReg) || (!Val && !VReg)) && "Return value without a vreg");
+  if (VReg) {
+    assert(Val->getType()->isIntegerTy() && "Type not supported yet");
+    unsigned Size = Val->getType()->getPrimitiveSizeInBits();
+    assert((Size == 64 || Size == 32) && "Size not supported yet");
+    unsigned ResReg = (Size == 32) ? AArch64::W0 : AArch64::X0;
+    // Set the insertion point to be right before Return.
+    MIRBuilder.setInstr(*Return, /* Before */ true);
+    MachineInstr *Copy =
+        MIRBuilder.buildInstr(TargetOpcode::COPY, ResReg, VReg);
+    (void)Copy;
+    assert(Copy->getNextNode() == Return &&
+           "The insertion did not happen where we expected");
+    MachineInstrBuilder(MIRBuilder.getMF(), Return)
+        .addReg(ResReg, RegState::Implicit);
+  }
+  return true;
+}
+
+bool AArch64TargetLowering::LowerFormalArguments(
+    MachineIRBuilder &MIRBuilder, const Function::ArgumentListType &Args,
+    const SmallVectorImpl<unsigned> &VRegs) const {
+  MachineFunction &MF = MIRBuilder.getMF();
+  const Function &F = *MF.getFunction();
+
+  SmallVector<CCValAssign, 16> ArgLocs;
+  CCState CCInfo(F.getCallingConv(), F.isVarArg(), MF, ArgLocs, F.getContext());
+
+  unsigned NumArgs = Args.size();
+  Function::const_arg_iterator CurOrigArg = Args.begin();
+  for (unsigned i = 0; i != NumArgs; ++i, ++CurOrigArg) {
+    MVT ValVT = MVT::getVT(CurOrigArg->getType());
+    CCAssignFn *AssignFn =
+        CCAssignFnForCall(F.getCallingConv(), /*IsVarArg=*/false);
+    bool Res =
+        AssignFn(i, ValVT, ValVT, CCValAssign::Full, ISD::ArgFlagsTy(), CCInfo);
+    assert(!Res && "Call operand has unhandled type");
+    (void)Res;
+  }
+  assert(ArgLocs.size() == Args.size() &&
+         "We have a different number of location and args?!");
+  for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
+    CCValAssign &VA = ArgLocs[i];
+
+    assert(VA.isRegLoc() && "Not yet implemented");
+    // Transform the arguments in physical registers into virtual ones.
+    MIRBuilder.getMBB().addLiveIn(VA.getLocReg());
+    MIRBuilder.buildInstr(TargetOpcode::COPY, VRegs[i], VA.getLocReg());
+
+    switch (VA.getLocInfo()) {
+    default:
+      llvm_unreachable("Unknown loc info!");
+    case CCValAssign::Full:
+      break;
+    case CCValAssign::BCvt:
+      // We don't care about bitcast.
+      break;
+    case CCValAssign::AExt:
+    case CCValAssign::SExt:
+    case CCValAssign::ZExt:
+      // Zero/Sign extend the register.
+      assert(0 && "Not yet implemented");
+      break;
+    }
+  }
+  return true;
+}
+#endif
+
 //===----------------------------------------------------------------------===//
 //  Other Lowering Code
 //===----------------------------------------------------------------------===//
@@ -5679,8 +5757,7 @@ SDValue AArch64TargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
     return DAG.getNode(Opc, dl, V1.getValueType(), V1, V1);
   }
 
-  SDValue Concat = tryFormConcatFromShuffle(Op, DAG);
-  if (Concat.getNode())
+  if (SDValue Concat = tryFormConcatFromShuffle(Op, DAG))
     return Concat;
 
   bool DstIsLeft;
@@ -5952,8 +6029,7 @@ SDValue AArch64TargetLowering::LowerVectorOR(SDValue Op,
                                              SelectionDAG &DAG) const {
   // Attempt to form a vector S[LR]I from (or (and X, C1), (lsl Y, C2))
   if (EnableAArch64SlrGeneration) {
-    SDValue Res = tryLowerToSLI(Op.getNode(), DAG);
-    if (Res.getNode())
+    if (SDValue Res = tryLowerToSLI(Op.getNode(), DAG))
       return Res;
   }
 
@@ -7908,12 +7984,10 @@ static SDValue performORCombine(SDNode *N, TargetLowering::DAGCombinerInfo &DCI,
   if (!DAG.getTargetLoweringInfo().isTypeLegal(VT))
     return SDValue();
 
-  SDValue Res = tryCombineToEXTR(N, DCI);
-  if (Res.getNode())
+  if (SDValue Res = tryCombineToEXTR(N, DCI))
     return Res;
 
-  Res = tryCombineToBSL(N, DCI);
-  if (Res.getNode())
+  if (SDValue Res = tryCombineToBSL(N, DCI))
     return Res;
 
   return SDValue();
@@ -8873,8 +8947,7 @@ static SDValue performSTORECombine(SDNode *N,
                                    TargetLowering::DAGCombinerInfo &DCI,
                                    SelectionDAG &DAG,
                                    const AArch64Subtarget *Subtarget) {
-  SDValue Split = split16BStores(N, DCI, DAG, Subtarget);
-  if (Split.getNode())
+  if (SDValue Split = split16BStores(N, DCI, DAG, Subtarget))
     return Split;
 
   if (Subtarget->supportsAddressTopByteIgnored() &&
@@ -9540,8 +9613,7 @@ SDValue performCONDCombine(SDNode *N,
 static SDValue performBRCONDCombine(SDNode *N,
                                     TargetLowering::DAGCombinerInfo &DCI,
                                     SelectionDAG &DAG) {
-  SDValue NV = performCONDCombine(N, DCI, DAG, 2, 3);
-  if (NV.getNode())
+  if (SDValue NV = performCONDCombine(N, DCI, DAG, 2, 3))
     N = NV.getNode();
   SDValue Chain = N->getOperand(0);
   SDValue Dest = N->getOperand(1);
