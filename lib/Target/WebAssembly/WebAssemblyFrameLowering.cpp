@@ -34,21 +34,18 @@ using namespace llvm;
 
 #define DEBUG_TYPE "wasm-frame-info"
 
-// TODO: Implement a red zone?
 // TODO: wasm64
-// TODO: Prolog/epilog should be stackified too. This pass runs after register
-//       stackification, so we'll have to do it manually.
 // TODO: Emit TargetOpcode::CFI_INSTRUCTION instructions
 
 /// Return true if the specified function should have a dedicated frame pointer
 /// register.
 bool WebAssemblyFrameLowering::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
-  assert(!MFI->isFrameAddressTaken());
   const auto *RegInfo =
       MF.getSubtarget<WebAssemblySubtarget>().getRegisterInfo();
-  return MFI->hasVarSizedObjects() || MFI->hasStackMap() ||
-         MFI->hasPatchPoint() || RegInfo->needsStackRealignment(MF);
+  return MFI->isFrameAddressTaken() || MFI->hasVarSizedObjects() ||
+         MFI->hasStackMap() || MFI->hasPatchPoint() ||
+         RegInfo->needsStackRealignment(MF);
 }
 
 /// Under normal circumstances, when a frame pointer is not required, we reserve
@@ -61,12 +58,58 @@ bool WebAssemblyFrameLowering::hasReservedCallFrame(
   return !MF.getFrameInfo()->hasVarSizedObjects();
 }
 
+
+/// Returns true if this function needs a local user-space stack pointer.
+/// Unlike a machine stack pointer, the wasm user stack pointer is a global
+/// variable, so it is loaded into a register in the prolog.
+bool WebAssemblyFrameLowering::needsSP(const MachineFunction &MF,
+                                       const MachineFrameInfo &MFI) const {
+  return MFI.getStackSize() || MFI.adjustsStack() || hasFP(MF);
+}
+
+/// Returns true if the local user-space stack pointer needs to be written back
+/// to memory by this function (this is not meaningful if needsSP is false). If
+/// false, the stack red zone can be used and only a local SP is needed.
+bool WebAssemblyFrameLowering::needsSPWriteback(
+    const MachineFunction &MF, const MachineFrameInfo &MFI) const {
+  return MFI.getStackSize() > RedZoneSize || MFI.hasCalls() ||
+         MF.getFunction()->hasFnAttribute(Attribute::NoRedZone);
+}
+
+static void writeSPToMemory(unsigned SrcReg, MachineFunction &MF,
+                            MachineBasicBlock &MBB,
+                            MachineBasicBlock::iterator &InsertPt,
+                            DebugLoc DL) {
+  auto *SPSymbol = MF.createExternalSymbolName("__stack_pointer");
+  unsigned SPAddr =
+      MF.getRegInfo().createVirtualRegister(&WebAssembly::I32RegClass);
+  const auto *TII = MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
+
+  BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::CONST_I32), SPAddr)
+      .addExternalSymbol(SPSymbol);
+  auto *MMO = new MachineMemOperand(MachinePointerInfo(),
+                                    MachineMemOperand::MOStore, 4, 4);
+  BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::STORE_I32),
+          WebAssembly::SP32)
+      .addImm(0)
+      .addReg(SPAddr)
+      .addImm(2)  // p2align
+      .addReg(SrcReg)
+      .addMemOperand(MMO);
+  MF.getInfo<WebAssemblyFunctionInfo>()->stackifyVReg(SPAddr);
+}
+
 void WebAssemblyFrameLowering::eliminateCallFramePseudoInstr(
     MachineFunction &MF, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator I) const {
-  // TODO: can we avoid using call frame pseudos altogether?
-  assert(!I->getOperand(0).getImm() &&
-         "Stack should not be adjusted around calls");
+  assert(!I->getOperand(0).getImm() && hasFP(MF) &&
+         "Call frame pseudos should only be used for dynamic stack adjustment");
+  const auto *TII = MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
+  if (I->getOpcode() == TII->getCallFrameDestroyOpcode() &&
+      needsSPWriteback(MF, *MF.getFrameInfo())) {
+    DebugLoc DL = I->getDebugLoc();
+    writeSPToMemory(WebAssembly::SP32, MF, MBB, I, DL);
+  }
   MBB.erase(I);
 }
 
@@ -76,9 +119,10 @@ void WebAssemblyFrameLowering::emitPrologue(MachineFunction &MF,
   auto *MFI = MF.getFrameInfo();
   assert(MFI->getCalleeSavedInfo().empty() &&
          "WebAssembly should not have callee-saved registers");
+  auto *WFI = MF.getInfo<WebAssemblyFunctionInfo>();
 
+  if (!needsSP(MF, *MFI)) return;
   uint64_t StackSize = MFI->getStackSize();
-  if (!StackSize && !MFI->adjustsStack() && !hasFP(MF)) return;
 
   const auto *TII = MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
   auto &MRI = MF.getRegInfo();
@@ -86,9 +130,10 @@ void WebAssemblyFrameLowering::emitPrologue(MachineFunction &MF,
   auto InsertPt = MBB.begin();
   DebugLoc DL;
 
+  unsigned SPAddr = MRI.createVirtualRegister(&WebAssembly::I32RegClass);
   unsigned SPReg = MRI.createVirtualRegister(&WebAssembly::I32RegClass);
   auto *SPSymbol = MF.createExternalSymbolName("__stack_pointer");
-  BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::CONST_I32), SPReg)
+  BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::CONST_I32), SPAddr)
       .addExternalSymbol(SPSymbol);
   // This MachinePointerInfo should reference __stack_pointer as well but
   // doesn't because MachinePointerInfo() takes a GV which we don't have for
@@ -99,21 +144,23 @@ void WebAssemblyFrameLowering::emitPrologue(MachineFunction &MF,
   // Load the SP value.
   BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::LOAD_I32),
           StackSize ? SPReg : (unsigned)WebAssembly::SP32)
-      .addImm(0)      // offset
-      .addReg(SPReg)  // addr
-      .addImm(2)      // p2align
+      .addImm(0)       // offset
+      .addReg(SPAddr)  // addr
+      .addImm(2)       // p2align
       .addMemOperand(LoadMMO);
+  WFI->stackifyVReg(SPAddr);
 
-  unsigned OffsetReg = 0;
   if (StackSize) {
     // Subtract the frame size
-    OffsetReg = MRI.createVirtualRegister(&WebAssembly::I32RegClass);
+    unsigned OffsetReg = MRI.createVirtualRegister(&WebAssembly::I32RegClass);
     BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::CONST_I32), OffsetReg)
         .addImm(StackSize);
     BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::SUB_I32),
             WebAssembly::SP32)
         .addReg(SPReg)
         .addReg(OffsetReg);
+    WFI->stackifyVReg(OffsetReg);
+    WFI->stackifyVReg(SPReg);
   }
   if (hasFP(MF)) {
     // Unlike most conventional targets (where FP points to the saved FP),
@@ -123,20 +170,8 @@ void WebAssemblyFrameLowering::emitPrologue(MachineFunction &MF,
             WebAssembly::FP32)
         .addReg(WebAssembly::SP32);
   }
-  if (StackSize) {
-    assert(OffsetReg);
-    // The SP32 register now has the new stacktop. Also write it back to memory.
-    BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::CONST_I32), OffsetReg)
-        .addExternalSymbol(SPSymbol);
-    auto *MMO = new MachineMemOperand(MachinePointerInfo(),
-                                      MachineMemOperand::MOStore, 4, 4);
-    BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::STORE_I32),
-            WebAssembly::SP32)
-        .addImm(0)
-        .addReg(OffsetReg)
-        .addImm(2)  // p2align
-        .addReg(WebAssembly::SP32)
-        .addMemOperand(MMO);
+  if (StackSize && needsSPWriteback(MF, *MFI)) {
+    writeSPToMemory(WebAssembly::SP32, MF, MBB, InsertPt, DL);
   }
 }
 
@@ -144,10 +179,10 @@ void WebAssemblyFrameLowering::emitEpilogue(MachineFunction &MF,
                                             MachineBasicBlock &MBB) const {
   auto *MFI = MF.getFrameInfo();
   uint64_t StackSize = MFI->getStackSize();
-  if (!StackSize && !MFI->adjustsStack() && !hasFP(MF)) return;
+  if (!needsSP(MF, *MFI) || !needsSPWriteback(MF, *MFI)) return;
+  auto *WFI = MF.getInfo<WebAssemblyFunctionInfo>();
   const auto *TII = MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
   auto &MRI = MF.getRegInfo();
-  unsigned OffsetReg = MRI.createVirtualRegister(&WebAssembly::I32RegClass);
   auto InsertPt = MBB.getFirstTerminator();
   DebugLoc DL;
 
@@ -158,25 +193,17 @@ void WebAssemblyFrameLowering::emitEpilogue(MachineFunction &MF,
   // Restore the stack pointer. If we had fixed-size locals, add the offset
   // subtracted in the prolog.
   if (StackSize) {
+    unsigned OffsetReg = MRI.createVirtualRegister(&WebAssembly::I32RegClass);
     BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::CONST_I32), OffsetReg)
         .addImm(StackSize);
     BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::ADD_I32),
             WebAssembly::SP32)
         .addReg(hasFP(MF) ? WebAssembly::FP32 : WebAssembly::SP32)
         .addReg(OffsetReg);
+    WFI->stackifyVReg(OffsetReg);
   }
 
-  auto *SPSymbol = MF.createExternalSymbolName("__stack_pointer");
-  // Re-use OffsetReg to hold the address of the stacktop
-  BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::CONST_I32), OffsetReg)
-      .addExternalSymbol(SPSymbol);
-  auto *MMO = new MachineMemOperand(MachinePointerInfo(),
-                                    MachineMemOperand::MOStore, 4, 4);
-  BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::STORE_I32),
-          WebAssembly::SP32)
-      .addImm(0)
-      .addReg(OffsetReg)
-      .addImm(2)  // p2align
-      .addReg((!StackSize && hasFP(MF)) ? WebAssembly::FP32 : WebAssembly::SP32)
-      .addMemOperand(MMO);
+  writeSPToMemory(
+      (!StackSize && hasFP(MF)) ? WebAssembly::FP32 : WebAssembly::SP32, MF,
+      MBB, InsertPt, DL);
 }

@@ -88,7 +88,15 @@ defm S_BUFFER_LOAD_DWORDX16 : SMRD_Helper <
   smrd<0x0c>, "s_buffer_load_dwordx16", SReg_128, SReg_512
 >;
 
-//def S_MEMTIME : SMRD_ <0x0000001e, "s_memtime", []>;
+let mayStore = ? in {
+// FIXME: mayStore = ? is a workaround for tablegen bug for different
+// inferred mayStore flags for the instruction pattern vs. standalone
+// Pat. Each considers the other contradictory.
+
+defm S_MEMTIME : SMRD_Special <smrd<0x1e, 0x24>, "s_memtime",
+  (outs SReg_64:$dst), " $dst", [(set i64:$dst, (int_amdgcn_s_memtime))]
+>;
+}
 
 defm S_DCACHE_INV : SMRD_Inval <smrd<0x1f, 0x20>, "s_dcache_inv",
   int_amdgcn_s_dcache_inv>;
@@ -307,7 +315,7 @@ defm S_ASHR_I64 : SOP2_64_32 <sop2<0x23, 0x21>, "s_ashr_i64",
 
 defm S_BFM_B32 : SOP2_32 <sop2<0x24, 0x22>, "s_bfm_b32",
   [(set i32:$dst, (AMDGPUbfm i32:$src0, i32:$src1))]>;
-defm S_BFM_B64 : SOP2_64 <sop2<0x25, 0x23>, "s_bfm_b64", []>;
+defm S_BFM_B64 : SOP2_64_32_32 <sop2<0x25, 0x23>, "s_bfm_b64", []>;
 defm S_MUL_I32 : SOP2_32 <sop2<0x26, 0x24>, "s_mul_i32",
   [(set i32:$dst, (mul i32:$src0, i32:$src1))]
 >;
@@ -317,7 +325,7 @@ defm S_MUL_I32 : SOP2_32 <sop2<0x26, 0x24>, "s_mul_i32",
 let Defs = [SCC] in {
 defm S_BFE_U32 : SOP2_32 <sop2<0x27, 0x25>, "s_bfe_u32", []>;
 defm S_BFE_I32 : SOP2_32 <sop2<0x28, 0x26>, "s_bfe_i32", []>;
-defm S_BFE_U64 : SOP2_64 <sop2<0x29, 0x27>, "s_bfe_u64", []>;
+defm S_BFE_U64 : SOP2_64_32 <sop2<0x29, 0x27>, "s_bfe_u64", []>;
 defm S_BFE_I64 : SOP2_64_32 <sop2<0x2a, 0x28>, "s_bfe_i64", []>;
 } // End Defs = [SCC]
 
@@ -493,10 +501,22 @@ def S_BARRIER : SOPP <0x0000000a, (ins), "s_barrier",
 
 def S_WAITCNT : SOPP <0x0000000c, (ins WAIT_FLAG:$simm16), "s_waitcnt $simm16">;
 def S_SETHALT : SOPP <0x0000000d, (ins i16imm:$simm16), "s_sethalt $simm16">;
-def S_SLEEP : SOPP <0x0000000e, (ins i16imm:$simm16), "s_sleep $simm16">;
+
+// On SI the documentation says sleep for approximately 64 * low 2
+// bits, consistent with the reported maximum of 448. On VI the
+// maximum reported is 960 cycles, so 960 / 64 = 15 max, so is the
+// maximum really 15 on VI?
+def S_SLEEP : SOPP <0x0000000e, (ins i32imm:$simm16),
+  "s_sleep $simm16", [(int_amdgcn_s_sleep SIMM16bit:$simm16)]> {
+  let hasSideEffects = 1;
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+
 def S_SETPRIO : SOPP <0x0000000f, (ins i16imm:$sim16), "s_setprio $sim16">;
 
 let Uses = [EXEC, M0] in {
+  // FIXME: Should this be mayLoad+mayStore?
   def S_SENDMSG : SOPP <0x00000010, (ins SendMsgImm:$simm16), "s_sendmsg $simm16",
       [(AMDGPUsendmsg (i32 imm:$simm16))]
   >;
@@ -1034,7 +1054,7 @@ defm BUFFER_ATOMIC_XOR : MUBUF_Atomic <
 //def BUFFER_ATOMIC_FMIN_X2 : MUBUF_X2 <mubuf<0x5f>, "buffer_atomic_fmin_x2", []>; // isn't on VI
 //def BUFFER_ATOMIC_FMAX_X2 : MUBUF_X2 <mubuf<0x60>, "buffer_atomic_fmax_x2", []>; // isn't on VI
 
-let SubtargetPredicate = isSI in {
+let SubtargetPredicate = isSI, DisableVIDecoder = 1 in {
 defm BUFFER_WBINVL1_SC : MUBUF_Invalidate <mubuf<0x70>, "buffer_wbinvl1_sc", int_amdgcn_buffer_wbinvl1_sc>; // isn't on CI & VI
 }
 
@@ -1063,8 +1083,8 @@ defm IMAGE_LOAD_MIP : MIMG_NoSampler <0x00000001, "image_load_mip">;
 //def IMAGE_LOAD_PCK_SGN : MIMG_NoPattern_ <"image_load_pck_sgn", 0x00000003>;
 //def IMAGE_LOAD_MIP_PCK : MIMG_NoPattern_ <"image_load_mip_pck", 0x00000004>;
 //def IMAGE_LOAD_MIP_PCK_SGN : MIMG_NoPattern_ <"image_load_mip_pck_sgn", 0x00000005>;
-//def IMAGE_STORE : MIMG_NoPattern_ <"image_store", 0x00000008>;
-//def IMAGE_STORE_MIP : MIMG_NoPattern_ <"image_store_mip", 0x00000009>;
+defm IMAGE_STORE : MIMG_Store <0x00000008, "image_store">;
+defm IMAGE_STORE_MIP : MIMG_Store <0x00000009, "image_store_mip">;
 //def IMAGE_STORE_PCK : MIMG_NoPattern_ <"image_store_pck", 0x0000000a>;
 //def IMAGE_STORE_MIP_PCK : MIMG_NoPattern_ <"image_store_mip_pck", 0x0000000b>;
 defm IMAGE_GET_RESINFO : MIMG_NoSampler <0x0000000e, "image_get_resinfo">;
@@ -1396,11 +1416,11 @@ defm V_INTERP_P1_F32 : V_INTERP_P1_F32_m;
 
 } // End OtherPredicates = [has32BankLDS]
 
-let OtherPredicates = [has16BankLDS], Constraints = "@earlyclobber $dst" in {
+let OtherPredicates = [has16BankLDS], Constraints = "@earlyclobber $dst", isAsmParserOnly=1 in {
 
 defm V_INTERP_P1_F32_16bank : V_INTERP_P1_F32_m;
 
-} // End OtherPredicates = [has32BankLDS], Constraints = "@earlyclobber $dst"
+} // End OtherPredicates = [has32BankLDS], Constraints = "@earlyclobber $dst", isAsmParserOnly=1
 
 let DisableEncoding = "$src0", Constraints = "$src0 = $dst" in {
 
@@ -1433,7 +1453,7 @@ multiclass V_CNDMASK <vop2 op, string name> {
 
   defm _e64  : VOP3_m <
       op, VOP_CNDMASK.Outs, VOP_CNDMASK.Ins64,
-      name#!cast<string>(VOP_CNDMASK.Asm64), [], name, 3>;
+      name#!cast<string>(VOP_CNDMASK.Asm64), [], name, 3, 0>;
 }
 
 defm V_CNDMASK_B32 : V_CNDMASK<vop2<0x0>, "v_cndmask_b32">;
@@ -1503,7 +1523,7 @@ defm V_AND_B32 : VOP2Inst <vop2<0x1b, 0x13>, "v_and_b32", VOP_I32_I32_I32>;
 defm V_OR_B32 : VOP2Inst <vop2<0x1c, 0x14>, "v_or_b32", VOP_I32_I32_I32>;
 defm V_XOR_B32 : VOP2Inst <vop2<0x1d, 0x15>, "v_xor_b32", VOP_I32_I32_I32>;
 
-let Constraints = "$dst = $src2", DisableEncoding="$src2",
+let Constraints = "$vdst = $src2", DisableEncoding="$src2",
     isConvertibleToThreeAddress = 1 in {
 defm V_MAC_F32 : VOP2Inst <vop2<0x1f, 0x16>, "v_mac_f32", VOP_MAC>;
 }
@@ -1759,9 +1779,12 @@ defm V_MUL_HI_U32 : VOP3Inst <vop3<0x16a, 0x286>, "v_mul_hi_u32",
   VOP_I32_I32_I32, mulhu
 >;
 
+let DisableVIDecoder=1 in { // removed from VI as identical to V_MUL_LO_U32
 defm V_MUL_LO_I32 : VOP3Inst <vop3<0x16b, 0x285>, "v_mul_lo_i32",
   VOP_I32_I32_I32
 >;
+}
+
 defm V_MUL_HI_I32 : VOP3Inst <vop3<0x16c, 0x287>, "v_mul_hi_i32",
   VOP_I32_I32_I32, mulhs
 >;
@@ -1830,7 +1853,7 @@ defm V_MULLIT_F32 : VOP3Inst <vop3<0x150>, "v_mullit_f32",
 
 } // End SubtargetPredicate = isSICI
 
-let SubtargetPredicate = isVI in {
+let SubtargetPredicate = isVI, DisableSIDecoder = 1 in {
 
 defm V_LSHLREV_B64 : VOP3Inst <vop3<0, 0x28f>, "v_lshlrev_b64",
   VOP_I64_I32_I64
@@ -1850,14 +1873,14 @@ defm V_ASHRREV_I64 : VOP3Inst <vop3<0, 0x291>, "v_ashrrev_i64",
 let isCodeGenOnly = 1, isPseudo = 1 in {
 
 // For use in patterns
-def V_CNDMASK_B64_PSEUDO : VOP3Common <(outs VReg_64:$dst),
+def V_CNDMASK_B64_PSEUDO : VOP3Common <(outs VReg_64:$vdst),
   (ins VSrc_64:$src0, VSrc_64:$src1, SSrc_64:$src2), "", []
 >;
 
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0, Uses = [EXEC] in {
 // 64-bit vector move instruction.  This is mainly used by the SIFoldOperands
 // pass to enable folding of inline immediates.
-def V_MOV_B64_PSEUDO : InstSI <(outs VReg_64:$dst), (ins VSrc_64:$src0), "", []>;
+def V_MOV_B64_PSEUDO : InstSI <(outs VReg_64:$vdst), (ins VSrc_64:$src0), "", []>;
 } // End let hasSideEffects = 0, mayLoad = 0, mayStore = 0
 
 let hasSideEffects = 1, SALU = 1 in {
@@ -2212,9 +2235,9 @@ def : Pat <
 class SampleRawPattern<SDPatternOperator name, MIMG opcode, ValueType vt> : Pat <
   (name vt:$addr, v8i32:$rsrc, v4i32:$sampler, i32:$dmask, i32:$unorm,
         i32:$r128, i32:$da, i32:$glc, i32:$slc, i32:$tfe, i32:$lwe),
-  (opcode (as_i32imm $dmask), (as_i1imm $unorm), (as_i1imm $glc), (as_i1imm $da),
-          (as_i1imm $r128), (as_i1imm $tfe), (as_i1imm $lwe), (as_i1imm $slc),
-          $addr, $rsrc, $sampler)
+  (opcode $addr, $rsrc, $sampler,
+          (as_i32imm $dmask), (as_i1imm $unorm), (as_i1imm $glc), (as_i1imm $slc),
+          (as_i1imm $r128), (as_i1imm $tfe), (as_i1imm $lwe), (as_i1imm $da))
 >;
 
 multiclass SampleRawPatterns<SDPatternOperator name, string opcode> {
@@ -2227,17 +2250,45 @@ multiclass SampleRawPatterns<SDPatternOperator name, string opcode> {
 
 // Image only
 class ImagePattern<SDPatternOperator name, MIMG opcode, ValueType vt> : Pat <
-  (name vt:$addr, v8i32:$rsrc, i32:$dmask, i32:$unorm,
-        i32:$r128, i32:$da, i32:$glc, i32:$slc, i32:$tfe, i32:$lwe),
-  (opcode (as_i32imm $dmask), (as_i1imm $unorm), (as_i1imm $glc), (as_i1imm $da),
-          (as_i1imm $r128), (as_i1imm $tfe), (as_i1imm $lwe), (as_i1imm $slc),
-          $addr, $rsrc)
+  (name vt:$addr, v8i32:$rsrc, imm:$dmask, imm:$unorm,
+        imm:$r128, imm:$da, imm:$glc, imm:$slc, imm:$tfe, imm:$lwe),
+  (opcode $addr, $rsrc,
+          (as_i32imm $dmask), (as_i1imm $unorm), (as_i1imm $glc), (as_i1imm $slc),
+          (as_i1imm $r128), (as_i1imm $tfe), (as_i1imm $lwe), (as_i1imm $da))
 >;
 
 multiclass ImagePatterns<SDPatternOperator name, string opcode> {
   def : ImagePattern<name, !cast<MIMG>(opcode # _V4_V1), i32>;
   def : ImagePattern<name, !cast<MIMG>(opcode # _V4_V2), v2i32>;
   def : ImagePattern<name, !cast<MIMG>(opcode # _V4_V4), v4i32>;
+}
+
+class ImageLoadPattern<SDPatternOperator name, MIMG opcode, ValueType vt> : Pat <
+  (name vt:$addr, v8i32:$rsrc, imm:$dmask, imm:$r128, imm:$da, imm:$glc,
+        imm:$slc),
+  (opcode $addr, $rsrc,
+          (as_i32imm $dmask), 1, (as_i1imm $glc), (as_i1imm $slc),
+          (as_i1imm $r128), 0, 0, (as_i1imm $da))
+>;
+
+multiclass ImageLoadPatterns<SDPatternOperator name, string opcode> {
+  def : ImageLoadPattern<name, !cast<MIMG>(opcode # _V4_V1), i32>;
+  def : ImageLoadPattern<name, !cast<MIMG>(opcode # _V4_V2), v2i32>;
+  def : ImageLoadPattern<name, !cast<MIMG>(opcode # _V4_V4), v4i32>;
+}
+
+class ImageStorePattern<SDPatternOperator name, MIMG opcode, ValueType vt> : Pat <
+  (name v4f32:$data, vt:$addr, v8i32:$rsrc, i32:$dmask, imm:$r128, imm:$da,
+        imm:$glc, imm:$slc),
+  (opcode $data, $addr, $rsrc,
+          (as_i32imm $dmask), 1, (as_i1imm $glc), (as_i1imm $slc),
+          (as_i1imm $r128), 0, 0, (as_i1imm $da))
+>;
+
+multiclass ImageStorePatterns<SDPatternOperator name, string opcode> {
+  def : ImageStorePattern<name, !cast<MIMG>(opcode # _V4_V1), i32>;
+  def : ImageStorePattern<name, !cast<MIMG>(opcode # _V4_V2), v2i32>;
+  def : ImageStorePattern<name, !cast<MIMG>(opcode # _V4_V4), v4i32>;
 }
 
 // Basic sample
@@ -2336,38 +2387,42 @@ def : SampleRawPattern<int_SI_getlod, IMAGE_GET_LOD_V4_V4, v4i32>;
 def : ImagePattern<int_SI_getresinfo, IMAGE_GET_RESINFO_V4_V1, i32>;
 defm : ImagePatterns<int_SI_image_load, "IMAGE_LOAD">;
 defm : ImagePatterns<int_SI_image_load_mip, "IMAGE_LOAD_MIP">;
+defm : ImageLoadPatterns<int_amdgcn_image_load, "IMAGE_LOAD">;
+defm : ImageLoadPatterns<int_amdgcn_image_load_mip, "IMAGE_LOAD_MIP">;
+defm : ImageStorePatterns<int_amdgcn_image_store, "IMAGE_STORE">;
+defm : ImageStorePatterns<int_amdgcn_image_store_mip, "IMAGE_STORE_MIP">;
 
 /* SIsample for simple 1D texture lookup */
 def : Pat <
   (SIsample i32:$addr, v8i32:$rsrc, v4i32:$sampler, imm),
-  (IMAGE_SAMPLE_V4_V1 0xf, 0, 0, 0, 0, 0, 0, 0, $addr, $rsrc, $sampler)
+  (IMAGE_SAMPLE_V4_V1 $addr, $rsrc, $sampler, 0xf, 0, 0, 0, 0, 0, 0, 0)
 >;
 
 class SamplePattern<SDNode name, MIMG opcode, ValueType vt> : Pat <
     (name vt:$addr, v8i32:$rsrc, v4i32:$sampler, imm),
-    (opcode 0xf, 0, 0, 0, 0, 0, 0, 0, $addr, $rsrc, $sampler)
+    (opcode $addr, $rsrc, $sampler, 0xf, 0, 0, 0, 0, 0, 0, 0)
 >;
 
 class SampleRectPattern<SDNode name, MIMG opcode, ValueType vt> : Pat <
     (name vt:$addr, v8i32:$rsrc, v4i32:$sampler, TEX_RECT),
-    (opcode 0xf, 1, 0, 0, 0, 0, 0, 0, $addr, $rsrc, $sampler)
+    (opcode $addr, $rsrc, $sampler, 0xf, 1, 0, 0, 0, 0, 0, 0)
 >;
 
 class SampleArrayPattern<SDNode name, MIMG opcode, ValueType vt> : Pat <
     (name vt:$addr, v8i32:$rsrc, v4i32:$sampler, TEX_ARRAY),
-    (opcode 0xf, 0, 0, 1, 0, 0, 0, 0, $addr, $rsrc, $sampler)
+    (opcode $addr, $rsrc, $sampler, 0xf, 0, 0, 0, 0, 0, 0, 1)
 >;
 
 class SampleShadowPattern<SDNode name, MIMG opcode,
                           ValueType vt> : Pat <
     (name vt:$addr, v8i32:$rsrc, v4i32:$sampler, TEX_SHADOW),
-    (opcode 0xf, 0, 0, 0, 0, 0, 0, 0, $addr, $rsrc, $sampler)
+    (opcode $addr, $rsrc, $sampler, 0xf, 0, 0, 0, 0, 0, 0, 0)
 >;
 
 class SampleShadowArrayPattern<SDNode name, MIMG opcode,
                                ValueType vt> : Pat <
     (name vt:$addr, v8i32:$rsrc, v4i32:$sampler, TEX_SHADOW_ARRAY),
-    (opcode 0xf, 0, 0, 1, 0, 0, 0, 0, $addr, $rsrc, $sampler)
+    (opcode $addr, $rsrc, $sampler, 0xf, 0, 0, 0, 0, 0, 0, 1)
 >;
 
 /* SIsample* for texture lookups consuming more address parameters */
@@ -2416,27 +2471,6 @@ defm : SamplePatterns<IMAGE_SAMPLE_V4_V16, IMAGE_SAMPLE_C_V4_V16,
                       IMAGE_SAMPLE_B_V4_V16, IMAGE_SAMPLE_C_B_V4_V16,
                       IMAGE_SAMPLE_D_V4_V16, IMAGE_SAMPLE_C_D_V4_V16,
                       v16i32>;
-
-/* int_SI_imageload for texture fetches consuming varying address parameters */
-class ImageLoadPattern<Intrinsic name, MIMG opcode, ValueType addr_type> : Pat <
-    (name addr_type:$addr, v8i32:$rsrc, imm),
-    (opcode 0xf, 0, 0, 0, 0, 0, 0, 0, $addr, $rsrc)
->;
-
-class ImageLoadArrayPattern<Intrinsic name, MIMG opcode, ValueType addr_type> : Pat <
-    (name addr_type:$addr, v8i32:$rsrc, TEX_ARRAY),
-    (opcode 0xf, 0, 0, 1, 0, 0, 0, 0, $addr, $rsrc)
->;
-
-class ImageLoadMSAAPattern<Intrinsic name, MIMG opcode, ValueType addr_type> : Pat <
-    (name addr_type:$addr, v8i32:$rsrc, TEX_MSAA),
-    (opcode 0xf, 0, 0, 0, 0, 0, 0, 0, $addr, $rsrc)
->;
-
-class ImageLoadArrayMSAAPattern<Intrinsic name, MIMG opcode, ValueType addr_type> : Pat <
-    (name addr_type:$addr, v8i32:$rsrc, TEX_ARRAY_MSAA),
-    (opcode 0xf, 0, 0, 1, 0, 0, 0, 0, $addr, $rsrc)
->;
 
 /********** ============================================ **********/
 /********** Extraction, Insertion, Building and Casting  **********/
@@ -3136,6 +3170,13 @@ defm : BFMPatterns <i32, S_BFM_B32, S_MOV_B32>;
 // FIXME: defm : BFMPatterns <i64, S_BFM_B64, S_MOV_B64>;
 
 def : BFEPattern <V_BFE_U32, S_MOV_B32>;
+
+let Predicates = [isSICI] in {
+def : Pat <
+  (i64 (readcyclecounter)),
+  (S_MEMTIME)
+>;
+}
 
 //===----------------------------------------------------------------------===//
 // Fract Patterns

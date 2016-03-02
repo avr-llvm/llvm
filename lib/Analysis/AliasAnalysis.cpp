@@ -391,7 +391,7 @@ bool AAResults::canInstructionRangeModRef(const Instruction &I1,
 AAResults::Concept::~Concept() {}
 
 // Provide a definition for the static object used to identify passes.
-char AAManager::PassID;
+template class llvm::AnalysisBase<AAManager>;
 
 namespace {
 /// A wrapper pass for external alias analyses. This just squirrels away the

@@ -644,7 +644,8 @@ void SelectionDAG::DeleteNode(SDNode *N) {
 }
 
 void SelectionDAG::DeleteNodeNotInCSEMaps(SDNode *N) {
-  assert(N != AllNodes.begin() && "Cannot delete the entry node!");
+  assert(N->getIterator() != AllNodes.begin() &&
+         "Cannot delete the entry node!");
   assert(N->use_empty() && "Cannot delete a node that is not dead!");
 
   // Drop all of the operands and decrement used node's use counts.
@@ -4188,6 +4189,7 @@ static bool FindOptimalMemOpLowering(std::vector<EVT> &MemOps,
                                      bool ZeroMemset,
                                      bool MemcpyStrSrc,
                                      bool AllowOverlap,
+                                     unsigned DstAS, unsigned SrcAS,
                                      SelectionDAG &DAG,
                                      const TargetLowering &TLI) {
   assert((SrcAlign == 0 || SrcAlign >= DstAlign) &&
@@ -4204,10 +4206,9 @@ static bool FindOptimalMemOpLowering(std::vector<EVT> &MemOps,
                                    DAG.getMachineFunction());
 
   if (VT == MVT::Other) {
-    unsigned AS = 0;
-    if (DstAlign >= DAG.getDataLayout().getPointerPrefAlignment(AS) ||
-        TLI.allowsMisalignedMemoryAccesses(VT, AS, DstAlign)) {
-      VT = TLI.getPointerTy(DAG.getDataLayout());
+    if (DstAlign >= DAG.getDataLayout().getPointerPrefAlignment(DstAS) ||
+        TLI.allowsMisalignedMemoryAccesses(VT, DstAS, DstAlign)) {
+      VT = TLI.getPointerTy(DAG.getDataLayout(), DstAS);
     } else {
       switch (DstAlign & 7) {
       case 0:  VT = MVT::i64; break;
@@ -4263,10 +4264,9 @@ static bool FindOptimalMemOpLowering(std::vector<EVT> &MemOps,
       // FIXME: Only does this for 64-bit or more since we don't have proper
       // cost model for unaligned load / store.
       bool Fast;
-      unsigned AS = 0;
       if (NumMemOps && AllowOverlap &&
           VTSize >= 8 && NewVTSize < Size &&
-          TLI.allowsMisalignedMemoryAccesses(VT, AS, DstAlign, &Fast) && Fast)
+          TLI.allowsMisalignedMemoryAccesses(VT, DstAS, DstAlign, &Fast) && Fast)
         VTSize = Size;
       else {
         VT = NewVT;
@@ -4327,7 +4327,10 @@ static SDValue getMemcpyLoadsAndStores(SelectionDAG &DAG, SDLoc dl,
   if (!FindOptimalMemOpLowering(MemOps, Limit, Size,
                                 (DstAlignCanChange ? 0 : Align),
                                 (isZeroStr ? 0 : SrcAlign),
-                                false, false, CopyFromStr, true, DAG, TLI))
+                                false, false, CopyFromStr, true,
+                                DstPtrInfo.getAddrSpace(),
+                                SrcPtrInfo.getAddrSpace(),
+                                DAG, TLI))
     return SDValue();
 
   if (DstAlignCanChange) {
@@ -4436,7 +4439,10 @@ static SDValue getMemmoveLoadsAndStores(SelectionDAG &DAG, SDLoc dl,
 
   if (!FindOptimalMemOpLowering(MemOps, Limit, Size,
                                 (DstAlignCanChange ? 0 : Align), SrcAlign,
-                                false, false, false, false, DAG, TLI))
+                                false, false, false, false,
+                                DstPtrInfo.getAddrSpace(),
+                                SrcPtrInfo.getAddrSpace(),
+                                DAG, TLI))
     return SDValue();
 
   if (DstAlignCanChange) {
@@ -4527,7 +4533,9 @@ static SDValue getMemsetStores(SelectionDAG &DAG, SDLoc dl,
     isa<ConstantSDNode>(Src) && cast<ConstantSDNode>(Src)->isNullValue();
   if (!FindOptimalMemOpLowering(MemOps, TLI.getMaxStoresPerMemset(OptSize),
                                 Size, (DstAlignCanChange ? 0 : Align), 0,
-                                true, IsZeroVal, false, true, DAG, TLI))
+                                true, IsZeroVal, false, true,
+                                DstPtrInfo.getAddrSpace(), ~0u,
+                                DAG, TLI))
     return SDValue();
 
   if (DstAlignCanChange) {
@@ -6653,7 +6661,7 @@ unsigned SelectionDAG::AssignTopologicalOrder() {
       if (Degree == 0) {
         // All of P's operands are sorted, so P may sorted now.
         P->setNodeId(DAGSize++);
-        if (P != SortedPos)
+        if (P->getIterator() != SortedPos)
           SortedPos = AllNodes.insert(SortedPos, AllNodes.remove(P));
         assert(SortedPos != AllNodes.end() && "Overran node list");
         ++SortedPos;
@@ -6662,7 +6670,7 @@ unsigned SelectionDAG::AssignTopologicalOrder() {
         P->setNodeId(Degree);
       }
     }
-    if (&Node == SortedPos) {
+    if (Node.getIterator() == SortedPos) {
 #ifndef NDEBUG
       allnodes_iterator I(N);
       SDNode *S = &*++I;

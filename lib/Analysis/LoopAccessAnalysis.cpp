@@ -1199,8 +1199,10 @@ MemoryDepChecker::isDependent(const MemAccessInfo &A, unsigned AIdx,
     bool IsTrueDataDependence = (AIsWrite && !BIsWrite);
     if (IsTrueDataDependence &&
         (couldPreventStoreLoadForward(Val.abs().getZExtValue(), TypeByteSize) ||
-         ATy != BTy))
+         ATy != BTy)) {
+      DEBUG(dbgs() << "LAA: Forward but may prevent st->ld forwarding\n");
       return Dependence::ForwardButPreventsForwarding;
+    }
 
     DEBUG(dbgs() << "LAA: Dependence is negative: NoDep\n");
     return Dependence::Forward;
@@ -1325,8 +1327,10 @@ bool MemoryDepChecker::areDepsSafe(DepCandidates &AccessSets,
       AccessSets.findValue(AccessSets.getLeaderValue(CurAccess));
 
     // Check accesses within this set.
-    EquivalenceClasses<MemAccessInfo>::member_iterator AI, AE;
-    AI = AccessSets.member_begin(I), AE = AccessSets.member_end();
+    EquivalenceClasses<MemAccessInfo>::member_iterator AI =
+        AccessSets.member_begin(I);
+    EquivalenceClasses<MemAccessInfo>::member_iterator AE =
+        AccessSets.member_end();
 
     // Check every access pair.
     while (AI != AE) {

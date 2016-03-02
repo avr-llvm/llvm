@@ -4277,17 +4277,17 @@ let ExeDomain = SSEPackedInt, SchedRW = [WriteVecShift], hasSideEffects = 0 in {
 //===---------------------------------------------------------------------===//
 
 defm PCMPEQB : PDI_binop_all<0x74, "pcmpeqb", X86pcmpeq, v16i8, v32i8,
-                             SSE_INTALU_ITINS_P, 1, NoVLX_Or_NoBWI>;
+                             SSE_INTALU_ITINS_P, 1, TruePredicate>;
 defm PCMPEQW : PDI_binop_all<0x75, "pcmpeqw", X86pcmpeq, v8i16, v16i16,
-                             SSE_INTALU_ITINS_P, 1, NoVLX_Or_NoBWI>;
+                             SSE_INTALU_ITINS_P, 1, TruePredicate>;
 defm PCMPEQD : PDI_binop_all<0x76, "pcmpeqd", X86pcmpeq, v4i32, v8i32,
-                             SSE_INTALU_ITINS_P, 1, NoVLX>;
+                             SSE_INTALU_ITINS_P, 1, TruePredicate>;
 defm PCMPGTB : PDI_binop_all<0x64, "pcmpgtb", X86pcmpgt, v16i8, v32i8,
-                             SSE_INTALU_ITINS_P, 0, NoVLX_Or_NoBWI>;
+                             SSE_INTALU_ITINS_P, 0, TruePredicate>;
 defm PCMPGTW : PDI_binop_all<0x65, "pcmpgtw", X86pcmpgt, v8i16, v16i16,
-                             SSE_INTALU_ITINS_P, 0, NoVLX_Or_NoBWI>;
+                             SSE_INTALU_ITINS_P, 0, TruePredicate>;
 defm PCMPGTD : PDI_binop_all<0x66, "pcmpgtd", X86pcmpgt, v4i32, v8i32,
-                             SSE_INTALU_ITINS_P, 0, NoVLX>;
+                             SSE_INTALU_ITINS_P, 0, TruePredicate>;
 
 //===---------------------------------------------------------------------===//
 // SSE2 - Packed Integer Shuffle Instructions
@@ -5658,15 +5658,15 @@ let isCommutable = 0 in {
   defm VPHSUBD    : SS3I_binop_rm<0x06, "vphsubd", X86hsub, v4i32, VR128,
                                   loadv2i64, i128mem,
                                   SSE_PHADDSUBD, 0>, VEX_4V;
-  defm VPSIGNB    : SS3I_binop_rm<0x08, "vpsignb", X86psign, v16i8, VR128,
-                                  loadv2i64, i128mem,
-                                  SSE_PSIGN, 0>, VEX_4V;
-  defm VPSIGNW    : SS3I_binop_rm<0x09, "vpsignw", X86psign, v8i16, VR128,
-                                  loadv2i64, i128mem,
-                                  SSE_PSIGN, 0>, VEX_4V;
-  defm VPSIGND    : SS3I_binop_rm<0x0A, "vpsignd", X86psign, v4i32, VR128,
-                                  loadv2i64, i128mem,
-                                  SSE_PSIGN, 0>, VEX_4V;
+  defm VPSIGNB    : SS3I_binop_rm_int<0x08, "vpsignb",
+                                      int_x86_ssse3_psign_b_128,
+                                      SSE_PSIGN, loadv2i64, 0>, VEX_4V;
+  defm VPSIGNW    : SS3I_binop_rm_int<0x09, "vpsignw",
+                                      int_x86_ssse3_psign_w_128,
+                                      SSE_PSIGN, loadv2i64, 0>, VEX_4V;
+  defm VPSIGND    : SS3I_binop_rm_int<0x0A, "vpsignd",
+                                      int_x86_ssse3_psign_d_128,
+                                      SSE_PSIGN, loadv2i64, 0>, VEX_4V;
   defm VPSHUFB    : SS3I_binop_rm<0x00, "vpshufb", X86pshufb, v16i8, VR128,
                                   loadv2i64, i128mem,
                                   SSE_PSHUFB, 0>, VEX_4V;
@@ -5699,15 +5699,12 @@ let isCommutable = 0 in {
   defm VPHSUBDY   : SS3I_binop_rm<0x06, "vphsubd", X86hsub, v8i32, VR256,
                                   loadv4i64, i256mem,
                                   SSE_PHADDSUBW, 0>, VEX_4V, VEX_L;
-  defm VPSIGNBY   : SS3I_binop_rm<0x08, "vpsignb", X86psign, v32i8, VR256,
-                                  loadv4i64, i256mem,
-                                  SSE_PHADDSUBW, 0>, VEX_4V, VEX_L;
-  defm VPSIGNWY   : SS3I_binop_rm<0x09, "vpsignw", X86psign, v16i16, VR256,
-                                  loadv4i64, i256mem,
-                                  SSE_PHADDSUBW, 0>, VEX_4V, VEX_L;
-  defm VPSIGNDY   : SS3I_binop_rm<0x0A, "vpsignd", X86psign, v8i32, VR256,
-                                  loadv4i64, i256mem,
-                                  SSE_PHADDSUBW, 0>, VEX_4V, VEX_L;
+  defm VPSIGNBY   : SS3I_binop_rm_int_y<0x08, "vpsignb", int_x86_avx2_psign_b,
+                                        WriteVecALU>, VEX_4V, VEX_L;
+  defm VPSIGNWY   : SS3I_binop_rm_int_y<0x09, "vpsignw", int_x86_avx2_psign_w,
+                                        WriteVecALU>, VEX_4V, VEX_L;
+  defm VPSIGNDY   : SS3I_binop_rm_int_y<0x0A, "vpsignd", int_x86_avx2_psign_d,
+                                        WriteVecALU>, VEX_4V, VEX_L;
   defm VPSHUFBY   : SS3I_binop_rm<0x00, "vpshufb", X86pshufb, v32i8, VR256,
                                   loadv4i64, i256mem,
                                   SSE_PSHUFB, 0>, VEX_4V, VEX_L;
@@ -5737,12 +5734,12 @@ let isCommutable = 0 in {
                                  memopv2i64, i128mem, SSE_PHADDSUBW>;
   defm PHSUBD    : SS3I_binop_rm<0x06, "phsubd", X86hsub, v4i32, VR128,
                                  memopv2i64, i128mem, SSE_PHADDSUBD>;
-  defm PSIGNB    : SS3I_binop_rm<0x08, "psignb", X86psign, v16i8, VR128,
-                                 memopv2i64, i128mem, SSE_PSIGN>;
-  defm PSIGNW    : SS3I_binop_rm<0x09, "psignw", X86psign, v8i16, VR128,
-                                 memopv2i64, i128mem, SSE_PSIGN>;
-  defm PSIGND    : SS3I_binop_rm<0x0A, "psignd", X86psign, v4i32, VR128,
-                                 memopv2i64, i128mem, SSE_PSIGN>;
+  defm PSIGNB    : SS3I_binop_rm_int<0x08, "psignb", int_x86_ssse3_psign_b_128,
+                                     SSE_PSIGN, memopv2i64>;
+  defm PSIGNW    : SS3I_binop_rm_int<0x09, "psignw", int_x86_ssse3_psign_w_128,
+                                     SSE_PSIGN, memopv2i64>;
+  defm PSIGND    : SS3I_binop_rm_int<0x0A, "psignd", int_x86_ssse3_psign_d_128,
+                                     SSE_PSIGN, memopv2i64>;
   defm PSHUFB    : SS3I_binop_rm<0x00, "pshufb", X86pshufb, v16i8, VR128,
                                  memopv2i64, i128mem, SSE_PSHUFB>;
   defm PHADDSW   : SS3I_binop_rm_int<0x03, "phaddsw",
@@ -5899,7 +5896,7 @@ multiclass SS41I_pmovx_rm_all<bits<8> opc, string OpcodeStr,
                                      VR256, VR128, AVX2Itins>, VEX, VEX_L;
 }
 
-multiclass SS41I_pmovx_rm<bits<8> opc, string OpcodeStr, X86MemOperand MemOp, 
+multiclass SS41I_pmovx_rm<bits<8> opc, string OpcodeStr, X86MemOperand MemOp,
                           X86MemOperand MemYOp, Predicate prd> {
   defm PMOVSX#NAME : SS41I_pmovx_rm_all<opc, !strconcat("pmovsx", OpcodeStr),
                                         MemOp, MemYOp,
@@ -5983,9 +5980,9 @@ multiclass SS41I_pmovx_avx2_patterns<string OpcPrefix, string ExtTy, SDNode ExtO
   def : Pat<(v4i64 (!cast<PatFrag>(ExtTy#"extloadvi32") addr:$src)),
             (!cast<I>(OpcPrefix#DQYrm) addr:$src)>;
   }
-  
+
   // AVX2 Register-Memory patterns
-  let Predicates = [HasAVX, NoVLX_Or_NoBWI] in {  
+  let Predicates = [HasAVX, NoVLX_Or_NoBWI] in {
   def : Pat<(v16i16 (ExtOp (bc_v16i8 (loadv2i64 addr:$src)))),
             (!cast<I>(OpcPrefix#BWYrm) addr:$src)>;
   def : Pat<(v16i16 (ExtOp (v16i8 (vzmovl_v2i64 addr:$src)))),
@@ -8441,7 +8438,7 @@ let Predicates = [HasAVX2, NoVLX_Or_NoBWI], AddedComplexity = 20 in {
   def : Pat<(v16i16 (X86VBroadcast GR16:$src)),
         (VPBROADCASTWYrr (COPY_TO_REGCLASS
                           (i32 (SUBREG_TO_REG (i32 0), GR16:$src, sub_16bit)),
-                          VR128))>;  
+                          VR128))>;
 }
 let Predicates = [HasAVX2, NoVLX], AddedComplexity = 20 in {
   def : Pat<(v4i32 (X86VBroadcast GR32:$src)),
@@ -8485,7 +8482,7 @@ let Predicates = [HasAVX], AddedComplexity = 20 in {
               (VPSHUFDri (COPY_TO_REGCLASS FR64:$src, VR128), 0x44), 1)>;
 
   def : Pat<(v2f64 (X86VBroadcast f64:$src)),
-            (VMOVDDUPrr (COPY_TO_REGCLASS FR64:$src, VR128))>;  
+            (VMOVDDUPrr (COPY_TO_REGCLASS FR64:$src, VR128))>;
 }
 
 let Predicates = [HasAVX, NoVLX], AddedComplexity = 20 in {
@@ -8499,7 +8496,7 @@ let Predicates = [HasAVX, NoVLX], AddedComplexity = 20 in {
             (VINSERTF128rr (INSERT_SUBREG (v4i64 (IMPLICIT_DEF)),
               (VPSHUFDri (COPY_TO_REGCLASS GR64:$src, VR128), 0x44), sub_xmm),
               (VPSHUFDri (COPY_TO_REGCLASS GR64:$src, VR128), 0x44), 1)>;
-  
+
   def : Pat<(v2i64 (X86VBroadcast i64:$src)),
               (VMOVDDUPrr (COPY_TO_REGCLASS GR64:$src, VR128))>;
 }
@@ -8744,10 +8741,10 @@ multiclass maskmov_lowering<string InstrStr, RegisterClass RC, ValueType VT,
                               (VT (bitconvert (ZeroVT immAllZerosV))))),
              (!cast<Instruction>(InstrStr#"rm") RC:$mask, addr:$ptr)>;
     def: Pat<(VT (masked_load addr:$ptr, (MaskVT RC:$mask), (VT RC:$src0))),
-             (!cast<Instruction>(BlendStr#"rr") 
-                 RC:$src0, 
+             (!cast<Instruction>(BlendStr#"rr")
+                 RC:$src0,
                  (!cast<Instruction>(InstrStr#"rm") RC:$mask, addr:$ptr),
-                 RC:$mask)>; 
+                 RC:$mask)>;
 }
 let Predicates = [HasAVX] in {
   defm : maskmov_lowering<"VMASKMOVPS", VR128, v4f32, v4i32, "VBLENDVPS", v4i32>;
@@ -8832,19 +8829,19 @@ multiclass avx2_gather<bits<8> opc, string OpcodeStr, RegisterClass RC256,
 let mayLoad = 1, Constraints
   = "@earlyclobber $dst,@earlyclobber $mask_wb, $src1 = $dst, $mask = $mask_wb"
   in {
-  defm VPGATHERDQ : avx2_gather<0x90, "vpgatherdq", VR256, vx64mem, vx64mem>, VEX_W;
-  defm VPGATHERQQ : avx2_gather<0x91, "vpgatherqq", VR256, vx64mem, vy64mem>, VEX_W;
-  defm VPGATHERDD : avx2_gather<0x90, "vpgatherdd", VR256, vx32mem, vy32mem>;
-  defm VPGATHERQD : avx2_gather<0x91, "vpgatherqd", VR128, vx32mem, vy32mem>;
+  defm VPGATHERDQ : avx2_gather<0x90, "vpgatherdq", VR256, vx128mem, vx256mem>, VEX_W;
+  defm VPGATHERQQ : avx2_gather<0x91, "vpgatherqq", VR256, vx128mem, vy256mem>, VEX_W;
+  defm VPGATHERDD : avx2_gather<0x90, "vpgatherdd", VR256, vx128mem, vy256mem>;
+  defm VPGATHERQD : avx2_gather<0x91, "vpgatherqd", VR128, vx64mem, vy128mem>;
 
   let ExeDomain = SSEPackedDouble in {
-    defm VGATHERDPD : avx2_gather<0x92, "vgatherdpd", VR256, vx64mem, vx64mem>, VEX_W;
-    defm VGATHERQPD : avx2_gather<0x93, "vgatherqpd", VR256, vx64mem, vy64mem>, VEX_W;
+    defm VGATHERDPD : avx2_gather<0x92, "vgatherdpd", VR256, vx128mem, vx256mem>, VEX_W;
+    defm VGATHERQPD : avx2_gather<0x93, "vgatherqpd", VR256, vx128mem, vy256mem>, VEX_W;
   }
 
   let ExeDomain = SSEPackedSingle in {
-    defm VGATHERDPS : avx2_gather<0x92, "vgatherdps", VR256, vx32mem, vy32mem>;
-    defm VGATHERQPS : avx2_gather<0x93, "vgatherqps", VR128, vx32mem, vy32mem>;
+    defm VGATHERDPS : avx2_gather<0x92, "vgatherdps", VR256, vx128mem, vy256mem>;
+    defm VGATHERQPS : avx2_gather<0x93, "vgatherqps", VR128, vx64mem, vy128mem>;
   }
 }
 

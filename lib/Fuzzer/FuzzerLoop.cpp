@@ -83,15 +83,20 @@ void Fuzzer::StaticDeathCallback() {
   F->DeathCallback();
 }
 
-void Fuzzer::DeathCallback() {
-  if (!CurrentUnitSize) return;
-  Printf("DEATH:\n");
+void Fuzzer::DumpCurrentUnit(const char *Prefix) {
   if (CurrentUnitSize <= kMaxUnitSizeToPrint) {
     PrintHexArray(CurrentUnitData, CurrentUnitSize, "\n");
     PrintASCII(CurrentUnitData, CurrentUnitSize, "\n");
   }
   WriteUnitToFileWithPrefix(
-      {CurrentUnitData, CurrentUnitData + CurrentUnitSize}, "crash-");
+      {CurrentUnitData, CurrentUnitData + CurrentUnitSize}, Prefix);
+}
+
+void Fuzzer::DeathCallback() {
+  if (!CurrentUnitSize) return;
+  Printf("DEATH:\n");
+  DumpCurrentUnit("crash-");
+  PrintFinalStats();
 }
 
 void Fuzzer::StaticAlarmCallback() {
@@ -99,8 +104,39 @@ void Fuzzer::StaticAlarmCallback() {
   F->AlarmCallback();
 }
 
+void Fuzzer::StaticCrashSignalCallback() {
+  assert(F);
+  F->CrashCallback();
+}
+
+void Fuzzer::StaticInterruptCallback() {
+  assert(F);
+  F->InterruptCallback();
+}
+
+void Fuzzer::CrashCallback() {
+  Printf("==%d== ERROR: libFuzzer: deadly signal\n", GetPid());
+  if (__sanitizer_print_stack_trace)
+    __sanitizer_print_stack_trace();
+  Printf("NOTE: libFuzzer has rudimentary signal handlers.\n"
+         "      Combine libFuzzer with AddressSanitizer or similar for better "
+         "crash reports.\n");
+  Printf("SUMMARY: libFuzzer: deadly signal\n");
+  DumpCurrentUnit("crash-");
+  PrintFinalStats();
+  exit(Options.ErrorExitCode);
+}
+
+void Fuzzer::InterruptCallback() {
+  Printf("==%d== libFuzzer: run interrupted; exiting\n", GetPid());
+  PrintFinalStats();
+  exit(0);
+}
+
 void Fuzzer::AlarmCallback() {
   assert(Options.UnitTimeoutSec > 0);
+  if (!CurrentUnitSize)
+    return; // We have not started running units yet.
   size_t Seconds =
       duration_cast<seconds>(system_clock::now() - UnitStartTime).count();
   if (Seconds == 0)
@@ -111,27 +147,19 @@ void Fuzzer::AlarmCallback() {
     Printf("ALARM: working on the last Unit for %zd seconds\n", Seconds);
     Printf("       and the timeout value is %d (use -timeout=N to change)\n",
            Options.UnitTimeoutSec);
-    if (CurrentUnitSize <= kMaxUnitSizeToPrint) {
-      PrintHexArray(CurrentUnitData, CurrentUnitSize, "\n");
-      PrintASCII(CurrentUnitData, CurrentUnitSize, "\n");
-    }
-    WriteUnitToFileWithPrefix(
-        {CurrentUnitData, CurrentUnitData + CurrentUnitSize}, "timeout-");
+    DumpCurrentUnit("timeout-");
     Printf("==%d== ERROR: libFuzzer: timeout after %d seconds\n", GetPid(),
            Seconds);
     if (__sanitizer_print_stack_trace)
       __sanitizer_print_stack_trace();
     Printf("SUMMARY: libFuzzer: timeout\n");
-    if (Options.AbortOnTimeout)
-      abort();
+    PrintFinalStats();
     exit(Options.TimeoutExitCode);
   }
 }
 
 void Fuzzer::PrintStats(const char *Where, const char *End) {
-  size_t Seconds = secondsSinceProcessStartUp();
-  size_t ExecPerSec = (Seconds ? TotalNumberOfRuns / Seconds : 0);
-
+  size_t ExecPerSec = execPerSec();
   if (Options.OutputCSV) {
     static bool csvHeaderPrinted = false;
     if (!csvHeaderPrinted) {
@@ -149,6 +177,8 @@ void Fuzzer::PrintStats(const char *Where, const char *End) {
   Printf("#%zd\t%s", TotalNumberOfRuns, Where);
   if (LastRecordedBlockCoverage)
     Printf(" cov: %zd", LastRecordedBlockCoverage);
+  if (LastRecordedPcMapSize)
+    Printf(" path: %zd", LastRecordedPcMapSize);
   if (auto TB = TotalBits())
     Printf(" bits: %zd", TB);
   if (LastRecordedCallerCalleeCoverage)
@@ -159,12 +189,22 @@ void Fuzzer::PrintStats(const char *Where, const char *End) {
   Printf("%s", End);
 }
 
+void Fuzzer::PrintFinalStats() {
+  if (!Options.PrintFinalStats) return;
+  size_t ExecPerSec = execPerSec();
+  Printf("stat::number_of_executed_units: %zd\n", TotalNumberOfRuns);
+  Printf("stat::average_exec_per_sec:     %zd\n", ExecPerSec);
+  Printf("stat::new_units_added:          %zd\n", NumberOfNewUnitsAdded);
+  Printf("stat::slowest_unit_time_sec:    %zd\n", TimeOfLongestUnitInSeconds);
+  Printf("stat::peak_rss_mb:              %zd\n", GetPeakRSSMb());
+}
+
 void Fuzzer::RereadOutputCorpus() {
   if (Options.OutputCorpus.empty())
     return;
   std::vector<Unit> AdditionalCorpus;
   ReadDirToVectorOfUnits(Options.OutputCorpus.c_str(), &AdditionalCorpus,
-                         &EpochOfLastReadOfOutputCorpus);
+                         &EpochOfLastReadOfOutputCorpus, Options.MaxLen);
   if (Corpus.empty()) {
     Corpus = AdditionalCorpus;
     return;
@@ -314,6 +354,12 @@ bool Fuzzer::CheckCoverageAfterRun() {
   size_t OldCallerCalleeCoverage = LastRecordedCallerCalleeCoverage;
   size_t NewCallerCalleeCoverage = RecordCallerCalleeCoverage();
   size_t NumNewBits = 0;
+  size_t OldPcMapSize = LastRecordedPcMapSize;
+  PcMapMergeCurrentToCombined();
+  size_t NewPcMapSize = PcMapCombinedSize();
+  LastRecordedPcMapSize = NewPcMapSize;
+  if (NewPcMapSize > OldPcMapSize)
+    return true;
   if (Options.UseCounters)
     NumNewBits = __sanitizer_update_counter_bitset_and_clear_counters(
         CounterBitmap.data());
@@ -372,8 +418,7 @@ void Fuzzer::ReportNewCoverage(const Unit &U) {
   MD.RecordSuccessfulMutationSequence();
   PrintStatusForNewUnit(U);
   WriteToOutputCorpus(U);
-  if (Options.ExitOnFirst)
-    exit(0);
+  NumberOfNewUnitsAdded++;
 }
 
 void Fuzzer::Merge(const std::vector<std::string> &Corpora) {
@@ -382,7 +427,7 @@ void Fuzzer::Merge(const std::vector<std::string> &Corpora) {
     return;
   }
   auto InitialCorpusDir = Corpora[0];
-  ReadDir(InitialCorpusDir, nullptr);
+  ReadDir(InitialCorpusDir, nullptr, Options.MaxLen);
   Printf("Merge: running the initial corpus '%s' of %d units\n",
          InitialCorpusDir.c_str(), Corpus.size());
   for (auto &U : Corpus)
@@ -394,7 +439,7 @@ void Fuzzer::Merge(const std::vector<std::string> &Corpora) {
   size_t NumMerged = 0;
   for (auto &C : ExtraCorpora) {
     Corpus.clear();
-    ReadDir(C, nullptr);
+    ReadDir(C, nullptr, Options.MaxLen);
     Printf("Merge: merging the extra corpus '%s' of %zd units\n", C.c_str(),
            Corpus.size());
     for (auto &U : Corpus) {

@@ -61,6 +61,7 @@ using namespace llvm;
 
 CFLAAResult::CFLAAResult(const TargetLibraryInfo &TLI) : AAResultBase(TLI) {}
 CFLAAResult::CFLAAResult(CFLAAResult &&Arg) : AAResultBase(std::move(Arg)) {}
+CFLAAResult::~CFLAAResult() {}
 
 // \brief Information we have about a function and would like to keep around
 struct CFLAAResult::FunctionInfo {
@@ -1091,8 +1092,6 @@ AliasResult CFLAAResult::query(const MemoryLocation &LocA,
 CFLAAResult CFLAA::run(Function &F, AnalysisManager<Function> *AM) {
   return CFLAAResult(AM->getResult<TargetLibraryAnalysis>(F));
 }
-
-char CFLAA::PassID;
 
 char CFLAAWrapperPass::ID = 0;
 INITIALIZE_PASS_BEGIN(CFLAAWrapperPass, "cfl-aa", "CFL-Based Alias Analysis",

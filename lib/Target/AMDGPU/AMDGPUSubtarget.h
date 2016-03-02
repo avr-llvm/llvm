@@ -88,10 +88,11 @@ private:
   bool GCN1Encoding;
   bool GCN3Encoding;
   bool CIInsts;
+  bool HasSMemRealTime;
+  bool Has16BitInsts;
   bool FeatureDisable;
   int LDSBankCount;
   unsigned IsaVersion;
-  bool EnableHugeScratchBuffer;
   bool EnableSIScheduler;
 
   std::unique_ptr<AMDGPUFrameLowering> FrameLowering;
@@ -166,6 +167,14 @@ public:
 
   bool hasFlatAddressSpace() const {
     return FlatAddressSpace;
+  }
+
+  bool hasSMemRealTime() const {
+    return HasSMemRealTime;
+  }
+
+  bool has16BitInsts() const {
+    return Has16BitInsts;
   }
 
   bool useFlatForGlobal() const {
@@ -281,10 +290,6 @@ public:
   // Helper functions to simplify if statements
   bool isTargetELF() const {
     return false;
-  }
-
-  bool enableHugeScratchBuffer() const {
-    return EnableHugeScratchBuffer;
   }
 
   bool enableSIScheduler() const {

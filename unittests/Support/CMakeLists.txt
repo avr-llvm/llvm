@@ -42,6 +42,7 @@ add_llvm_unittest(SupportTests
   ThreadPool.cpp
   TimerTest.cpp
   TimeValueTest.cpp
+  TypeNameTest.cpp
   TrailingObjectsTest.cpp
   UnicodeTest.cpp
   YAMLIOTest.cpp
@@ -52,6 +53,4 @@ add_llvm_unittest(SupportTests
   )
 
 # ManagedStatic.cpp uses <pthread>.
-if(LLVM_ENABLE_THREADS AND HAVE_LIBPTHREAD)
-  target_link_libraries(SupportTests pthread)
-endif()
+target_link_libraries(SupportTests ${PTHREAD_LIB})

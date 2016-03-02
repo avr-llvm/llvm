@@ -81,8 +81,10 @@ AMDGPUSubtarget::AMDGPUSubtarget(const Triple &TT, StringRef GPU, StringRef FS,
       WavefrontSize(0), CFALUBug(false),
       LocalMemorySize(0), MaxPrivateElementSize(0),
       EnableVGPRSpilling(false), SGPRInitBug(false), IsGCN(false),
-      GCN1Encoding(false), GCN3Encoding(false), CIInsts(false), LDSBankCount(0),
-      IsaVersion(ISAVersion0_0_0), EnableHugeScratchBuffer(false),
+      GCN1Encoding(false), GCN3Encoding(false), CIInsts(false),
+      HasSMemRealTime(false), Has16BitInsts(false),
+      LDSBankCount(0),
+      IsaVersion(ISAVersion0_0_0),
       EnableSIScheduler(false), FrameLowering(nullptr),
       InstrItins(getInstrItineraryForCPU(GPU)), TargetTriple(TT) {
 

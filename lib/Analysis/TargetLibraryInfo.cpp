@@ -636,7 +636,7 @@ TargetLibraryInfoWrapperPass::TargetLibraryInfoWrapperPass(
   initializeTargetLibraryInfoWrapperPassPass(*PassRegistry::getPassRegistry());
 }
 
-char TargetLibraryAnalysis::PassID;
+template class llvm::AnalysisBase<TargetLibraryAnalysis>;
 
 // Register the basic pass.
 INITIALIZE_PASS(TargetLibraryInfoWrapperPass, "targetlibinfo",

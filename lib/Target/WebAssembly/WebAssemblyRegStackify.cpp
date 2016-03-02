@@ -121,14 +121,15 @@ static bool IsSafeToMove(const MachineInstr *Def, const MachineInstr *Insert,
     // Insert will change value numbers are seen.
     const LiveInterval &LI = LIS.getInterval(Reg);
     VNInfo *DefVNI =
-        MO.isDef() ? LI.getVNInfoAt(LIS.getInstructionIndex(Def).getRegSlot())
-                   : LI.getVNInfoBefore(LIS.getInstructionIndex(Def));
+        MO.isDef() ? LI.getVNInfoAt(LIS.getInstructionIndex(*Def).getRegSlot())
+                   : LI.getVNInfoBefore(LIS.getInstructionIndex(*Def));
     assert(DefVNI && "Instruction input missing value number");
-    VNInfo *InsVNI = LI.getVNInfoBefore(LIS.getInstructionIndex(Insert));
+    VNInfo *InsVNI = LI.getVNInfoBefore(LIS.getInstructionIndex(*Insert));
     if (InsVNI && DefVNI != InsVNI)
       return false;
   }
 
+  SawStore = Def->isCall() || Def->mayStore();
   // Check for memory dependencies and side effects.
   for (--I; I != D; --I)
     SawSideEffects |= !I->isSafeToMove(&AA, SawStore);
@@ -187,7 +188,7 @@ static MachineInstr *MoveForSingleUse(unsigned Reg, MachineInstr *Def,
                                       MachineInstr *Insert, LiveIntervals &LIS,
                                       WebAssemblyFunctionInfo &MFI) {
   MBB.splice(Insert, &MBB, Def);
-  LIS.handleMove(Def);
+  LIS.handleMove(*Def);
   MFI.stackifyVReg(Reg);
   ImposeStackOrdering(Def);
   return Def;
@@ -205,7 +206,7 @@ RematerializeCheapDef(unsigned Reg, MachineOperand &Op, MachineInstr *Def,
   TII->reMaterialize(MBB, Insert, NewReg, 0, Def, *TRI);
   Op.setReg(NewReg);
   MachineInstr *Clone = &*std::prev(MachineBasicBlock::instr_iterator(Insert));
-  LIS.InsertMachineInstrInMaps(Clone);
+  LIS.InsertMachineInstrInMaps(*Clone);
   LIS.createAndComputeVirtRegInterval(NewReg);
   MFI.stackifyVReg(NewReg);
   ImposeStackOrdering(Clone);
@@ -213,11 +214,11 @@ RematerializeCheapDef(unsigned Reg, MachineOperand &Op, MachineInstr *Def,
   // If that was the last use of the original, delete the original.
   // Otherwise shrink the LiveInterval.
   if (MRI.use_empty(Reg)) {
-    SlotIndex Idx = LIS.getInstructionIndex(Def).getRegSlot();
+    SlotIndex Idx = LIS.getInstructionIndex(*Def).getRegSlot();
     LIS.removePhysRegDefAt(WebAssembly::ARGUMENTS, Idx);
     LIS.removeVRegDefAt(LIS.getInterval(Reg), Idx);
     LIS.removeInterval(Reg);
-    LIS.RemoveMachineInstrFromMaps(Def);
+    LIS.RemoveMachineInstrFromMaps(*Def);
     Def->eraseFromParent();
   } else {
     LIS.shrinkToUses(&LIS.getInterval(Reg));
@@ -237,35 +238,37 @@ RematerializeCheapDef(unsigned Reg, MachineOperand &Op, MachineInstr *Def,
 ///
 /// to this:
 ///
-///    Reg = INST ...        // Def (to become the new Insert)
-///    TeeReg, NewReg = TEE_LOCAL_... Reg
+///    DefReg = INST ...     // Def (to become the new Insert)
+///    TeeReg, NewReg = TEE_LOCAL_... DefReg
 ///    INST ..., TeeReg, ... // Insert
 ///    INST ..., NewReg, ...
 ///    INST ..., NewReg, ...
 ///
-/// with Reg and TeeReg stackified. This eliminates a get_local from the
+/// with DefReg and TeeReg stackified. This eliminates a get_local from the
 /// resulting code.
 static MachineInstr *MoveAndTeeForMultiUse(
     unsigned Reg, MachineOperand &Op, MachineInstr *Def, MachineBasicBlock &MBB,
     MachineInstr *Insert, LiveIntervals &LIS, WebAssemblyFunctionInfo &MFI,
     MachineRegisterInfo &MRI, const WebAssemblyInstrInfo *TII) {
   MBB.splice(Insert, &MBB, Def);
-  LIS.handleMove(Def);
+  LIS.handleMove(*Def);
   const auto *RegClass = MRI.getRegClass(Reg);
   unsigned NewReg = MRI.createVirtualRegister(RegClass);
   unsigned TeeReg = MRI.createVirtualRegister(RegClass);
+  unsigned DefReg = MRI.createVirtualRegister(RegClass);
   MRI.replaceRegWith(Reg, NewReg);
   MachineInstr *Tee = BuildMI(MBB, Insert, Insert->getDebugLoc(),
                               TII->get(GetTeeLocalOpcode(RegClass)), TeeReg)
                           .addReg(NewReg, RegState::Define)
-                          .addReg(Reg);
+                          .addReg(DefReg);
   Op.setReg(TeeReg);
-  Def->getOperand(0).setReg(Reg);
-  LIS.InsertMachineInstrInMaps(Tee);
-  LIS.shrinkToUses(&LIS.getInterval(Reg));
+  Def->getOperand(0).setReg(DefReg);
+  LIS.InsertMachineInstrInMaps(*Tee);
+  LIS.removeInterval(Reg);
   LIS.createAndComputeVirtRegInterval(NewReg);
   LIS.createAndComputeVirtRegInterval(TeeReg);
-  MFI.stackifyVReg(Reg);
+  LIS.createAndComputeVirtRegInterval(DefReg);
+  MFI.stackifyVReg(DefReg);
   MFI.stackifyVReg(TeeReg);
   ImposeStackOrdering(Def);
   ImposeStackOrdering(Tee);
@@ -420,7 +423,11 @@ bool WebAssemblyRegStackify::runOnMachineFunction(MachineFunction &MF) {
       // Don't nest anything inside an inline asm, because we don't have
       // constraints for $push inputs.
       if (Insert->getOpcode() == TargetOpcode::INLINEASM)
-        break;
+        continue;
+
+      // Ignore debugging intrinsics.
+      if (Insert->getOpcode() == TargetOpcode::DBG_VALUE)
+        continue;
 
       // Iterate through the inputs in reverse order, since we'll be pulling
       // operands off the stack in LIFO order.
@@ -446,7 +453,7 @@ bool WebAssemblyRegStackify::runOnMachineFunction(MachineFunction &MF) {
         if (!Def) {
           // MRI doesn't know what the Def is. Try asking LIS.
           const VNInfo *ValNo = LIS.getInterval(Reg).getVNInfoBefore(
-              LIS.getInstructionIndex(Insert));
+              LIS.getInstructionIndex(*Insert));
           if (!ValNo)
             continue;
           Def = LIS.getInstructionFromIndex(ValNo->def);

@@ -14,6 +14,7 @@
 #include "InstCombineInternal.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/InstructionSimplify.h"
+#include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/Dominators.h"
@@ -58,6 +59,23 @@ static Type *reduceToSingleValueType(Type *T) {
   }
 
   return T;
+}
+
+/// Return a constant boolean vector that has true elements in all positions
+/// where the input constant data vector has an element with the sign bit set.
+static Constant *getNegativeIsTrueBoolVec(ConstantDataVector *V) {
+  SmallVector<Constant *, 32> BoolVec;
+  IntegerType *BoolTy = Type::getInt1Ty(V->getContext());
+  for (unsigned I = 0, E = V->getNumElements(); I != E; ++I) {
+    Constant *Elt = V->getElementAsConstant(I);
+    assert((isa<ConstantInt>(Elt) || isa<ConstantFP>(Elt)) &&
+           "Unexpected constant data vector element type");
+    bool Sign = V->getElementType()->isIntegerTy()
+                    ? cast<ConstantInt>(Elt)->isNegative()
+                    : cast<ConstantFP>(Elt)->isNegative();
+    BoolVec.push_back(ConstantInt::get(BoolTy, Sign));
+  }
+  return ConstantVector::get(BoolVec);
 }
 
 Instruction *InstCombiner::SimplifyMemTransfer(MemIntrinsic *MI) {
@@ -810,6 +828,78 @@ static Instruction *simplifyMaskedScatter(IntrinsicInst &II, InstCombiner &IC) {
   return nullptr;
 }
 
+// TODO: If the x86 backend knew how to convert a bool vector mask back to an
+// XMM register mask efficiently, we could transform all x86 masked intrinsics
+// to LLVM masked intrinsics and remove the x86 masked intrinsic defs.
+static Instruction *simplifyX86MaskedLoad(IntrinsicInst &II, InstCombiner &IC) {
+  Value *Ptr = II.getOperand(0);
+  Value *Mask = II.getOperand(1);
+
+  // Special case a zero mask since that's not a ConstantDataVector.
+  // This masked load instruction does nothing, so return an undef.
+  if (isa<ConstantAggregateZero>(Mask))
+    return IC.replaceInstUsesWith(II, UndefValue::get(II.getType()));
+
+  auto *ConstMask = dyn_cast<ConstantDataVector>(Mask);
+  if (!ConstMask)
+    return nullptr;
+
+  // The mask is constant. Convert this x86 intrinsic to the LLVM instrinsic
+  // to allow target-independent optimizations.
+
+  // First, cast the x86 intrinsic scalar pointer to a vector pointer to match
+  // the LLVM intrinsic definition for the pointer argument.
+  unsigned AddrSpace = cast<PointerType>(Ptr->getType())->getAddressSpace();
+  PointerType *VecPtrTy = PointerType::get(II.getType(), AddrSpace);
+  Value *PtrCast = IC.Builder->CreateBitCast(Ptr, VecPtrTy, "castvec");
+
+  // Second, convert the x86 XMM integer vector mask to a vector of bools based
+  // on each element's most significant bit (the sign bit).
+  Constant *BoolMask = getNegativeIsTrueBoolVec(ConstMask);
+
+  CallInst *NewMaskedLoad = IC.Builder->CreateMaskedLoad(PtrCast, 1, BoolMask);
+  return IC.replaceInstUsesWith(II, NewMaskedLoad);
+}
+
+// TODO: If the x86 backend knew how to convert a bool vector mask back to an
+// XMM register mask efficiently, we could transform all x86 masked intrinsics
+// to LLVM masked intrinsics and remove the x86 masked intrinsic defs.
+static bool simplifyX86MaskedStore(IntrinsicInst &II, InstCombiner &IC) {
+  Value *Ptr = II.getOperand(0);
+  Value *Mask = II.getOperand(1);
+  Value *Vec = II.getOperand(2);
+
+  // Special case a zero mask since that's not a ConstantDataVector:
+  // this masked store instruction does nothing.
+  if (isa<ConstantAggregateZero>(Mask)) {
+    IC.eraseInstFromFunction(II);
+    return true;
+  }
+
+  auto *ConstMask = dyn_cast<ConstantDataVector>(Mask);
+  if (!ConstMask)
+    return false;
+
+  // The mask is constant. Convert this x86 intrinsic to the LLVM instrinsic
+  // to allow target-independent optimizations.
+
+  // First, cast the x86 intrinsic scalar pointer to a vector pointer to match
+  // the LLVM intrinsic definition for the pointer argument.
+  unsigned AddrSpace = cast<PointerType>(Ptr->getType())->getAddressSpace();
+  PointerType *VecPtrTy = PointerType::get(Vec->getType(), AddrSpace);
+  Value *PtrCast = IC.Builder->CreateBitCast(Ptr, VecPtrTy, "castvec");
+
+  // Second, convert the x86 XMM integer vector mask to a vector of bools based
+  // on each element's most significant bit (the sign bit).
+  Constant *BoolMask = getNegativeIsTrueBoolVec(ConstMask);
+
+  IC.Builder->CreateMaskedStore(Vec, PtrCast, 1, BoolMask);
+
+  // 'Replace uses' doesn't work for stores. Erase the original masked store.
+  IC.eraseInstFromFunction(II);
+  return true;
+}
+
 /// CallInst simplification. This mostly only handles folding of intrinsic
 /// instructions. For normal calls, it allows visitCallSite to do the heavy
 /// lifting.
@@ -1194,6 +1284,46 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     break;
   }
 
+  case Intrinsic::x86_sse_comieq_ss:
+  case Intrinsic::x86_sse_comige_ss:
+  case Intrinsic::x86_sse_comigt_ss:
+  case Intrinsic::x86_sse_comile_ss:
+  case Intrinsic::x86_sse_comilt_ss:
+  case Intrinsic::x86_sse_comineq_ss:
+  case Intrinsic::x86_sse_ucomieq_ss:
+  case Intrinsic::x86_sse_ucomige_ss:
+  case Intrinsic::x86_sse_ucomigt_ss:
+  case Intrinsic::x86_sse_ucomile_ss:
+  case Intrinsic::x86_sse_ucomilt_ss:
+  case Intrinsic::x86_sse_ucomineq_ss:
+  case Intrinsic::x86_sse2_comieq_sd:
+  case Intrinsic::x86_sse2_comige_sd:
+  case Intrinsic::x86_sse2_comigt_sd:
+  case Intrinsic::x86_sse2_comile_sd:
+  case Intrinsic::x86_sse2_comilt_sd:
+  case Intrinsic::x86_sse2_comineq_sd:
+  case Intrinsic::x86_sse2_ucomieq_sd:
+  case Intrinsic::x86_sse2_ucomige_sd:
+  case Intrinsic::x86_sse2_ucomigt_sd:
+  case Intrinsic::x86_sse2_ucomile_sd:
+  case Intrinsic::x86_sse2_ucomilt_sd:
+  case Intrinsic::x86_sse2_ucomineq_sd: {
+    // These intrinsics only demand the 0th element of their input vectors. If
+    // we can simplify the input based on that, do so now.
+    Value *Arg0 = II->getArgOperand(0);
+    Value *Arg1 = II->getArgOperand(1);
+    unsigned VWidth = Arg0->getType()->getVectorNumElements();
+    if (Value *V = SimplifyDemandedVectorEltsLow(Arg0, VWidth, 1)) {
+      II->setArgOperand(0, V);
+      return II;
+    }
+    if (Value *V = SimplifyDemandedVectorEltsLow(Arg1, VWidth, 1)) {
+      II->setArgOperand(1, V);
+      return II;
+    }
+    break;
+  }
+
   // Constant fold ashr( <A x Bi>, Ci ).
   // Constant fold lshr( <A x Bi>, Ci ).
   // Constant fold shl( <A x Bi>, Ci ).
@@ -1436,28 +1566,8 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
       return replaceInstUsesWith(CI, Op0);
 
     // Constant Mask - select 1st/2nd argument lane based on top bit of mask.
-    if (auto C = dyn_cast<ConstantDataVector>(Mask)) {
-      auto Tyi1 = Builder->getInt1Ty();
-      auto SelectorType = cast<VectorType>(Mask->getType());
-      auto EltTy = SelectorType->getElementType();
-      unsigned Size = SelectorType->getNumElements();
-      unsigned BitWidth =
-          EltTy->isFloatTy()
-              ? 32
-              : (EltTy->isDoubleTy() ? 64 : EltTy->getIntegerBitWidth());
-      assert((BitWidth == 64 || BitWidth == 32 || BitWidth == 8) &&
-             "Wrong arguments for variable blend intrinsic");
-      SmallVector<Constant *, 32> Selectors;
-      for (unsigned I = 0; I < Size; ++I) {
-        // The intrinsics only read the top bit
-        uint64_t Selector;
-        if (BitWidth == 8)
-          Selector = C->getElementAsInteger(I);
-        else
-          Selector = C->getElementAsAPFloat(I).bitcastToAPInt().getZExtValue();
-        Selectors.push_back(ConstantInt::get(Tyi1, Selector >> (BitWidth - 1)));
-      }
-      auto NewSelector = ConstantVector::get(Selectors);
+    if (auto *ConstantMask = dyn_cast<ConstantDataVector>(Mask)) {
+      Constant *NewSelector = getNegativeIsTrueBoolVec(ConstantMask);
       return SelectInst::Create(NewSelector, Op1, Op0, "blendv");
     }
     break;
@@ -1550,6 +1660,30 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   case Intrinsic::x86_avx2_vperm2i128:
     if (Value *V = simplifyX86vperm2(*II, *Builder))
       return replaceInstUsesWith(*II, V);
+    break;
+
+  case Intrinsic::x86_avx_maskload_ps:
+  case Intrinsic::x86_avx_maskload_pd:
+  case Intrinsic::x86_avx_maskload_ps_256:
+  case Intrinsic::x86_avx_maskload_pd_256:
+  case Intrinsic::x86_avx2_maskload_d:
+  case Intrinsic::x86_avx2_maskload_q:
+  case Intrinsic::x86_avx2_maskload_d_256:
+  case Intrinsic::x86_avx2_maskload_q_256:
+    if (Instruction *I = simplifyX86MaskedLoad(*II, *this))
+      return I;
+    break;
+
+  case Intrinsic::x86_avx_maskstore_ps:
+  case Intrinsic::x86_avx_maskstore_pd:
+  case Intrinsic::x86_avx_maskstore_ps_256:
+  case Intrinsic::x86_avx_maskstore_pd_256:
+  case Intrinsic::x86_avx2_maskstore_d:
+  case Intrinsic::x86_avx2_maskstore_q:
+  case Intrinsic::x86_avx2_maskstore_d_256:
+  case Intrinsic::x86_avx2_maskstore_q_256:
+    if (simplifyX86MaskedStore(*II, *this))
+      return nullptr;
     break;
 
   case Intrinsic::x86_xop_vpcomb:
@@ -1731,7 +1865,13 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
           // If there is a stackrestore below this one, remove this one.
           if (II->getIntrinsicID() == Intrinsic::stackrestore)
             return eraseInstFromFunction(CI);
-          // Otherwise, ignore the intrinsic.
+
+          // Bail if we cross over an intrinsic with side effects, such as
+          // llvm.stacksave, llvm.read_register, or llvm.setjmp.
+          if (II->mayHaveSideEffects()) {
+            CannotRemove = true;
+            break;
+          }
         } else {
           // If we found a non-intrinsic call, we can't remove the stack
           // restore.
@@ -2473,7 +2613,8 @@ InstCombiner::transformCallThroughTrampoline(CallSite CS,
                                                  Idx + (Idx >= NestIdx), B));
           }
 
-          ++Idx, ++I;
+          ++Idx;
+          ++I;
         } while (1);
       }
 
@@ -2507,7 +2648,8 @@ InstCombiner::transformCallThroughTrampoline(CallSite CS,
           // Add the original type.
           NewTypes.push_back(*I);
 
-          ++Idx, ++I;
+          ++Idx;
+          ++I;
         } while (1);
       }
 

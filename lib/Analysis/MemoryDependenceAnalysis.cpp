@@ -57,6 +57,11 @@ static cl::opt<unsigned> BlockScanLimit(
     cl::desc("The number of instructions to scan in a block in memory "
              "dependency analysis (default = 100)"));
 
+static cl::opt<unsigned> BlockNumberLimit(
+    "memdep-block-number-limit", cl::Hidden, cl::init(1000),
+    cl::desc("The number of blocks to scan during memory "
+             "dependency analysis (default = 1000)"));
+
 // Limit on the number of memdep results to process.
 static const unsigned int NumResultsLimit = 100;
 
@@ -500,6 +505,22 @@ MemDepResult MemoryDependenceAnalysis::getSimplePointerDependencyFrom(
   // AliasAnalysis::callCapturesBefore.
   OrderedBasicBlock OBB(BB);
 
+  // Return "true" if and only if the instruction I is either a non-simple
+  // load or a non-simple store.
+  auto isNonSimpleLoadOrStore = [] (Instruction *I) -> bool {
+    if (auto *LI = dyn_cast<LoadInst>(I))
+      return !LI->isSimple();
+    if (auto *SI = dyn_cast<StoreInst>(I))
+      return !SI->isSimple();
+    return false;
+  };
+
+  // Return "true" if I is not a load and not a store, but it does access
+  // memory.
+  auto isOtherMemAccess = [] (Instruction *I) -> bool {
+    return !isa<LoadInst>(I) && !isa<StoreInst>(I) && I->mayReadOrWriteMemory();
+  };
+
   // Walk backwards through the basic block, looking for dependencies.
   while (ScanIt != BB->begin()) {
     Instruction *Inst = &*--ScanIt;
@@ -547,24 +568,16 @@ MemDepResult MemoryDependenceAnalysis::getSimplePointerDependencyFrom(
           return MemDepResult::getClobber(LI);
         // Otherwise, volatile doesn't imply any special ordering
       }
-      
+
       // Atomic loads have complications involved.
       // A Monotonic (or higher) load is OK if the query inst is itself not atomic.
       // FIXME: This is overly conservative.
       if (LI->isAtomic() && LI->getOrdering() > Unordered) {
-        if (!QueryInst)
+        if (!QueryInst || isNonSimpleLoadOrStore(QueryInst) ||
+            isOtherMemAccess(QueryInst))
           return MemDepResult::getClobber(LI);
         if (LI->getOrdering() != Monotonic)
           return MemDepResult::getClobber(LI);
-        if (auto *QueryLI = dyn_cast<LoadInst>(QueryInst)) {
-          if (!QueryLI->isSimple())
-            return MemDepResult::getClobber(LI);
-        } else if (auto *QuerySI = dyn_cast<StoreInst>(QueryInst)) {
-          if (!QuerySI->isSimple())
-            return MemDepResult::getClobber(LI);
-        } else if (QueryInst->mayReadOrWriteMemory()) {
-          return MemDepResult::getClobber(LI);
-        }
       }
 
       MemoryLocation LoadLoc = MemoryLocation::get(LI);
@@ -625,20 +638,12 @@ MemDepResult MemoryDependenceAnalysis::getSimplePointerDependencyFrom(
       // Atomic stores have complications involved.
       // A Monotonic store is OK if the query inst is itself not atomic.
       // FIXME: This is overly conservative.
-      if (!SI->isUnordered()) {
-        if (!QueryInst)
+      if (!SI->isUnordered() && SI->isAtomic()) {
+        if (!QueryInst || isNonSimpleLoadOrStore(QueryInst) ||
+            isOtherMemAccess(QueryInst))
           return MemDepResult::getClobber(SI);
         if (SI->getOrdering() != Monotonic)
           return MemDepResult::getClobber(SI);
-        if (auto *QueryLI = dyn_cast<LoadInst>(QueryInst)) {
-          if (!QueryLI->isSimple())
-            return MemDepResult::getClobber(SI);
-        } else if (auto *QuerySI = dyn_cast<StoreInst>(QueryInst)) {
-          if (!QuerySI->isSimple())
-            return MemDepResult::getClobber(SI);
-        } else if (QueryInst->mayReadOrWriteMemory()) {
-          return MemDepResult::getClobber(SI);
-        }
       }
 
       // FIXME: this is overly conservative.
@@ -646,7 +651,9 @@ MemDepResult MemoryDependenceAnalysis::getSimplePointerDependencyFrom(
       // non-aliasing locations, as normal accesses can for example be reordered
       // with volatile accesses.
       if (SI->isVolatile())
-        return MemDepResult::getClobber(SI);
+        if (!QueryInst || isNonSimpleLoadOrStore(QueryInst) ||
+            isOtherMemAccess(QueryInst))
+          return MemDepResult::getClobber(SI);
 
       // If alias analysis can tell that this store is guaranteed to not modify
       // the query pointer, ignore it.  Use getModRefInfo to handle cases where
@@ -958,7 +965,7 @@ getNonLocalPointerDependency(Instruction *QueryInst,
   assert(Loc.Ptr->getType()->isPointerTy() &&
          "Can't get pointer deps of a non-pointer!");
   Result.clear();
-  
+
   // This routine does not expect to deal with volatile instructions.
   // Doing so would require piping through the QueryInst all the way through.
   // TODO: volatiles can't be elided, but they can be reordered with other
@@ -1246,6 +1253,8 @@ bool MemoryDependenceAnalysis::getNonLocalPointerDepFromBB(
   // won't get any reuse from currently inserted values, because we don't
   // revisit blocks after we insert info for them.
   unsigned NumSortedEntries = Cache->size();
+  unsigned WorklistEntries = BlockNumberLimit;
+  bool GotWorklistLimit = false;
   DEBUG(AssertSorted(*Cache));
 
   while (!Worklist.empty()) {
@@ -1324,6 +1333,15 @@ bool MemoryDependenceAnalysis::getNonLocalPointerDepFromBB(
           goto PredTranslationFailure;
         }
       }
+      if (NewBlocks.size() > WorklistEntries) {
+        // Make sure to clean up the Visited map before continuing on to
+        // PredTranslationFailure.
+        for (unsigned i = 0; i < NewBlocks.size(); i++)
+          Visited.erase(NewBlocks[i]);
+        GotWorklistLimit = true;
+        goto PredTranslationFailure;
+      }
+      WorklistEntries -= NewBlocks.size();
       Worklist.append(NewBlocks.begin(), NewBlocks.end());
       continue;
     }
@@ -1469,18 +1487,22 @@ bool MemoryDependenceAnalysis::getNonLocalPointerDepFromBB(
     if (SkipFirstBlock)
       return true;
 
-    for (NonLocalDepInfo::reverse_iterator I = Cache->rbegin(); ; ++I) {
-      assert(I != Cache->rend() && "Didn't find current block??");
-      if (I->getBB() != BB)
+    bool foundBlock = false;
+    for (NonLocalDepEntry &I: llvm::reverse(*Cache)) {
+      if (I.getBB() != BB)
         continue;
 
-      assert((I->getResult().isNonLocal() || !DT->isReachableFromEntry(BB)) &&
+      assert((GotWorklistLimit || I.getResult().isNonLocal() || \
+              !DT->isReachableFromEntry(BB)) &&
              "Should only be here with transparent block");
-      I->setResult(MemDepResult::getUnknown());
-      Result.push_back(NonLocalDepResult(I->getBB(), I->getResult(),
+      foundBlock = true;
+      I.setResult(MemDepResult::getUnknown());
+      Result.push_back(NonLocalDepResult(I.getBB(), I.getResult(),
                                          Pointer.getAddr()));
       break;
     }
+    (void)foundBlock;
+    assert((foundBlock || GotWorklistLimit) && "Current block not in cache?");
   }
 
   // Okay, we're done now.  If we added new values to the cache, re-sort it.

@@ -657,8 +657,7 @@ namespace llvm {
       DenseMap<const SCEV *, ConstantRange> &Cache =
           Hint == HINT_RANGE_UNSIGNED ? UnsignedRanges : SignedRanges;
 
-      std::pair<DenseMap<const SCEV *, ConstantRange>::iterator, bool> Pair =
-          Cache.insert(std::make_pair(S, CR));
+      auto Pair = Cache.insert({S, CR});
       if (!Pair.second)
         Pair.first->second = CR;
       return Pair.first->second;
@@ -666,6 +665,19 @@ namespace llvm {
 
     /// Determine the range for a particular SCEV.
     ConstantRange getRange(const SCEV *S, RangeSignHint Hint);
+
+    /// Determines the range for the affine SCEVAddRecExpr {\p Start,+,\p Stop}.
+    /// Helper for \c getRange.
+    ConstantRange getRangeForAffineAR(const SCEV *Start, const SCEV *Stop,
+                                      const SCEV *MaxBECount,
+                                      unsigned BitWidth);
+
+    /// Try to compute a range for the affine SCEVAddRecExpr {\p Start,+,\p
+    /// Stop} by "factoring out" a ternary expression from the add recurrence.
+    /// Helper called by \c getRange.
+    ConstantRange getRangeViaFactoring(const SCEV *Start, const SCEV *Stop,
+                                       const SCEV *MaxBECount,
+                                       unsigned BitWidth);
 
     /// We know that there is no SCEV for the specified value.  Analyze the
     /// expression.
@@ -698,7 +710,7 @@ namespace llvm {
     /// This looks up computed SCEV values for all instructions that depend on
     /// the given instruction and removes them from the ValueExprMap map if they
     /// reference SymName. This is used during PHI resolution.
-    void ForgetSymbolicName(Instruction *I, const SCEV *SymName);
+    void forgetSymbolicName(Instruction *I, const SCEV *SymName);
 
     /// Return the BackedgeTakenInfo for the given loop, lazily computing new
     /// values if the loop hasn't been analyzed yet.
@@ -1378,12 +1390,11 @@ namespace llvm {
                      SCEVWrapPredicate::IncrementWrapFlags AddedFlags);
 
     /// Re-writes the SCEV according to the Predicates in \p Preds.
-    const SCEV *rewriteUsingPredicate(const SCEV *Scev, const Loop *L,
+    const SCEV *rewriteUsingPredicate(const SCEV *S, const Loop *L,
                                       SCEVUnionPredicate &A);
-    /// Tries to convert the \p Scev expression to an AddRec expression,
+    /// Tries to convert the \p S expression to an AddRec expression,
     /// adding additional predicates to \p Preds as required.
-    const SCEV *convertSCEVToAddRecWithPredicates(const SCEV *Scev,
-                                                  const Loop *L,
+    const SCEV *convertSCEVToAddRecWithPredicates(const SCEV *S, const Loop *L,
                                                   SCEVUnionPredicate &Preds);
 
   private:
@@ -1416,30 +1427,22 @@ namespace llvm {
   };
 
   /// \brief Analysis pass that exposes the \c ScalarEvolution for a function.
-  class ScalarEvolutionAnalysis {
-    static char PassID;
-
-  public:
+  struct ScalarEvolutionAnalysis : AnalysisBase<ScalarEvolutionAnalysis> {
     typedef ScalarEvolution Result;
-
-    /// \brief Opaque, unique identifier for this analysis pass.
-    static void *ID() { return (void *)&PassID; }
-
-    /// \brief Provide a name for the analysis for debugging and logging.
-    static StringRef name() { return "ScalarEvolutionAnalysis"; }
 
     ScalarEvolution run(Function &F, AnalysisManager<Function> *AM);
   };
 
+  extern template class AnalysisBase<ScalarEvolutionAnalysis>;
+
   /// \brief Printer pass for the \c ScalarEvolutionAnalysis results.
-  class ScalarEvolutionPrinterPass {
+  class ScalarEvolutionPrinterPass
+      : public PassBase<ScalarEvolutionPrinterPass> {
     raw_ostream &OS;
 
   public:
     explicit ScalarEvolutionPrinterPass(raw_ostream &OS) : OS(OS) {}
     PreservedAnalyses run(Function &F, AnalysisManager<Function> *AM);
-
-    static StringRef name() { return "ScalarEvolutionPrinterPass"; }
   };
 
   class ScalarEvolutionWrapperPass : public FunctionPass {

@@ -15,6 +15,11 @@ NullDerefTestPrefix: Test unit written to ZZZcrash-
 RUN: not LLVMFuzzer-NullDerefTest  -artifact_prefix=ZZZ -exact_artifact_path=FOOBAR 2>&1 | FileCheck %s --check-prefix=NullDerefTestExactPath
 NullDerefTestExactPath: Test unit written to FOOBAR
 
+RUN: ASAN_OPTIONS=handle_segv=0 not LLVMFuzzer-NullDerefTest 2>&1 | FileCheck %s --check-prefix=LIBFUZZER_OWN_SEGV_HANDLER
+LIBFUZZER_OWN_SEGV_HANDLER: == ERROR: libFuzzer: deadly signal
+LIBFUZZER_OWN_SEGV_HANDLER: SUMMARY: libFuzzer: deadly signal
+LIBFUZZER_OWN_SEGV_HANDLER: Test unit written to ./crash-
+
 #not LLVMFuzzer-FullCoverageSetTest -timeout=15 -seed=1 -mutate_depth=2 -use_full_coverage_set=1 2>&1 | FileCheck %s
 
 RUN: not LLVMFuzzer-CounterTest -use_counters=1 -max_len=6 -seed=1 -timeout=15 2>&1 | FileCheck %s
@@ -69,3 +74,11 @@ RUN: rm %t/NthRunCrashTest.in
 RUN: not LLVMFuzzer-CustomMutatorTest 2>&1 | FileCheck %s --check-prefix=LLVMFuzzerCustomMutator
 LLVMFuzzerCustomMutator: In LLVMFuzzerCustomMutator
 LLVMFuzzerCustomMutator: BINGO
+
+RUN: LLVMFuzzer-SimpleTest -seed=1 -runs=77 -print_final_stats=1 2>&1 | FileCheck %s --check-prefix=FINAL_STATS
+FINAL_STATS: stat::number_of_executed_units: 77
+FINAL_STATS: stat::average_exec_per_sec:     0
+FINAL_STATS: stat::new_units_added:
+FINAL_STATS: stat::slowest_unit_time_sec:    0
+FINAL_STATS: stat::peak_rss_mb:
+

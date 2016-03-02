@@ -1074,9 +1074,9 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::PORrr,           X86::PORrm,         TB_ALIGN_16 },
     { X86::PSADBWrr,        X86::PSADBWrm,      TB_ALIGN_16 },
     { X86::PSHUFBrr,        X86::PSHUFBrm,      TB_ALIGN_16 },
-    { X86::PSIGNBrr,        X86::PSIGNBrm,      TB_ALIGN_16 },
-    { X86::PSIGNWrr,        X86::PSIGNWrm,      TB_ALIGN_16 },
-    { X86::PSIGNDrr,        X86::PSIGNDrm,      TB_ALIGN_16 },
+    { X86::PSIGNBrr128,     X86::PSIGNBrm128,   TB_ALIGN_16 },
+    { X86::PSIGNWrr128,     X86::PSIGNWrm128,   TB_ALIGN_16 },
+    { X86::PSIGNDrr128,     X86::PSIGNDrm128,   TB_ALIGN_16 },
     { X86::PSLLDrr,         X86::PSLLDrm,       TB_ALIGN_16 },
     { X86::PSLLQrr,         X86::PSLLQrm,       TB_ALIGN_16 },
     { X86::PSLLWrr,         X86::PSLLWrm,       TB_ALIGN_16 },
@@ -1373,9 +1373,9 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPORrr,            X86::VPORrm,             0 },
     { X86::VPSADBWrr,         X86::VPSADBWrm,          0 },
     { X86::VPSHUFBrr,         X86::VPSHUFBrm,          0 },
-    { X86::VPSIGNBrr,         X86::VPSIGNBrm,          0 },
-    { X86::VPSIGNWrr,         X86::VPSIGNWrm,          0 },
-    { X86::VPSIGNDrr,         X86::VPSIGNDrm,          0 },
+    { X86::VPSIGNBrr128,      X86::VPSIGNBrm128,       0 },
+    { X86::VPSIGNWrr128,      X86::VPSIGNWrm128,       0 },
+    { X86::VPSIGNDrr128,      X86::VPSIGNDrm128,       0 },
     { X86::VPSLLDrr,          X86::VPSLLDrm,           0 },
     { X86::VPSLLQrr,          X86::VPSLLQrm,           0 },
     { X86::VPSLLWrr,          X86::VPSLLWrm,           0 },
@@ -1528,9 +1528,9 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::VPORYrr,           X86::VPORYrm,            0 },
     { X86::VPSADBWYrr,        X86::VPSADBWYrm,         0 },
     { X86::VPSHUFBYrr,        X86::VPSHUFBYrm,         0 },
-    { X86::VPSIGNBYrr,        X86::VPSIGNBYrm,         0 },
-    { X86::VPSIGNWYrr,        X86::VPSIGNWYrm,         0 },
-    { X86::VPSIGNDYrr,        X86::VPSIGNDYrm,         0 },
+    { X86::VPSIGNBYrr256,     X86::VPSIGNBYrm256,      0 },
+    { X86::VPSIGNWYrr256,     X86::VPSIGNWYrm256,      0 },
+    { X86::VPSIGNDYrr256,     X86::VPSIGNDYrm256,      0 },
     { X86::VPSLLDYrr,         X86::VPSLLDYrm,          0 },
     { X86::VPSLLQYrr,         X86::VPSLLQYrm,          0 },
     { X86::VPSLLWYrr,         X86::VPSLLWYrm,          0 },
@@ -3450,7 +3450,7 @@ unsigned X86InstrInfo::getFMA3OpcodeToCommuteOperands(MachineInstr *MI,
 
   // Define the array that holds FMA opcodes in groups
   // of 3 opcodes(132, 213, 231) in each group.
-  static const unsigned RegularOpcodeGroups[][3] = {
+  static const uint16_t RegularOpcodeGroups[][3] = {
     { X86::VFMADDSSr132r,   X86::VFMADDSSr213r,   X86::VFMADDSSr231r  },
     { X86::VFMADDSDr132r,   X86::VFMADDSDr213r,   X86::VFMADDSDr231r  },
     { X86::VFMADDPSr132r,   X86::VFMADDPSr213r,   X86::VFMADDPSr231r  },
@@ -3524,7 +3524,7 @@ unsigned X86InstrInfo::getFMA3OpcodeToCommuteOperands(MachineInstr *MI,
 
   // Define the array that holds FMA*_Int opcodes in groups
   // of 3 opcodes(132, 213, 231) in each group.
-  static const unsigned IntrinOpcodeGroups[][3] = {
+  static const uint16_t IntrinOpcodeGroups[][3] = {
     { X86::VFMADDSSr132r_Int,  X86::VFMADDSSr213r_Int,  X86::VFMADDSSr231r_Int },
     { X86::VFMADDSDr132r_Int,  X86::VFMADDSDr213r_Int,  X86::VFMADDSDr231r_Int },
     { X86::VFMADDSSr132m_Int,  X86::VFMADDSSr213m_Int,  X86::VFMADDSSr231m_Int },
@@ -3555,7 +3555,7 @@ unsigned X86InstrInfo::getFMA3OpcodeToCommuteOperands(MachineInstr *MI,
   isFMA3(Opc, &IsIntrinOpcode);
 
   size_t GroupsNum;
-  const unsigned (*OpcodeGroups)[3];
+  const uint16_t (*OpcodeGroups)[3];
   if (IsIntrinOpcode) {
     GroupsNum = array_lengthof(IntrinOpcodeGroups);
     OpcodeGroups = IntrinOpcodeGroups;
@@ -3564,7 +3564,7 @@ unsigned X86InstrInfo::getFMA3OpcodeToCommuteOperands(MachineInstr *MI,
     OpcodeGroups = RegularOpcodeGroups;
   }
 
-  const unsigned *FoundOpcodesGroup = nullptr;
+  const uint16_t *FoundOpcodesGroup = nullptr;
   size_t FormIndex;
 
   // Look for the input opcode in the corresponding opcodes table.
@@ -3903,13 +3903,13 @@ unsigned X86::getCMovFromCond(CondCode CC, unsigned RegBytes,
   }
 }
 
-bool X86InstrInfo::isUnpredicatedTerminator(const MachineInstr *MI) const {
-  if (!MI->isTerminator()) return false;
+bool X86InstrInfo::isUnpredicatedTerminator(const MachineInstr &MI) const {
+  if (!MI.isTerminator()) return false;
 
   // Conditional branch is a special case.
-  if (MI->isBranch() && !MI->isBarrier())
+  if (MI.isBranch() && !MI.isBarrier())
     return true;
-  if (!MI->isPredicable())
+  if (!MI.isPredicable())
     return true;
   return !isPredicated(MI);
 }
@@ -3930,7 +3930,7 @@ bool X86InstrInfo::AnalyzeBranchImpl(
 
     // Working from the bottom, when we see a non-terminator instruction, we're
     // done.
-    if (!isUnpredicatedTerminator(I))
+    if (!isUnpredicatedTerminator(*I))
       break;
 
     // A terminator that isn't a branch can't easily be handled by this

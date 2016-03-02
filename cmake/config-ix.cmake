@@ -13,7 +13,7 @@ include(TestBigEndian)
 
 include(HandleLLVMStdlib)
 
-if( UNIX AND NOT BEOS )
+if( UNIX AND NOT (BEOS OR HAIKU) )
   # Used by check_symbol_exists:
   set(CMAKE_REQUIRED_LIBRARIES m)
 endif()
@@ -105,6 +105,10 @@ if( NOT PURE_WINDOWS )
   endif()
   check_library_exists(dl dlopen "" HAVE_LIBDL)
   check_library_exists(rt clock_gettime "" HAVE_LIBRT)
+endif()
+
+if(HAVE_LIBPTHREAD)
+  set(PTHREAD_LIB pthread)
 endif()
 
 # Don't look for these libraries on Windows. Also don't look for them if we're

@@ -356,6 +356,11 @@ void MCObjectFileInfo::initELFMCObjectFileInfo(Triple T) {
       TTypeEncoding = dwarf::DW_EH_PE_absptr;
     }
     break;
+  case Triple::lanai:
+    LSDAEncoding = dwarf::DW_EH_PE_absptr;
+    PersonalityEncoding = dwarf::DW_EH_PE_absptr;
+    TTypeEncoding = dwarf::DW_EH_PE_absptr;
+    break;
   case Triple::mips:
   case Triple::mipsel:
   case Triple::mips64:
@@ -468,6 +473,10 @@ void MCObjectFileInfo::initELFMCObjectFileInfo(Triple T) {
   MergeableConst16Section =
       Ctx->getELFSection(".rodata.cst16", ELF::SHT_PROGBITS,
                          ELF::SHF_ALLOC | ELF::SHF_MERGE, 16, "");
+
+  MergeableConst32Section =
+      Ctx->getELFSection(".rodata.cst32", ELF::SHT_PROGBITS,
+                         ELF::SHF_ALLOC | ELF::SHF_MERGE, 32, "");
 
   StaticCtorSection = Ctx->getELFSection(".ctors", ELF::SHT_PROGBITS,
                                          ELF::SHF_ALLOC | ELF::SHF_WRITE);

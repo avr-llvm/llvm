@@ -130,9 +130,7 @@ bool AArch64FrameLowering::canUseRedZone(const MachineFunction &MF) const {
   // Note: currently hasFP() is always true for hasCalls(), but that's an
   // implementation detail of the current code, not a strict requirement,
   // so stay safe here and check both.
-  if (MFI->hasCalls() || hasFP(MF) || NumBytes > 128)
-    return false;
-  return true;
+  return !(MFI->hasCalls() || hasFP(MF) || NumBytes > 128);
 }
 
 /// hasFP - Return true if the specified function should have a dedicated frame
@@ -202,8 +200,7 @@ void AArch64FrameLowering::eliminateCallFramePseudoInstr(
 }
 
 void AArch64FrameLowering::emitCalleeSavedFrameMoves(
-    MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
-    unsigned FramePtr) const {
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI) const {
   MachineFunction &MF = *MBB.getParent();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   MachineModuleInfo &MMI = MF.getMMI();
@@ -216,38 +213,74 @@ void AArch64FrameLowering::emitCalleeSavedFrameMoves(
   if (CSI.empty())
     return;
 
-  const DataLayout &TD = MF.getDataLayout();
-  bool HasFP = hasFP(MF);
-
-  // Calculate amount of bytes used for return address storing.
-  int stackGrowth = -TD.getPointerSize(0);
-
-  // Calculate offsets.
-  int64_t saveAreaOffset = (HasFP ? 2 : 1) * stackGrowth;
-  unsigned TotalSkipped = 0;
   for (const auto &Info : CSI) {
     unsigned Reg = Info.getReg();
-    int64_t Offset = MFI->getObjectOffset(Info.getFrameIdx()) -
-                     getOffsetOfLocalArea() + saveAreaOffset;
-
-    // Don't output a new CFI directive if we're re-saving the frame pointer or
-    // link register. This happens when the PrologEpilogInserter has inserted an
-    // extra "STP" of the frame pointer and link register -- the "emitPrologue"
-    // method automatically generates the directives when frame pointers are
-    // used. If we generate CFI directives for the extra "STP"s, the linker will
-    // lose track of the correct values for the frame pointer and link register.
-    if (HasFP && (FramePtr == Reg || Reg == AArch64::LR)) {
-      TotalSkipped += stackGrowth;
-      continue;
-    }
-
+    int64_t Offset =
+        MFI->getObjectOffset(Info.getFrameIdx()) - getOffsetOfLocalArea();
     unsigned DwarfReg = MRI->getDwarfRegNum(Reg, true);
-    unsigned CFIIndex = MMI.addFrameInst(MCCFIInstruction::createOffset(
-        nullptr, DwarfReg, Offset - TotalSkipped));
+    unsigned CFIIndex = MMI.addFrameInst(
+        MCCFIInstruction::createOffset(nullptr, DwarfReg, Offset));
     BuildMI(MBB, MBBI, DL, TII->get(TargetOpcode::CFI_INSTRUCTION))
         .addCFIIndex(CFIIndex)
         .setMIFlags(MachineInstr::FrameSetup);
   }
+}
+
+// Find a scratch register that we can use at the start of the prologue to
+// re-align the stack pointer.  We avoid using callee-save registers since they
+// may appear to be free when this is called from canUseAsPrologue (during
+// shrink wrapping), but then no longer be free when this is called from
+// emitPrologue.
+//
+// FIXME: This is a bit conservative, since in the above case we could use one
+// of the callee-save registers as a scratch temp to re-align the stack pointer,
+// but we would then have to make sure that we were in fact saving at least one
+// callee-save register in the prologue, which is additional complexity that
+// doesn't seem worth the benefit.
+static unsigned findScratchNonCalleeSaveRegister(MachineBasicBlock *MBB) {
+  MachineFunction *MF = MBB->getParent();
+
+  // If MBB is an entry block, use X9 as the scratch register
+  if (&MF->front() == MBB)
+    return AArch64::X9;
+
+  RegScavenger RS;
+  RS.enterBasicBlock(MBB);
+
+  // Prefer X9 since it was historically used for the prologue scratch reg.
+  if (!RS.isRegUsed(AArch64::X9))
+    return AArch64::X9;
+
+  // Find a free non callee-save reg.
+  const AArch64Subtarget &Subtarget = MF->getSubtarget<AArch64Subtarget>();
+  const AArch64RegisterInfo *RegInfo = Subtarget.getRegisterInfo();
+  const MCPhysReg *CSRegs = RegInfo->getCalleeSavedRegs(MF);
+  BitVector CalleeSaveRegs(RegInfo->getNumRegs());
+  for (unsigned i = 0; CSRegs[i]; ++i)
+    CalleeSaveRegs.set(CSRegs[i]);
+
+  BitVector Available = RS.getRegsAvailable(&AArch64::GPR64RegClass);
+  for (int AvailReg = Available.find_first(); AvailReg != -1;
+       AvailReg = Available.find_next(AvailReg))
+    if (!CalleeSaveRegs.test(AvailReg))
+      return AvailReg;
+
+  return AArch64::NoRegister;
+}
+
+bool AArch64FrameLowering::canUseAsPrologue(
+    const MachineBasicBlock &MBB) const {
+  const MachineFunction *MF = MBB.getParent();
+  MachineBasicBlock *TmpMBB = const_cast<MachineBasicBlock *>(&MBB);
+  const AArch64Subtarget &Subtarget = MF->getSubtarget<AArch64Subtarget>();
+  const AArch64RegisterInfo *RegInfo = Subtarget.getRegisterInfo();
+
+  // Don't need a scratch register if we're not going to re-align the stack.
+  if (!RegInfo->needsStackRealignment(*MF))
+    return true;
+  // Otherwise, we can use any block as long as it has a scratch register
+  // available.
+  return findScratchNonCalleeSaveRegister(TmpMBB) != AArch64::NoRegister;
 }
 
 void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
@@ -331,8 +364,8 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
   const bool NeedsRealignment = RegInfo->needsStackRealignment(MF);
   unsigned scratchSPReg = AArch64::SP;
   if (NumBytes && NeedsRealignment) {
-    // Use the first callee-saved register as a scratch register.
-    scratchSPReg = AArch64::X9;
+    scratchSPReg = findScratchNonCalleeSaveRegister(&MBB);
+    assert(scratchSPReg != AArch64::NoRegister);
   }
 
   // If we're a leaf function, try using the red zone.
@@ -455,21 +488,6 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
       BuildMI(MBB, MBBI, DL, TII->get(TargetOpcode::CFI_INSTRUCTION))
           .addCFIIndex(CFIIndex)
           .setMIFlags(MachineInstr::FrameSetup);
-
-      // Record the location of the stored LR
-      unsigned LR = RegInfo->getDwarfRegNum(AArch64::LR, true);
-      CFIIndex = MMI.addFrameInst(
-          MCCFIInstruction::createOffset(nullptr, LR, StackGrowth));
-      BuildMI(MBB, MBBI, DL, TII->get(TargetOpcode::CFI_INSTRUCTION))
-          .addCFIIndex(CFIIndex)
-          .setMIFlags(MachineInstr::FrameSetup);
-
-      // Record the location of the stored FP
-      CFIIndex = MMI.addFrameInst(
-          MCCFIInstruction::createOffset(nullptr, Reg, 2 * StackGrowth));
-      BuildMI(MBB, MBBI, DL, TII->get(TargetOpcode::CFI_INSTRUCTION))
-          .addCFIIndex(CFIIndex)
-          .setMIFlags(MachineInstr::FrameSetup);
     } else {
       // Encode the stack size of the leaf function.
       unsigned CFIIndex = MMI.addFrameInst(
@@ -479,8 +497,9 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
           .setMIFlags(MachineInstr::FrameSetup);
     }
 
-    // Now emit the moves for whatever callee saved regs we have.
-    emitCalleeSavedFrameMoves(MBB, MBBI, FramePtr);
+    // Now emit the moves for whatever callee saved regs we have (including FP,
+    // LR if those are saved).
+    emitCalleeSavedFrameMoves(MBB, MBBI);
   }
 }
 
@@ -550,7 +569,6 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
   //
   // AArch64TargetLowering::LowerCall figures out ArgumentPopSize and keeps
   // it as the 2nd argument of AArch64ISD::TC_RETURN.
-  NumBytes += ArgumentPopSize;
 
   // Move past the restores of the callee-saved registers.
   MachineBasicBlock::iterator LastPopI = MBB.getFirstTerminator();
@@ -566,12 +584,23 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
   assert(NumBytes >= 0 && "Negative stack allocation size!?");
 
   if (!hasFP(MF)) {
+    bool RedZone = canUseRedZone(MF);
     // If this was a redzone leaf function, we don't need to restore the
-    // stack pointer.
-    if (!canUseRedZone(MF))
-      emitFrameOffset(MBB, LastPopI, DL, AArch64::SP, AArch64::SP, NumBytes,
-                      TII, MachineInstr::FrameDestroy);
-    return;
+    // stack pointer (but we may need to pop stack args for fastcc).
+    if (RedZone && ArgumentPopSize == 0)
+      return;
+
+    bool NoCalleeSaveRestore = AFI->getCalleeSavedStackSize() == 0;
+    int StackRestoreBytes = RedZone ? 0 : NumBytes;
+    if (NoCalleeSaveRestore)
+      StackRestoreBytes += ArgumentPopSize;
+    emitFrameOffset(MBB, LastPopI, DL, AArch64::SP, AArch64::SP,
+                    StackRestoreBytes, TII, MachineInstr::FrameDestroy);
+    // If we were able to combine the local stack pop with the argument pop,
+    // then we're done.
+    if (NoCalleeSaveRestore || ArgumentPopSize == 0)
+      return;
+    NumBytes = 0;
   }
 
   // Restore the original stack pointer.
@@ -582,6 +611,13 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
     emitFrameOffset(MBB, LastPopI, DL, AArch64::SP, AArch64::FP,
                     -AFI->getCalleeSavedStackSize() + 16, TII,
                     MachineInstr::FrameDestroy);
+
+  // This must be placed after the callee-save restore code because that code
+  // assumes the SP is at the same location as it was after the callee-save save
+  // code in the prologue.
+  if (ArgumentPopSize)
+    emitFrameOffset(MBB, MBB.getFirstTerminator(), DL, AArch64::SP, AArch64::SP,
+                    ArgumentPopSize, TII, MachineInstr::FrameDestroy);
 }
 
 /// getFrameIndexReference - Provide a base+offset reference to an FI slot for
@@ -926,19 +962,14 @@ void AArch64FrameLowering::determineCalleeSaves(MachineFunction &MF,
   if (RegInfo->hasBasePointer(MF))
     BasePointerReg = RegInfo->getBaseRegister();
 
-  unsigned StackAlignReg = AArch64::NoRegister;
-  if (RegInfo->needsStackRealignment(MF) && !RegInfo->hasBasePointer(MF))
-    StackAlignReg = AArch64::X9;
-
   bool ExtraCSSpill = false;
   const MCPhysReg *CSRegs = RegInfo->getCalleeSavedRegs(&MF);
   // Figure out which callee-saved registers to save/restore.
   for (unsigned i = 0; CSRegs[i]; ++i) {
     const unsigned Reg = CSRegs[i];
 
-    // Add the stack re-align scratch register and base pointer register to
-    // SavedRegs set only if they are callee-save.
-    if (Reg == BasePointerReg || Reg == StackAlignReg)
+    // Add the base pointer register to SavedRegs if it is callee-save.
+    if (Reg == BasePointerReg)
       SavedRegs.set(Reg);
 
     bool RegUsed = SavedRegs.test(Reg);

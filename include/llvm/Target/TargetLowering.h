@@ -25,17 +25,11 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/CodeGen/DAGCombine.h"
-#ifdef LLVM_BUILD_GLOBAL_ISEL
-#include "llvm/CodeGen/GlobalISel/Types.h"
-#endif
 #include "llvm/CodeGen/RuntimeLibcalls.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/CallingConv.h"
-#ifdef LLVM_BUILD_GLOBAL_ISEL
-#  include "llvm/IR/Function.h"
-#endif
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instructions.h"
@@ -56,9 +50,6 @@ namespace llvm {
   class MachineBasicBlock;
   class MachineFunction;
   class MachineInstr;
-#ifdef LLVM_BUILD_GLOBAL_ISEL
-  class MachineIRBuilder;
-#endif
   class MachineJumpTableInfo;
   class MachineLoop;
   class Mangler;
@@ -2357,6 +2348,7 @@ public:
     bool IsInReg           : 1;
     bool DoesNotReturn     : 1;
     bool IsReturnValueUsed : 1;
+    bool IsConvergent      : 1;
 
     // IsTailCall should be modified by implementations of
     // TargetLowering::LowerCall that perform tail call conversions.
@@ -2375,10 +2367,11 @@ public:
     SmallVector<ISD::InputArg, 32> Ins;
 
     CallLoweringInfo(SelectionDAG &DAG)
-      : RetTy(nullptr), RetSExt(false), RetZExt(false), IsVarArg(false),
-        IsInReg(false), DoesNotReturn(false), IsReturnValueUsed(true),
-        IsTailCall(false), NumFixedArgs(-1), CallConv(CallingConv::C),
-        DAG(DAG), CS(nullptr), IsPatchPoint(false) {}
+        : RetTy(nullptr), RetSExt(false), RetZExt(false), IsVarArg(false),
+          IsInReg(false), DoesNotReturn(false), IsReturnValueUsed(true),
+          IsConvergent(false), IsTailCall(false), NumFixedArgs(-1),
+          CallConv(CallingConv::C), DAG(DAG), CS(nullptr), IsPatchPoint(false) {
+    }
 
     CallLoweringInfo &setDebugLoc(SDLoc dl) {
       DL = dl;
@@ -2450,6 +2443,11 @@ public:
       return *this;
     }
 
+    CallLoweringInfo &setConvergent(bool Value = true) {
+      IsConvergent = Value;
+      return *this;
+    }
+
     CallLoweringInfo &setSExtResult(bool Value = true) {
       RetSExt = Value;
       return *this;
@@ -2514,29 +2512,6 @@ public:
                 SDLoc /*dl*/, SelectionDAG &/*DAG*/) const {
     llvm_unreachable("Not Implemented");
   }
-
-#ifdef LLVM_BUILD_GLOBAL_ISEL
-  virtual bool LowerReturn(MachineIRBuilder &MIRBuilder, const Value *Val,
-                           unsigned VReg) const {
-    return false;
-  }
-
-  /// This hook must be implemented to lower the incoming (formal)
-  /// arguments, described by \p Args, for GlobalISel. Each argument
-  /// must end up in the related virtual register described by VRegs.
-  /// In other words, the first argument should end up in VRegs[0],
-  /// the second in VRegs[1], and so on.
-  /// \p MIRBuilder is set to the proper insertion for the argument
-  /// lowering.
-  ///
-  /// \return True if the lowering succeeded, false otherwise.
-  virtual bool
-  LowerFormalArguments(MachineIRBuilder &MIRBuilder,
-                       const Function::ArgumentListType &Args,
-                       const SmallVectorImpl<unsigned> &VRegs) const {
-    return false;
-  }
-#endif
 
   /// Return true if result of the specified node is used by a return node
   /// only. It also compute and return the input chain for the tail call.

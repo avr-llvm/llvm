@@ -118,19 +118,8 @@ namespace {
     ///
     void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesCFG();
-      AU.addRequired<DominatorTreeWrapperPass>();
-      AU.addRequired<LoopInfoWrapperPass>();
-      AU.addRequiredID(LoopSimplifyID);
-      AU.addPreservedID(LoopSimplifyID);
-      AU.addRequiredID(LCSSAID);
-      AU.addPreservedID(LCSSAID);
-      AU.addRequired<AAResultsWrapperPass>();
-      AU.addPreserved<AAResultsWrapperPass>();
-      AU.addPreserved<BasicAAWrapperPass>();
-      AU.addPreserved<GlobalsAAWrapperPass>();
-      AU.addPreserved<ScalarEvolutionWrapperPass>();
-      AU.addPreserved<SCEVAAWrapperPass>();
       AU.addRequired<TargetLibraryInfoWrapperPass>();
+      getLoopAnalysisUsage(AU);
     }
 
     using llvm::Pass::doFinalization;
@@ -164,21 +153,15 @@ namespace {
 
     /// Simple Analysis hook. Delete loop L from alias set map.
     void deleteAnalysisLoop(Loop *L) override;
+
+    AliasSetTracker *collectAliasInfoForLoop(Loop *L);
   };
 }
 
 char LICM::ID = 0;
 INITIALIZE_PASS_BEGIN(LICM, "licm", "Loop Invariant Code Motion", false, false)
-INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(LoopSimplify)
-INITIALIZE_PASS_DEPENDENCY(LCSSA)
-INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(LoopPass)
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(BasicAAWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(GlobalsAAWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(SCEVAAWrapperPass)
 INITIALIZE_PASS_END(LICM, "licm", "Loop Invariant Code Motion", false, false)
 
 Pass *llvm::createLICMPass() { return new LICM(); }
@@ -202,34 +185,12 @@ bool LICM::runOnLoop(Loop *L, LPPassManager &LPM) {
 
   assert(L->isLCSSAForm(*DT) && "Loop is not in LCSSA form.");
 
-  CurAST = new AliasSetTracker(*AA);
-  // Collect Alias info from subloops.
-  for (Loop *InnerL : L->getSubLoops()) {
-    AliasSetTracker *InnerAST = LoopToAliasSetMap[InnerL];
-    assert(InnerAST && "Where is my AST?");
-
-    // What if InnerLoop was modified by other passes ?
-    CurAST->add(*InnerAST);
-
-    // Once we've incorporated the inner loop's AST into ours, we don't need the
-    // subloop's anymore.
-    delete InnerAST;
-    LoopToAliasSetMap.erase(InnerL);
-  }
+  CurAST = collectAliasInfoForLoop(L);
 
   CurLoop = L;
 
   // Get the preheader block to move instructions into...
   Preheader = L->getLoopPreheader();
-
-  // Loop over the body of this loop, looking for calls, invokes, and stores.
-  // Because subloops have already been incorporated into AST, we skip blocks in
-  // subloops.
-  //
-  for (BasicBlock *BB : L->blocks()) {
-    if (LI->getLoopFor(BB) == L)        // Ignore blocks in subloops.
-      CurAST->add(*BB);                 // Incorporate the specified basic block
-  }
 
   // Compute loop safety information.
   LICMSafetyInfo SafetyInfo;
@@ -1063,6 +1024,56 @@ bool llvm::promoteLoopAccessesToScalars(AliasSet &AS,
     PreheaderLoad->eraseFromParent();
 
   return Changed;
+}
+
+/// Returns an owning pointer to an alias set which incorporates aliasing info
+/// from L and all subloops of L.
+AliasSetTracker *LICM::collectAliasInfoForLoop(Loop *L) {
+  AliasSetTracker *CurAST = nullptr;
+  SmallVector<Loop *, 4> RecomputeLoops;
+  for (Loop *InnerL : L->getSubLoops()) {
+    auto MapI = LoopToAliasSetMap.find(InnerL);
+    // If the AST for this inner loop is missing it may have been merged into
+    // some other loop's AST and then that loop unrolled, and so we need to
+    // recompute it.
+    if (MapI == LoopToAliasSetMap.end()) {
+      RecomputeLoops.push_back(InnerL);
+      continue;
+    }
+    AliasSetTracker *InnerAST = MapI->second;
+
+    if (CurAST != nullptr) {
+      // What if InnerLoop was modified by other passes ?
+      CurAST->add(*InnerAST);
+
+      // Once we've incorporated the inner loop's AST into ours, we don't need
+      // the subloop's anymore.
+      delete InnerAST;
+    } else {
+      CurAST = InnerAST;
+    }
+    LoopToAliasSetMap.erase(MapI);
+  }
+  if (CurAST == nullptr)
+    CurAST = new AliasSetTracker(*AA);
+
+  auto mergeLoop = [&](Loop *L) {
+    // Loop over the body of this loop, looking for calls, invokes, and stores.
+    // Because subloops have already been incorporated into AST, we skip blocks
+    // in subloops.
+    for (BasicBlock *BB : L->blocks())
+      if (LI->getLoopFor(BB) == L) // Ignore blocks in subloops.
+        CurAST->add(*BB);          // Incorporate the specified basic block
+  };
+
+  // Add everything from the sub loops that are no longer directly available.
+  for (Loop *InnerL : RecomputeLoops)
+    mergeLoop(InnerL);
+
+  // And merge in this loop.
+  mergeLoop(L);
+
+  return CurAST;
 }
 
 /// Simple analysis hook. Clone alias set info.

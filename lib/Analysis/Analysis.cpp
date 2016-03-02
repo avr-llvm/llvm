@@ -20,7 +20,7 @@ using namespace llvm;
 
 /// initializeAnalysis - Initialize all passes linked into the Analysis library.
 void llvm::initializeAnalysis(PassRegistry &Registry) {
-  initializeAAEvalPass(Registry);
+  initializeAAEvalLegacyPassPass(Registry);
   initializeAliasSetPrinterPass(Registry);
   initializeBasicAAWrapperPassPass(Registry);
   initializeBlockFrequencyInfoWrapperPassPass(Registry);
@@ -38,7 +38,7 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializeDelinearizationPass(Registry);
   initializeDemandedBitsPass(Registry);
   initializeDivergenceAnalysisPass(Registry);
-  initializeDominanceFrontierPass(Registry);
+  initializeDominanceFrontierWrapperPassPass(Registry);
   initializeDomViewerPass(Registry);
   initializeDomPrinterPass(Registry);
   initializeDomOnlyViewerPass(Registry);
@@ -60,7 +60,7 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializeMemoryDependenceAnalysisPass(Registry);
   initializeModuleDebugInfoPrinterPass(Registry);
   initializeObjCARCAAWrapperPassPass(Registry);
-  initializePostDominatorTreePass(Registry);
+  initializePostDominatorTreeWrapperPassPass(Registry);
   initializeRegionInfoPassPass(Registry);
   initializeRegionViewerPass(Registry);
   initializeRegionPrinterPass(Registry);
