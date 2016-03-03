@@ -271,7 +271,7 @@ bool AVRInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
 
     // Working from the bottom, when we see a non-terminator
     // instruction, we're done.
-    if (!isUnpredicatedTerminator(I)) {
+    if (!isUnpredicatedTerminator(*I)) {
       break;
     }
 
