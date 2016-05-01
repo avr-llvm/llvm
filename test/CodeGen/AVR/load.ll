@@ -1,24 +1,23 @@
 ; RUN: llc -mattr=sram < %s -march=avr | FileCheck %s
-; XFAIL: *
 
 define i8 @load8(i8* %x) {
 ; CHECK-LABEL: load8:
-; CHECK: ld r24, Z
+; CHECK: ld r24, {{[XYZ]}}
   %1 = load i8, i8* %x
   ret i8 %1
 }
 
 define i16 @load16(i16* %x) {
 ; CHECK-LABEL: load16:
-; CHECK: ld r24, Z
-; CHECK: ldd r25, Z+1
+; CHECK: ld r24, {{[YZ]}}
+; CHECK: ldd r25, {{[YZ]}}+1
   %1 = load i16, i16* %x
   ret i16 %1
 }
 
 define i8 @load8disp(i8* %x) {
 ; CHECK-LABEL: load8disp:
-; CHECK: ldd r24, Z+63
+; CHECK: ldd r24, {{[YZ]}}+63
   %1 = getelementptr inbounds i8, i8* %x, i64 63
   %2 = load i8, i8* %1
   ret i8 %2
@@ -26,10 +25,10 @@ define i8 @load8disp(i8* %x) {
 
 define i8 @load8nodisp(i8* %x) {
 ; CHECK-LABEL: load8nodisp:
-; CHECK: movw r30, r24
-; CHECK: subi r30, 192
-; CHECK: sbci r31, 255
-; CHECK: ld r24, Z
+; CHECK: movw r26, r24
+; CHECK: subi r26, 192
+; CHECK: sbci r27, 255
+; CHECK: ld r24, {{[XYZ]}}
   %1 = getelementptr inbounds i8, i8* %x, i64 64
   %2 = load i8, i8* %1
   ret i8 %2
@@ -37,8 +36,8 @@ define i8 @load8nodisp(i8* %x) {
 
 define i16 @load16disp(i16* %x) {
 ; CHECK-LABEL: load16disp:
-; CHECK: ldd r24, Z+62
-; CHECK: ldd r25, Z+63
+; CHECK: ldd r24, {{[YZ]}}+62
+; CHECK: ldd r25, {{[YZ]}}+63
   %1 = getelementptr inbounds i16, i16* %x, i64 31
   %2 = load i16, i16* %1
   ret i16 %2
@@ -49,8 +48,8 @@ define i16 @load16nodisp(i16* %x) {
 ; CHECK: movw r30, r24
 ; CHECK: subi r30, 192
 ; CHECK: sbci r31, 255
-; CHECK: ld r24, Z
-; CHECK: ldd r25, Z+1
+; CHECK: ld r24, {{[YZ]}}
+; CHECK: ldd r25, {{[YZ]}}+1
   %1 = getelementptr inbounds i16, i16* %x, i64 32
   %2 = load i16, i16* %1
   ret i16 %2
@@ -58,7 +57,7 @@ define i16 @load16nodisp(i16* %x) {
 
 define i8 @load8postinc(i8* %x, i8 %y) {
 ; CHECK-LABEL: load8postinc:
-; CHECK: ld {{.*}}, Z+
+; CHECK: ld {{.*}}, {{[XYZ]}}+
 entry:
   %tobool6 = icmp eq i8 %y, 0
   br i1 %tobool6, label %while.end, label %while.body
@@ -79,8 +78,8 @@ while.end:                                        ; preds = %while.body, %entry
 
 define i16 @load16postinc(i16* %x, i16 %y) {
 ; CHECK-LABEL: load16postinc:
-; CHECK: ld {{.*}}, X+
-; CHECK: ld {{.*}}, X+
+; CHECK: ld {{.*}}, {{[XYZ]}}+
+; CHECK: ld {{.*}}, {{[XYZ]}}+
 entry:
   %tobool2 = icmp eq i16 %y, 0
   br i1 %tobool2, label %while.end, label %while.body
@@ -101,7 +100,7 @@ while.end:                                        ; preds = %while.body, %entry
 
 define i8 @load8predec(i8* %x, i8 %y) {
 ; CHECK-LABEL: load8predec:
-; CHECK: ld {{.*}}, -Z
+; CHECK: ld {{.*}}, -{{[XYZ]}}
 entry:
   %tobool6 = icmp eq i8 %y, 0
   br i1 %tobool6, label %while.end, label %while.body
@@ -122,8 +121,8 @@ while.end:                                        ; preds = %while.body, %entry
 
 define i16 @load16predec(i16* %x, i16 %y) {
 ; CHECK-LABEL: load16predec:
-; CHECK: ld {{.*}}, -X
-; CHECK: ld {{.*}}, -X
+; CHECK: ld {{.*}}, -{{[XYZ]}}
+; CHECK: ld {{.*}}, -{{[XYZ]}}
 entry:
   %tobool2 = icmp eq i16 %y, 0
   br i1 %tobool2, label %while.end, label %while.body
