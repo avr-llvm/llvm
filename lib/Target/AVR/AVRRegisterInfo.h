@@ -14,17 +14,14 @@
 #ifndef LLVM_AVR_REGISTER_INFO_H
 #define LLVM_AVR_REGISTER_INFO_H
 
-#include "AVRConfig.h"
-
 #include "llvm/Target/TargetRegisterInfo.h"
 
 #define GET_REGINFO_HEADER
 #include "AVRGenRegisterInfo.inc"
 
 namespace llvm {
-/**
- * Utilities relating to AVR registers.
- */
+
+/// Utilities relating to AVR registers.
 class AVRRegisterInfo : public AVRGenRegisterInfo {
 public:
   AVRRegisterInfo();

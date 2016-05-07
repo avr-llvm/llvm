@@ -11,6 +11,7 @@
 #define LLVM_LIB_EXECUTIONENGINE_RUNTIMEDYLD_TARGETS_RUNTIMEDYLDMACHOX86_64_H
 
 #include "../RuntimeDyldMachO.h"
+#include <string>
 
 #define DEBUG_TYPE "dyld"
 
@@ -30,7 +31,7 @@ public:
 
   unsigned getStubAlignment() override { return 1; }
 
-  relocation_iterator
+  Expected<relocation_iterator>
   processRelocationRef(unsigned SectionID, relocation_iterator RelI,
                        const ObjectFile &BaseObjT,
                        ObjSectionToIDMap &ObjSectionToID,
@@ -49,12 +50,25 @@ public:
 
     RelocationEntry RE(getRelocationEntry(SectionID, Obj, RelI));
     RE.Addend = memcpyAddend(RE);
-    RelocationValueRef Value(
-        getRelocationValueRef(Obj, RelI, RE, ObjSectionToID));
+    RelocationValueRef Value;
+    if (auto ValueOrErr = getRelocationValueRef(Obj, RelI, RE, ObjSectionToID))
+      Value = *ValueOrErr;
+    else
+      return ValueOrErr.takeError();
 
     bool IsExtern = Obj.getPlainRelocationExternal(RelInfo);
     if (!IsExtern && RE.IsPCRel)
       makeValueAddendPCRel(Value, RelI, 1 << RE.Size);
+
+    switch (RelType) {
+    UNIMPLEMENTED_RELOC(MachO::X86_64_RELOC_TLV);
+    default:
+      if (RelType > MachO::X86_64_RELOC_TLV)
+        return make_error<RuntimeDyldError>(("MachO X86_64 relocation type " +
+                                             Twine(RelType) +
+                                             " is out of range").str());
+      break;
+    }
 
     if (RE.RelType == MachO::X86_64_RELOC_GOT ||
         RE.RelType == MachO::X86_64_RELOC_GOT_LOAD)
@@ -104,15 +118,13 @@ public:
       writeBytesUnaligned(Value, LocalAddress, 1 << RE.Size);
       break;
     }
-    case MachO::X86_64_RELOC_GOT_LOAD:
-    case MachO::X86_64_RELOC_GOT:
-    case MachO::X86_64_RELOC_TLV:
-      Error("Relocation type not implemented yet!");
     }
   }
 
-  void finalizeSection(const ObjectFile &Obj, unsigned SectionID,
-                       const SectionRef &Section) {}
+  Error finalizeSection(const ObjectFile &Obj, unsigned SectionID,
+                        const SectionRef &Section) {
+    return Error::success();
+  }
 
 private:
   void processGOTRelocation(const RelocationEntry &RE,
@@ -157,9 +169,14 @@ private:
     uint8_t *LocalAddress = Sections[SectionID].getAddressWithOffset(Offset);
     unsigned NumBytes = 1 << Size;
 
-    ErrorOr<StringRef> SubtrahendNameOrErr = RelI->getSymbol()->getName();
-    if (auto EC = SubtrahendNameOrErr.getError())
-      report_fatal_error(EC.message());
+    Expected<StringRef> SubtrahendNameOrErr = RelI->getSymbol()->getName();
+    if (!SubtrahendNameOrErr) {
+      std::string Buf;
+      raw_string_ostream OS(Buf);
+      logAllUnhandledErrors(SubtrahendNameOrErr.takeError(), OS, "");
+      OS.flush();
+      report_fatal_error(Buf);
+    }
     auto SubtrahendI = GlobalSymbolTable.find(*SubtrahendNameOrErr);
     unsigned SectionBID = SubtrahendI->second.getSectionID();
     uint64_t SectionBOffset = SubtrahendI->second.getOffset();
@@ -167,9 +184,14 @@ private:
       SignExtend64(readBytesUnaligned(LocalAddress, NumBytes), NumBytes * 8);
 
     ++RelI;
-    ErrorOr<StringRef> MinuendNameOrErr = RelI->getSymbol()->getName();
-    if (auto EC = MinuendNameOrErr.getError())
-      report_fatal_error(EC.message());
+    Expected<StringRef> MinuendNameOrErr = RelI->getSymbol()->getName();
+    if (!MinuendNameOrErr) {
+      std::string Buf;
+      raw_string_ostream OS(Buf);
+      logAllUnhandledErrors(MinuendNameOrErr.takeError(), OS, "");
+      OS.flush();
+      report_fatal_error(Buf);
+    }
     auto MinuendI = GlobalSymbolTable.find(*MinuendNameOrErr);
     unsigned SectionAID = MinuendI->second.getSectionID();
     uint64_t SectionAOffset = MinuendI->second.getOffset();

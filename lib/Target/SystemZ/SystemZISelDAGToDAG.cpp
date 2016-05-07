@@ -343,7 +343,7 @@ public:
   }
 
   // Override SelectionDAGISel.
-  SDNode *Select(SDNode *Node) override;
+  SDNode *SelectImpl(SDNode *Node) override;
   bool SelectInlineAsmMemoryOperand(const SDValue &Op, unsigned ConstraintID,
                                     std::vector<SDValue> &OutOps) override;
 
@@ -553,6 +553,10 @@ bool SystemZDAGToDAGISel::selectAddress(SDValue Addr,
   if (Addr.getOpcode() == ISD::Constant &&
       expandDisp(AM, true, SDValue(),
                  cast<ConstantSDNode>(Addr)->getSExtValue()))
+    ;
+  // Also see if it's a bare ADJDYNALLOC.
+  else if (Addr.getOpcode() == SystemZISD::ADJDYNALLOC &&
+           expandAdjDynAlloc(AM, true, SDValue()))
     ;
   else
     // Otherwise try expanding each component.
@@ -1037,7 +1041,8 @@ SDNode *SystemZDAGToDAGISel::splitLargeImmediate(unsigned Opcode, SDNode *Node,
   SDValue Upper = CurDAG->getConstant(UpperVal, DL, VT);
   if (Op0.getNode())
     Upper = CurDAG->getNode(Opcode, DL, VT, Op0, Upper);
-  Upper = SDValue(Select(Upper.getNode()), 0);
+  // TODO: This is pretty strange. Not sure what it's trying to do...
+  Upper = SDValue(SelectImpl(Upper.getNode()), 0);
 
   SDValue Lower = CurDAG->getConstant(LowerVal, DL, VT);
   SDValue Or = CurDAG->getNode(Opcode, DL, VT, Upper, Lower);
@@ -1167,7 +1172,7 @@ bool SystemZDAGToDAGISel::storeLoadCanUseBlockBinary(SDNode *N,
   return !LoadA->isVolatile() && canUseBlockOperation(StoreA, LoadB);
 }
 
-SDNode *SystemZDAGToDAGISel::Select(SDNode *Node) {
+SDNode *SystemZDAGToDAGISel::SelectImpl(SDNode *Node) {
   // Dump information about the Node being selected
   DEBUG(errs() << "Selecting: "; Node->dump(CurDAG); errs() << "\n");
 

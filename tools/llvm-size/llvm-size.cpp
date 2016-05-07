@@ -57,6 +57,12 @@ cl::opt<bool>
 DarwinLongFormat("l", cl::desc("When format is darwin, use long format "
                                "to include addresses and offsets."));
 
+cl::opt<bool>
+    ELFCommons("common",
+               cl::desc("Print common symbols in the ELF file.  When using "
+                        "Berkely format, this is added to bss."),
+               cl::init(false));
+
 static cl::list<std::string>
 ArchFlags("arch", cl::desc("architecture(s) from a Mach-O file to dump"),
           cl::ZeroOrMore);
@@ -78,6 +84,8 @@ RadixShort(cl::desc("Print size in radix:"),
 static cl::list<std::string>
 InputFilenames(cl::Positional, cl::desc("<input files>"), cl::ZeroOrMore);
 
+bool HadError = false;
+
 static std::string ToolName;
 
 /// If ec is not success, print the error and return true.
@@ -85,6 +93,7 @@ static bool error(std::error_code ec) {
   if (!ec)
     return false;
 
+  HadError = true;
   errs() << ToolName << ": error reading file: " << ec.message() << ".\n";
   errs().flush();
   return true;
@@ -125,6 +134,15 @@ static bool considerForSize(ObjectFile *Obj, SectionRef Section) {
     return false;
   }
   return true;
+}
+
+/// Total size of all ELF common symbols
+static uint64_t getCommonSize(ObjectFile *Obj) {
+  uint64_t TotalCommons = 0;
+  for (auto &Sym : Obj->symbols())
+    if (Obj->getSymbolFlags(Sym.getRawDataRefImpl()) & SymbolRef::SF_Common)
+      TotalCommons += Obj->getCommonSymbolSize(Sym.getRawDataRefImpl());
+  return TotalCommons;
 }
 
 /// Print the size of each Mach-O segment and section in @p MachO.
@@ -352,6 +370,13 @@ static void printObjectSectionSizes(ObjectFile *Obj) {
       outs() << format(fmt.str().c_str(), namestr.c_str(), size, addr);
     }
 
+    if (ELFCommons) {
+      uint64_t CommonSize = getCommonSize(Obj);
+      total += CommonSize;
+      outs() << format(fmt.str().c_str(), std::string("*COM*").c_str(),
+                       CommonSize, static_cast<uint64_t>(0));
+    }
+
     // Print total.
     fmtbuf.clear();
     fmt << "%-" << max_name_len << "s "
@@ -378,6 +403,9 @@ static void printObjectSectionSizes(ObjectFile *Obj) {
       else if (isBSS)
         total_bss += size;
     }
+
+    if (ELFCommons)
+      total_bss += getCommonSize(Obj);
 
     total = total_text + total_data + total_bss;
 
@@ -413,10 +441,10 @@ static bool checkMachOAndArchFlags(ObjectFile *o, StringRef file) {
     Triple T;
     if (MachO->is64Bit()) {
       H_64 = MachO->MachOObjectFile::getHeader64();
-      T = MachOObjectFile::getArch(H_64.cputype, H_64.cpusubtype);
+      T = MachOObjectFile::getArchTriple(H_64.cputype, H_64.cpusubtype);
     } else {
       H = MachO->MachOObjectFile::getHeader();
-      T = MachOObjectFile::getArch(H.cputype, H.cpusubtype);
+      T = MachOObjectFile::getArchTriple(H.cputype, H.cpusubtype);
     }
     unsigned i;
     for (i = 0; i < ArchFlags.size(); ++i) {
@@ -438,9 +466,11 @@ static bool checkMachOAndArchFlags(ObjectFile *o, StringRef file) {
 static void printFileSectionSizes(StringRef file) {
 
   // Attempt to open the binary.
-  ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(file);
-  if (error(BinaryOrErr.getError()))
+  Expected<OwningBinary<Binary>> BinaryOrErr = createBinary(file);
+  if (!BinaryOrErr) {
+    error(errorToErrorCode(BinaryOrErr.takeError()));
     return;
+  }
   Binary &Bin = *BinaryOrErr.get().getBinary();
 
   if (Archive *a = dyn_cast<Archive>(&Bin)) {
@@ -730,5 +760,6 @@ int main(int argc, char **argv) {
   std::for_each(InputFilenames.begin(), InputFilenames.end(),
                 printFileSectionSizes);
 
-  return 0;
+  if (HadError)
+    return 1;
 }

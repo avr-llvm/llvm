@@ -6,10 +6,6 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-//
-//
-//===----------------------------------------------------------------------===//
 
 #ifndef LLVM_AVR_FRAME_LOWERING_H
 #define LLVM_AVR_FRAME_LOWERING_H
@@ -20,14 +16,12 @@
 
 namespace llvm {
 
-/**
- * Utilities for creating function call frames.
- */
+/// Utilities for creating function call frames.
 class AVRFrameLowering : public TargetFrameLowering {
 public:
   explicit AVRFrameLowering();
 
-public: // TargetFrameLowering
+public:
   void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
   bool hasFP(const MachineFunction &MF) const override;

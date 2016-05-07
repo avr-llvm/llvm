@@ -13,6 +13,7 @@ set(DFSanTests
   )
 
 set(Tests
+  AccumulateAllocationsTest
   BufferOverflowOnInput
   CallerCalleeTest
   CounterTest
@@ -22,13 +23,17 @@ set(Tests
   InitializeTest
   MemcmpTest
   LeakTest
+  LeakTimeoutTest
   NullDerefTest
   NthRunCrashTest
+  OutOfMemoryTest
   RepeatedMemcmp
   SimpleCmpTest
   SimpleDictionaryTest
+  SimpleFnAdapterTest
   SimpleHashTest
   SimpleTest
+  SpamyTest
   StrcmpTest
   StrncmpTest
   SwitchTest
@@ -90,6 +95,7 @@ include_directories(${LLVM_MAIN_SRC_DIR}/utils/unittest/googletest/include)
 
 add_executable(LLVMFuzzer-Unittest
   FuzzerUnittest.cpp
+  FuzzerFnAdapterUnittest.cpp
   $<TARGET_OBJECTS:LLVMFuzzerNoMainObjects>
   )
 

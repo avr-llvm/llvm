@@ -35,6 +35,8 @@ using namespace llvm;
 STATISTIC(NumLoadsAnalyzed, "Number of loads analyzed for combining");
 STATISTIC(NumLoadsCombined, "Number of loads combined");
 
+#define LDCOMBINE_NAME "Combine Adjacent Loads"
+
 namespace {
 struct PointerOffsetPair {
   Value *Pointer;
@@ -65,10 +67,10 @@ public:
   bool runOnBasicBlock(BasicBlock &BB) override;
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 
-  const char *getPassName() const override { return "LoadCombine"; }
+  const char *getPassName() const override { return LDCOMBINE_NAME; }
   static char ID;
 
-  typedef IRBuilder<true, TargetFolder> BuilderTy;
+  typedef IRBuilder<TargetFolder> BuilderTy;
 
 private:
   BuilderTy *Builder;
@@ -221,12 +223,12 @@ bool LoadCombine::combineLoads(SmallVectorImpl<LoadPOPPair> &Loads) {
 }
 
 bool LoadCombine::runOnBasicBlock(BasicBlock &BB) {
-  if (skipOptnoneFunction(BB))
+  if (skipBasicBlock(BB))
     return false;
 
   AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
 
-  IRBuilder<true, TargetFolder> TheBuilder(
+  IRBuilder<TargetFolder> TheBuilder(
       BB.getContext(), TargetFolder(BB.getModule()->getDataLayout()));
   Builder = &TheBuilder;
 
@@ -273,10 +275,7 @@ BasicBlockPass *llvm::createLoadCombinePass() {
   return new LoadCombine();
 }
 
-INITIALIZE_PASS_BEGIN(LoadCombine, "load-combine", "Combine Adjacent Loads",
-                      false, false)
+INITIALIZE_PASS_BEGIN(LoadCombine, "load-combine", LDCOMBINE_NAME, false, false)
 INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(GlobalsAAWrapperPass)
-INITIALIZE_PASS_END(LoadCombine, "load-combine", "Combine Adjacent Loads",
-                    false, false)
-
+INITIALIZE_PASS_END(LoadCombine, "load-combine", LDCOMBINE_NAME, false, false)

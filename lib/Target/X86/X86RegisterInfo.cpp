@@ -162,10 +162,15 @@ X86RegisterInfo::getPointerRegClass(const MachineFunction &MF,
   case 0: // Normal GPRs.
     if (Subtarget.isTarget64BitLP64())
       return &X86::GR64RegClass;
-    return &X86::GR32RegClass;
+    // If the target is 64bit but we have been told to use 32bit addresses,
+    // we can still use 64-bit register as long as we know the high bits
+    // are zeros.
+    // Reflect that in the returned register class.
+    return Is64Bit ? &X86::LOW32_ADDR_ACCESSRegClass : &X86::GR32RegClass;
   case 1: // Normal GPRs except the stack pointer (for encoding reasons).
     if (Subtarget.isTarget64BitLP64())
       return &X86::GR64_NOSPRegClass;
+    // NOSP does not contain RIP, so no special case here.
     return &X86::GR32_NOSPRegClass;
   case 2: // NOREX GPRs.
     if (Subtarget.isTarget64BitLP64())
@@ -174,6 +179,7 @@ X86RegisterInfo::getPointerRegClass(const MachineFunction &MF,
   case 3: // NOREX GPRs except the stack pointer (for encoding reasons).
     if (Subtarget.isTarget64BitLP64())
       return &X86::GR64_NOREX_NOSPRegClass;
+    // NOSP does not contain RIP, so no special case here.
     return &X86::GR32_NOREX_NOSPRegClass;
   case 4: // Available for tailcall (not callee-saved GPRs).
     return getGPRsForTailCall(MF);
@@ -299,6 +305,10 @@ X86RegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
       return CSR_Win64_SaveList;
     if (CallsEHReturn)
       return CSR_64EHRet_SaveList;
+    if (Subtarget.getTargetLowering()->supportSwiftError() &&
+        MF->getFunction()->getAttributes().hasAttrSomewhere(
+            Attribute::SwiftError))
+      return CSR_64_SwiftError_SaveList;
     return CSR_64_SaveList;
   }
   if (CallsEHReturn)
@@ -385,6 +395,10 @@ X86RegisterInfo::getCallPreservedMask(const MachineFunction &MF,
   if (Is64Bit) {
     if (IsWin64)
       return CSR_Win64_RegMask;
+    if (Subtarget.getTargetLowering()->supportSwiftError() &&
+        MF.getFunction()->getAttributes().hasAttrSomewhere(
+            Attribute::SwiftError))
+      return CSR_64_SwiftError_RegMask;
     return CSR_64_RegMask;
   }
   return CSR_32_RegMask;

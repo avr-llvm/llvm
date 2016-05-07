@@ -70,6 +70,9 @@ protected:
   /// MMX, 3DNow, 3DNow Athlon, or none supported.
   X863DNowEnum X863DNowLevel;
 
+  /// True if the processor supports X87 instructions.
+  bool HasX87;
+
   /// True if this processor has conditional move instructions
   /// (generally pentium pro+).
   bool HasCMov;
@@ -370,6 +373,7 @@ public:
   PICStyles::Style getPICStyle() const { return PICStyle; }
   void setPICStyle(PICStyles::Style Style)  { PICStyle = Style; }
 
+  bool hasX87() const { return HasX87; }
   bool hasCMov() const { return HasCMov; }
   bool hasSSE1() const { return X86SSELevel >= SSE1; }
   bool hasSSE2() const { return X86SSELevel >= SSE2; }
@@ -463,6 +467,8 @@ public:
   bool isTargetMachO() const { return TargetTriple.isOSBinFormatMachO(); }
 
   bool isTargetLinux() const { return TargetTriple.isOSLinux(); }
+  bool isTargetKFreeBSD() const { return TargetTriple.isOSKFreeBSD(); }
+  bool isTargetGlibc() const { return TargetTriple.isOSGlibc(); }
   bool isTargetAndroid() const { return TargetTriple.isAndroid(); }
   bool isTargetNaCl() const { return TargetTriple.isOSNaCl(); }
   bool isTargetNaCl32() const { return isTargetNaCl() && !is64Bit(); }
@@ -544,11 +550,24 @@ public:
     }
   }
 
+  /// Determine if this global is defined in a Position Independent
+  /// Executable (PIE) where its definition cannot be interposed.
+  bool isGlobalDefinedInPIE(const GlobalValue *GV,
+                            const TargetMachine &TM) const {
+    return GV->getParent()->getPIELevel() != PIELevel::Default &&
+           !GV->isDeclarationForLinker();
+  }
+
   /// ClassifyGlobalReference - Classify a global variable reference for the
   /// current subtarget according to how we should reference it in a non-pcrel
   /// context.
   unsigned char ClassifyGlobalReference(const GlobalValue *GV,
                                         const TargetMachine &TM)const;
+
+  /// classifyGlobalFunctionReference - Classify a global function reference
+  /// for the current subtarget.
+  unsigned char classifyGlobalFunctionReference(const GlobalValue *GV,
+                                                const TargetMachine &TM) const;
 
   /// Classify a blockaddress reference for the current subtarget according to
   /// how we should reference it in a non-pcrel context.

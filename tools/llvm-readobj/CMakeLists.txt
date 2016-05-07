@@ -1,4 +1,5 @@
 set(LLVM_LINK_COMPONENTS
+  DebugInfoCodeView
   Object
   Support
   )
@@ -13,6 +14,5 @@ add_llvm_tool(llvm-readobj
   llvm-readobj.cpp
   MachODumper.cpp
   ObjDumper.cpp
-  StreamWriter.cpp
   Win64EHDumper.cpp
   )

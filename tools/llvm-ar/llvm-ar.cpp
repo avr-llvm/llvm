@@ -343,12 +343,9 @@ static void doDisplayTable(StringRef Name, const object::Archive::Child &C) {
 static void doExtract(StringRef Name, const object::Archive::Child &C) {
   // Retain the original mode.
   sys::fs::perms Mode = C.getAccessMode();
-  SmallString<128> Storage = Name;
 
   int FD;
-  failIfError(
-      sys::fs::openFileForWrite(Storage.c_str(), FD, sys::fs::F_None, Mode),
-      Storage.c_str());
+  failIfError(sys::fs::openFileForWrite(Name, FD, sys::fs::F_None, Mode), Name);
 
   {
     raw_fd_ostream file(FD, false);
@@ -585,7 +582,7 @@ performWriteOperation(ArchiveOperation Operation, object::Archive *OldArchive,
   switch (FormatOpt) {
   case Default: {
     Triple T(sys::getProcessTriple());
-    if (T.isOSDarwin())
+    if (T.isOSDarwin() && !Thin)
       Kind = object::Archive::K_BSD;
     else
       Kind = object::Archive::K_GNU;
@@ -595,6 +592,8 @@ performWriteOperation(ArchiveOperation Operation, object::Archive *OldArchive,
     Kind = object::Archive::K_GNU;
     break;
   case BSD:
+    if (Thin)
+      fail("Only the gnu format has a thin mode");
     Kind = object::Archive::K_BSD;
     break;
   }
@@ -760,7 +759,7 @@ static int ar_main() {
 
 static int ranlib_main() {
   if (RestOfArgs.size() != 1)
-    fail(ToolName + "takes just one archive as argument");
+    fail(ToolName + " takes just one archive as an argument");
   ArchiveName = RestOfArgs[0];
   return performOperation(CreateSymTab, nullptr);
 }

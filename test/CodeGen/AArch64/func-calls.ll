@@ -1,4 +1,4 @@
-; RUN: llc -verify-machineinstrs < %s -mtriple=aarch64-none-linux-gnu | FileCheck %s --check-prefix=CHECK
+; RUN: llc -verify-machineinstrs < %s -mtriple=aarch64-none-linux-gnu | FileCheck %s
 ; RUN: llc -verify-machineinstrs < %s -mtriple=aarch64-none-linux-gnu -mattr=-neon | FileCheck --check-prefix=CHECK-NONEON %s
 ; RUN: llc -verify-machineinstrs < %s -mtriple=aarch64-none-linux-gnu -mattr=-fp-armv8 | FileCheck --check-prefix=CHECK-NOFP %s
 ; RUN: llc -verify-machineinstrs < %s -mtriple=aarch64_be-none-linux-gnu | FileCheck --check-prefix=CHECK-BE %s
@@ -89,11 +89,11 @@ define void @check_stack_args() {
   ; that varstruct is passed on the stack. Rather dependent on how a
   ; memcpy gets created, but the following works for now.
 
-; CHECK-DAG: str {{q[0-9]+}}, [sp, #-16]
+; CHECK-DAG: str {{q[0-9]+}}, [sp]
 ; CHECK-DAG: fmov d[[FINAL_DOUBLE:[0-9]+]], #1.0
 ; CHECK: mov v0.16b, v[[FINAL_DOUBLE]].16b
 
-; CHECK-NONEON-DAG: str {{q[0-9]+}}, [sp, #-16]!
+; CHECK-NONEON-DAG: str {{q[0-9]+}}, [sp]
 ; CHECK-NONEON-DAG: fmov d[[FINAL_DOUBLE:[0-9]+]], #1.0
 ; CHECK-NONEON: fmov d0, d[[FINAL_DOUBLE]]
 

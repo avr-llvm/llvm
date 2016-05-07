@@ -16,6 +16,7 @@
 #ifndef LLVM_LIB_TARGET_AMDGPU_DISASSEMBLER_AMDGPUDISASSEMBLER_H
 #define LLVM_LIB_TARGET_AMDGPU_DISASSEMBLER_AMDGPUDISASSEMBLER_H
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/MC/MCDisassembler/MCDisassembler.h"
 
 namespace llvm {
@@ -61,8 +62,8 @@ namespace llvm {
     MCOperand decodeOperand_VReg_96(unsigned Val) const;
     MCOperand decodeOperand_VReg_128(unsigned Val) const;
 
-    MCOperand decodeOperand_SGPR_32(unsigned Val) const;
     MCOperand decodeOperand_SReg_32(unsigned Val) const;
+    MCOperand decodeOperand_SReg_32_XM0(unsigned Val) const;
     MCOperand decodeOperand_SReg_64(unsigned Val) const;
     MCOperand decodeOperand_SReg_128(unsigned Val) const;
     MCOperand decodeOperand_SReg_256(unsigned Val) const;

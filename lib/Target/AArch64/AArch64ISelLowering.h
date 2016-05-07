@@ -187,6 +187,10 @@ enum NodeType : unsigned {
   SMULL,
   UMULL,
 
+  // Reciprocal estimates.
+  FRECPE,
+  FRSQRTE,
+
   // NEON Load/Store with post-increment base updates
   LD2post = ISD::FIRST_TARGET_MEMORY_OPCODE,
   LD3post,
@@ -358,6 +362,10 @@ public:
   TargetLoweringBase::LegalizeTypeAction
   getPreferredVectorAction(EVT VT) const override;
 
+  /// If the target has a standard location for the stack protector cookie,
+  /// returns the address of that location. Otherwise, returns nullptr.
+  Value *getIRStackGuard(IRBuilder<> &IRB) const override;
+
   /// If the target has a standard location for the unsafe stack pointer,
   /// returns the address of that location. Otherwise, returns nullptr.
   Value *getSafeStackPointerLocation(IRBuilder<> &IRB) const override;
@@ -378,6 +386,8 @@ public:
     return AArch64::X1;
   }
 
+  bool isIntDivCheap(EVT VT, AttributeSet Attr) const override;
+
   bool isCheapToSpeculateCttz() const override {
     return true;
   }
@@ -394,6 +404,10 @@ public:
       MachineBasicBlock *Entry,
       const SmallVectorImpl<MachineBasicBlock *> &Exits) const override;
 
+  bool supportSwiftError() const override {
+    return true;
+  }
+
 private:
   bool isExtFreeImpl(const Instruction *Ext) const override;
 
@@ -401,7 +415,7 @@ private:
   /// make the right decision when generating code for different targets.
   const AArch64Subtarget *Subtarget;
 
-  void addTypeForNEON(EVT VT, EVT PromotedBitwiseVT);
+  void addTypeForNEON(MVT VT, MVT PromotedBitwiseVT);
   void addDRTypeForNEON(MVT VT);
   void addQRTypeForNEON(MVT VT);
 
@@ -424,7 +438,6 @@ private:
 
   bool isEligibleForTailCallOptimization(
       SDValue Callee, CallingConv::ID CalleeCC, bool isVarArg,
-      bool isCalleeStructRet, bool isCallerStructRet,
       const SmallVectorImpl<ISD::OutputArg> &Outs,
       const SmallVectorImpl<SDValue> &OutVals,
       const SmallVectorImpl<ISD::InputArg> &Ins, SelectionDAG &DAG) const;
@@ -502,6 +515,11 @@ private:
 
   SDValue BuildSDIVPow2(SDNode *N, const APInt &Divisor, SelectionDAG &DAG,
                         std::vector<SDNode *> *Created) const override;
+  SDValue getRsqrtEstimate(SDValue Operand, DAGCombinerInfo &DCI,
+                           unsigned &RefinementSteps,
+                           bool &UseOneConstNR) const override;
+  SDValue getRecipEstimate(SDValue Operand, DAGCombinerInfo &DCI,
+                           unsigned &RefinementSteps) const override;
   unsigned combineRepeatedFPDivisors() const override;
 
   ConstraintType getConstraintType(StringRef Constraint) const override;

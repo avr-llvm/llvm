@@ -15,7 +15,6 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/IR/Intrinsics.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -42,7 +41,7 @@ public:
     return SelectionDAGISel::runOnMachineFunction(MF);
   }
 
-  SDNode *Select(SDNode *N) override;
+  SDNode *SelectImpl(SDNode *N) override;
 
   // Complex Pattern Selectors.
   bool SelectADDRrr(SDValue N, SDValue &R1, SDValue &R2);
@@ -318,7 +317,7 @@ SDNode *SparcDAGToDAGISel::SelectInlineAsm(SDNode *N){
   return New.getNode();
 }
 
-SDNode *SparcDAGToDAGISel::Select(SDNode *N) {
+SDNode *SparcDAGToDAGISel::SelectImpl(SDNode *N) {
   SDLoc dl(N);
   if (N->isMachineOpcode()) {
     N->setNodeId(-1);

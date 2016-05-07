@@ -17,6 +17,7 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -705,6 +706,25 @@ MachineRegisterInfo *MachineInstr::getRegInfo() {
   return nullptr;
 }
 
+// Implement dummy setter and getter for type when
+// global-isel is not built.
+// The proper implementation is WIP and is tracked here:
+// PR26576.
+#ifndef LLVM_BUILD_GLOBAL_ISEL
+void MachineInstr::setType(Type *Ty) {}
+
+Type *MachineInstr::getType() const { return nullptr; }
+
+#else
+void MachineInstr::setType(Type *Ty) {
+  assert((!Ty || isPreISelGenericOpcode(getOpcode())) &&
+         "Non generic instructions are not supposed to be typed");
+  this->Ty = Ty;
+}
+
+Type *MachineInstr::getType() const { return Ty; }
+#endif // LLVM_BUILD_GLOBAL_ISEL
+
 /// RemoveRegOperandsFromUseLists - Unlink all of the register operands in
 /// this instruction from their respective use lists.  This requires that the
 /// operands already be on their use lists.
@@ -1145,6 +1165,16 @@ int MachineInstr::findInlineAsmFlagIdx(unsigned OpIdx,
   return -1;
 }
 
+const DILocalVariable *MachineInstr::getDebugVariable() const {
+  assert(isDebugValue() && "not a DBG_VALUE");
+  return cast<DILocalVariable>(getOperand(2).getMetadata());
+}
+
+const DIExpression *MachineInstr::getDebugExpression() const {
+  assert(isDebugValue() && "not a DBG_VALUE");
+  return cast<DIExpression>(getOperand(3).getMetadata());
+}
+
 const TargetRegisterClass*
 MachineInstr::getRegClassConstraint(unsigned OpIdx,
                                     const TargetInstrInfo *TII,
@@ -1239,6 +1269,17 @@ unsigned MachineInstr::getBundleSize() const {
     ++I;
   }
   return Size;
+}
+
+/// Returns true if the MachineInstr has an implicit-use operand of exactly
+/// the given register (not considering sub/super-registers).
+bool MachineInstr::hasRegisterImplicitUseOperand(unsigned Reg) const {
+  for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
+    const MachineOperand &MO = getOperand(i);
+    if (MO.isReg() && MO.isUse() && MO.isImplicit() && MO.getReg() == Reg)
+      return true;
+  }
+  return false;
 }
 
 /// findRegisterUseOperandIdx() - Returns the MachineOperand that is a use of
@@ -1670,12 +1711,9 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
     unsigned Reg = getOperand(StartOp).getReg();
     if (TargetRegisterInfo::isVirtualRegister(Reg)) {
       VirtRegs.push_back(Reg);
-#ifdef LLVM_BUILD_GLOBAL_ISEL
       unsigned Size;
-      if (MRI && (Size = MRI->getSize(Reg))) {
+      if (MRI && (Size = MRI->getSize(Reg)))
         OS << '(' << Size << ')';
-      }
-#endif
     }
   }
 
@@ -1688,11 +1726,11 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
   else
     OS << "UNKNOWN";
 
-
-#ifdef LLVM_BUILD_GLOBAL_ISEL
-  if (Ty)
-    OS << ' ' << *Ty << ' ';
-#endif
+  if (getType()) {
+    OS << ' ';
+    getType()->print(OS, /*IsForDebug*/ false, /*NoDetails*/ true);
+    OS << ' ';
+  }
 
   if (SkipOpers)
     return;
@@ -1854,16 +1892,18 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
       HaveSemi = true;
     }
     for (unsigned i = 0; i != VirtRegs.size(); ++i) {
-      const TargetRegisterClass *RC = MRI->getRegClass(VirtRegs[i]);
-#ifdef LLVM_BUILD_GLOBAL_ISEL
-      // Generic virtual registers do not have register classes.
+      const RegClassOrRegBank &RC = MRI->getRegClassOrRegBank(VirtRegs[i]);
       if (!RC)
         continue;
-#endif
-      OS << " " << TRI->getRegClassName(RC)
-         << ':' << PrintReg(VirtRegs[i]);
+      // Generic virtual registers do not have register classes.
+      if (RC.is<const RegisterBank *>())
+        OS << " " << RC.get<const RegisterBank *>()->getName();
+      else
+        OS << " "
+           << TRI->getRegClassName(RC.get<const TargetRegisterClass *>());
+      OS << ':' << PrintReg(VirtRegs[i]);
       for (unsigned j = i+1; j != VirtRegs.size();) {
-        if (MRI->getRegClass(VirtRegs[j]) != RC) {
+        if (MRI->getRegClassOrRegBank(VirtRegs[j]) != RC) {
           ++j;
           continue;
         }
@@ -2119,4 +2159,42 @@ void MachineInstr::emitError(StringRef Msg) const {
     if (const MachineFunction *MF = MBB->getParent())
       return MF->getMMI().getModule()->getContext().emitError(LocCookie, Msg);
   report_fatal_error(Msg);
+}
+
+MachineInstrBuilder llvm::BuildMI(MachineFunction &MF, DebugLoc DL,
+                                  const MCInstrDesc &MCID, bool IsIndirect,
+                                  unsigned Reg, unsigned Offset,
+                                  const MDNode *Variable, const MDNode *Expr) {
+  assert(isa<DILocalVariable>(Variable) && "not a variable");
+  assert(cast<DIExpression>(Expr)->isValid() && "not an expression");
+  assert(cast<DILocalVariable>(Variable)->isValidLocationForIntrinsic(DL) &&
+         "Expected inlined-at fields to agree");
+  if (IsIndirect)
+    return BuildMI(MF, DL, MCID)
+        .addReg(Reg, RegState::Debug)
+        .addImm(Offset)
+        .addMetadata(Variable)
+        .addMetadata(Expr);
+  else {
+    assert(Offset == 0 && "A direct address cannot have an offset.");
+    return BuildMI(MF, DL, MCID)
+        .addReg(Reg, RegState::Debug)
+        .addReg(0U, RegState::Debug)
+        .addMetadata(Variable)
+        .addMetadata(Expr);
+  }
+}
+
+MachineInstrBuilder llvm::BuildMI(MachineBasicBlock &BB,
+                                  MachineBasicBlock::iterator I, DebugLoc DL,
+                                  const MCInstrDesc &MCID, bool IsIndirect,
+                                  unsigned Reg, unsigned Offset,
+                                  const MDNode *Variable, const MDNode *Expr) {
+  assert(isa<DILocalVariable>(Variable) && "not a variable");
+  assert(cast<DIExpression>(Expr)->isValid() && "not an expression");
+  MachineFunction &MF = *BB.getParent();
+  MachineInstr *MI =
+      BuildMI(MF, DL, MCID, IsIndirect, Reg, Offset, Variable, Expr);
+  BB.insert(I, MI);
+  return MachineInstrBuilder(MF, MI);
 }

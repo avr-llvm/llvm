@@ -9,7 +9,7 @@ target triple = "i686-pc-windows-msvc18.0.0"
 
 %struct.S = type { [12 x i8] }
 
-define x86_thiscallcc void @call_inalloca(i1 %x) "stack-probe-size"="12" {
+define x86_thiscallcc void @call_inalloca(i1 %x) {
 entry:
   %argmem = alloca inalloca <{ %struct.S }>, align 4
   %argidx1 = getelementptr inbounds <{ %struct.S }>, <{ %struct.S }>* %argmem, i32 0, i32 0, i32 0, i32 0
@@ -64,9 +64,9 @@ false:
 ; CHECK: cmpl %edx, %eax
 ; CHECK: jge LBB1_2
 ; CHECK: pushl %eax
-; CHECK: movl $4100, %eax
+; CHECK: movl $4092, %eax
 ; CHECK: calll __chkstk
-; CHECK: movl 4100(%esp), %eax
+; CHECK: movl 4092(%esp), %eax
 ; CHECK: calll _doSomething
 ; CHECK: LBB1_2:
 ; CHECK: retl

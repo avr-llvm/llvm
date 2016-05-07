@@ -13,14 +13,8 @@
 /* Define to enable crash overrides */
 #cmakedefine ENABLE_CRASH_OVERRIDES
 
-/* Define to disable C++ atexit */
-#cmakedefine DISABLE_LLVM_DYLIB_ATEXIT
-
 /* Define if position independent code is enabled */
 #cmakedefine ENABLE_PIC
-
-/* Define if timestamp information (e.g., __DATE__) is allowed */
-#cmakedefine ENABLE_TIMESTAMPS ${ENABLE_TIMESTAMPS}
 
 /* Define to 1 if you have the `arc4random' function. */
 #cmakedefine HAVE_DECL_ARC4RANDOM ${HAVE_DECL_ARC4RANDOM}
@@ -502,6 +496,9 @@
 /* LLVM version string */
 #define LLVM_VERSION_STRING "${PACKAGE_VERSION}"
 
+/* LLVM version information */
+#cmakedefine LLVM_VERSION_INFO "${LLVM_VERSION_INFO}"
+
 /* Define if we link Polly to the tools */
 #cmakedefine LINK_POLLY_INTO_TOOLS
 
@@ -540,6 +537,9 @@
 /* Define to the version of this package. */
 #cmakedefine PACKAGE_VERSION "${PACKAGE_VERSION}"
 
+/* Define to the vendor of this package. */
+#cmakedefine PACKAGE_VENDOR "${PACKAGE_VENDOR}"
+
 /* Define as the return type of signal handlers (`int' or `void'). */
 #cmakedefine RETSIGTYPE ${RETSIGTYPE}
 
@@ -554,9 +554,6 @@
 
 /* Define to 1 if your <sys/time.h> declares `struct tm'. */
 #undef TM_IN_SYS_TIME
-
-/* Type of 1st arg on ELM Callback */
-#cmakedefine WIN32_ELMCB_PCSTR ${WIN32_ELMCB_PCSTR}
 
 /* Define to `int' if <sys/types.h> does not define. */
 #undef pid_t

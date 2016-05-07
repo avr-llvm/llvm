@@ -1,4 +1,4 @@
-; RUN: llc < %s -mtriple aarch64-unknown-unknown -aarch64-neon-syntax=apple -asm-verbose=false -disable-post-ra | FileCheck %s
+; RUN: llc < %s -mtriple aarch64-unknown-unknown -aarch64-neon-syntax=apple -asm-verbose=false -disable-post-ra -disable-fp-elim | FileCheck %s
 
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 
@@ -443,6 +443,34 @@ define half @test_sitofp_i32(i32 %a) #0 {
 ; CHECK-NEXT: ret
 define half @test_sitofp_i64(i64 %a) #0 {
   %r = sitofp i64 %a to half
+  ret half %r
+}
+
+; CHECK-LABEL: test_uitofp_i32_fadd:
+; CHECK-NEXT: ucvtf s1, w0
+; CHECK-NEXT: fcvt h1, s1
+; CHECK-NEXT: fcvt s0, h0
+; CHECK-NEXT: fcvt s1, h1
+; CHECK-NEXT: fadd s0, s0, s1
+; CHECK-NEXT: fcvt h0, s0
+; CHECK-NEXT: ret
+define half @test_uitofp_i32_fadd(i32 %a, half %b) #0 {
+  %c = uitofp i32 %a to half
+  %r = fadd half %b, %c
+  ret half %r
+}
+
+; CHECK-LABEL: test_sitofp_i32_fadd:
+; CHECK-NEXT: scvtf s1, w0
+; CHECK-NEXT: fcvt h1, s1
+; CHECK-NEXT: fcvt s0, h0
+; CHECK-NEXT: fcvt s1, h1
+; CHECK-NEXT: fadd s0, s0, s1
+; CHECK-NEXT: fcvt h0, s0
+; CHECK-NEXT: ret
+define half @test_sitofp_i32_fadd(i32 %a, half %b) #0 {
+  %c = sitofp i32 %a to half
+  %r = fadd half %b, %c
   ret half %r
 }
 

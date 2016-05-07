@@ -16,6 +16,7 @@
 #define LLVM_IR_TYPE_H
 
 #include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/CBindingWrapping.h"
 #include "llvm/Support/Casting.h"
@@ -112,7 +113,14 @@ protected:
   }
 
 public:
-  void print(raw_ostream &O, bool IsForDebug = false) const;
+  /// Print the current type.
+  /// Omit the type details if \p NoDetails == true.
+  /// E.g., let %st = type { i32, i16 }
+  /// When \p NoDetails is true, we only print %st.
+  /// Put differently, \p NoDetails prints the type as if
+  /// inlined with the operands when printing an instruction.
+  void print(raw_ostream &O, bool IsForDebug = false,
+             bool NoDetails = false) const;
   void dump() const;
 
   /// getContext - Return the LLVMContext in which this type was uniqued.

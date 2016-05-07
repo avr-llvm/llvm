@@ -14,18 +14,16 @@
 #ifndef LLVM_AVR_MCTARGET_DESC_H
 #define LLVM_AVR_MCTARGET_DESC_H
 
-#include "AVRConfig.h"
-
 #include "llvm/Support/DataTypes.h"
 
 namespace llvm {
 
-class MCCodeEmitter;
 class MCAsmBackend;
-class MCRegisterInfo;
-class MCObjectWriter;
-class MCInstrInfo;
+class MCCodeEmitter;
 class MCContext;
+class MCInstrInfo;
+class MCObjectWriter;
+class MCRegisterInfo;
 class StringRef;
 class Target;
 class Triple;

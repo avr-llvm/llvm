@@ -1268,6 +1268,9 @@ void HexagonCommonGEP::removeDeadCode() {
 
 
 bool HexagonCommonGEP::runOnFunction(Function &F) {
+  if (skipFunction(F))
+    return false;
+
   // For now bail out on C++ exception handling.
   for (Function::iterator A = F.begin(), Z = F.end(); A != Z; ++A)
     for (BasicBlock::iterator I = A->begin(), E = A->end(); I != E; ++I)
@@ -1295,7 +1298,7 @@ bool HexagonCommonGEP::runOnFunction(Function &F) {
   materialize(Loc);
   removeDeadCode();
 
-#ifdef XDEBUG
+#ifdef EXPENSIVE_CHECKS
   // Run this only when expensive checks are enabled.
   verifyFunction(F);
 #endif

@@ -472,12 +472,10 @@ bool RecurrenceDescriptor::hasMultipleUsesOf(
 bool RecurrenceDescriptor::isReductionPHI(PHINode *Phi, Loop *TheLoop,
                                           RecurrenceDescriptor &RedDes) {
 
-  bool HasFunNoNaNAttr = false;
   BasicBlock *Header = TheLoop->getHeader();
   Function &F = *Header->getParent();
-  if (F.hasFnAttribute("no-nans-fp-math"))
-    HasFunNoNaNAttr =
-        F.getFnAttribute("no-nans-fp-math").getValueAsString() == "true";
+  bool HasFunNoNaNAttr =
+      F.getFnAttribute("no-nans-fp-math").getValueAsString() == "true";
 
   if (AddReductionVar(Phi, RK_IntegerAdd, TheLoop, HasFunNoNaNAttr, RedDes)) {
     DEBUG(dbgs() << "Found an ADD reduction PHI." << *Phi << "\n");
@@ -543,7 +541,7 @@ bool RecurrenceDescriptor::isFirstOrderRecurrence(PHINode *Phi, Loop *TheLoop,
   // Get the previous value. The previous value comes from the latch edge while
   // the initial value comes form the preheader edge.
   auto *Previous = dyn_cast<Instruction>(Phi->getIncomingValueForBlock(Latch));
-  if (!Previous)
+  if (!Previous || !TheLoop->contains(Previous) || isa<PHINode>(Previous))
     return false;
 
   // Ensure every user of the phi node is dominated by the previous value. The
@@ -700,16 +698,43 @@ Value *InductionDescriptor::transform(IRBuilder<> &B, Value *Index) const {
   llvm_unreachable("invalid enum");
 }
 
-bool InductionDescriptor::isInductionPHI(PHINode *Phi, ScalarEvolution *SE,
-                                         InductionDescriptor &D) {
+bool InductionDescriptor::isInductionPHI(PHINode *Phi,
+                                         PredicatedScalarEvolution &PSE,
+                                         InductionDescriptor &D,
+                                         bool Assume) {
+  Type *PhiTy = Phi->getType();
+  // We only handle integer and pointer inductions variables.
+  if (!PhiTy->isIntegerTy() && !PhiTy->isPointerTy())
+    return false;
+
+  const SCEV *PhiScev = PSE.getSCEV(Phi);
+  const auto *AR = dyn_cast<SCEVAddRecExpr>(PhiScev);
+
+  // We need this expression to be an AddRecExpr.
+  if (Assume && !AR)
+    AR = PSE.getAsAddRec(Phi);
+
+  if (!AR) {
+    DEBUG(dbgs() << "LV: PHI is not a poly recurrence.\n");
+    return false;
+  }
+
+  return isInductionPHI(Phi, PSE.getSE(), D, AR);
+}
+
+bool InductionDescriptor::isInductionPHI(PHINode *Phi,
+                                         ScalarEvolution *SE,
+                                         InductionDescriptor &D,
+                                         const SCEV *Expr) {
   Type *PhiTy = Phi->getType();
   // We only handle integer and pointer inductions variables.
   if (!PhiTy->isIntegerTy() && !PhiTy->isPointerTy())
     return false;
 
   // Check that the PHI is consecutive.
-  const SCEV *PhiScev = SE->getSCEV(Phi);
+  const SCEV *PhiScev = Expr ? Expr : SE->getSCEV(Phi);
   const SCEVAddRecExpr *AR = dyn_cast<SCEVAddRecExpr>(PhiScev);
+
   if (!AR) {
     DEBUG(dbgs() << "LV: PHI is not a poly recurrence.\n");
     return false;
@@ -823,4 +848,42 @@ void llvm::initializeLoopPassPass(PassRegistry &Registry) {
   INITIALIZE_PASS_DEPENDENCY(GlobalsAAWrapperPass)
   INITIALIZE_PASS_DEPENDENCY(SCEVAAWrapperPass)
   INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
+}
+
+/// \brief Find string metadata for loop
+///
+/// If it has a value (e.g. {"llvm.distribute", 1} return the value as an
+/// operand or null otherwise.  If the string metadata is not found return
+/// Optional's not-a-value.
+Optional<const MDOperand *> llvm::findStringMetadataForLoop(Loop *TheLoop,
+                                                            StringRef Name) {
+  MDNode *LoopID = TheLoop->getLoopID();
+  // Return none if LoopID is false.
+  if (!LoopID)
+    return None;
+
+  // First operand should refer to the loop id itself.
+  assert(LoopID->getNumOperands() > 0 && "requires at least one operand");
+  assert(LoopID->getOperand(0) == LoopID && "invalid loop id");
+
+  // Iterate over LoopID operands and look for MDString Metadata
+  for (unsigned i = 1, e = LoopID->getNumOperands(); i < e; ++i) {
+    MDNode *MD = dyn_cast<MDNode>(LoopID->getOperand(i));
+    if (!MD)
+      continue;
+    MDString *S = dyn_cast<MDString>(MD->getOperand(0));
+    if (!S)
+      continue;
+    // Return true if MDString holds expected MetaData.
+    if (Name.equals(S->getString()))
+      switch (MD->getNumOperands()) {
+      case 1:
+        return nullptr;
+      case 2:
+        return &MD->getOperand(1);
+      default:
+        llvm_unreachable("loop metadata has 0 or 1 operand");
+      }
+  }
+  return None;
 }

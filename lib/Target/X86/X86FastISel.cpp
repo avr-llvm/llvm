@@ -30,6 +30,7 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/CallingConv.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/GlobalAlias.h"
@@ -511,8 +512,16 @@ bool X86FastISel::X86FastEmitStore(EVT VT, unsigned ValReg, bool ValIsKill,
     break;
   }
 
+  const MCInstrDesc &Desc = TII.get(Opc);
+  // Some of the instructions in the previous switch use FR128 instead
+  // of FR32 for ValReg. Make sure the register we feed the instruction
+  // matches its register class constraints.
+  // Note: This is fine to do a copy from FR32 to FR128, this is the
+  // same registers behind the scene and actually why it did not trigger
+  // any bugs before.
+  ValReg = constrainOperandRegClass(Desc, ValReg, Desc.getNumOperands() - 1);
   MachineInstrBuilder MIB =
-    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(Opc));
+      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, Desc);
   addFullAddress(MIB, AM).addReg(ValReg, getKillRegState(ValIsKill));
   if (MMO)
     MIB->addMemOperand(*FuncInfo.MF, MMO);
@@ -972,6 +981,21 @@ bool X86FastISel::X86SelectStore(const Instruction *I) {
   if (S->isAtomic())
     return false;
 
+  const Value *PtrV = I->getOperand(1);
+  if (TLI.supportSwiftError()) {
+    // Swifterror values can come from either a function parameter with
+    // swifterror attribute or an alloca with swifterror attribute.
+    if (const Argument *Arg = dyn_cast<Argument>(PtrV)) {
+      if (Arg->hasSwiftErrorAttr())
+        return false;
+    }
+
+    if (const AllocaInst *Alloca = dyn_cast<AllocaInst>(PtrV)) {
+      if (Alloca->isSwiftError())
+        return false;
+    }
+  }
+
   const Value *Val = S->getValueOperand();
   const Value *Ptr = S->getPointerOperand();
 
@@ -1000,6 +1024,10 @@ bool X86FastISel::X86SelectRet(const Instruction *I) {
       FuncInfo.MF->getInfo<X86MachineFunctionInfo>();
 
   if (!FuncInfo.CanLowerReturn)
+    return false;
+
+  if (TLI.supportSwiftError() &&
+      F.getAttributes().hasAttrSomewhere(Attribute::SwiftError))
     return false;
 
   if (TLI.supportSplitCSR(FuncInfo.MF))
@@ -1101,11 +1129,14 @@ bool X86FastISel::X86SelectRet(const Instruction *I) {
     RetRegs.push_back(VA.getLocReg());
   }
 
+  // Swift calling convention does not require we copy the sret argument
+  // into %rax/%eax for the return, and SRetReturnReg is not set for Swift.
+
   // All x86 ABIs require that for returning structs by value we copy
   // the sret argument into %rax/%eax (depending on ABI) for the return.
   // We saved the argument into a virtual register in the entry block,
   // so now we copy the value out and into %rax/%eax.
-  if (F.hasStructRetAttr()) {
+  if (F.hasStructRetAttr() && CC != CallingConv::Swift) {
     unsigned Reg = X86MFInfo->getSRetReturnReg();
     assert(Reg &&
            "SRetReturnReg should have been set in LowerFormalArguments()!");
@@ -1132,6 +1163,21 @@ bool X86FastISel::X86SelectLoad(const Instruction *I) {
   // Atomic loads need special handling.
   if (LI->isAtomic())
     return false;
+
+  const Value *SV = I->getOperand(0);
+  if (TLI.supportSwiftError()) {
+    // Swifterror values can come from either a function parameter with
+    // swifterror attribute or an alloca with swifterror attribute.
+    if (const Argument *Arg = dyn_cast<Argument>(SV)) {
+      if (Arg->hasSwiftErrorAttr())
+        return false;
+    }
+
+    if (const AllocaInst *Alloca = dyn_cast<AllocaInst>(SV)) {
+      if (Alloca->isSwiftError())
+        return false;
+    }
+  }
 
   MVT VT;
   if (!isTypeLegal(LI->getType(), VT, /*AllowI1=*/true))
@@ -2744,6 +2790,8 @@ bool X86FastISel::fastLowerArguments() {
     if (F->getAttributes().hasAttribute(Idx, Attribute::ByVal) ||
         F->getAttributes().hasAttribute(Idx, Attribute::InReg) ||
         F->getAttributes().hasAttribute(Idx, Attribute::StructRet) ||
+        F->getAttributes().hasAttribute(Idx, Attribute::SwiftSelf) ||
+        F->getAttributes().hasAttribute(Idx, Attribute::SwiftError) ||
         F->getAttributes().hasAttribute(Idx, Attribute::Nest))
       return false;
 
@@ -2851,6 +2899,7 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
   case CallingConv::C:
   case CallingConv::Fast:
   case CallingConv::WebKit_JS:
+  case CallingConv::Swift:
   case CallingConv::X86_FastCall:
   case CallingConv::X86_64_Win64:
   case CallingConv::X86_64_SysV:
@@ -2874,6 +2923,10 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
   // Don't know about inalloca yet.
   if (CLI.CS && CLI.CS->hasInAllocaArgument())
     return false;
+
+  for (auto Flag : CLI.OutFlags)
+    if (Flag.isSwiftError())
+      return false;
 
   // Fast-isel doesn't know about callee-pop yet.
   if (X86::isCalleePop(CC, Subtarget->is64Bit(), IsVarArg,
@@ -2966,6 +3019,10 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
     case CCValAssign::SExt: {
       assert(VA.getLocVT().isInteger() && !VA.getLocVT().isVector() &&
              "Unexpected extend");
+
+      if (ArgVT.SimpleTy == MVT::i1)
+        return false;
+
       bool Emitted = X86FastEmitExtend(ISD::SIGN_EXTEND, VA.getLocVT(), ArgReg,
                                        ArgVT, ArgReg);
       assert(Emitted && "Failed to emit a sext!"); (void)Emitted;
@@ -2975,6 +3032,17 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
     case CCValAssign::ZExt: {
       assert(VA.getLocVT().isInteger() && !VA.getLocVT().isVector() &&
              "Unexpected extend");
+
+      // Handle zero-extension from i1 to i8, which is common.
+      if (ArgVT.SimpleTy == MVT::i1) {
+        // Set the high bits to zero.
+        ArgReg = fastEmitZExtFromI1(MVT::i8, ArgReg, /*TODO: Kill=*/false);
+        ArgVT = MVT::i8;
+
+        if (ArgReg == 0)
+          return false;
+      }
+
       bool Emitted = X86FastEmitExtend(ISD::ZERO_EXTEND, VA.getLocVT(), ArgReg,
                                        ArgVT, ArgReg);
       assert(Emitted && "Failed to emit a zext!"); (void)Emitted;
@@ -3115,25 +3183,10 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
     unsigned CallOpc = Is64Bit ? X86::CALL64pcrel32 : X86::CALLpcrel32;
 
     // See if we need any target-specific flags on the GV operand.
-    unsigned char OpFlags = 0;
-
-    // On ELF targets, in both X86-64 and X86-32 mode, direct calls to
-    // external symbols most go through the PLT in PIC mode.  If the symbol
-    // has hidden or protected visibility, or if it is static or local, then
-    // we don't need to use the PLT - we can directly call it.
-    if (Subtarget->isTargetELF() &&
-        TM.getRelocationModel() == Reloc::PIC_ &&
-        GV->hasDefaultVisibility() && !GV->hasLocalLinkage()) {
-      OpFlags = X86II::MO_PLT;
-    } else if (Subtarget->isPICStyleStubAny() &&
-               !GV->isStrongDefinitionForLinker() &&
-               (!Subtarget->getTargetTriple().isMacOSX() ||
-                Subtarget->getTargetTriple().isMacOSXVersionLT(10, 5))) {
-      // PC-relative references to external symbols should go through $stub,
-      // unless we're building with the leopard linker or later, which
-      // automatically synthesizes these stubs.
-      OpFlags = X86II::MO_DARWIN_STUB;
-    }
+    unsigned char OpFlags = Subtarget->classifyGlobalFunctionReference(GV, TM);
+    // Ignore NonLazyBind attribute in FastISel
+    if (OpFlags == X86II::MO_GOTPCREL)
+      OpFlags = 0;
 
     MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(CallOpc));
     if (Symbol)

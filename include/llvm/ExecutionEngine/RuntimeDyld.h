@@ -16,19 +16,33 @@
 
 #include "JITSymbolFlags.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/StringRef.h"
+#include "llvm/DebugInfo/DIContext.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/Memory.h"
-#include "llvm/DebugInfo/DIContext.h"
 #include <map>
 #include <memory>
 
 namespace llvm {
 
+class StringRef;
+
 namespace object {
   class ObjectFile;
   template <typename T> class OwningBinary;
 }
+
+/// Base class for errors originating in RuntimeDyld, e.g. missing relocation
+/// support.
+class RuntimeDyldError : public ErrorInfo<RuntimeDyldError> {
+public:
+  static char ID;
+  RuntimeDyldError(std::string ErrMsg) : ErrMsg(std::move(ErrMsg)) {}
+  void log(raw_ostream &OS) const override;
+  const std::string &getErrorMessage() const { return ErrMsg; }
+  std::error_code convertToErrorCode() const override;
+private:
+  std::string ErrMsg;
+};
 
 class RuntimeDyldImpl;
 class RuntimeDyldCheckerImpl;

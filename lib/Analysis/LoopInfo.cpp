@@ -38,7 +38,7 @@ template class llvm::LoopBase<BasicBlock, Loop>;
 template class llvm::LoopInfoBase<BasicBlock, Loop>;
 
 // Always verify loopinfo if expensive checking is enabled.
-#ifdef XDEBUG
+#ifdef EXPENSIVE_CHECKS
 static bool VerifyLoopInfo = true;
 #else
 static bool VerifyLoopInfo = false;
@@ -46,9 +46,6 @@ static bool VerifyLoopInfo = false;
 static cl::opt<bool,true>
 VerifyLoopInfoX("verify-loop-info", cl::location(VerifyLoopInfo),
                 cl::desc("Verify loop info (time consuming)"));
-
-// Loop identifier metadata name.
-static const char *const LoopMDName = "llvm.loop";
 
 //===----------------------------------------------------------------------===//
 // Loop implementation
@@ -198,23 +195,10 @@ bool Loop::isSafeToClone() const {
     if (isa<IndirectBrInst>(BB->getTerminator()))
       return false;
 
-    if (const InvokeInst *II = dyn_cast<InvokeInst>(BB->getTerminator())) {
-      if (II->cannotDuplicate())
-        return false;
-      // Return false if any loop blocks contain invokes to EH-pads other than
-      // landingpads;  we don't know how to split those edges yet.
-      auto *FirstNonPHI = II->getUnwindDest()->getFirstNonPHI();
-      if (FirstNonPHI->isEHPad() && !isa<LandingPadInst>(FirstNonPHI))
-        return false;
-    }
-    for (Instruction &I : *BB) {
-      if (const CallInst *CI = dyn_cast<CallInst>(&I)) {
-        if (CI->cannotDuplicate())
+    for (Instruction &I : *BB)
+      if (auto CS = CallSite(&I))
+        if (CS.cannotDuplicate())
           return false;
-      }
-      if (I.getType()->isTokenTy() && I.isUsedOutsideOfBlock(BB))
-        return false;
-    }
   }
   return true;
 }
@@ -222,7 +206,7 @@ bool Loop::isSafeToClone() const {
 MDNode *Loop::getLoopID() const {
   MDNode *LoopID = nullptr;
   if (isLoopSimplifyForm()) {
-    LoopID = getLoopLatch()->getTerminator()->getMetadata(LoopMDName);
+    LoopID = getLoopLatch()->getTerminator()->getMetadata(LLVMContext::MD_loop);
   } else {
     // Go through each predecessor of the loop header and check the
     // terminator for the metadata.
@@ -234,7 +218,7 @@ MDNode *Loop::getLoopID() const {
       // Check if this terminator branches to the loop header.
       for (BasicBlock *Successor : TI->successors()) {
         if (Successor == H) {
-          MD = TI->getMetadata(LoopMDName);
+          MD = TI->getMetadata(LLVMContext::MD_loop);
           break;
         }
       }
@@ -259,7 +243,7 @@ void Loop::setLoopID(MDNode *LoopID) const {
   assert(LoopID->getOperand(0) == LoopID && "Loop ID should refer to itself");
 
   if (isLoopSimplifyForm()) {
-    getLoopLatch()->getTerminator()->setMetadata(LoopMDName, LoopID);
+    getLoopLatch()->getTerminator()->setMetadata(LLVMContext::MD_loop, LoopID);
     return;
   }
 
@@ -268,7 +252,7 @@ void Loop::setLoopID(MDNode *LoopID) const {
     TerminatorInst *TI = BB->getTerminator();
     for (BasicBlock *Successor : TI->successors()) {
       if (Successor == H)
-        TI->setMetadata(LoopMDName, LoopID);
+        TI->setMetadata(LLVMContext::MD_loop, LoopID);
     }
   }
 }
@@ -641,9 +625,9 @@ void LoopInfo::markAsRemoved(Loop *Unloop) {
   }
 }
 
-template class llvm::AnalysisBase<LoopAnalysis>;
+char LoopAnalysis::PassID;
 
-LoopInfo LoopAnalysis::run(Function &F, AnalysisManager<Function> *AM) {
+LoopInfo LoopAnalysis::run(Function &F, AnalysisManager<Function> &AM) {
   // FIXME: Currently we create a LoopInfo from scratch for every function.
   // This may prove to be too wasteful due to deallocating and re-allocating
   // memory each time for the underlying map and vector datastructures. At some
@@ -651,13 +635,13 @@ LoopInfo LoopAnalysis::run(Function &F, AnalysisManager<Function> *AM) {
   // objects. I don't want to add that kind of complexity until the scope of
   // the problem is better understood.
   LoopInfo LI;
-  LI.analyze(AM->getResult<DominatorTreeAnalysis>(F));
+  LI.analyze(AM.getResult<DominatorTreeAnalysis>(F));
   return LI;
 }
 
 PreservedAnalyses LoopPrinterPass::run(Function &F,
-                                       AnalysisManager<Function> *AM) {
-  AM->getResult<LoopAnalysis>(F).print(OS);
+                                       AnalysisManager<Function> &AM) {
+  AM.getResult<LoopAnalysis>(F).print(OS);
   return PreservedAnalyses::all();
 }
 

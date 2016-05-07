@@ -731,10 +731,8 @@ int X86TTIImpl::getCastInstrCost(unsigned Opcode, Type *Dst, Type *Src) {
     { ISD::TRUNCATE,    MVT::v16i16, MVT::v16i32, 6 },
     { ISD::TRUNCATE,    MVT::v8i16,  MVT::v8i32,  3 },
     { ISD::TRUNCATE,    MVT::v4i16,  MVT::v4i32,  1 },
-    { ISD::TRUNCATE,    MVT::v16i8,  MVT::v16i32, 30 },
     { ISD::TRUNCATE,    MVT::v8i8,   MVT::v8i32,  3 },
     { ISD::TRUNCATE,    MVT::v4i8,   MVT::v4i32,  1 },
-    { ISD::TRUNCATE,    MVT::v16i8,  MVT::v16i16, 3 },
     { ISD::TRUNCATE,    MVT::v8i8,   MVT::v8i16,  1 },
     { ISD::TRUNCATE,    MVT::v4i8,   MVT::v4i16,  2 },
   };
@@ -983,10 +981,10 @@ int X86TTIImpl::getMemoryOpCost(unsigned Opcode, Type *Src, unsigned Alignment,
   // Each load/store unit costs 1.
   int Cost = LT.first * 1;
 
-  // On Sandybridge 256bit load/stores are double pumped
-  // (but not on Haswell).
-  if (LT.second.getSizeInBits() > 128 && !ST->hasAVX2())
-    Cost*=2;
+  // This isn't exactly right. We're using slow unaligned 32-byte accesses as a
+  // proxy for a double-pumped AVX memory interface such as on Sandybridge.
+  if (LT.second.getStoreSize() == 32 && ST->isUnalignedMem32Slow())
+    Cost *= 2;
 
   return Cost;
 }
@@ -1001,14 +999,14 @@ int X86TTIImpl::getMaskedMemoryOpCost(unsigned Opcode, Type *SrcTy,
 
   unsigned NumElem = SrcVTy->getVectorNumElements();
   VectorType *MaskTy =
-    VectorType::get(Type::getInt8Ty(getGlobalContext()), NumElem);
+    VectorType::get(Type::getInt8Ty(SrcVTy->getContext()), NumElem);
   if ((Opcode == Instruction::Load && !isLegalMaskedLoad(SrcVTy)) ||
       (Opcode == Instruction::Store && !isLegalMaskedStore(SrcVTy)) ||
       !isPowerOf2_32(NumElem)) {
     // Scalarization
     int MaskSplitCost = getScalarizationOverhead(MaskTy, false, true);
     int ScalarCompareCost = getCmpSelInstrCost(
-        Instruction::ICmp, Type::getInt8Ty(getGlobalContext()), nullptr);
+        Instruction::ICmp, Type::getInt8Ty(SrcVTy->getContext()), nullptr);
     int BranchCost = getCFInstrCost(Instruction::Br);
     int MaskCmpCost = NumElem * (BranchCost + ScalarCompareCost);
 
@@ -1171,7 +1169,7 @@ int X86TTIImpl::getIntImmCost(const APInt &Imm, Type *Ty) {
     int64_t Val = Tmp.getSExtValue();
     Cost += getIntImmCost(Val);
   }
-  // We need at least one instruction to materialze the constant.
+  // We need at least one instruction to materialize the constant.
   return std::max(1, Cost);
 }
 
@@ -1339,7 +1337,7 @@ int X86TTIImpl::getGSVectorCost(unsigned Opcode, Type *SrcVTy, Value *Ptr,
   unsigned IndexSize = (VF >= 16) ? getIndexSizeInBits(Ptr, DL) :
     DL.getPointerSizeInBits();
 
-  Type *IndexVTy = VectorType::get(IntegerType::get(getGlobalContext(),
+  Type *IndexVTy = VectorType::get(IntegerType::get(SrcVTy->getContext(),
                                                     IndexSize), VF);
   std::pair<int, MVT> IdxsLT = TLI->getTypeLegalizationCost(DL, IndexVTy);
   std::pair<int, MVT> SrcLT = TLI->getTypeLegalizationCost(DL, SrcVTy);
@@ -1374,10 +1372,10 @@ int X86TTIImpl::getGSScalarCost(unsigned Opcode, Type *SrcVTy,
   int MaskUnpackCost = 0;
   if (VariableMask) {
     VectorType *MaskTy =
-      VectorType::get(Type::getInt1Ty(getGlobalContext()), VF);
+      VectorType::get(Type::getInt1Ty(SrcVTy->getContext()), VF);
     MaskUnpackCost = getScalarizationOverhead(MaskTy, false, true);
     int ScalarCompareCost =
-      getCmpSelInstrCost(Instruction::ICmp, Type::getInt1Ty(getGlobalContext()),
+      getCmpSelInstrCost(Instruction::ICmp, Type::getInt1Ty(SrcVTy->getContext()),
                          nullptr);
     int BranchCost = getCFInstrCost(Instruction::Br);
     MaskUnpackCost += VF * (BranchCost + ScalarCompareCost);
@@ -1438,7 +1436,8 @@ bool X86TTIImpl::isLegalMaskedLoad(Type *DataTy) {
   int DataWidth = isa<PointerType>(ScalarTy) ?
     DL.getPointerSizeInBits() : ScalarTy->getPrimitiveSizeInBits();
 
-  return (DataWidth >= 32 && ST->hasAVX());
+  return (DataWidth >= 32 && ST->hasAVX()) ||
+         (DataWidth >= 8 && ST->hasBWI());
 }
 
 bool X86TTIImpl::isLegalMaskedStore(Type *DataType) {

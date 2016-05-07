@@ -231,11 +231,14 @@ writeSymbolTable(raw_fd_ostream &Out, object::Archive::Kind Kind,
   LLVMContext Context;
   for (unsigned MemberNum = 0, N = Members.size(); MemberNum < N; ++MemberNum) {
     MemoryBufferRef MemberBuffer = Buffers[MemberNum];
-    ErrorOr<std::unique_ptr<object::SymbolicFile>> ObjOrErr =
+    Expected<std::unique_ptr<object::SymbolicFile>> ObjOrErr =
         object::SymbolicFile::createSymbolicFile(
             MemberBuffer, sys::fs::file_magic::unknown, &Context);
-    if (!ObjOrErr)
-      continue;  // FIXME: check only for "not an object file" errors.
+    if (!ObjOrErr) {
+      // FIXME: check only for "not an object file" errors.
+      consumeError(ObjOrErr.takeError());
+      continue;
+    }
     object::SymbolicFile &Obj = *ObjOrErr.get();
 
     if (!HeaderStartOffset) {
@@ -305,6 +308,8 @@ llvm::writeArchive(StringRef ArcName,
                    std::vector<NewArchiveIterator> &NewMembers,
                    bool WriteSymtab, object::Archive::Kind Kind,
                    bool Deterministic, bool Thin) {
+  assert((!Thin || Kind == object::Archive::K_GNU) &&
+         "Only the gnu format has a thin mode");
   SmallString<128> TmpArchive;
   int TmpArchiveFD;
   if (auto EC = sys::fs::createUniqueFile(ArcName + ".temp-archive-%%%%%%%.a",
@@ -324,8 +329,7 @@ llvm::writeArchive(StringRef ArcName,
   std::vector<MemoryBufferRef> Members;
   std::vector<sys::fs::file_status> NewMemberStatus;
 
-  for (unsigned I = 0, N = NewMembers.size(); I < N; ++I) {
-    NewArchiveIterator &Member = NewMembers[I];
+  for (NewArchiveIterator &Member : NewMembers) {
     MemoryBufferRef MemberRef;
 
     if (Member.isNewMember()) {

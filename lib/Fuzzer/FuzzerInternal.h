@@ -29,6 +29,7 @@
 namespace fuzzer {
 using namespace std::chrono;
 typedef std::vector<uint8_t> Unit;
+typedef std::vector<Unit> UnitVector;
 
 // A simple POD sized array of bytes.
 template <size_t kMaxSize> class FixedWord {
@@ -74,6 +75,8 @@ void CopyFileToErr(const std::string &Path);
 std::string DirPlusFile(const std::string &DirPath,
                         const std::string &FileName);
 
+void DupAndCloseStderr();
+void CloseStdout();
 void Printf(const char *Fmt, ...);
 void PrintHexArray(const Unit &U, const char *PrintAfter = "");
 void PrintHexArray(const uint8_t *Data, size_t Size,
@@ -89,6 +92,7 @@ void SetSigAbrtHandler();
 void SetSigIllHandler();
 void SetSigFpeHandler();
 void SetSigIntHandler();
+void SetSigTermHandler();
 std::string Base64(const Unit &U);
 int ExecuteCommand(const std::string &Command);
 size_t GetPeakRSSMb();
@@ -105,6 +109,8 @@ bool IsASCII(const Unit &U);
 
 int NumberOfCpuCores();
 int GetPid();
+int SignalToMainThread();
+void SleepSeconds(int Seconds);
 
 // Clears the current PC Map.
 void PcMapResetCurrent();
@@ -274,11 +280,12 @@ class Fuzzer {
 public:
   struct FuzzingOptions {
     int Verbosity = 1;
-    int MaxLen = 0;
+    size_t MaxLen = 0;
     int UnitTimeoutSec = 300;
     int TimeoutExitCode = 77;
     int ErrorExitCode = 77;
     int MaxTotalTimeSec = 0;
+    int RssLimitMb = 0;
     bool DoCrossOver = true;
     int MutateDepth = 5;
     bool UseCounters = false;
@@ -288,13 +295,11 @@ public:
     bool UseFullCoverageSet = false;
     bool Reload = true;
     bool ShuffleAtStartUp = true;
-    int PreferSmallDuringInitialShuffle = -1;
+    bool PreferSmall = true;
     size_t MaxNumberOfRuns = ULONG_MAX;
-    int SyncTimeout = 600;
     int ReportSlowUnits = 10;
     bool OnlyASCII = false;
     std::string OutputCorpus;
-    std::string SyncCommand;
     std::string ArtifactPrefix = "./";
     std::string ExactArtifactPath;
     bool SaveArtifacts = true;
@@ -302,6 +307,7 @@ public:
     bool OutputCSV = false;
     bool PrintNewCovPcs = false;
     bool PrintFinalStats = false;
+    bool DetectLeaks = true;
   };
   Fuzzer(UserCallback CB, MutationDispatcher &MD, FuzzingOptions Options);
   void AddToCorpus(const Unit &U) {
@@ -316,11 +322,12 @@ public:
   void InitializeTraceState();
   void AssignTaintLabels(uint8_t *Data, size_t Size);
   size_t CorpusSize() const { return Corpus.size(); }
+  size_t MaxUnitSizeInCorpus() const;
   void ReadDir(const std::string &Path, long *Epoch, size_t MaxSize) {
     Printf("Loading corpus: %s\n", Path.c_str());
     ReadDirToVectorOfUnits(Path.c_str(), &Corpus, Epoch, MaxSize);
   }
-  void RereadOutputCorpus();
+  void RereadOutputCorpus(size_t MaxSize);
   // Save the current corpus to OutputCorpus.
   void SaveCorpus();
 
@@ -340,11 +347,16 @@ public:
   static void StaticInterruptCallback();
 
   void ExecuteCallback(const uint8_t *Data, size_t Size);
+  bool RunOne(const uint8_t *Data, size_t Size);
 
   // Merge Corpora[1:] into Corpora[0].
   void Merge(const std::vector<std::string> &Corpora);
+  // Returns a subset of 'Extra' that adds coverage to 'Initial'.
+  UnitVector FindExtraUnits(const UnitVector &Initial, const UnitVector &Extra);
   MutationDispatcher &GetMD() { return MD; }
   void PrintFinalStats();
+  void SetMaxLen(size_t MaxLen);
+  void RssLimitCallback();
 
 private:
   void AlarmCallback();
@@ -352,23 +364,25 @@ private:
   void InterruptCallback();
   void MutateAndTestOne();
   void ReportNewCoverage(const Unit &U);
-  bool RunOne(const uint8_t *Data, size_t Size);
   bool RunOne(const Unit &U) { return RunOne(U.data(), U.size()); }
   void RunOneAndUpdateCorpus(uint8_t *Data, size_t Size);
   void WriteToOutputCorpus(const Unit &U);
   void WriteUnitToFileWithPrefix(const Unit &U, const char *Prefix);
   void PrintStats(const char *Where, const char *End = "\n");
   void PrintStatusForNewUnit(const Unit &U);
+  void ShuffleCorpus(UnitVector *V);
+  void TryDetectingAMemoryLeak(uint8_t *Data, size_t Size);
+  void CheckForMemoryLeaks();
+
   // Updates the probability distribution for the units in the corpus.
   // Must be called whenever the corpus or unit weights are changed.
   void UpdateCorpusDistribution();
-
-  void SyncCorpus();
 
   size_t RecordBlockCoverage();
   size_t RecordCallerCalleeCoverage();
   void PrepareCoverageBeforeRun();
   bool CheckCoverageAfterRun();
+  void ResetCoverage();
 
   // Trace-based fuzzing: we run a unit with some kind of tracing
   // enabled and record potentially useful mutations. Then
@@ -384,12 +398,15 @@ private:
   void DumpCurrentUnit(const char *Prefix);
   void DeathCallback();
 
-  uint8_t *CurrentUnitData;
-  size_t CurrentUnitSize;
+  uint8_t *CurrentUnitData = nullptr;
+  size_t CurrentUnitSize = 0;
+  bool InOOMState = false;
 
   size_t TotalNumberOfRuns = 0;
-  size_t TotalNumberOfExecutedTraceBasedMutations = 0;
   size_t NumberOfNewUnitsAdded = 0;
+
+  bool HasMoreMallocsThanFrees = false;
+  size_t NumberOfLeakDetectionAttempts = 0;
 
   std::vector<Unit> Corpus;
   std::unordered_set<std::string> UnitHashesAddedToCorpus;
@@ -410,7 +427,6 @@ private:
   MutationDispatcher &MD;
   FuzzingOptions Options;
   system_clock::time_point ProcessStartTime = system_clock::now();
-  system_clock::time_point LastExternalSync = system_clock::now();
   system_clock::time_point UnitStartTime;
   long TimeOfLongestUnitInSeconds = 0;
   long EpochOfLastReadOfOutputCorpus = 0;

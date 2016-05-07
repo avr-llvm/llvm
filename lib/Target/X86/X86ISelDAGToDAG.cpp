@@ -157,9 +157,13 @@ namespace {
     /// performance.
     bool OptForSize;
 
+    /// If true, selector should try to optimize for minimum code size.
+    bool OptForMinSize;
+
   public:
     explicit X86DAGToDAGISel(X86TargetMachine &tm, CodeGenOpt::Level OptLevel)
-        : SelectionDAGISel(tm, OptLevel), OptForSize(false) {}
+        : SelectionDAGISel(tm, OptLevel), OptForSize(false),
+          OptForMinSize(false) {}
 
     const char *getPassName() const override {
       return "X86 DAG->DAG Instruction Selection";
@@ -192,7 +196,7 @@ namespace {
 #include "X86GenDAGISel.inc"
 
   private:
-    SDNode *Select(SDNode *N) override;
+    SDNode *SelectImpl(SDNode *N) override;
     SDNode *selectGather(SDNode *N, unsigned Opc);
 
     bool foldOffsetIntoAddress(uint64_t Offset, X86ISelAddressMode &AM);
@@ -322,7 +326,7 @@ namespace {
         // types.
         if (User->getNumOperands() != 2)
           continue;
-        
+
         // Immediates that are used for offsets as part of stack
         // manipulation should be left alone. These are typically
         // used to indicate SP offsets for argument passing and
@@ -530,8 +534,10 @@ static bool isCalleeLoad(SDValue Callee, SDValue &Chain, bool HasCallSeq) {
 }
 
 void X86DAGToDAGISel::PreprocessISelDAG() {
-  // OptForSize is used in pattern predicates that isel is matching.
+  // OptFor[Min]Size are used in pattern predicates that isel is matching.
   OptForSize = MF->getFunction()->optForSize();
+  OptForMinSize = MF->getFunction()->optForMinSize();
+  assert((!OptForMinSize || OptForSize) && "OptForMinSize implies OptForSize");
 
   for (SelectionDAG::allnodes_iterator I = CurDAG->allnodes_begin(),
        E = CurDAG->allnodes_end(); I != E; ) {
@@ -713,7 +719,7 @@ bool X86DAGToDAGISel::matchLoadInAddress(LoadSDNode *N, X86ISelAddressMode &AM){
   // For more information see http://people.redhat.com/drepper/tls.pdf
   if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(Address))
     if (C->getSExtValue() == 0 && AM.Segment.getNode() == nullptr &&
-        Subtarget->isTargetLinux())
+        Subtarget->isTargetGlibc())
       switch (N->getPointerInfo().getAddrSpace()) {
       case 256:
         AM.Segment = CurDAG->getRegister(X86::GS, MVT::i16);
@@ -721,6 +727,8 @@ bool X86DAGToDAGISel::matchLoadInAddress(LoadSDNode *N, X86ISelAddressMode &AM){
       case 257:
         AM.Segment = CurDAG->getRegister(X86::FS, MVT::i16);
         return false;
+      // Address space 258 is not handled here, because it is not used to
+      // address TLS areas.
       }
 
   return true;
@@ -1418,11 +1426,13 @@ bool X86DAGToDAGISel::selectVectorAddr(SDNode *Parent, SDValue N, SDValue &Base,
     return false;
   X86ISelAddressMode AM;
   unsigned AddrSpace = Mgs->getPointerInfo().getAddrSpace();
-  // AddrSpace 256 -> GS, 257 -> FS.
+  // AddrSpace 256 -> GS, 257 -> FS, 258 -> SS.
   if (AddrSpace == 256)
     AM.Segment = CurDAG->getRegister(X86::GS, MVT::i16);
   if (AddrSpace == 257)
     AM.Segment = CurDAG->getRegister(X86::FS, MVT::i16);
+  if (AddrSpace == 258)
+    AM.Segment = CurDAG->getRegister(X86::SS, MVT::i16);
 
   SDLoc DL(N);
   Base = Mgs->getBasePtr();
@@ -1467,11 +1477,13 @@ bool X86DAGToDAGISel::selectAddr(SDNode *Parent, SDValue N, SDValue &Base,
       Parent->getOpcode() != X86ISD::EH_SJLJ_LONGJMP) { // longjmp
     unsigned AddrSpace =
       cast<MemSDNode>(Parent)->getPointerInfo().getAddrSpace();
-    // AddrSpace 256 -> GS, 257 -> FS.
+    // AddrSpace 256 -> GS, 257 -> FS, 258 -> SS.
     if (AddrSpace == 256)
       AM.Segment = CurDAG->getRegister(X86::GS, MVT::i16);
     if (AddrSpace == 257)
       AM.Segment = CurDAG->getRegister(X86::FS, MVT::i16);
+    if (AddrSpace == 258)
+      AM.Segment = CurDAG->getRegister(X86::SS, MVT::i16);
   }
 
   if (matchAddress(N, AM))
@@ -1568,10 +1580,12 @@ bool X86DAGToDAGISel::selectMOV64Imm32(SDValue N, SDValue &Imm) {
 bool X86DAGToDAGISel::selectLEA64_32Addr(SDValue N, SDValue &Base,
                                          SDValue &Scale, SDValue &Index,
                                          SDValue &Disp, SDValue &Segment) {
+  // Save the debug loc before calling selectLEAAddr, in case it invalidates N.
+  SDLoc DL(N);
+
   if (!selectLEAAddr(N, Base, Scale, Index, Disp, Segment))
     return false;
 
-  SDLoc DL(N);
   RegisterSDNode *RN = dyn_cast<RegisterSDNode>(Base);
   if (RN && RN->getReg() == 0)
     Base = CurDAG->getRegister(0, MVT::i64);
@@ -1611,6 +1625,10 @@ bool X86DAGToDAGISel::selectLEAAddr(SDValue N,
                                     SDValue &Segment) {
   X86ISelAddressMode AM;
 
+  // Save the DL and VT before calling matchAddress, it can invalidate N.
+  SDLoc DL(N);
+  MVT VT = N.getSimpleValueType();
+
   // Set AM.Segment to prevent MatchAddress from using one. LEA doesn't support
   // segments.
   SDValue Copy = AM.Segment;
@@ -1621,7 +1639,6 @@ bool X86DAGToDAGISel::selectLEAAddr(SDValue N,
   assert (T == AM.Segment);
   AM.Segment = Copy;
 
-  MVT VT = N.getSimpleValueType();
   unsigned Complexity = 0;
   if (AM.BaseType == X86ISelAddressMode::RegBase)
     if (AM.Base_Reg.getNode())
@@ -1661,7 +1678,7 @@ bool X86DAGToDAGISel::selectLEAAddr(SDValue N,
   if (Complexity <= 2)
     return false;
 
-  getAddressOperands(AM, SDLoc(N), Base, Scale, Index, Disp, Segment);
+  getAddressOperands(AM, DL, Base, Scale, Index, Disp, Segment);
   return true;
 }
 
@@ -1909,7 +1926,7 @@ SDNode *X86DAGToDAGISel::selectGather(SDNode *Node, unsigned Opc) {
   return ResNode;
 }
 
-SDNode *X86DAGToDAGISel::Select(SDNode *Node) {
+SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
   MVT NVT = Node->getSimpleValueType(0);
   unsigned Opc, MOpc;
   unsigned Opcode = Node->getOpcode();

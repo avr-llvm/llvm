@@ -57,7 +57,7 @@ public:
     return SelectionDAGISel::runOnMachineFunction(MF);
   }
 
-  SDNode *Select(SDNode *Node) override;
+  SDNode *SelectImpl(SDNode *Node) override;
 
   /// SelectInlineAsmMemoryOperand - Implement addressing mode selection for
   /// inline asm expressions.
@@ -198,6 +198,9 @@ private:
   }
 
   bool SelectCVTFixedPosOperand(SDValue N, SDValue &FixedPos, unsigned Width);
+
+  void SelectCMP_SWAP(SDNode *N);
+
 };
 } // end anonymous namespace
 
@@ -608,7 +611,7 @@ static bool isWorthFoldingADDlow(SDValue N) {
 
     // ldar and stlr have much more restrictive addressing modes (just a
     // register).
-    if (cast<MemSDNode>(Use)->getOrdering() > Monotonic)
+    if (isStrongerThanMonotonic(cast<MemSDNode>(Use)->getOrdering()))
       return false;
   }
 
@@ -2296,7 +2299,37 @@ SDNode *AArch64DAGToDAGISel::SelectWriteRegister(SDNode *N) {
   return nullptr;
 }
 
-SDNode *AArch64DAGToDAGISel::Select(SDNode *Node) {
+/// We've got special pseudo-instructions for these
+void AArch64DAGToDAGISel::SelectCMP_SWAP(SDNode *N) {
+  unsigned Opcode;
+  EVT MemTy = cast<MemSDNode>(N)->getMemoryVT();
+  if (MemTy == MVT::i8)
+    Opcode = AArch64::CMP_SWAP_8;
+  else if (MemTy == MVT::i16)
+    Opcode = AArch64::CMP_SWAP_16;
+  else if (MemTy == MVT::i32)
+    Opcode = AArch64::CMP_SWAP_32;
+  else if (MemTy == MVT::i64)
+    Opcode = AArch64::CMP_SWAP_64;
+  else
+    llvm_unreachable("Unknown AtomicCmpSwap type");
+
+  MVT RegTy = MemTy == MVT::i64 ? MVT::i64 : MVT::i32;
+  SDValue Ops[] = {N->getOperand(1), N->getOperand(2), N->getOperand(3),
+                   N->getOperand(0)};
+  SDNode *CmpSwap = CurDAG->getMachineNode(
+      Opcode, SDLoc(N),
+      CurDAG->getVTList(RegTy, MVT::i32, MVT::Other), Ops);
+
+  MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(1);
+  MemOp[0] = cast<MemSDNode>(N)->getMemOperand();
+  cast<MachineSDNode>(CmpSwap)->setMemRefs(MemOp, MemOp + 1);
+
+  ReplaceUses(SDValue(N, 0), SDValue(CmpSwap, 0));
+  ReplaceUses(SDValue(N, 1), SDValue(CmpSwap, 2));
+}
+
+SDNode *AArch64DAGToDAGISel::SelectImpl(SDNode *Node) {
   // Dump information about the Node being selected
   DEBUG(errs() << "Selecting: ");
   DEBUG(Node->dump(CurDAG));
@@ -2316,6 +2349,10 @@ SDNode *AArch64DAGToDAGISel::Select(SDNode *Node) {
   switch (Node->getOpcode()) {
   default:
     break;
+
+  case ISD::ATOMIC_CMP_SWAP:
+    SelectCMP_SWAP(Node);
+    return nullptr;
 
   case ISD::READ_REGISTER:
     if (SDNode *Res = SelectReadRegister(Node))

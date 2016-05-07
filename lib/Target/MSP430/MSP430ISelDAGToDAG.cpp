@@ -24,7 +24,6 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Intrinsics.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -111,7 +110,7 @@ namespace {
   #include "MSP430GenDAGISel.inc"
 
   private:
-    SDNode *Select(SDNode *N) override;
+    SDNode *SelectImpl(SDNode *N) override;
     SDNode *SelectIndexedLoad(SDNode *Op);
     SDNode *SelectIndexedBinOp(SDNode *Op, SDValue N1, SDValue N2,
                                unsigned Opc8, unsigned Opc16);
@@ -377,7 +376,7 @@ SDNode *MSP430DAGToDAGISel::SelectIndexedBinOp(SDNode *Op,
 }
 
 
-SDNode *MSP430DAGToDAGISel::Select(SDNode *Node) {
+SDNode *MSP430DAGToDAGISel::SelectImpl(SDNode *Node) {
   SDLoc dl(Node);
 
   // Dump information about the Node being selected

@@ -36,7 +36,7 @@ enum NodeType {
   CALL,
   /// A wrapper node for TargetConstantPool,
   /// TargetExternalSymbol, and TargetGlobalAddress.
-  Wrapper,
+  WRAPPER,
   LSL,     ///< Logical shift left.
   LSR,     ///< Logical shift right.
   ASR,     ///< Arithmetic shift right.
@@ -65,9 +65,7 @@ enum NodeType {
 
 class AVRTargetMachine;
 
-/**
- * Performs target lowering for the AVR.
- */
+/// Performs target lowering for the AVR.
 class AVRTargetLowering : public TargetLowering {
 public:
   explicit AVRTargetLowering(AVRTargetMachine &TM);
@@ -78,57 +76,28 @@ public:
   }
   const char *getTargetNodeName(unsigned Opcode) const override;
 
-  /*!
-   * Provide custom lowering hooks for some operations.
-   */
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
-  /*!
-   * Replace the results of node with an illegal result
-   * type with new values built out of custom code.
-   */
   void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue> &Results,
                           SelectionDAG &DAG) const override;
 
-  /*!
-   * Returns true if the addressing mode represented
-   * by AM is legal for this target, for a load/store
-   * of the specified type.
-   */
   bool isLegalAddressingMode(const DataLayout &DL, const AddrMode &AM, Type *Ty,
                              unsigned AS) const override;
 
-  /*!
-   * Returns true by value, base pointer and
-   * offset pointer and addressing mode by reference if the node's address
-   * can be legally represented as pre-indexed load / store address.
-   */
   bool getPreIndexedAddressParts(SDNode *N, SDValue &Base, SDValue &Offset,
                                  ISD::MemIndexedMode &AM,
                                  SelectionDAG &DAG) const override;
 
-  /*!
-   * Returns true by value, base pointer and
-   * offset pointer and addressing mode by reference if this node can be
-   * combined with a load / store to form a post-indexed load / store.
-   */
   bool getPostIndexedAddressParts(SDNode *N, SDNode *Op, SDValue &Base,
                                   SDValue &Offset, ISD::MemIndexedMode &AM,
                                   SelectionDAG &DAG) const override;
 
-  /*!
-   * Return true if folding a constant offset
-   * with the given GlobalAddress is legal.  It is frequently not legal in
-   * PIC relocation models.
-   */
   bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
 
   MachineBasicBlock *
   EmitInstrWithCustomInserter(MachineInstr *MI,
                               MachineBasicBlock *MBB) const override;
 
-  /// Inline Asm support.
-  /// Implementation of TargetLowering hooks.
   ConstraintType getConstraintType(StringRef Constraint) const override;
 
   ConstraintWeight
@@ -175,7 +144,7 @@ private:
                           SelectionDAG &DAG,
                           SmallVectorImpl<SDValue> &InVals) const;
 
-private: // custom inserters
+private:
   MachineBasicBlock *insertShift(MachineInstr *MI, MachineBasicBlock *BB) const;
   MachineBasicBlock *insertMul(MachineInstr *MI, MachineBasicBlock *BB) const;
 };

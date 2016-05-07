@@ -665,7 +665,7 @@ void DwarfUnit::addConstantValue(DIE &Die, const APInt &Val, bool Unsigned) {
 }
 
 void DwarfUnit::addLinkageName(DIE &Die, StringRef LinkageName) {
-  if (!LinkageName.empty() && DD->useLinkageNames())
+  if (!LinkageName.empty())
     addString(Die,
               DD->getDwarfVersion() >= 4 ? dwarf::DW_AT_linkage_name
                                          : dwarf::DW_AT_MIPS_linkage_name,
@@ -718,8 +718,6 @@ DIE *DwarfUnit::getOrCreateTypeDIE(const MDNode *TyNode) {
     return nullptr;
 
   auto *Ty = cast<DIType>(TyNode);
-  assert(Ty == resolve(Ty->getRef()) &&
-         "type was not uniqued, possible ODR violation.");
 
   // DW_TAG_restrict_type is not supported in DWARF2
   if (Ty->getTag() == dwarf::DW_TAG_restrict_type && DD->getDwarfVersion() <= 2)
@@ -1169,7 +1167,9 @@ bool DwarfUnit::applySubprogramDefinitionAttributes(const DISubprogram *SP,
   assert(((LinkageName.empty() || DeclLinkageName.empty()) ||
           LinkageName == DeclLinkageName) &&
          "decl has a linkage name and it is different");
-  if (DeclLinkageName.empty())
+  if (DeclLinkageName.empty() &&
+      // Always emit it for abstract subprograms.
+      (DD->useAllLinkageNames() || DU->getAbstractSPDies().lookup(SP)))
     addLinkageName(SPDie, LinkageName);
 
   if (!DeclDie)
@@ -1218,10 +1218,12 @@ void DwarfUnit::applySubprogramAttributes(const DISubprogram *SP, DIE &SPDie,
   unsigned VK = SP->getVirtuality();
   if (VK) {
     addUInt(SPDie, dwarf::DW_AT_virtuality, dwarf::DW_FORM_data1, VK);
-    DIELoc *Block = getDIELoc();
-    addUInt(*Block, dwarf::DW_FORM_data1, dwarf::DW_OP_constu);
-    addUInt(*Block, dwarf::DW_FORM_udata, SP->getVirtualIndex());
-    addBlock(SPDie, dwarf::DW_AT_vtable_elem_location, Block);
+    if (SP->getVirtualIndex() != -1u) {
+      DIELoc *Block = getDIELoc();
+      addUInt(*Block, dwarf::DW_FORM_data1, dwarf::DW_OP_constu);
+      addUInt(*Block, dwarf::DW_FORM_udata, SP->getVirtualIndex());
+      addBlock(SPDie, dwarf::DW_AT_vtable_elem_location, Block);
+    }
     ContainingTypeMap.insert(
         std::make_pair(&SPDie, resolve(SP->getContainingType())));
   }
@@ -1393,41 +1395,29 @@ void DwarfUnit::constructMemberDIE(DIE &Buffer, const DIDerivedType *DT) {
       // Handle bitfield, assume bytes are 8 bits.
       addUInt(MemberDie, dwarf::DW_AT_byte_size, None, FieldSize/8);
       addUInt(MemberDie, dwarf::DW_AT_bit_size, None, Size);
-      //
-      // The DWARF 2 DW_AT_bit_offset is counting the bits between the most
-      // significant bit of the aligned storage unit containing the bit field to
-      // the most significan bit of the bit field.
-      //
-      // FIXME: DWARF 4 states that DW_AT_data_bit_offset (which
-      // counts from the beginning, regardless of endianness) should
-      // be used instead.
-      //
-      //
-      // Struct      Align       Align       Align
-      // v           v           v           v
-      // +-----------+-----*-----+-----*-----+--
-      // | ...             |b1|b2|b3|b4|
-      // +-----------+-----*-----+-----*-----+--
-      // |           |     |<-- Size ->|     |
-      // |<---- Offset --->|           |<--->|
-      // |           |     |              \_ DW_AT_bit_offset (little endian)
-      // |           |<--->|
-      // |<--------->|  \_ StartBitOffset = DW_AT_bit_offset (big endian)
-      //     \                            = DW_AT_data_bit_offset (biendian)
-      //      \_ OffsetInBytes
+
       uint64_t Offset = DT->getOffsetInBits();
       uint64_t Align = DT->getAlignInBits() ? DT->getAlignInBits() : FieldSize;
       uint64_t AlignMask = ~(Align - 1);
       // The bits from the start of the storage unit to the start of the field.
       uint64_t StartBitOffset = Offset - (Offset & AlignMask);
-      // The endian-dependent DWARF 2 offset.
-      uint64_t DwarfBitOffset = Asm->getDataLayout().isLittleEndian()
-        ? OffsetToAlignment(Offset + Size, Align)
-        : StartBitOffset;
-
       // The byte offset of the field's aligned storage unit inside the struct.
       OffsetInBytes = (Offset - StartBitOffset) / 8;
-      addUInt(MemberDie, dwarf::DW_AT_bit_offset, None, DwarfBitOffset);
+
+      if (DD->getDwarfVersion() >= 4)
+        addUInt(MemberDie, dwarf::DW_AT_data_bit_offset, None, Offset);
+      else {
+        uint64_t HiMark = (Offset + FieldSize) & AlignMask;
+        uint64_t FieldOffset = (HiMark - FieldSize);
+        Offset -= FieldOffset;
+
+        // Maybe we need to work from the other end.
+        if (Asm->getDataLayout().isLittleEndian())
+          Offset = FieldSize - (Offset + Size);
+
+        addUInt(MemberDie, dwarf::DW_AT_bit_offset, None, Offset);
+        OffsetInBytes = FieldOffset >> 3;
+      }
     } else
       // This is not a bitfield.
       OffsetInBytes = DT->getOffsetInBits() / 8;

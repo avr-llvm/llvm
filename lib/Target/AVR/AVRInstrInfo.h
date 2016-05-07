@@ -20,16 +20,15 @@
 
 #define GET_INSTRINFO_HEADER
 #include "AVRGenInstrInfo.inc"
+#undef GET_INSTRINFO_HEADER
 
 namespace llvm {
 
 namespace AVRCC {
 
-/*!
- * AVR specific condition codes.
- * These correspond to `AVR_*_COND` in `AVRInstrInfo.td`.
- * They must be kept in synch.
- */
+/// AVR specific condition codes.
+/// These correspond to `AVR_*_COND` in `AVRInstrInfo.td`.
+/// They must be kept in synch.
 enum CondCodes {
   COND_EQ, //!< Equal
   COND_NE, //!< Not equal
@@ -62,17 +61,11 @@ enum TOF {
 
 } // end of namespace AVRII
 
-/**
- * Utilities related to the AVR instruction set.
- */
+/// Utilities related to the AVR instruction set.
 class AVRInstrInfo : public AVRGenInstrInfo {
 public:
   explicit AVRInstrInfo();
-  /*!
-   * TargetInstrInfo is a superset of MRegister info.
-   * As such, whenever a client has an instance of instruction info, it should
-   * always be able to get register info as well (through this method).
-   */
+
   const AVRRegisterInfo &getRegisterInfo() const { return RI; }
   const MCInstrDesc &getBrCond(AVRCC::CondCodes CC) const;
   AVRCC::CondCodes getCondFromBranchOpc(unsigned Opc) const;
@@ -96,7 +89,6 @@ public:
   unsigned isStoreToStackSlot(const MachineInstr *MI,
                               int &FrameIndex) const override;
 
-  // Branch analysis.
   bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                      MachineBasicBlock *&FBB,
                      SmallVectorImpl<MachineOperand> &Cond,

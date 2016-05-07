@@ -16,7 +16,6 @@
 #ifndef LLVM_SUPPORT_PATH_H
 #define LLVM_SUPPORT_PATH_H
 
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/DataTypes.h"
 #include <iterator>
@@ -88,6 +87,9 @@ public:
   reverse_iterator &operator++();    // preincrement
   bool operator==(const reverse_iterator &RHS) const;
   bool operator!=(const reverse_iterator &RHS) const { return !(*this == RHS); }
+
+  /// @brief Difference in bytes between this and RHS.
+  ptrdiff_t operator-(const reverse_iterator &RHS) const;
 };
 
 /// @brief Get begin iterator over \a path.

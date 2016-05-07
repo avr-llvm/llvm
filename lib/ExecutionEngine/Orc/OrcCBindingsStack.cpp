@@ -9,7 +9,7 @@
 
 #include "OrcCBindingsStack.h"
 
-#include "llvm/ExecutionEngine/Orc/OrcArchitectureSupport.h"
+#include "llvm/ExecutionEngine/Orc/OrcABISupport.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DynamicLibrary.h"
 #include <cstdio>
@@ -20,35 +20,48 @@ using namespace llvm;
 std::unique_ptr<OrcCBindingsStack::CompileCallbackMgr>
 OrcCBindingsStack::createCompileCallbackMgr(Triple T) {
   switch (T.getArch()) {
-    default: return nullptr;
+  default:
+    return nullptr;
 
-    case Triple::x86: {
-      typedef orc::LocalJITCompileCallbackManager<orc::OrcI386> CCMgrT;
+  case Triple::x86: {
+    typedef orc::LocalJITCompileCallbackManager<orc::OrcI386> CCMgrT;
+    return llvm::make_unique<CCMgrT>(0);
+  };
+
+  case Triple::x86_64: {
+    if ( T.getOS() == Triple::OSType::Win32 ) {
+      typedef orc::LocalJITCompileCallbackManager<orc::OrcX86_64_Win32> CCMgrT;
       return llvm::make_unique<CCMgrT>(0);
-    };
-
-    case Triple::x86_64: {
-      typedef orc::LocalJITCompileCallbackManager<orc::OrcX86_64> CCMgrT;
+    } else {
+      typedef orc::LocalJITCompileCallbackManager<orc::OrcX86_64_SysV> CCMgrT;
       return llvm::make_unique<CCMgrT>(0);
     }
+  }
   }
 }
 
 OrcCBindingsStack::IndirectStubsManagerBuilder
 OrcCBindingsStack::createIndirectStubsMgrBuilder(Triple T) {
   switch (T.getArch()) {
-    default: return nullptr;
+  default:
+    return nullptr;
 
-    case Triple::x86:
+  case Triple::x86:
+    return []() {
+      return llvm::make_unique<orc::LocalIndirectStubsManager<orc::OrcI386>>();
+    };
+
+  case Triple::x86_64:
+    if (T.getOS() == Triple::OSType::Win32) {
       return [](){
         return llvm::make_unique<
-                 orc::LocalIndirectStubsManager<orc::OrcI386>>();
+          orc::LocalIndirectStubsManager<orc::OrcX86_64_Win32>>();
       };
-
-    case Triple::x86_64:
+    } else {
       return [](){
         return llvm::make_unique<
-                 orc::LocalIndirectStubsManager<orc::OrcX86_64>>();
+          orc::LocalIndirectStubsManager<orc::OrcX86_64_SysV>>();
       };
+    }
   }
 }

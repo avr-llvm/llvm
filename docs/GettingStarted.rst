@@ -95,10 +95,10 @@ Here's the short story for getting up and running quickly with LLVM:
      Some common generators are:
 
      * ``Unix Makefiles`` --- for generating make-compatible parallel makefiles.
-     * ``Ninja`` --- for generating `Ninja <http://martine.github.io/ninja/>`
-        build files. Most llvm developers use Ninja.
+     * ``Ninja`` --- for generating `Ninja <https://ninja-build.org>`_
+       build files. Most llvm developers use Ninja.
      * ``Visual Studio`` --- for generating Visual Studio projects and
-        solutions.
+       solutions.
      * ``Xcode`` --- for generating Xcode projects.
 
      Some Common options:
@@ -202,8 +202,7 @@ Package                                                     Version      Notes
 `GNU Make <http://savannah.gnu.org/projects/make>`_         3.79, 3.79.1 Makefile/build processor
 `GCC <http://gcc.gnu.org/>`_                                >=4.7.0      C/C++ compiler\ :sup:`1`
 `python <http://www.python.org/>`_                          >=2.7        Automated test suite\ :sup:`2`
-`libtool <http://savannah.gnu.org/projects/libtool>`_       1.5.22       Shared library manager\ :sup:`3`
-`zlib <http://zlib.net>`_                                   >=1.2.3.4    Compression library\ :sup:`4`
+`zlib <http://zlib.net>`_                                   >=1.2.3.4    Compression library\ :sup:`3`
 =========================================================== ============ ==========================================
 
 .. note::
@@ -731,9 +730,9 @@ used by people developing LLVM.
 |                         | the configure script. The default list is defined  |
 |                         | as ``LLVM_ALL_TARGETS``, and can be set to include |
 |                         | out-of-tree targets. The default value includes:   |
-|                         | ``AArch64, AMDGPU, ARM, BPF, CppBackend, Hexagon,  |
-|                         | Mips, MSP430, NVPTX, PowerPC, Sparc, SystemZ       |
-|                         | X86, XCore``.                                      |
+|                         | ``AArch64, AMDGPU, ARM, BPF, Hexagon, Mips,        |
+|                         | MSP430, NVPTX, PowerPC, Sparc, SystemZ, X86,       |
+|                         | XCore``.                                           |
 +-------------------------+----------------------------------------------------+
 | LLVM_ENABLE_DOXYGEN     | Build doxygen-based documentation from the source  |
 |                         | code This is disabled by default because it is     |

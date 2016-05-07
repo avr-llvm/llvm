@@ -91,7 +91,6 @@
 
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/Instrumentation.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
@@ -109,9 +108,9 @@
 #include "llvm/IR/Type.h"
 #include "llvm/IR/ValueMap.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
@@ -189,6 +188,12 @@ static cl::opt<int> ClInstrumentationWithCallThreshold(
 // ignored in the instrumentation.
 static cl::opt<bool> ClCheckConstantShadow("msan-check-constant-shadow",
        cl::desc("Insert checks for constant shadow values"),
+       cl::Hidden, cl::init(false));
+
+// This is off by default because of a bug in gold:
+// https://sourceware.org/bugzilla/show_bug.cgi?id=19002
+static cl::opt<bool> ClWithComdat("msan-with-comdat",
+       cl::desc("Place MSan constructors in comdat sections"),
        cl::Hidden, cl::init(false));
 
 static const char *const kMsanModuleCtorName = "msan.module_ctor";
@@ -540,10 +545,14 @@ bool MemorySanitizer::doInitialization(Module &M) {
       createSanitizerCtorAndInitFunctions(M, kMsanModuleCtorName, kMsanInitName,
                                           /*InitArgTypes=*/{},
                                           /*InitArgs=*/{});
-  Comdat *MsanCtorComdat = M.getOrInsertComdat(kMsanModuleCtorName);
-  MsanCtorFunction->setComdat(MsanCtorComdat);
+  if (ClWithComdat) {
+    Comdat *MsanCtorComdat = M.getOrInsertComdat(kMsanModuleCtorName);
+    MsanCtorFunction->setComdat(MsanCtorComdat);
+    appendToGlobalCtors(M, MsanCtorFunction, 0, MsanCtorFunction);
+  } else {
+    appendToGlobalCtors(M, MsanCtorFunction, 0);
+  }
 
-  appendToGlobalCtors(M, MsanCtorFunction, 0, MsanCtorFunction);
 
   if (TrackOrigins)
     new GlobalVariable(M, IRB.getInt32Ty(), true, GlobalValue::WeakODRLinkage,
@@ -1212,34 +1221,34 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   AtomicOrdering addReleaseOrdering(AtomicOrdering a) {
     switch (a) {
-      case NotAtomic:
-        return NotAtomic;
-      case Unordered:
-      case Monotonic:
-      case Release:
-        return Release;
-      case Acquire:
-      case AcquireRelease:
-        return AcquireRelease;
-      case SequentiallyConsistent:
-        return SequentiallyConsistent;
+      case AtomicOrdering::NotAtomic:
+        return AtomicOrdering::NotAtomic;
+      case AtomicOrdering::Unordered:
+      case AtomicOrdering::Monotonic:
+      case AtomicOrdering::Release:
+        return AtomicOrdering::Release;
+      case AtomicOrdering::Acquire:
+      case AtomicOrdering::AcquireRelease:
+        return AtomicOrdering::AcquireRelease;
+      case AtomicOrdering::SequentiallyConsistent:
+        return AtomicOrdering::SequentiallyConsistent;
     }
     llvm_unreachable("Unknown ordering");
   }
 
   AtomicOrdering addAcquireOrdering(AtomicOrdering a) {
     switch (a) {
-      case NotAtomic:
-        return NotAtomic;
-      case Unordered:
-      case Monotonic:
-      case Acquire:
-        return Acquire;
-      case Release:
-      case AcquireRelease:
-        return AcquireRelease;
-      case SequentiallyConsistent:
-        return SequentiallyConsistent;
+      case AtomicOrdering::NotAtomic:
+        return AtomicOrdering::NotAtomic;
+      case AtomicOrdering::Unordered:
+      case AtomicOrdering::Monotonic:
+      case AtomicOrdering::Acquire:
+        return AtomicOrdering::Acquire;
+      case AtomicOrdering::Release:
+      case AtomicOrdering::AcquireRelease:
+        return AtomicOrdering::AcquireRelease;
+      case AtomicOrdering::SequentiallyConsistent:
+        return AtomicOrdering::SequentiallyConsistent;
     }
     llvm_unreachable("Unknown ordering");
   }
@@ -2125,6 +2134,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return CreateShadowCast(IRB, S2, T, /* Signed */ true);
   }
 
+  // Given a vector, extract its first element, and return all
+  // zeroes if it is zero, and all ones otherwise.
+  Value *LowerElementShadowExtend(IRBuilder<> &IRB, Value *S, Type *T) {
+    Value *S1 = IRB.CreateExtractElement(S, (uint64_t)0);
+    Value *S2 = IRB.CreateICmpNE(S1, getCleanShadow(S1));
+    return CreateShadowCast(IRB, S2, T, /* Signed */ true);
+  }
+
   Value *VariableShadowExtend(IRBuilder<> &IRB, Value *S) {
     Type *T = S->getType();
     assert(T->isVectorTy());
@@ -2272,6 +2289,30 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
+  // \brief Instrument compare-packed intrinsic.
+  // Basically, an or followed by sext(icmp ne 0) to end up with all-zeros or
+  // all-ones shadow.
+  void handleVectorComparePackedIntrinsic(IntrinsicInst &I) {
+    IRBuilder<> IRB(&I);
+    Type *ResTy = getShadowTy(&I);
+    Value *S0 = IRB.CreateOr(getShadow(&I, 0), getShadow(&I, 1));
+    Value *S = IRB.CreateSExt(
+        IRB.CreateICmpNE(S0, Constant::getNullValue(ResTy)), ResTy);
+    setShadow(&I, S);
+    setOriginForNaryOp(I);
+  }
+
+  // \brief Instrument compare-scalar intrinsic.
+  // This handles both cmp* intrinsics which return the result in the first
+  // element of a vector, and comi* which return the result as i32.
+  void handleVectorCompareScalarIntrinsic(IntrinsicInst &I) {
+    IRBuilder<> IRB(&I);
+    Value *S0 = IRB.CreateOr(getShadow(&I, 0), getShadow(&I, 1));
+    Value *S = LowerElementShadowExtend(IRB, S0, getShadowTy(&I));
+    setShadow(&I, S);
+    setOriginForNaryOp(I);
+  }
+
   void visitIntrinsicInst(IntrinsicInst &I) {
     switch (I.getIntrinsicID()) {
     case llvm::Intrinsic::bswap:
@@ -2413,6 +2454,43 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
     case llvm::Intrinsic::x86_mmx_pmadd_wd:
       handleVectorPmaddIntrinsic(I, 16);
+      break;
+
+    case llvm::Intrinsic::x86_sse_cmp_ss:
+    case llvm::Intrinsic::x86_sse2_cmp_sd:
+    case llvm::Intrinsic::x86_sse_comieq_ss:
+    case llvm::Intrinsic::x86_sse_comilt_ss:
+    case llvm::Intrinsic::x86_sse_comile_ss:
+    case llvm::Intrinsic::x86_sse_comigt_ss:
+    case llvm::Intrinsic::x86_sse_comige_ss:
+    case llvm::Intrinsic::x86_sse_comineq_ss:
+    case llvm::Intrinsic::x86_sse_ucomieq_ss:
+    case llvm::Intrinsic::x86_sse_ucomilt_ss:
+    case llvm::Intrinsic::x86_sse_ucomile_ss:
+    case llvm::Intrinsic::x86_sse_ucomigt_ss:
+    case llvm::Intrinsic::x86_sse_ucomige_ss:
+    case llvm::Intrinsic::x86_sse_ucomineq_ss:
+    case llvm::Intrinsic::x86_sse2_comieq_sd:
+    case llvm::Intrinsic::x86_sse2_comilt_sd:
+    case llvm::Intrinsic::x86_sse2_comile_sd:
+    case llvm::Intrinsic::x86_sse2_comigt_sd:
+    case llvm::Intrinsic::x86_sse2_comige_sd:
+    case llvm::Intrinsic::x86_sse2_comineq_sd:
+    case llvm::Intrinsic::x86_sse2_ucomieq_sd:
+    case llvm::Intrinsic::x86_sse2_ucomilt_sd:
+    case llvm::Intrinsic::x86_sse2_ucomile_sd:
+    case llvm::Intrinsic::x86_sse2_ucomigt_sd:
+    case llvm::Intrinsic::x86_sse2_ucomige_sd:
+    case llvm::Intrinsic::x86_sse2_ucomineq_sd:
+      handleVectorCompareScalarIntrinsic(I);
+      break;
+
+    case llvm::Intrinsic::x86_sse_cmp_ps:
+    case llvm::Intrinsic::x86_sse2_cmp_pd:
+      // FIXME: For x86_avx_cmp_pd_256 and x86_avx_cmp_ps_256 this function
+      // generates reasonably looking IR that fails in the backend with "Do not
+      // know how to split the result of this operator!".
+      handleVectorComparePackedIntrinsic(I);
       break;
 
     default:
@@ -2813,9 +2891,14 @@ struct VarArgAMD64Helper : public VarArgHelper {
          ArgIt != End; ++ArgIt) {
       Value *A = *ArgIt;
       unsigned ArgNo = CS.getArgumentNo(ArgIt);
+      bool IsFixed = ArgNo < CS.getFunctionType()->getNumParams();
       bool IsByVal = CS.paramHasAttr(ArgNo + 1, Attribute::ByVal);
       if (IsByVal) {
         // ByVal arguments always go to the overflow area.
+        // Fixed arguments passed through the overflow area will be stepped
+        // over by va_start, so don't count them towards the offset.
+        if (IsFixed)
+          continue;
         assert(A->getType()->isPointerTy());
         Type *RealTy = A->getType()->getPointerElementType();
         uint64_t ArgSize = DL.getTypeAllocSize(RealTy);
@@ -2840,10 +2923,16 @@ struct VarArgAMD64Helper : public VarArgHelper {
             FpOffset += 16;
             break;
           case AK_Memory:
+            if (IsFixed)
+              continue;
             uint64_t ArgSize = DL.getTypeAllocSize(A->getType());
             Base = getShadowPtrForVAArgument(A->getType(), IRB, OverflowOffset);
             OverflowOffset += alignTo(ArgSize, 8);
         }
+        // Take fixed arguments into account for GpOffset and FpOffset,
+        // but don't actually store shadows for them.
+        if (IsFixed)
+          continue;
         IRB.CreateAlignedStore(MSV.getShadow(A), Base, kShadowTLSAlignment);
       }
     }
@@ -2954,17 +3043,19 @@ struct VarArgMIPS64Helper : public VarArgHelper {
   void visitCallSite(CallSite &CS, IRBuilder<> &IRB) override {
     unsigned VAArgOffset = 0;
     const DataLayout &DL = F.getParent()->getDataLayout();
-    for (CallSite::arg_iterator ArgIt = CS.arg_begin() + 1, End = CS.arg_end();
+    for (CallSite::arg_iterator ArgIt = CS.arg_begin() +
+         CS.getFunctionType()->getNumParams(), End = CS.arg_end();
          ArgIt != End; ++ArgIt) {
+      llvm::Triple TargetTriple(F.getParent()->getTargetTriple());
       Value *A = *ArgIt;
       Value *Base;
       uint64_t ArgSize = DL.getTypeAllocSize(A->getType());
-#if defined(__MIPSEB__) || defined(MIPSEB)
-      // Adjusting the shadow for argument with size < 8 to match the placement
-      // of bits in big endian system
-      if (ArgSize < 8)
-        VAArgOffset += (8 - ArgSize);
-#endif
+      if (TargetTriple.getArch() == llvm::Triple::mips64) {
+        // Adjusting the shadow for argument with size < 8 to match the placement
+        // of bits in big endian system
+        if (ArgSize < 8)
+          VAArgOffset += (8 - ArgSize);
+      }
       Base = getShadowPtrForVAArgument(A->getType(), IRB, VAArgOffset);
       VAArgOffset += ArgSize;
       VAArgOffset = alignTo(VAArgOffset, 8);

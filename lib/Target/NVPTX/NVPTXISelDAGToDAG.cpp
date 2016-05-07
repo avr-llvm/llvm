@@ -105,7 +105,7 @@ bool NVPTXDAGToDAGISel::allowFMA() const {
 
 /// Select - Select instructions not customized! Used for
 /// expanded, promoted and normal instructions.
-SDNode *NVPTXDAGToDAGISel::Select(SDNode *N) {
+SDNode *NVPTXDAGToDAGISel::SelectImpl(SDNode *N) {
 
   if (N->isMachineOpcode()) {
     N->setNodeId(-1);
@@ -1286,7 +1286,7 @@ SDNode *NVPTXDAGToDAGISel::SelectLDGLDU(SDNode *N) {
   MemSDNode *Mem;
   bool IsLDG = true;
 
-  // If this is an LDG intrinsic, the address is the third operand. Its its an
+  // If this is an LDG intrinsic, the address is the third operand. If its an
   // LDG/LDU SD node (from custom vector handling), then its the second operand
   if (N->getOpcode() == ISD::INTRINSIC_W_CHAIN) {
     Op1 = N->getOperand(2);
@@ -1317,9 +1317,22 @@ SDNode *NVPTXDAGToDAGISel::SelectLDGLDU(SDNode *N) {
   SDValue Base, Offset, Addr;
 
   EVT EltVT = Mem->getMemoryVT();
+  unsigned NumElts = 1;
   if (EltVT.isVector()) {
+    NumElts = EltVT.getVectorNumElements();
     EltVT = EltVT.getVectorElementType();
   }
+
+  // Build the "promoted" result VTList for the load. If we are really loading
+  // i8s, then the return type will be promoted to i16 since we do not expose
+  // 8-bit registers in NVPTX.
+  EVT NodeVT = (EltVT == MVT::i8) ? MVT::i16 : EltVT;
+  SmallVector<EVT, 5> InstVTs;
+  for (unsigned i = 0; i != NumElts; ++i) {
+    InstVTs.push_back(NodeVT);
+  }
+  InstVTs.push_back(MVT::Other);
+  SDVTList InstVTList = CurDAG->getVTList(InstVTs);
 
   if (SelectDirectAddr(Op1, Addr)) {
     switch (N->getOpcode()) {
@@ -1461,7 +1474,7 @@ SDNode *NVPTXDAGToDAGISel::SelectLDGLDU(SDNode *N) {
     }
 
     SDValue Ops[] = { Addr, Chain };
-    LD = CurDAG->getMachineNode(Opcode, DL, N->getVTList(), Ops);
+    LD = CurDAG->getMachineNode(Opcode, DL, InstVTList, Ops);
   } else if (TM.is64Bit() ? SelectADDRri64(Op1.getNode(), Op1, Base, Offset)
                           : SelectADDRri(Op1.getNode(), Op1, Base, Offset)) {
     if (TM.is64Bit()) {
@@ -1750,7 +1763,7 @@ SDNode *NVPTXDAGToDAGISel::SelectLDGLDU(SDNode *N) {
 
     SDValue Ops[] = { Base, Offset, Chain };
 
-    LD = CurDAG->getMachineNode(Opcode, DL, N->getVTList(), Ops);
+    LD = CurDAG->getMachineNode(Opcode, DL, InstVTList, Ops);
   } else {
     if (TM.is64Bit()) {
       switch (N->getOpcode()) {
@@ -2037,12 +2050,48 @@ SDNode *NVPTXDAGToDAGISel::SelectLDGLDU(SDNode *N) {
     }
 
     SDValue Ops[] = { Op1, Chain };
-    LD = CurDAG->getMachineNode(Opcode, DL, N->getVTList(), Ops);
+    LD = CurDAG->getMachineNode(Opcode, DL, InstVTList, Ops);
   }
 
   MachineSDNode::mmo_iterator MemRefs0 = MF->allocateMemRefsArray(1);
   MemRefs0[0] = Mem->getMemOperand();
   cast<MachineSDNode>(LD)->setMemRefs(MemRefs0, MemRefs0 + 1);
+
+  // For automatic generation of LDG (through SelectLoad[Vector], not the
+  // intrinsics), we may have an extending load like:
+  //
+  //   i32,ch = load<LD1[%data1(addrspace=1)], zext from i8> t0, t7, undef:i64
+  //
+  // In this case, the matching logic above will select a load for the original
+  // memory type (in this case, i8) and our types will not match (the node needs
+  // to return an i32 in this case). Our LDG/LDU nodes do not support the
+  // concept of sign-/zero-extension, so emulate it here by adding an explicit
+  // CVT instruction. Ptxas should clean up any redundancies here.
+
+  EVT OrigType = N->getValueType(0);
+  LoadSDNode *LdNode = dyn_cast<LoadSDNode>(N);
+
+  if (OrigType != EltVT && LdNode) {
+    // We have an extending-load. The instruction we selected operates on the
+    // smaller type, but the SDNode we are replacing has the larger type. We
+    // need to emit a CVT to make the types match.
+    bool IsSigned = LdNode->getExtensionType() == ISD::SEXTLOAD;
+    unsigned CvtOpc = GetConvertOpcode(OrigType.getSimpleVT(),
+                                       EltVT.getSimpleVT(), IsSigned);
+
+    // For each output value, apply the manual sign/zero-extension and make sure
+    // all users of the load go through that CVT.
+    for (unsigned i = 0; i != NumElts; ++i) {
+      SDValue Res(LD, i);
+      SDValue OrigVal(N, i);
+
+      SDNode *CvtNode =
+        CurDAG->getMachineNode(CvtOpc, DL, OrigType, Res,
+                               CurDAG->getTargetConstant(NVPTX::PTXCvtMode::NONE,
+                                                         DL, MVT::i32));
+      ReplaceUses(OrigVal, SDValue(CvtNode, 0));
+    }
+  }
 
   return LD;
 }
@@ -5121,4 +5170,58 @@ bool NVPTXDAGToDAGISel::SelectInlineAsmMemoryOperand(
     break;
   }
   return true;
+}
+
+/// GetConvertOpcode - Returns the CVT_ instruction opcode that implements a
+/// conversion from \p SrcTy to \p DestTy.
+unsigned NVPTXDAGToDAGISel::GetConvertOpcode(MVT DestTy, MVT SrcTy,
+                                             bool IsSigned) {
+  switch (SrcTy.SimpleTy) {
+  default:
+    llvm_unreachable("Unhandled source type");
+  case MVT::i8:
+    switch (DestTy.SimpleTy) {
+    default:
+      llvm_unreachable("Unhandled dest type");
+    case MVT::i16:
+      return IsSigned ? NVPTX::CVT_s16_s8 : NVPTX::CVT_u16_u8;
+    case MVT::i32:
+      return IsSigned ? NVPTX::CVT_s32_s8 : NVPTX::CVT_u32_u8;
+    case MVT::i64:
+      return IsSigned ? NVPTX::CVT_s64_s8 : NVPTX::CVT_u64_u8;
+    }
+  case MVT::i16:
+    switch (DestTy.SimpleTy) {
+    default:
+      llvm_unreachable("Unhandled dest type");
+    case MVT::i8:
+      return IsSigned ? NVPTX::CVT_s8_s16 : NVPTX::CVT_u8_u16;
+    case MVT::i32:
+      return IsSigned ? NVPTX::CVT_s32_s16 : NVPTX::CVT_u32_u16;
+    case MVT::i64:
+      return IsSigned ? NVPTX::CVT_s64_s16 : NVPTX::CVT_u64_u16;
+    }
+  case MVT::i32:
+    switch (DestTy.SimpleTy) {
+    default:
+      llvm_unreachable("Unhandled dest type");
+    case MVT::i8:
+      return IsSigned ? NVPTX::CVT_s8_s32 : NVPTX::CVT_u8_u32;
+    case MVT::i16:
+      return IsSigned ? NVPTX::CVT_s16_s32 : NVPTX::CVT_u16_u32;
+    case MVT::i64:
+      return IsSigned ? NVPTX::CVT_s64_s32 : NVPTX::CVT_u64_u32;
+    }
+  case MVT::i64:
+    switch (DestTy.SimpleTy) {
+    default:
+      llvm_unreachable("Unhandled dest type");
+    case MVT::i8:
+      return IsSigned ? NVPTX::CVT_s8_s64 : NVPTX::CVT_u8_u64;
+    case MVT::i16:
+      return IsSigned ? NVPTX::CVT_s16_s64 : NVPTX::CVT_u16_u64;
+    case MVT::i32:
+      return IsSigned ? NVPTX::CVT_s32_s64 : NVPTX::CVT_u32_u64;
+    }
+  }
 }

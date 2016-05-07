@@ -49,7 +49,7 @@ emitSPUpdate(MachineBasicBlock &MBB,
 }
 
 
-void Thumb1FrameLowering::
+MachineBasicBlock::iterator Thumb1FrameLowering::
 eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator I) const {
   const Thumb1InstrInfo &TII =
@@ -80,7 +80,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
       }
     }
   }
-  MBB.erase(I);
+  return MBB.erase(I);
 }
 
 void Thumb1FrameLowering::emitPrologue(MachineFunction &MF,
@@ -467,7 +467,7 @@ bool Thumb1FrameLowering::emitPopSpecialFixUp(MachineBasicBlock &MBB,
   // Look for a temporary register to use.
   // First, compute the liveness information.
   LivePhysRegs UsedRegs(STI.getRegisterInfo());
-  UsedRegs.addLiveOuts(&MBB, /*AddPristines*/ true);
+  UsedRegs.addLiveOuts(MBB);
   // The semantic of pristines changed recently and now,
   // the callee-saved registers that are touched in the function
   // are not part of the pristines set anymore.

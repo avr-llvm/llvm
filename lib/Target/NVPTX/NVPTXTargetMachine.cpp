@@ -44,8 +44,14 @@
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Scalar/GVN.h"
 
 using namespace llvm;
+
+static cl::opt<bool> UseInferAddressSpaces(
+    "nvptx-use-infer-addrspace", cl::init(false), cl::Hidden,
+    cl::desc("Optimize address spaces using NVPTXInferAddressSpaces instead of "
+             "NVPTXFavorNonGenericAddrSpaces"));
 
 namespace llvm {
 void initializeNVVMReflectPass(PassRegistry&);
@@ -53,6 +59,7 @@ void initializeGenericToNVVMPass(PassRegistry&);
 void initializeNVPTXAllocaHoistingPass(PassRegistry &);
 void initializeNVPTXAssignValidGlobalNamesPass(PassRegistry&);
 void initializeNVPTXFavorNonGenericAddrSpacesPass(PassRegistry &);
+void initializeNVPTXInferAddressSpacesPass(PassRegistry &);
 void initializeNVPTXLowerAggrCopiesPass(PassRegistry &);
 void initializeNVPTXLowerKernelArgsPass(PassRegistry &);
 void initializeNVPTXLowerAllocaPass(PassRegistry &);
@@ -71,6 +78,7 @@ extern "C" void LLVMInitializeNVPTXTarget() {
   initializeNVPTXAllocaHoistingPass(PR);
   initializeNVPTXAssignValidGlobalNamesPass(PR);
   initializeNVPTXFavorNonGenericAddrSpacesPass(PR);
+  initializeNVPTXInferAddressSpacesPass(PR);
   initializeNVPTXLowerKernelArgsPass(PR);
   initializeNVPTXLowerAllocaPass(PR);
   initializeNVPTXLowerAggrCopiesPass(PR);
@@ -148,7 +156,7 @@ private:
   void addEarlyCSEOrGVNPass();
 
   // Add passes that propagate special memory spaces.
-  void addMemorySpaceInferencePasses();
+  void addAddressSpaceInferencePasses();
 
   // Add passes that perform straight-line scalar optimizations.
   void addStraightLineScalarOptimizationPasses();
@@ -157,6 +165,10 @@ private:
 
 TargetPassConfig *NVPTXTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new NVPTXPassConfig(this, PM);
+}
+
+void NVPTXTargetMachine::addEarlyAsPossiblePasses(PassManagerBase &PM) {
+  PM.add(createNVVMReflectPass());
 }
 
 TargetIRAnalysis NVPTXTargetMachine::getTargetIRAnalysis() {
@@ -172,17 +184,20 @@ void NVPTXPassConfig::addEarlyCSEOrGVNPass() {
     addPass(createEarlyCSEPass());
 }
 
-void NVPTXPassConfig::addMemorySpaceInferencePasses() {
-  addPass(createNVPTXLowerKernelArgsPass(&getNVPTXTargetMachine()));
+void NVPTXPassConfig::addAddressSpaceInferencePasses() {
   // NVPTXLowerKernelArgs emits alloca for byval parameters which can often
   // be eliminated by SROA.
   addPass(createSROAPass());
   addPass(createNVPTXLowerAllocaPass());
-  addPass(createNVPTXFavorNonGenericAddrSpacesPass());
-  // FavorNonGenericAddrSpaces shortcuts unnecessary addrspacecasts, and leave
-  // them unused. We could remove dead code in an ad-hoc manner, but that
-  // requires manual work and might be error-prone.
-  addPass(createDeadCodeEliminationPass());
+  if (UseInferAddressSpaces) {
+    addPass(createNVPTXInferAddressSpacesPass());
+  } else {
+    addPass(createNVPTXFavorNonGenericAddrSpacesPass());
+    // FavorNonGenericAddrSpaces shortcuts unnecessary addrspacecasts, and leave
+    // them unused. We could remove dead code in an ad-hoc manner, but that
+    // requires manual work and might be error-prone.
+    addPass(createDeadCodeEliminationPass());
+  }
 }
 
 void NVPTXPassConfig::addStraightLineScalarOptimizationPasses() {
@@ -211,15 +226,28 @@ void NVPTXPassConfig::addIRPasses() {
   disablePass(&PrologEpilogCodeInserterID);
   disablePass(&MachineCopyPropagationID);
   disablePass(&TailDuplicateID);
+  disablePass(&StackMapLivenessID);
+  disablePass(&LiveDebugValuesID);
+  disablePass(&PostRASchedulerID);
+  disablePass(&FuncletLayoutID);
+  disablePass(&PatchableFunctionID);
 
+  // NVVMReflectPass is added in addEarlyAsPossiblePasses, so hopefully running
+  // it here does nothing.  But since we need it for correctness when lowering
+  // to NVPTX, run it here too, in case whoever built our pass pipeline didn't
+  // call addEarlyAsPossiblePasses.
   addPass(createNVVMReflectPass());
+
   if (getOptLevel() != CodeGenOpt::None)
     addPass(createNVPTXImageOptimizerPass());
   addPass(createNVPTXAssignValidGlobalNamesPass());
   addPass(createGenericToNVVMPass());
 
+  // NVPTXLowerKernelArgs is required for correctness and should be run right
+  // before the address space inference passes.
+  addPass(createNVPTXLowerKernelArgsPass(&getNVPTXTargetMachine()));
   if (getOptLevel() != CodeGenOpt::None) {
-    addMemorySpaceInferencePasses();
+    addAddressSpaceInferencePasses();
     addStraightLineScalarOptimizationPasses();
   }
 
@@ -256,10 +284,12 @@ bool NVPTXPassConfig::addInstSelector() {
 
 void NVPTXPassConfig::addPostRegAlloc() {
   addPass(createNVPTXPrologEpilogPass(), false);
-  // NVPTXPrologEpilogPass calculates frame object offset and replace frame
-  // index with VRFrame register. NVPTXPeephole need to be run after that and
-  // will replace VRFrame with VRFrameLocal when possible.
-  addPass(createNVPTXPeephole());
+  if (getOptLevel() != CodeGenOpt::None) {
+    // NVPTXPrologEpilogPass calculates frame object offset and replace frame
+    // index with VRFrame register. NVPTXPeephole need to be run after that and
+    // will replace VRFrame with VRFrameLocal when possible.
+    addPass(createNVPTXPeephole());
+  }
 }
 
 FunctionPass *NVPTXPassConfig::createTargetRegisterAllocator(bool) {

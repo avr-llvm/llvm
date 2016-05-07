@@ -14,11 +14,16 @@
 #include <iomanip>
 #include <sys/resource.h>
 #include <sys/time.h>
+#include <sys/types.h>
+#include <sys/syscall.h>
 #include <cassert>
+#include <chrono>
 #include <cstring>
 #include <signal.h>
 #include <sstream>
 #include <unistd.h>
+#include <errno.h>
+#include <thread>
 
 namespace fuzzer {
 
@@ -84,14 +89,18 @@ static void SetSigaction(int signum,
   struct sigaction sigact;
   memset(&sigact, 0, sizeof(sigact));
   sigact.sa_sigaction = callback;
-  int Res = sigaction(signum, &sigact, 0);
-  assert(Res == 0);
+  if (sigaction(signum, &sigact, 0)) {
+    Printf("libFuzzer: sigaction failed with %d\n", errno);
+    exit(1);
+  }
 }
 
 void SetTimer(int Seconds) {
   struct itimerval T {{Seconds, 0}, {Seconds, 0}};
-  int Res = setitimer(ITIMER_REAL, &T, nullptr);
-  assert(Res == 0);
+  if (setitimer(ITIMER_REAL, &T, nullptr)) {
+    Printf("libFuzzer: setitimer failed with %d\n", errno);
+    exit(1);
+  }
   SetSigaction(SIGALRM, AlarmHandler);
 }
 
@@ -101,11 +110,13 @@ void SetSigAbrtHandler() { SetSigaction(SIGABRT, CrashHandler); }
 void SetSigIllHandler() { SetSigaction(SIGILL, CrashHandler); }
 void SetSigFpeHandler() { SetSigaction(SIGFPE, CrashHandler); }
 void SetSigIntHandler() { SetSigaction(SIGINT, InterruptHandler); }
+void SetSigTermHandler() { SetSigaction(SIGTERM, InterruptHandler); }
 
 int NumberOfCpuCores() {
   FILE *F = popen("nproc", "r");
   int N = 0;
-  fscanf(F, "%d", &N);
+  if (fscanf(F, "%d", &N) != 1)
+    N = 1;
   fclose(F);
   return N;
 }
@@ -207,8 +218,18 @@ bool ParseDictionaryFile(const std::string &Text, std::vector<Unit> *Units) {
   return true;
 }
 
-int GetPid() { return getpid(); }
+void SleepSeconds(int Seconds) {
+  std::this_thread::sleep_for(std::chrono::seconds(Seconds));
+}
 
+int GetPid() { return getpid(); }
+int SignalToMainThread() {
+#ifdef __linux__
+  return syscall(SYS_tgkill, GetPid(), GetPid(), SIGALRM);
+#else
+  return 0;
+#endif
+}
 
 std::string Base64(const Unit &U) {
   static const char Table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"

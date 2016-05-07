@@ -10,8 +10,8 @@
 
 #include "llvm/MC/MCInstrDesc.h"
 
-#ifndef LLVM_LIB_TARGET_R600_SIDEFINES_H
-#define LLVM_LIB_TARGET_R600_SIDEFINES_H
+#ifndef LLVM_LIB_TARGET_AMDGPU_SIDEFINES_H
+#define LLVM_LIB_TARGET_AMDGPU_SIDEFINES_H
 
 namespace SIInstrFlags {
 // This needs to be kept in sync with the field bits in InstSI.
@@ -29,16 +29,18 @@ enum {
   VOP2 = 1 << 11,
   VOP3 = 1 << 12,
   VOPC = 1 << 13,
+  SDWA = 1 << 14,
+  DPP = 1 << 15,
 
-  MUBUF = 1 << 14,
-  MTBUF = 1 << 15,
-  SMRD = 1 << 16,
-  DS = 1 << 17,
-  MIMG = 1 << 18,
-  FLAT = 1 << 19,
-  WQM = 1 << 20,
-  VGPRSpill = 1 << 21,
-  VOPAsmPrefer32Bit = 1 << 22
+  MUBUF = 1 << 16,
+  MTBUF = 1 << 17,
+  SMRD = 1 << 18,
+  DS = 1 << 19,
+  MIMG = 1 << 20,
+  FLAT = 1 << 21,
+  WQM = 1 << 22,
+  VGPRSpill = 1 << 23,
+  VOPAsmPrefer32Bit = 1 << 24
 };
 }
 
@@ -92,6 +94,54 @@ namespace SIOutMods {
     DIV2 = 3
   };
 }
+
+namespace llvm {
+namespace AMDGPU {
+namespace SendMsg { // Encoding of SIMM16 used in s_sendmsg* insns.
+
+enum Id { // Message ID, width(3) [3:0].
+  ID_UNKNOWN_ = -1,
+  ID_INTERRUPT = 1,
+  ID_GS,
+  ID_GS_DONE,
+  ID_SYSMSG = 15,
+  ID_GAPS_LAST_, // Indicate that sequence has gaps.
+  ID_GAPS_FIRST_ = ID_INTERRUPT,
+  ID_MASK_ = 0xf
+};
+
+enum Op { // Both GS and SYS operation IDs.
+  OP_UNKNOWN_ = -1,
+  // width(2) [5:4]
+  OP_GS_NOP = 0,
+  OP_GS_CUT,
+  OP_GS_EMIT,
+  OP_GS_EMIT_CUT,
+  OP_GS_LAST_,
+  OP_GS_FIRST_ = OP_GS_NOP,
+  OP_GS_MASK_ = (0x3 << 4),
+  // width(3) [6:4]
+  OP_SYS_ECC_ERR_INTERRUPT = 1,
+  OP_SYS_REG_RD,
+  OP_SYS_HOST_TRAP_ACK,
+  OP_SYS_TTRACE_PC,
+  OP_SYS_LAST_,
+  OP_SYS_FIRST_ = OP_SYS_ECC_ERR_INTERRUPT,
+  OP_SYS_MASK_ = (0x7 << 4),
+  OP_SHIFT_ = 4
+};
+
+enum StreamId { // Stream ID, (2) [9:8].
+  STREAM_ID_DEFAULT = 0,
+  STREAM_ID_LAST_ = 4,
+  STREAM_ID_FIRST_ = STREAM_ID_DEFAULT,
+  STREAM_ID_MASK_ = (0x3 << 8),
+  STREAM_ID_SHIFT_ = 8
+};
+
+} // namespace SendMsg
+} // namespace AMDGPU
+} // namespace llvm
 
 #define R_00B028_SPI_SHADER_PGM_RSRC1_PS                                0x00B028
 #define R_00B02C_SPI_SHADER_PGM_RSRC2_PS                                0x00B02C

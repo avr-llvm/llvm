@@ -90,7 +90,7 @@ INITIALIZE_PASS(BranchFolderPass, "branch-folder",
                 "Control Flow Optimizer", false, false)
 
 bool BranchFolderPass::runOnMachineFunction(MachineFunction &MF) {
-  if (skipOptnoneFunction(*MF.getFunction()))
+  if (skipFunction(*MF.getFunction()))
     return false;
 
   TargetPassConfig *PassConfig = &getAnalysis<TargetPassConfig>();
@@ -397,7 +397,7 @@ static unsigned ComputeCommonTailLength(MachineBasicBlock *MBB1,
 void BranchFolder::MaintainLiveIns(MachineBasicBlock *CurMBB,
                                    MachineBasicBlock *NewMBB) {
   if (RS) {
-    RS->enterBasicBlock(CurMBB);
+    RS->enterBasicBlock(*CurMBB);
     if (!CurMBB->empty())
       RS->forward(std::prev(CurMBB->end()));
     for (unsigned int i = 1, e = TRI->getNumRegs(); i != e; i++)
@@ -453,8 +453,10 @@ MachineBasicBlock *BranchFolder::SplitMBBAt(MachineBasicBlock &CurMBB,
 
   // Add the new block to the funclet.
   const auto &FuncletI = FuncletMembership.find(&CurMBB);
-  if (FuncletI != FuncletMembership.end())
-    FuncletMembership[NewMBB] = FuncletI->second;
+  if (FuncletI != FuncletMembership.end()) {
+    auto n = FuncletI->second;
+    FuncletMembership[NewMBB] = n;
+  }
 
   return NewMBB;
 }
@@ -745,11 +747,9 @@ bool BranchFolder::CreateCommonTailOnlyBlock(MachineBasicBlock *&PredBB,
 }
 
 static void
-removeMMOsFromMemoryOperations(MachineBasicBlock::iterator MBBIStartPos,
-                               MachineBasicBlock &MBBCommon) {
-  // Remove MMOs from memory operations in the common block
-  // when they do not match the ones from the block being tail-merged.
-  // This ensures later passes conservatively compute dependencies.
+mergeMMOsFromMemoryOperations(MachineBasicBlock::iterator MBBIStartPos,
+                              MachineBasicBlock &MBBCommon) {
+  // Merge MMOs from memory operations in the common block.
   MachineBasicBlock *MBB = MBBIStartPos->getParent();
   // Note CommonTailLen does not necessarily matches the size of
   // the common BB nor all its instructions because of debug
@@ -888,7 +888,7 @@ bool BranchFolder::TryTailMergeBlocks(MachineBasicBlock *SuccBB,
 
     MachineBasicBlock *MBB = SameTails[commonTailIndex].getBlock();
 
-    // Recompute commont tail MBB's edge weights and block frequency.
+    // Recompute common tail MBB's edge weights and block frequency.
     setCommonTailEdgeWeights(*MBB);
 
     // MBB is common tail.  Adjust all other BB's to jump to this one.
@@ -900,8 +900,8 @@ bool BranchFolder::TryTailMergeBlocks(MachineBasicBlock *SuccBB,
         continue;
       DEBUG(dbgs() << "BB#" << SameTails[i].getBlock()->getNumber()
                    << (i == e-1 ? "" : ", "));
-      // Remove MMOs from memory operations as needed.
-      removeMMOsFromMemoryOperations(SameTails[i].getTailStartPos(), *MBB);
+      // Merge MMOs from memory operations as needed.
+      mergeMMOsFromMemoryOperations(SameTails[i].getTailStartPos(), *MBB);
       // Hack the end off BB i, making it jump to BB commonTailIndex instead.
       ReplaceTailWithBranchTo(SameTails[i].getTailStartPos(), MBB);
       // BB i is no longer a predecessor of SuccBB; remove it from the worklist.

@@ -174,7 +174,7 @@ TextInstrProfReader::readValueProfileData(InstrProfRecord &Record) {
       std::vector<InstrProfValueData> CurrentValues;
       for (uint32_t V = 0; V < NumValueData; V++) {
         CHECK_LINE_END(Line);
-        std::pair<StringRef, StringRef> VD = Line->split(':');
+        std::pair<StringRef, StringRef> VD = Line->rsplit(':');
         uint64_t TakenCount, Value;
         if (VK == IPVK_IndirectCallTarget) {
           Symtab->addFuncName(VD.first);
@@ -297,8 +297,11 @@ RawInstrProfReader<IntPtrT>::readNextHeader(const char *CurrentPos) {
 }
 
 template <class IntPtrT>
-void RawInstrProfReader<IntPtrT>::createSymtab(InstrProfSymtab &Symtab) {
-  Symtab.create(StringRef(NamesStart, NamesSize));
+std::error_code
+RawInstrProfReader<IntPtrT>::createSymtab(InstrProfSymtab &Symtab) {
+  std::error_code EC = Symtab.create(StringRef(NamesStart, NamesSize));
+  if (EC)
+    return EC;
   for (const RawInstrProf::ProfileData<IntPtrT> *I = Data; I != DataEnd; ++I) {
     const IntPtrT FPtr = swap(I->FunctionPointer);
     if (!FPtr)
@@ -306,6 +309,7 @@ void RawInstrProfReader<IntPtrT>::createSymtab(InstrProfSymtab &Symtab) {
     Symtab.mapAddress(FPtr, I->NameRef);
   }
   Symtab.finalizeSymtab();
+  return success();
 }
 
 template <class IntPtrT>
@@ -320,7 +324,6 @@ RawInstrProfReader<IntPtrT>::readHeader(const RawInstrProf::Header &Header) {
   auto DataSize = swap(Header.DataSize);
   auto CountersSize = swap(Header.CountersSize);
   NamesSize = swap(Header.NamesSize);
-  auto ValueDataSize = swap(Header.ValueDataSize);
   ValueKindLast = swap(Header.ValueKindLast);
 
   auto DataSizeInBytes = DataSize * sizeof(RawInstrProf::ProfileData<IntPtrT>);
@@ -330,10 +333,9 @@ RawInstrProfReader<IntPtrT>::readHeader(const RawInstrProf::Header &Header) {
   ptrdiff_t CountersOffset = DataOffset + DataSizeInBytes;
   ptrdiff_t NamesOffset = CountersOffset + sizeof(uint64_t) * CountersSize;
   ptrdiff_t ValueDataOffset = NamesOffset + NamesSize + PaddingSize;
-  size_t ProfileSize = ValueDataOffset + ValueDataSize;
 
   auto *Start = reinterpret_cast<const char *>(&Header);
-  if (Start + ProfileSize > DataBuffer->getBufferEnd())
+  if (Start + ValueDataOffset > DataBuffer->getBufferEnd())
     return error(instrprof_error::bad_header);
 
   Data = reinterpret_cast<const RawInstrProf::ProfileData<IntPtrT> *>(
@@ -342,10 +344,11 @@ RawInstrProfReader<IntPtrT>::readHeader(const RawInstrProf::Header &Header) {
   CountersStart = reinterpret_cast<const uint64_t *>(Start + CountersOffset);
   NamesStart = Start + NamesOffset;
   ValueDataStart = reinterpret_cast<const uint8_t *>(Start + ValueDataOffset);
-  ProfileEnd = Start + ProfileSize;
 
   std::unique_ptr<InstrProfSymtab> NewSymtab = make_unique<InstrProfSymtab>();
-  createSymtab(*NewSymtab.get());
+  if (auto EC = createSymtab(*NewSymtab.get()))
+    return EC;
+
   Symtab = std::move(NewSymtab);
   return success();
 }
@@ -405,13 +408,16 @@ RawInstrProfReader<IntPtrT>::readValueProfilingData(InstrProfRecord &Record) {
     return success();
 
   ErrorOr<std::unique_ptr<ValueProfData>> VDataPtrOrErr =
-      ValueProfData::getValueProfData(ValueDataStart,
-                                      (const unsigned char *)ProfileEnd,
-                                      getDataEndianness());
+      ValueProfData::getValueProfData(
+          ValueDataStart, (const unsigned char *)DataBuffer->getBufferEnd(),
+          getDataEndianness());
 
   if (VDataPtrOrErr.getError())
     return VDataPtrOrErr.getError();
 
+  // Note that besides deserialization, this also performs the conversion for
+  // indirect call targets.  The function pointers from the raw profile are
+  // remapped into function name hashes.
   VDataPtrOrErr.get()->deserializeTo(Record, &Symtab->getAddrHashMap());
   CurValueDataSize = VDataPtrOrErr.get()->getSize();
   return success();
@@ -421,7 +427,8 @@ template <class IntPtrT>
 std::error_code
 RawInstrProfReader<IntPtrT>::readNextRecord(InstrProfRecord &Record) {
   if (atEnd())
-    if (std::error_code EC = readNextHeader(ProfileEnd))
+    // At this point, ValueDataStart field points to the next header.
+    if (std::error_code EC = readNextHeader(getNextHeaderPos()))
       return EC;
 
   // Read name ad set it in Record.

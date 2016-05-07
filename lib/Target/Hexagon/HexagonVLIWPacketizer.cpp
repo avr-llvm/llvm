@@ -29,8 +29,6 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include <map>
-#include <vector>
 
 using namespace llvm;
 
@@ -81,6 +79,10 @@ namespace {
       return "Hexagon Packetizer";
     }
     bool runOnMachineFunction(MachineFunction &Fn) override;
+    MachineFunctionProperties getRequiredProperties() const override {
+      return MachineFunctionProperties().set(
+          MachineFunctionProperties::Property::AllVRegsAllocated);
+    }
 
   private:
     const HexagonInstrInfo *HII;
@@ -168,7 +170,7 @@ static MachineBasicBlock::iterator moveInstrOut(MachineInstr *MI,
 
 
 bool HexagonPacketizer::runOnMachineFunction(MachineFunction &MF) {
-  if (DisablePacketizer)
+  if (DisablePacketizer || skipFunction(*MF.getFunction()))
     return false;
 
   HII = MF.getSubtarget<HexagonSubtarget>().getInstrInfo();
@@ -1400,8 +1402,30 @@ bool HexagonPacketizerList::isLegalToPacketizeTogether(SUnit *SUI, SUnit *SUJ) {
       }
     }
 
-    // Skip over anti-dependences. Two instructions that are anti-dependent
-    // can share a packet.
+    // There are certain anti-dependencies that cannot be ignored.
+    // Specifically:
+    //   J2_call ... %R0<imp-def>   ; SUJ
+    //   R0 = ...                   ; SUI
+    // Those cannot be packetized together, since the call will observe
+    // the effect of the assignment to R0.
+    if (DepType == SDep::Anti && J->isCall()) {
+      // Check if I defines any volatile register. We should also check
+      // registers that the call may read, but these happen to be a
+      // subset of the volatile register set.
+      for (const MCPhysReg *P = J->getDesc().ImplicitDefs; P && *P; ++P) {
+        if (!I->modifiesRegister(*P, HRI))
+          continue;
+        FoundSequentialDependence = true;
+        break;
+      }
+    }
+
+    // Skip over remaining anti-dependences. Two instructions that are
+    // anti-dependent can share a packet, since in most such cases all
+    // operands are read before any modifications take place.
+    // The exceptions are branch and call instructions, since they are
+    // executed after all other instructions have completed (at least
+    // conceptually).
     if (DepType != SDep::Anti) {
       FoundSequentialDependence = true;
       break;
@@ -1597,4 +1621,3 @@ bool HexagonPacketizerList::producesStall(const MachineInstr *I) {
 FunctionPass *llvm::createHexagonPacketizer() {
   return new HexagonPacketizer();
 }
-

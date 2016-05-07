@@ -18,11 +18,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/CodeGen/Passes.h"
 #include "AggressiveAntiDepBreaker.h"
 #include "AntiDepBreaker.h"
 #include "CriticalAntiDepBreaker.h"
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/LatencyPriorityQueue.h"
@@ -31,6 +29,7 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegisterClassInfo.h"
 #include "llvm/CodeGen/ScheduleDAGInstrs.h"
 #include "llvm/CodeGen/ScheduleHazardRecognizer.h"
@@ -96,6 +95,11 @@ namespace {
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
+    MachineFunctionProperties getRequiredProperties() const override {
+      return MachineFunctionProperties().set(
+          MachineFunctionProperties::Property::AllVRegsAllocated);
+    }
+
     bool runOnMachineFunction(MachineFunction &Fn) override;
 
     bool enablePostRAScheduler(
@@ -127,6 +131,9 @@ namespace {
 
     /// The schedule. Null SUnit*'s represent noop instructions.
     std::vector<SUnit*> Sequence;
+
+    /// Ordered list of DAG postprocessing steps.
+    std::vector<std::unique_ptr<ScheduleDAGMutation>> Mutations;
 
     /// The index in BB of RegionEnd.
     ///
@@ -176,6 +183,9 @@ namespace {
     void finishBlock() override;
 
   private:
+    /// Apply each ScheduleDAGMutation step in order.
+    void postprocessDAG();
+
     void ReleaseSucc(SUnit *SU, SDep *SuccEdge);
     void ReleaseSuccessors(SUnit *SU);
     void ScheduleNodeTopDown(SUnit *SU, unsigned CurCycle);
@@ -203,6 +213,7 @@ SchedulePostRATDList::SchedulePostRATDList(
   HazardRec =
       MF.getSubtarget().getInstrInfo()->CreateTargetPostRAHazardRecognizer(
           InstrItins, this);
+  MF.getSubtarget().getPostRAMutations(Mutations);
 
   assert((AntiDepMode == TargetSubtargetInfo::ANTIDEP_NONE ||
           MRI.tracksLiveness()) &&
@@ -262,7 +273,7 @@ bool PostRAScheduler::enablePostRAScheduler(
 }
 
 bool PostRAScheduler::runOnMachineFunction(MachineFunction &Fn) {
-  if (skipOptnoneFunction(*Fn.getFunction()))
+  if (skipFunction(*Fn.getFunction()))
     return false;
 
   TII = Fn.getSubtarget().getInstrInfo();
@@ -398,6 +409,8 @@ void SchedulePostRATDList::schedule() {
     }
   }
 
+  postprocessDAG();
+
   DEBUG(dbgs() << "********** List Scheduling **********\n");
   DEBUG(
     for (const SUnit &SU : SUnits) {
@@ -427,6 +440,12 @@ void SchedulePostRATDList::finishBlock() {
 
   // Call the superclass.
   ScheduleDAGInstrs::finishBlock();
+}
+
+/// Apply each ScheduleDAGMutation step in order.
+void SchedulePostRATDList::postprocessDAG() {
+  for (auto &M : Mutations)
+    M->apply(this);
 }
 
 //===----------------------------------------------------------------------===//

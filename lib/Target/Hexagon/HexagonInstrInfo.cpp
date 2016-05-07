@@ -70,10 +70,10 @@ static cl::opt<bool> BranchRelaxAsmLarge("branch-relax-asm-large",
 ///
 /// Constants for Hexagon instructions.
 ///
-const int Hexagon_MEMV_OFFSET_MAX_128B = 2047;  // #s7
-const int Hexagon_MEMV_OFFSET_MIN_128B = -2048; // #s7
-const int Hexagon_MEMV_OFFSET_MAX = 1023;  // #s6
-const int Hexagon_MEMV_OFFSET_MIN = -1024; // #s6
+const int Hexagon_MEMV_OFFSET_MAX_128B = 896;   // #s4: -8*128...7*128
+const int Hexagon_MEMV_OFFSET_MIN_128B = -1024; // #s4
+const int Hexagon_MEMV_OFFSET_MAX = 448;  // #s4: -8*64...7*64
+const int Hexagon_MEMV_OFFSET_MIN = -512; // #s4
 const int Hexagon_MEMW_OFFSET_MAX = 4095;
 const int Hexagon_MEMW_OFFSET_MIN = -4096;
 const int Hexagon_MEMD_OFFSET_MAX = 8191;
@@ -92,10 +92,10 @@ const int Hexagon_MEMH_AUTOINC_MAX = 14;
 const int Hexagon_MEMH_AUTOINC_MIN = -16;
 const int Hexagon_MEMB_AUTOINC_MAX = 7;
 const int Hexagon_MEMB_AUTOINC_MIN = -8;
-const int Hexagon_MEMV_AUTOINC_MAX = 192;
-const int Hexagon_MEMV_AUTOINC_MIN = -256;
-const int Hexagon_MEMV_AUTOINC_MAX_128B = 384;
-const int Hexagon_MEMV_AUTOINC_MIN_128B = -512;
+const int Hexagon_MEMV_AUTOINC_MAX = 192;   // #s3
+const int Hexagon_MEMV_AUTOINC_MIN = -256;  // #s3
+const int Hexagon_MEMV_AUTOINC_MAX_128B = 384;  // #s3
+const int Hexagon_MEMV_AUTOINC_MIN_128B = -512; // #s3
 
 // Pin the vtable to this file.
 void HexagonInstrInfo::anchor() {}
@@ -1301,7 +1301,7 @@ bool HexagonInstrInfo::isPredicable(MachineInstr &MI) const {
 
   // Keep a flag for upto 4 operands in the instructions, to indicate if
   // that operand has been constant extended.
-  bool OpCExtended[4];
+  bool OpCExtended[4] = {false};
   if (NumOperands > 4)
     NumOperands = 4;
 
@@ -2354,7 +2354,9 @@ bool HexagonInstrInfo::isPredictedTaken(unsigned Opcode) const {
 
 bool HexagonInstrInfo::isSaveCalleeSavedRegsCall(const MachineInstr *MI) const {
   return MI->getOpcode() == Hexagon::SAVE_REGISTERS_CALL_V4 ||
-         MI->getOpcode() == Hexagon::SAVE_REGISTERS_CALL_V4_EXT;
+         MI->getOpcode() == Hexagon::SAVE_REGISTERS_CALL_V4_EXT ||
+         MI->getOpcode() == Hexagon::SAVE_REGISTERS_CALL_V4_PIC ||
+         MI->getOpcode() == Hexagon::SAVE_REGISTERS_CALL_V4_EXT_PIC;
 }
 
 
@@ -3020,6 +3022,11 @@ bool HexagonInstrInfo::predOpcodeHasNot(ArrayRef<MachineOperand> Cond) const {
 }
 
 
+short HexagonInstrInfo::getAbsoluteForm(const MachineInstr *MI) const {
+  return Hexagon::getAbsoluteForm(MI->getOpcode());
+}
+
+
 unsigned HexagonInstrInfo::getAddrMode(const MachineInstr* MI) const {
   const uint64_t F = MI->getDesc().TSFlags;
   return (F >> HexagonII::AddrModePos) & HexagonII::AddrModeMask;
@@ -3156,6 +3163,23 @@ SmallVector<MachineInstr*, 2> HexagonInstrInfo::getBranchingInstrs(
     --I;
   } while (true);
   return Jumpers;
+}
+
+
+short HexagonInstrInfo::getBaseWithLongOffset(short Opcode) const {
+  if (Opcode < 0)
+    return -1;
+  return Hexagon::getBaseWithLongOffset(Opcode);
+}
+
+
+short HexagonInstrInfo::getBaseWithLongOffset(const MachineInstr *MI) const {
+  return Hexagon::getBaseWithLongOffset(MI->getOpcode());
+}
+
+
+short HexagonInstrInfo::getBaseWithRegOffset(const MachineInstr *MI) const {
+  return Hexagon::getBaseWithRegOffset(MI->getOpcode());
 }
 
 
@@ -4159,3 +4183,7 @@ bool HexagonInstrInfo::validateBranchCond(const ArrayRef<MachineOperand> &Cond)
   return Cond.empty() || (Cond[0].isImm() && (Cond.size() != 1));
 }
 
+
+short HexagonInstrInfo::xformRegToImmOffset(const MachineInstr *MI) const {
+  return Hexagon::xformRegToImmOffset(MI->getOpcode());
+}

@@ -51,17 +51,21 @@ AVRRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
 
 BitVector AVRRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
-  const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
+  const AVRTargetMachine &TM = static_cast<const AVRTargetMachine&>(MF.getTarget());
   const TargetFrameLowering *TFI = TM.getSubtargetImpl()->getFrameLowering();
 
+  // Reserve the intermediate result registers r1 and r2
+  // The result of instructions like 'mul' is always stored here.
   Reserved.set(AVR::R0);
   Reserved.set(AVR::R1);
   Reserved.set(AVR::R1R0);
 
+  //  Reserve the stack pointer.
   Reserved.set(AVR::SPL);
   Reserved.set(AVR::SPH);
   Reserved.set(AVR::SP);
 
+  // Reserve the frame pointer registers r28 and r29 if the function requires one.
   if (TFI->hasFP(MF)) {
     Reserved.set(AVR::R28);
     Reserved.set(AVR::R29);
@@ -168,7 +172,7 @@ void AVRRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
         Opcode = AVR::ADIWRdK;
         break;
       }
-      // Fallthru
+      // Fallthrough
     }
     default: {
       // This opcode will get expanded into a pair of subi/sbci.

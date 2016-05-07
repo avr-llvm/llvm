@@ -43,12 +43,11 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/ARMBuildAttributes.h"
-#include "llvm/Support/TargetParser.h"
 #include "llvm/Support/COFF.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/TargetParser.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
@@ -528,6 +527,19 @@ void ARMAsmPrinter::EmitEndOfAsmFile(Module &M) {
       OutStreamer->AddBlankLine();
     }
 
+    Stubs = MMIMacho.GetThreadLocalGVStubList();
+    if (!Stubs.empty()) {
+      // Switch with ".non_lazy_symbol_pointer" directive.
+      OutStreamer->SwitchSection(TLOFMacho.getThreadLocalPointerSection());
+      EmitAlignment(2);
+
+      for (auto &Stub : Stubs)
+        emitNonLazySymbolPointer(*OutStreamer, Stub.first, Stub.second);
+
+      Stubs.clear();
+      OutStreamer->AddBlankLine();
+    }
+
     // Funny Darwin hack: This flag tells the linker that no global symbols
     // contain code that falls through to other global symbols (e.g. the obvious
     // implementation of multiple entry points).  If this doesn't occur, the
@@ -892,8 +904,11 @@ MCSymbol *ARMAsmPrinter::GetARMGVSymbol(const GlobalValue *GV,
     MachineModuleInfoMachO &MMIMachO =
       MMI->getObjFileInfo<MachineModuleInfoMachO>();
     MachineModuleInfoImpl::StubValueTy &StubSym =
-      GV->hasHiddenVisibility() ? MMIMachO.getHiddenGVStubEntry(MCSym)
-                                : MMIMachO.getGVStubEntry(MCSym);
+        GV->isThreadLocal()
+            ? MMIMachO.getThreadLocalGVStubEntry(MCSym)
+            : (GV->hasHiddenVisibility() ? MMIMachO.getHiddenGVStubEntry(MCSym)
+                                         : MMIMachO.getGVStubEntry(MCSym));
+
     if (!StubSym.getPointer())
       StubSym = MachineModuleInfoImpl::StubValueTy(getSymbol(GV),
                                                    !GV->hasInternalLinkage());
@@ -1852,7 +1867,8 @@ void ARMAsmPrinter::EmitInstruction(const MachineInstr *MI) {
       .addReg(0));
     return;
   }
-  case ARM::tInt_eh_sjlj_longjmp: {
+  case ARM::tInt_eh_sjlj_longjmp:
+  case ARM::tInt_WIN_eh_sjlj_longjmp: {
     // ldr $scratch, [$src, #8]
     // mov sp, $scratch
     // ldr $scratch, [$src, #4]
@@ -1860,6 +1876,7 @@ void ARMAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     // bx $scratch
     unsigned SrcReg = MI->getOperand(0).getReg();
     unsigned ScratchReg = MI->getOperand(1).getReg();
+
     EmitToStreamer(*OutStreamer, MCInstBuilder(ARM::tLDRi)
       .addReg(ScratchReg)
       .addReg(SrcReg)
@@ -1886,7 +1903,7 @@ void ARMAsmPrinter::EmitInstruction(const MachineInstr *MI) {
       .addReg(0));
 
     EmitToStreamer(*OutStreamer, MCInstBuilder(ARM::tLDRi)
-      .addReg(ARM::R7)
+      .addReg(Opc == ARM::tInt_WIN_eh_sjlj_longjmp ? ARM::R11 : ARM::R7)
       .addReg(SrcReg)
       .addImm(0)
       // Predicate.

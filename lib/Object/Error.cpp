@@ -47,15 +47,23 @@ std::string _object_error_category::message(int EV) const {
     return "Invalid section index";
   case object_error::bitcode_section_not_found:
     return "Bitcode section not found in object file";
-  case object_error::macho_small_load_command:
-    return "Mach-O load command with size < 8 bytes";
-  case object_error::macho_load_segment_too_many_sections:
-    return "Mach-O segment load command contains too many sections";
-  case object_error::macho_load_segment_too_small:
-    return "Mach-O segment load command size is too small";
   }
   llvm_unreachable("An enumerator of object_error does not have a message "
                    "defined.");
+}
+
+char BinaryError::ID = 0;
+char GenericBinaryError::ID = 0;
+
+GenericBinaryError::GenericBinaryError(Twine Msg) : Msg(Msg.str()) {}
+
+GenericBinaryError::GenericBinaryError(Twine Msg, object_error ECOverride)
+    : Msg(Msg.str()) {
+  setErrorCode(make_error_code(ECOverride));
+}
+
+void GenericBinaryError::log(raw_ostream &OS) const {
+  OS << Msg;
 }
 
 static ManagedStatic<_object_error_category> error_category;

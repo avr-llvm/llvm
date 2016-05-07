@@ -24,18 +24,13 @@
 
 namespace llvm {
 
-// The default CPU to choose if an empty string is passed.
-namespace {
-const char *DefaultCPU = "avr2";
-
 /// Processes a CPU name.
-StringRef GetTargetCPU(StringRef CPU) {
+static StringRef getTargetCPU(StringRef CPU) {
   if (CPU.empty() || CPU == "generic") {
-    return DefaultCPU;
-  } else {
-    return CPU;
+    return "avr2";
   }
-}
+
+  return CPU;
 }
 
 AVRTargetMachine::AVRTargetMachine(const Target &T, const Triple &TT,
@@ -45,7 +40,7 @@ AVRTargetMachine::AVRTargetMachine(const Target &T, const Triple &TT,
                                    CodeGenOpt::Level OL)
     : LLVMTargetMachine(
           T, "e-p:16:8:8-i8:8:8-i16:8:8-i32:8:8-i64:8:8-f32:8:8-f64:8:8-n8", TT,
-          GetTargetCPU(CPU), FS, Options, RM, CM, OL),
+          getTargetCPU(CPU), FS, Options, RM, CM, OL),
       SubTarget(TT, GetTargetCPU(CPU), FS, *this) {
   this->TLOF = make_unique<AVRTargetObjectFile>();
   initAsmInfo();

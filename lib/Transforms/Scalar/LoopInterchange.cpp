@@ -15,7 +15,6 @@
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/Analysis/AliasSetTracker.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/BlockFrequencyInfo.h"
 #include "llvm/Analysis/CodeMetrics.h"
@@ -449,6 +448,9 @@ struct LoopInterchange : public FunctionPass {
   }
 
   bool runOnFunction(Function &F) override {
+    if (skipFunction(F))
+      return false;
+
     SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
     LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
     DA = &getAnalysis<DependenceAnalysis>();

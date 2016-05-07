@@ -26,6 +26,8 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Config/config.h"
+#include "llvm/DebugInfo/CodeView/TypeDumper.h"
+#include "llvm/DebugInfo/PDB/GenericError.h"
 #include "llvm/DebugInfo/PDB/IPDBEnumChildren.h"
 #include "llvm/DebugInfo/PDB/IPDBRawSymbol.h"
 #include "llvm/DebugInfo/PDB/IPDBSession.h"
@@ -35,6 +37,15 @@
 #include "llvm/DebugInfo/PDB/PDBSymbolExe.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolFunc.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolThunk.h"
+#include "llvm/DebugInfo/PDB/Raw/DbiStream.h"
+#include "llvm/DebugInfo/PDB/Raw/InfoStream.h"
+#include "llvm/DebugInfo/PDB/Raw/MappedBlockStream.h"
+#include "llvm/DebugInfo/PDB/Raw/ModInfo.h"
+#include "llvm/DebugInfo/PDB/Raw/NameHashTable.h"
+#include "llvm/DebugInfo/PDB/Raw/PDBFile.h"
+#include "llvm/DebugInfo/PDB/Raw/RawSession.h"
+#include "llvm/DebugInfo/PDB/Raw/StreamReader.h"
+#include "llvm/DebugInfo/PDB/Raw/TpiStream.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/FileSystem.h"
@@ -43,8 +54,9 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Process.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/Signals.h"
+#include "llvm/Support/raw_ostream.h"
 
 #if defined(HAVE_DIA_SDK)
 #ifndef NOMINMAX
@@ -54,6 +66,7 @@
 #endif
 
 using namespace llvm;
+using namespace llvm::pdb;
 
 namespace opts {
 
@@ -76,6 +89,7 @@ cl::opt<bool> Globals("globals", cl::desc("Dump global symbols"),
 cl::opt<bool> Externals("externals", cl::desc("Dump external symbols"),
                         cl::cat(TypeCategory));
 cl::opt<bool> Types("types", cl::desc("Display types"), cl::cat(TypeCategory));
+cl::opt<bool> Lines("lines", cl::desc("Line tables"), cl::cat(TypeCategory));
 cl::opt<bool>
     All("all", cl::desc("Implies all other options in 'Symbol Types' category"),
         cl::cat(TypeCategory));
@@ -93,6 +107,13 @@ cl::opt<bool> DumpStreamSizes("dump-stream-sizes",
 cl::opt<bool> DumpStreamBlocks("dump-stream-blocks",
                                cl::desc("dump PDB stream blocks"),
                                cl::cat(OtherOptions));
+cl::opt<bool> DumpTpiRecords("dump-tpi-records",
+                             cl::desc("dump CodeView type records"),
+                             cl::cat(OtherOptions));
+cl::opt<bool>
+    DumpTpiRecordBytes("dump-tpi-record-bytes",
+                       cl::desc("dump CodeView type record raw bytes"),
+                       cl::cat(OtherOptions));
 cl::opt<std::string> DumpStreamData("dump-stream", cl::desc("dump stream data"),
                                     cl::cat(OtherOptions));
 
@@ -138,507 +159,267 @@ cl::opt<bool> NoEnumDefs("no-enum-definitions",
                          cl::cat(FilterCategory));
 }
 
+static Error dumpFileHeaders(ScopedPrinter &P, PDBFile &File) {
+  if (!opts::DumpHeaders)
+    return Error::success();
 
-static void reportError(StringRef Input, StringRef Message) {
-  if (Input == "-")
-    Input = "<stdin>";
-  errs() << Input << ": " << Message << "\n";
-  errs().flush();
-  exit(1);
-}
-
-static void reportError(StringRef Input, std::error_code EC) {
-  reportError(Input, EC.message());
-}
-
-static std::error_code checkOffset(MemoryBufferRef M, uintptr_t Addr,
-                                   const uint64_t Size) {
-  if (Addr + Size < Addr || Addr + Size < Size ||
-      Addr + Size > uintptr_t(M.getBufferEnd()) ||
-      Addr < uintptr_t(M.getBufferStart())) {
-    return std::make_error_code(std::errc::bad_address);
-  }
-  return std::error_code();
-}
-
-template <typename T>
-static std::error_code checkOffset(MemoryBufferRef M, ArrayRef<T> AR) {
-  return checkOffset(M, uintptr_t(AR.data()), (uint64_t)AR.size() * sizeof(T));
-}
-
-static std::error_code checkOffset(MemoryBufferRef M, StringRef SR) {
-  return checkOffset(M, uintptr_t(SR.data()), SR.size());
-}
-
-// Sets Obj unless any bytes in [addr, addr + size) fall outsize of m.
-// Returns unexpected_eof if error.
-template <typename T>
-static std::error_code getObject(const T *&Obj, MemoryBufferRef M,
-                                 const void *Ptr,
-                                 const uint64_t Size = sizeof(T)) {
-  uintptr_t Addr = uintptr_t(Ptr);
-  if (std::error_code EC = checkOffset(M, Addr, Size))
-    return EC;
-  Obj = reinterpret_cast<const T *>(Addr);
-  return std::error_code();
-}
-
-static uint64_t bytesToBlocks(uint64_t NumBytes, uint64_t BlockSize) {
-  return alignTo(NumBytes, BlockSize) / BlockSize;
-}
-
-static uint64_t blockToOffset(uint64_t BlockNumber, uint64_t BlockSize) {
-  return BlockNumber * BlockSize;
-}
-
-struct PDBStructureContext {
-  const PDB::SuperBlock *SB;
-  MemoryBufferRef M;
-  std::vector<uint32_t> StreamSizes;
-  DenseMap<uint32_t, std::vector<uint32_t>> StreamMap;
-
-  SmallVector<char, 512> Scratch;
-
-  // getObject tries to stitch together non-contiguous blocks into a contiguous
-  // value.  The storage for the value comes from the memory mapped file if the
-  // memory would be contiguous.  Otherwise, it uses 'Scratch' to buffer the
-  // data.
-  template <typename T>
-  void getObject(const T *&Obj, uint32_t StreamIdx, uint32_t &Offset) {
-    // Make sure the stream index is valid.
-    auto StreamBlockI = StreamMap.find(StreamIdx);
-    if (StreamBlockI == StreamMap.end())
-      reportError(M.getBufferIdentifier(),
-                  std::make_error_code(std::errc::bad_address));
-
-    auto &StreamBlocks = StreamBlockI->second;
-    uint32_t BlockNum = Offset / SB->BlockSize;
-    uint32_t OffsetInBlock = Offset % SB->BlockSize;
-
-    // Make sure we aren't trying to read beyond the end of the stream.
-    if (Offset + sizeof(T) > StreamSizes[StreamIdx])
-      reportError(M.getBufferIdentifier(),
-                  std::make_error_code(std::errc::bad_address));
-
-    // Modify the passed in offset to point to the data after the object.
-    Offset += sizeof(T);
-
-    // Handle the contiguous case: the offset + size stays within a block.
-    if (OffsetInBlock + sizeof(T) <= SB->BlockSize) {
-      uint32_t StreamBlockAddr = StreamBlocks[BlockNum];
-      uint64_t StreamBlockOffset =
-          blockToOffset(StreamBlockAddr, SB->BlockSize) + OffsetInBlock;
-      // Return a pointer to the memory buffer.
-      Obj = reinterpret_cast<const T *>(M.getBufferStart() + StreamBlockOffset);
-      return;
-    }
-
-    // The non-contiguous case: we will stitch together non-contiguous chunks
-    // into the scratch buffer.
-    Scratch.clear();
-
-    uint32_t BytesLeft = sizeof(T);
-    while (BytesLeft > 0) {
-      uint32_t StreamBlockAddr = StreamBlocks[BlockNum];
-      uint64_t StreamBlockOffset =
-          blockToOffset(StreamBlockAddr, SB->BlockSize) + OffsetInBlock;
-
-      const char *ChunkStart =
-          M.getBufferStart() + StreamBlockOffset;
-      uint32_t BytesInChunk =
-          std::min(BytesLeft, SB->BlockSize - OffsetInBlock);
-      Scratch.append(ChunkStart, ChunkStart + BytesInChunk);
-
-      BytesLeft -= BytesInChunk;
-      ++BlockNum;
-      OffsetInBlock = 0;
-    }
-
-    // Return a pointer to the scratch buffer.
-    Obj = reinterpret_cast<const T *>(Scratch.data());
-  }
-
-  template <typename T>
-  T getInt(uint32_t StreamIdx, uint32_t &Offset) {
-    const support::detail::packed_endian_specific_integral<
-        T, support::little, support::unaligned> *P;
-    getObject(P, StreamIdx, Offset);
-    return *P;
-  }
-
-  template <typename T>
-  T getObject(uint32_t StreamIdx, uint32_t &Offset) {
-    const T *P;
-    getObject(P, StreamIdx, Offset);
-    return *P;
-  }
-};
-
-static void dumpStructure(MemoryBufferRef M) {
-  const PDB::SuperBlock *SB;
-
-  auto Error = [&](std::error_code EC) {
-    if (EC)
-      reportError(M.getBufferIdentifier(), EC);
-  };
-
-  Error(getObject(SB, M, M.getBufferStart()));
-
-  if (opts::DumpHeaders) {
-    outs() << "BlockSize: " << SB->BlockSize << '\n';
-    outs() << "Unknown0: " << SB->Unknown0 << '\n';
-    outs() << "NumBlocks: " << SB->NumBlocks << '\n';
-    outs() << "NumDirectoryBytes: " << SB->NumDirectoryBytes << '\n';
-    outs() << "Unknown1: " << SB->Unknown1 << '\n';
-    outs() << "BlockMapAddr: " << SB->BlockMapAddr << '\n';
-  }
-
-  // We don't support blocksizes which aren't a multiple of four bytes.
-  if (SB->BlockSize % sizeof(support::ulittle32_t) != 0)
-    Error(std::make_error_code(std::errc::not_supported));
-
-  // We don't support directories whose sizes aren't a multiple of four bytes.
-  if (SB->NumDirectoryBytes % sizeof(support::ulittle32_t) != 0)
-    Error(std::make_error_code(std::errc::not_supported));
-
-  // The number of blocks which comprise the directory is a simple function of
-  // the number of bytes it contains.
-  uint64_t NumDirectoryBlocks =
-      bytesToBlocks(SB->NumDirectoryBytes, SB->BlockSize);
-  if (opts::DumpHeaders)
-    outs() << "NumDirectoryBlocks: " << NumDirectoryBlocks << '\n';
-
-  // The block map, as we understand it, is a block which consists of a list of
-  // block numbers.
-  // It is unclear what would happen if the number of blocks couldn't fit on a
-  // single block.
-  if (NumDirectoryBlocks > SB->BlockSize / sizeof(support::ulittle32_t))
-    Error(std::make_error_code(std::errc::illegal_byte_sequence));
-
-  uint64_t BlockMapOffset = (uint64_t)SB->BlockMapAddr * SB->BlockSize;
-  if (opts::DumpHeaders)
-    outs() << "BlockMapOffset: " << BlockMapOffset << '\n';
+  DictScope D(P, "FileHeaders");
+  P.printNumber("BlockSize", File.getBlockSize());
+  P.printNumber("Unknown0", File.getUnknown0());
+  P.printNumber("NumBlocks", File.getBlockCount());
+  P.printNumber("NumDirectoryBytes", File.getNumDirectoryBytes());
+  P.printNumber("Unknown1", File.getUnknown1());
+  P.printNumber("BlockMapAddr", File.getBlockMapIndex());
+  P.printNumber("NumDirectoryBlocks", File.getNumDirectoryBlocks());
+  P.printNumber("BlockMapOffset", File.getBlockMapOffset());
 
   // The directory is not contiguous.  Instead, the block map contains a
   // contiguous list of block numbers whose contents, when concatenated in
   // order, make up the directory.
-  auto DirectoryBlocks =
-      makeArrayRef(reinterpret_cast<const support::ulittle32_t *>(
-                       M.getBufferStart() + BlockMapOffset),
-                   NumDirectoryBlocks);
-  Error(checkOffset(M, DirectoryBlocks));
+  P.printList("DirectoryBlocks", File.getDirectoryBlockArray());
+  P.printNumber("NumStreams", File.getNumStreams());
+  return Error::success();
+}
 
-  if (opts::DumpHeaders) {
-    outs() << "DirectoryBlocks: [";
-    for (const support::ulittle32_t &DirectoryBlockAddr : DirectoryBlocks) {
-      if (&DirectoryBlockAddr != &DirectoryBlocks.front())
-        outs() << ", ";
-      outs() << DirectoryBlockAddr;
-    }
-    outs() << "]\n";
+static Error dumpStreamSizes(ScopedPrinter &P, PDBFile &File) {
+  if (!opts::DumpStreamSizes)
+    return Error::success();
+
+  ListScope L(P, "StreamSizes");
+  uint32_t StreamCount = File.getNumStreams();
+  for (uint32_t StreamIdx = 0; StreamIdx < StreamCount; ++StreamIdx) {
+    std::string Name("Stream ");
+    Name += to_string(StreamIdx);
+    P.printNumber(Name, File.getStreamByteSize(StreamIdx));
   }
+  return Error::success();
+}
 
-  bool SeenNumStreams = false;
-  uint32_t NumStreams = 0;
-  uint32_t StreamIdx = 0;
-  uint64_t DirectoryBytesRead = 0;
-  PDBStructureContext Ctx;
-  Ctx.SB = SB;
-  Ctx.M = M;
-  // The structure of the directory is as follows:
-  //    struct PDBDirectory {
-  //      uint32_t NumStreams;
-  //      uint32_t StreamSizes[NumStreams];
-  //      uint32_t StreamMap[NumStreams][];
-  //    };
-  //
-  //  Empty streams don't consume entries in the StreamMap.
-  for (uint32_t DirectoryBlockAddr : DirectoryBlocks) {
-    uint64_t DirectoryBlockOffset =
-        blockToOffset(DirectoryBlockAddr, SB->BlockSize);
-    auto DirectoryBlock =
-        makeArrayRef(reinterpret_cast<const support::ulittle32_t *>(
-                         M.getBufferStart() + DirectoryBlockOffset),
-                     SB->BlockSize / sizeof(support::ulittle32_t));
-    Error(checkOffset(M, DirectoryBlock));
+static Error dumpStreamBlocks(ScopedPrinter &P, PDBFile &File) {
+  if (!opts::DumpStreamBlocks)
+    return Error::success();
 
-    // We read data out of the directory four bytes at a time.  Depending on
-    // where we are in the directory, the contents may be: the number of streams
-    // in the directory, a stream's size, or a block in the stream map.
-    for (uint32_t Data : DirectoryBlock) {
-      // Don't read beyond the end of the directory.
-      if (DirectoryBytesRead == SB->NumDirectoryBytes)
-        break;
-
-      DirectoryBytesRead += sizeof(Data);
-
-      // This data must be the number of streams if we haven't seen it yet.
-      if (!SeenNumStreams) {
-        NumStreams = Data;
-        SeenNumStreams = true;
-        continue;
-      }
-      // This data must be a stream size if we have not seen them all yet.
-      if (Ctx.StreamSizes.size() < NumStreams) {
-        // It seems like some streams have their set to -1 when their contents
-        // are not present.  Treat them like empty streams for now.
-        if (Data == UINT32_MAX)
-          Ctx.StreamSizes.push_back(0);
-        else
-          Ctx.StreamSizes.push_back(Data);
-        continue;
-      }
-
-      // This data must be a stream block number if we have seen all of the
-      // stream sizes.
-      std::vector<uint32_t> *StreamBlocks = nullptr;
-      // Figure out which stream this block number belongs to.
-      while (StreamIdx < NumStreams) {
-        uint64_t NumExpectedStreamBlocks =
-            bytesToBlocks(Ctx.StreamSizes[StreamIdx], SB->BlockSize);
-        StreamBlocks = &Ctx.StreamMap[StreamIdx];
-        if (NumExpectedStreamBlocks > StreamBlocks->size())
-          break;
-        ++StreamIdx;
-      }
-      // It seems this block doesn't belong to any stream?  The stream is either
-      // corrupt or something more mysterious is going on.
-      if (StreamIdx == NumStreams)
-        Error(std::make_error_code(std::errc::illegal_byte_sequence));
-
-      StreamBlocks->push_back(Data);
-    }
+  ListScope L(P, "StreamBlocks");
+  uint32_t StreamCount = File.getNumStreams();
+  for (uint32_t StreamIdx = 0; StreamIdx < StreamCount; ++StreamIdx) {
+    std::string Name("Stream ");
+    Name += to_string(StreamIdx);
+    auto StreamBlocks = File.getStreamBlockList(StreamIdx);
+    P.printList(Name, StreamBlocks);
   }
+  return Error::success();
+}
 
-  // We should have read exactly SB->NumDirectoryBytes bytes.
-  assert(DirectoryBytesRead == SB->NumDirectoryBytes);
-
-  if (opts::DumpHeaders)
-    outs() << "NumStreams: " << NumStreams << '\n';
-  if (opts::DumpStreamSizes)
-    for (uint32_t StreamIdx = 0; StreamIdx < NumStreams; ++StreamIdx)
-      outs() << "StreamSizes[" << StreamIdx
-             << "]: " << Ctx.StreamSizes[StreamIdx] << '\n';
-
-  if (opts::DumpStreamBlocks) {
-    for (uint32_t StreamIdx = 0; StreamIdx < NumStreams; ++StreamIdx) {
-      outs() << "StreamBlocks[" << StreamIdx << "]: [";
-      std::vector<uint32_t> &StreamBlocks = Ctx.StreamMap[StreamIdx];
-      for (uint32_t &StreamBlock : StreamBlocks) {
-        if (&StreamBlock != &StreamBlocks.front())
-          outs() << ", ";
-        outs() << StreamBlock;
-      }
-      outs() << "]\n";
-    }
-  }
-
+static Error dumpStreamData(ScopedPrinter &P, PDBFile &File) {
+  uint32_t StreamCount = File.getNumStreams();
   StringRef DumpStreamStr = opts::DumpStreamData;
   uint32_t DumpStreamNum;
-  if (!DumpStreamStr.getAsInteger(/*Radix=*/0U, DumpStreamNum) &&
-      DumpStreamNum < NumStreams) {
-    uint32_t StreamBytesRead = 0;
-    uint32_t StreamSize = Ctx.StreamSizes[DumpStreamNum];
-    std::vector<uint32_t> &StreamBlocks = Ctx.StreamMap[DumpStreamNum];
-    for (uint32_t &StreamBlockAddr : StreamBlocks) {
-      uint64_t StreamBlockOffset = blockToOffset(StreamBlockAddr, SB->BlockSize);
-      uint32_t BytesLeftToReadInStream = StreamSize - StreamBytesRead;
-      if (BytesLeftToReadInStream == 0)
-        break;
+  if (DumpStreamStr.getAsInteger(/*Radix=*/0U, DumpStreamNum) ||
+      DumpStreamNum >= StreamCount)
+    return Error::success();
 
-      uint32_t BytesToReadInBlock = std::min(
-          BytesLeftToReadInStream, static_cast<uint32_t>(SB->BlockSize));
-      auto StreamBlockData =
-          StringRef(M.getBufferStart() + StreamBlockOffset, BytesToReadInBlock);
-      Error(checkOffset(M, StreamBlockData));
+  uint32_t StreamBytesRead = 0;
+  uint32_t StreamSize = File.getStreamByteSize(DumpStreamNum);
+  auto StreamBlocks = File.getStreamBlockList(DumpStreamNum);
 
-      outs() << StreamBlockData;
-      StreamBytesRead += StreamBlockData.size();
+  for (uint32_t StreamBlockAddr : StreamBlocks) {
+    uint32_t BytesLeftToReadInStream = StreamSize - StreamBytesRead;
+    if (BytesLeftToReadInStream == 0)
+      break;
+
+    uint32_t BytesToReadInBlock = std::min(
+        BytesLeftToReadInStream, static_cast<uint32_t>(File.getBlockSize()));
+    auto StreamBlockData =
+        File.getBlockData(StreamBlockAddr, BytesToReadInBlock);
+
+    outs() << StreamBlockData;
+    StreamBytesRead += StreamBlockData.size();
+  }
+  return Error::success();
+}
+
+static Error dumpInfoStream(ScopedPrinter &P, PDBFile &File) {
+  auto InfoS = File.getPDBInfoStream();
+  if (auto EC = InfoS.takeError())
+    return EC;
+
+  InfoStream &IS = InfoS.get();
+
+  DictScope D(P, "PDB Stream");
+  P.printNumber("Version", IS.getVersion());
+  P.printHex("Signature", IS.getSignature());
+  P.printNumber("Age", IS.getAge());
+  P.printObject("Guid", IS.getGuid());
+  return Error::success();
+}
+
+static Error dumpNamedStream(ScopedPrinter &P, PDBFile &File,
+                             StringRef Stream) {
+  auto InfoS = File.getPDBInfoStream();
+  if (auto EC = InfoS.takeError())
+    return EC;
+  InfoStream &IS = InfoS.get();
+
+  uint32_t NameStreamIndex = IS.getNamedStreamIndex(Stream);
+
+  if (NameStreamIndex != 0) {
+    std::string Name("Stream '");
+    Name += Stream;
+    Name += "'";
+    DictScope D(P, Name);
+    P.printNumber("Index", NameStreamIndex);
+
+    MappedBlockStream NameStream(NameStreamIndex, File);
+    StreamReader Reader(NameStream);
+
+    NameHashTable NameTable;
+    if (auto EC = NameTable.load(Reader))
+      return EC;
+
+    P.printHex("Signature", NameTable.getSignature());
+    P.printNumber("Version", NameTable.getHashVersion());
+    P.printNumber("Name Count", NameTable.getNameCount());
+    ListScope L(P, "Names");
+    for (uint32_t ID : NameTable.name_ids()) {
+      StringRef Str = NameTable.getStringForID(ID);
+      if (!Str.empty())
+        P.printString(Str);
     }
   }
+  return Error::success();
+}
 
-  uint32_t Offset = 0;
+static Error dumpDbiStream(ScopedPrinter &P, PDBFile &File) {
+  auto DbiS = File.getPDBDbiStream();
+  if (auto EC = DbiS.takeError())
+    return EC;
+  DbiStream &DS = DbiS.get();
 
-  // Stream 1 starts with the following header:
-  //   uint32_t Version;
-  //   uint32_t Signature;
-  //   uint32_t Age;
-  //   GUID Guid;
-  auto Version = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-  outs() << "Version: " << Version << '\n';
+  DictScope D(P, "DBI Stream");
+  P.printNumber("Dbi Version", DS.getDbiVersion());
+  P.printNumber("Age", DS.getAge());
+  P.printBoolean("Incremental Linking", DS.isIncrementallyLinked());
+  P.printBoolean("Has CTypes", DS.hasCTypes());
+  P.printBoolean("Is Stripped", DS.isStripped());
+  P.printObject("Machine Type", DS.getMachineType());
+  P.printNumber("Number of Symbols", DS.getNumberOfSymbols());
 
-  // PDB's with versions before PDBImpvVC70 might not have the Guid field, we
-  // don't support them.
-  if (Version < 20000404)
-    Error(std::make_error_code(std::errc::not_supported));
+  uint16_t Major = DS.getBuildMajorVersion();
+  uint16_t Minor = DS.getBuildMinorVersion();
+  P.printVersion("Toolchain Version", Major, Minor);
 
-  // This appears to be the time the PDB was last opened by an MSVC tool?
-  // It is definitely a timestamp of some sort.
-  auto Signature = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-  outs() << "Signature: ";
-  outs().write_hex(Signature) << '\n';
+  std::string DllName;
+  raw_string_ostream DllStream(DllName);
+  DllStream << "mspdb" << Major << Minor << ".dll version";
+  DllStream.flush();
+  P.printVersion(DllName, Major, Minor, DS.getPdbDllVersion());
 
-  // This appears to be a number which is used to determine that the PDB is kept
-  // in sync with the EXE.
-  auto Age = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-  outs() << "Age: " << Age << '\n';
-
-  // I'm not sure what the purpose of the GUID is.
-  using GuidTy = char[16];
-  const GuidTy *Guid;
-  Ctx.getObject(Guid, /*PDBStream=*/1, Offset);
-  outs() << "Guid: ";
-  for (char C : *Guid)
-    outs().write_hex(C & 0xff) << ' ';
-  outs() << '\n';
-
-  // This is some sort of weird string-set/hash table encoded in the stream.
-  // It starts with the number of bytes in the table.
-  auto NumberOfBytes = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-  outs() << "NumberOfBytes: " << NumberOfBytes << '\n';
-
-  // Following that field is the starting offset of strings in the name table.
-  uint32_t StringsOffset = Offset;
-  Offset += NumberOfBytes;
-
-  // This appears to be equivalent to the total number of strings *actually*
-  // in the name table.
-  auto HashSize = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-  outs() << "HashSize: " << HashSize << '\n';
-
-  // This appears to be an upper bound on the number of strings in the name
-  // table.
-  auto MaxNumberOfStrings = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-  outs() << "MaxNumberOfStrings: " << MaxNumberOfStrings << '\n';
-
-  // This appears to be a hash table which uses bitfields to determine whether
-  // or not a bucket is 'present'.
-  auto NumPresentWords = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-  outs() << "NumPresentWords: " << NumPresentWords << '\n';
-
-  // Store all the 'present' bits in a vector for later processing.
-  SmallVector<uint32_t, 1> PresentWords;
-  for (uint32_t I = 0; I != NumPresentWords; ++I) {
-    auto Word = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-    PresentWords.push_back(Word);
-    outs() << "Word: " << Word << '\n';
+  ListScope L(P, "Modules");
+  for (auto &Modi : DS.modules()) {
+    DictScope DD(P);
+    P.printString("Name", Modi.Info.getModuleName());
+    P.printNumber("Debug Stream Index", Modi.Info.getModuleStreamIndex());
+    P.printString("Object File Name", Modi.Info.getObjFileName());
+    P.printNumber("Num Files", Modi.Info.getNumberOfFiles());
+    P.printNumber("Source File Name Idx", Modi.Info.getSourceFileNameIndex());
+    P.printNumber("Pdb File Name Idx", Modi.Info.getPdbFilePathNameIndex());
+    P.printNumber("Line Info Byte Size", Modi.Info.getLineInfoByteSize());
+    P.printNumber("C13 Line Info Byte Size",
+                  Modi.Info.getC13LineInfoByteSize());
+    P.printNumber("Symbol Byte Size", Modi.Info.getSymbolDebugInfoByteSize());
+    P.printNumber("Type Server Index", Modi.Info.getTypeServerIndex());
+    P.printBoolean("Has EC Info", Modi.Info.hasECInfo());
+    std::string FileListName =
+        to_string(Modi.SourceFiles.size()) + " Contributing Source Files";
+    ListScope LL(P, FileListName);
+    for (auto File : Modi.SourceFiles)
+      P.printString(File);
   }
+  return Error::success();
+}
 
-  // This appears to be a hash table which uses bitfields to determine whether
-  // or not a bucket is 'deleted'.
-  auto NumDeletedWords = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-  outs() << "NumDeletedWords: " << NumDeletedWords << '\n';
+static Error dumpTpiStream(ScopedPrinter &P, PDBFile &File) {
+  if (!opts::DumpTpiRecordBytes && !opts::DumpTpiRecords)
+    return Error::success();
 
-  // Store all the 'deleted' bits in a vector for later processing.
-  SmallVector<uint32_t, 1> DeletedWords;
-  for (uint32_t I = 0; I != NumDeletedWords; ++I) {
-    auto Word = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-    DeletedWords.push_back(Word);
-    outs() << "Word: " << Word << '\n';
+  DictScope D(P, "Type Info Stream");
+
+  auto TpiS = File.getPDBTpiStream();
+  if (auto EC = TpiS.takeError())
+    return EC;
+  TpiStream &Tpi = TpiS.get();
+
+  P.printNumber("TPI Version", Tpi.getTpiVersion());
+  P.printNumber("Record count", Tpi.NumTypeRecords());
+
+  if (opts::DumpTpiRecordBytes || opts::DumpTpiRecords) {
+    ListScope L(P, "Records");
+    codeview::CVTypeDumper TD(P, false);
+
+    for (auto &Type : Tpi.types()) {
+      DictScope DD(P, "");
+
+      if (opts::DumpTpiRecords)
+        TD.dump(Type);
+
+      if (opts::DumpTpiRecordBytes)
+        P.printBinaryBlock("Bytes", Type.LeafData);
+    }
   }
+  return Error::success();
+}
 
-  BitVector Present(MaxNumberOfStrings, false);
-  if (!PresentWords.empty())
-    Present.setBitsInMask(PresentWords.data(), PresentWords.size());
-  BitVector Deleted(MaxNumberOfStrings, false);
-  if (!DeletedWords.empty())
-    Deleted.setBitsInMask(DeletedWords.data(), DeletedWords.size());
+static Error dumpStructure(RawSession &RS) {
+  PDBFile &File = RS.getPDBFile();
+  ScopedPrinter P(outs());
 
-  StringMap<uint32_t> NamedStreams;
-  for (uint32_t I = 0; I < MaxNumberOfStrings; ++I) {
-    if (!Present.test(I))
-      continue;
+  if (auto EC = dumpFileHeaders(P, File))
+    return EC;
 
-    // For all present entries, dump out their mapping.
+  if (auto EC = dumpStreamSizes(P, File))
+    return EC;
 
-    // This appears to be an offset relative to the start of the strings.
-    // It tells us where the null-terminated string begins.
-    auto NameOffset = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-    outs() << "NameOffset: " << NameOffset << '\n';
+  if (auto EC = dumpStreamBlocks(P, File))
+    return EC;
 
-    // This appears to be a stream number into the stream directory.
-    auto NameIndex = Ctx.getInt<uint32_t>(/*PDBStream=*/1, Offset);
-    outs() << "NameIndex: " << NameIndex << '\n';
+  if (auto EC = dumpStreamData(P, File))
+    return EC;
 
-    // Compute the offset of the start of the string relative to the stream.
-    uint32_t StringOffset = StringsOffset + NameOffset;
+  if (auto EC = dumpInfoStream(P, File))
+    return EC;
 
-    // Pump out our c-string from the stream.
-    SmallString<8> Str;
-    char C;
-    do {
-      C = Ctx.getObject<char>(/*PDBStream=*/1, StringOffset);
-      if (C != '\0')
-        Str += C;
-    } while (C != '\0');
-    outs() << "String: " << Str << "\n\n";
+  if (auto EC = dumpNamedStream(P, File, "/names"))
+    return EC;
 
-    // Add this to a string-map from name to stream number.
-    NamedStreams.insert({Str, NameIndex});
-  }
+  if (auto EC = dumpDbiStream(P, File))
+    return EC;
 
-  // Let's try to dump out the named stream "/names".
-  auto NameI = NamedStreams.find("/names");
-  if (NameI != NamedStreams.end()) {
-    uint32_t NameStream = NameI->second;
-    outs() << "NameStream: " << NameStream << '\n';
-
-    uint32_t NameStreamOffset = 0;
-
-    // The name stream appears to start with a signature and version.
-    auto NameStreamSignature =
-        Ctx.getInt<uint32_t>(/*PDBStream=*/NameStream, NameStreamOffset);
-    outs() << "NameStreamSignature: ";
-    outs().write_hex(NameStreamSignature) << '\n';
-
-    auto NameStreamVersion =
-        Ctx.getInt<uint32_t>(/*PDBStream=*/NameStream, NameStreamOffset);
-    outs() << "NameStreamVersion: " << NameStreamVersion << '\n';
-
-    // We only support this particular version of the name stream.
-    if (NameStreamSignature != 0xeffeeffe || NameStreamVersion != 1)
-      Error(std::make_error_code(std::errc::not_supported));
-  }
+  if (auto EC = dumpTpiStream(P, File))
+    return EC;
+  return Error::success();
 }
 
 static void dumpInput(StringRef Path) {
-  if (opts::DumpHeaders || !opts::DumpStreamData.empty()) {
-    ErrorOr<std::unique_ptr<MemoryBuffer>> ErrorOrBuffer =
-        MemoryBuffer::getFileOrSTDIN(Path, /*FileSize=*/-1,
-                                     /*RequiresNullTerminator=*/false);
-
-    if (std::error_code EC = ErrorOrBuffer.getError())
-      reportError(Path, EC);
-
-    std::unique_ptr<MemoryBuffer> &Buffer = ErrorOrBuffer.get();
-
-    dumpStructure(Buffer->getMemBufferRef());
-
-    outs().flush();
-    return;
-  }
-
   std::unique_ptr<IPDBSession> Session;
-  PDB_ErrorCode Error = loadDataForPDB(PDB_ReaderType::DIA, Path, Session);
-  switch (Error) {
-  case PDB_ErrorCode::Success:
-    break;
-  case PDB_ErrorCode::NoPdbImpl:
-    outs() << "Reading PDBs is not supported on this platform.\n";
-    return;
-  case PDB_ErrorCode::InvalidPath:
-    outs() << "Unable to load PDB at '" << Path
-           << "'.  Check that the file exists and is readable.\n";
-    return;
-  case PDB_ErrorCode::InvalidFileFormat:
-    outs() << "Unable to load PDB at '" << Path
-           << "'.  The file has an unrecognized format.\n";
-    return;
-  default:
-    outs() << "Unable to load PDB at '" << Path
-           << "'.  An unknown error occured.\n";
+  if (opts::DumpHeaders || !opts::DumpStreamData.empty()) {
+    auto E = loadDataForPDB(PDB_ReaderType::Raw, Path, Session);
+    if (!E) {
+      RawSession *RS = static_cast<RawSession *>(Session.get());
+      E = dumpStructure(*RS);
+    }
+
+    if (E)
+      logAllUnhandledErrors(std::move(E), outs(), "");
+
     return;
   }
+
+  Error E = loadDataForPDB(PDB_ReaderType::DIA, Path, Session);
+  if (E) {
+    logAllUnhandledErrors(std::move(E), outs(), "");
+    return;
+  }
+
   if (opts::LoadAddress)
     Session->setLoadAddress(opts::LoadAddress);
 
@@ -684,8 +465,11 @@ static void dumpInput(StringRef Path) {
     Printer.Indent();
     auto Compilands = GlobalScope->findAllChildren<PDBSymbolCompiland>();
     CompilandDumper Dumper(Printer);
+    CompilandDumpFlags options = CompilandDumper::Flags::None;
+    if (opts::Lines)
+      options = options | CompilandDumper::Flags::Lines;
     while (auto Compiland = Compilands->getNext())
-      Dumper.start(*Compiland, false);
+      Dumper.start(*Compiland, options);
     Printer.Unindent();
   }
 
@@ -742,6 +526,9 @@ static void dumpInput(StringRef Path) {
     ExternalSymbolDumper Dumper(Printer);
     Dumper.start(*GlobalScope);
   }
+  if (opts::Lines) {
+    Printer.NewLine();
+  }
   outs().flush();
 }
 
@@ -762,20 +549,32 @@ int main(int argc_, const char *argv_[]) {
   llvm_shutdown_obj Y; // Call llvm_shutdown() on exit.
 
   cl::ParseCommandLineOptions(argv.size(), argv.data(), "LLVM PDB Dumper\n");
+  if (opts::Lines)
+    opts::Compilands = true;
+
   if (opts::All) {
     opts::Compilands = true;
     opts::Symbols = true;
     opts::Globals = true;
     opts::Types = true;
     opts::Externals = true;
+    opts::Lines = true;
   }
+
+  // When adding filters for excluded compilands and types, we need to remember
+  // that these are regexes.  So special characters such as * and \ need to be
+  // escaped in the regex.  In the case of a literal \, this means it needs to
+  // be escaped again in the C++.  So matching a single \ in the input requires
+  // 4 \es in the C++.
   if (opts::ExcludeCompilerGenerated) {
     opts::ExcludeTypes.push_back("__vc_attributes");
-    opts::ExcludeCompilands.push_back("* Linker *");
+    opts::ExcludeCompilands.push_back("\\* Linker \\*");
   }
   if (opts::ExcludeSystemLibraries) {
     opts::ExcludeCompilands.push_back(
-        "f:\\binaries\\Intermediate\\vctools\\crt_bld");
+        "f:\\\\binaries\\\\Intermediate\\\\vctools\\\\crt_bld");
+    opts::ExcludeCompilands.push_back("f:\\\\dd\\\\vctools\\\\crt");
+    opts::ExcludeCompilands.push_back("d:\\\\th.obj.x86fre\\\\minkernel");
   }
 
 #if defined(HAVE_DIA_SDK)
@@ -788,6 +587,6 @@ int main(int argc_, const char *argv_[]) {
 #if defined(HAVE_DIA_SDK)
   CoUninitialize();
 #endif
-
+  outs().flush();
   return 0;
 }

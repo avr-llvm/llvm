@@ -76,8 +76,40 @@ public:
   /// right after selection.
   virtual void PostprocessISelDAG() {}
 
-  /// Select - Main hook targets implement to select a node.
-  virtual SDNode *Select(SDNode *N) = 0;
+  /// Main hook for targets to transform nodes into machine nodes.
+  ///
+  /// All targets should implement this hook. The default implementation will be
+  /// made abstract once all targets are migrated off of the legacy hook.
+  virtual void Select(SDNode *N) {
+    SDNode *New = SelectImpl(N);
+    // TODO: Checking DELETED_NODE here is undefined behaviour, which will be
+    // fixed by migrating backends to implement the void Select interface
+    // instead or returning a node.
+    if (New == N || N->getOpcode() == ISD::DELETED_NODE)
+      // If we ask to replace the node with itself or if we deleted the original
+      // node, just move on to the next one. This case will go away once
+      // everyone migrates to stop implementing SelectImpl.
+      return;
+    if (New) {
+      // Replace the node with the returned node. Originally, Select would
+      // always return a node and the caller would replace it, but this doesn't
+      // work for more complicated selection schemes.
+      ReplaceUses(N, New);
+      CurDAG->RemoveDeadNode(N);
+    } else if (N->use_empty())
+      // Clean up dangling nodes if the target didn't bother. These are
+      // basically bugs in the targets, but we were lenient in the past and did
+      // this for them.
+      CurDAG->RemoveDeadNode(N);
+  }
+
+  /// Legacy hook to support transitioning to the return-less Select().
+  ///
+  /// This exposes the old style Select hook. New code should implement void
+  /// Select() instead.
+  virtual SDNode *SelectImpl(SDNode *N) {
+    llvm_unreachable("Subclasses must implement one of Select or SelectImpl");
+  }
 
   /// SelectInlineAsmMemoryOperand - Select the specified address as a target
   /// addressing mode, according to the specified constraint.  If this does
@@ -111,6 +143,8 @@ public:
     OPC_RecordMemRef,
     OPC_CaptureGlueInput,
     OPC_MoveChild,
+    OPC_MoveChild0, OPC_MoveChild1, OPC_MoveChild2, OPC_MoveChild3,
+    OPC_MoveChild4, OPC_MoveChild5, OPC_MoveChild6, OPC_MoveChild7,
     OPC_MoveParent,
     OPC_CheckSame,
     OPC_CheckChild0Same, OPC_CheckChild1Same,
@@ -140,11 +174,15 @@ public:
     OPC_EmitMergeInputChains,
     OPC_EmitMergeInputChains1_0,
     OPC_EmitMergeInputChains1_1,
+    OPC_EmitMergeInputChains1_2,
     OPC_EmitCopyToReg,
     OPC_EmitNodeXForm,
     OPC_EmitNode,
+    // Space-optimized forms that implicitly encode number of result VTs.
+    OPC_EmitNode0, OPC_EmitNode1, OPC_EmitNode2,
     OPC_MorphNodeTo,
-    OPC_MarkGlueResults,
+    // Space-optimized forms that implicitly encode number of result VTs.
+    OPC_MorphNodeTo0, OPC_MorphNodeTo1, OPC_MorphNodeTo2,
     OPC_CompleteMatch
   };
 
@@ -294,11 +332,9 @@ private:
   /// state machines that start with a OPC_SwitchOpcode node.
   std::vector<unsigned> OpcodeOffset;
 
-  void UpdateChainsAndGlue(SDNode *NodeToMatch, SDValue InputChain,
-                           const SmallVectorImpl<SDNode*> &ChainNodesMatched,
-                           SDValue InputGlue, const SmallVectorImpl<SDNode*> &F,
-                           bool isMorphNodeTo);
-
+  void UpdateChains(SDNode *NodeToMatch, SDValue InputChain,
+                    const SmallVectorImpl<SDNode *> &ChainNodesMatched,
+                    bool isMorphNodeTo);
 };
 
 }

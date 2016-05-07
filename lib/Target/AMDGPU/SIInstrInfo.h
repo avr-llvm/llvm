@@ -13,8 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 
-#ifndef LLVM_LIB_TARGET_R600_SIINSTRINFO_H
-#define LLVM_LIB_TARGET_R600_SIINSTRINFO_H
+#ifndef LLVM_LIB_TARGET_AMDGPU_SIINSTRINFO_H
+#define LLVM_LIB_TARGET_AMDGPU_SIINSTRINFO_H
 
 #include "AMDGPUInstrInfo.h"
 #include "SIDefines.h"
@@ -22,7 +22,7 @@
 
 namespace llvm {
 
-class SIInstrInfo : public AMDGPUInstrInfo {
+class SIInstrInfo final : public AMDGPUInstrInfo {
 private:
   const SIRegisterInfo RI;
 
@@ -91,12 +91,12 @@ public:
                                int64_t &Offset2) const override;
 
   bool getMemOpBaseRegImmOfs(MachineInstr *LdSt, unsigned &BaseReg,
-                             unsigned &Offset,
+                             int64_t &Offset,
                              const TargetRegisterInfo *TRI) const final;
 
-  bool shouldClusterLoads(MachineInstr *FirstLdSt,
-                          MachineInstr *SecondLdSt,
-                          unsigned NumLoads) const final;
+  bool shouldClusterMemOps(MachineInstr *FirstLdSt,
+                           MachineInstr *SecondLdSt,
+                           unsigned NumLoads) const final;
 
   void copyPhysReg(MachineBasicBlock &MBB,
                    MachineBasicBlock::iterator MI, DebugLoc DL,
@@ -149,6 +149,10 @@ public:
                                       MachineBasicBlock::iterator &MI,
                                       LiveVariables *LV) const override;
 
+  bool isSchedulingBoundary(const MachineInstr *MI,
+                            const MachineBasicBlock *MBB,
+                            const MachineFunction &MF) const override;
+
   static bool isSALU(const MachineInstr &MI) {
     return MI.getDesc().TSFlags & SIInstrFlags::SALU;
   }
@@ -163,6 +167,14 @@ public:
 
   bool isVALU(uint16_t Opcode) const {
     return get(Opcode).TSFlags & SIInstrFlags::VALU;
+  }
+
+  static bool isVMEM(const MachineInstr &MI) {
+    return isMUBUF(MI) || isMTBUF(MI) || isMIMG(MI);
+  }
+
+  bool isVMEM(uint16_t Opcode) const {
+    return isMUBUF(Opcode) || isMTBUF(Opcode) || isMIMG(Opcode);
   }
 
   static bool isSOP1(const MachineInstr &MI) {
@@ -301,6 +313,14 @@ public:
     return get(Opcode).TSFlags & SIInstrFlags::VGPRSpill;
   }
 
+  static bool isDPP(const MachineInstr &MI) {
+    return MI.getDesc().TSFlags & SIInstrFlags::DPP;
+  }
+
+  bool isDPP(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::DPP;
+  }
+
   bool isInlineConstant(const APInt &Imm) const;
   bool isInlineConstant(const MachineOperand &MO, unsigned OpSize) const;
   bool isLiteralConstant(const MachineOperand &MO, unsigned OpSize) const;
@@ -425,7 +445,15 @@ public:
   void LoadM0(MachineInstr *MoveRel, MachineBasicBlock::iterator I,
               unsigned SavReg, unsigned IndexReg) const;
 
-  void insertWaitStates(MachineBasicBlock::iterator MI, int Count) const;
+  void insertWaitStates(MachineBasicBlock &MBB,MachineBasicBlock::iterator MI,
+                        int Count) const;
+
+  void insertNoop(MachineBasicBlock &MBB,
+                  MachineBasicBlock::iterator MI) const override;
+
+  /// \brief Return the number of wait states that result from executing this
+  /// instruction.
+  unsigned getNumWaitStates(const MachineInstr &MI) const;
 
   /// \brief Returns the operand named \p Op.  If \p MI does not have an
   /// operand named \c Op, this function returns nullptr.
@@ -458,6 +486,13 @@ public:
 
   ArrayRef<std::pair<int, const char *>>
   getSerializableTargetIndices() const override;
+
+  ScheduleHazardRecognizer *
+  CreateTargetPostRAHazardRecognizer(const InstrItineraryData *II,
+                                 const ScheduleDAG *DAG) const override;
+
+  ScheduleHazardRecognizer *
+  CreateTargetPostRAHazardRecognizer(const MachineFunction &MF) const override;
 
 };
 

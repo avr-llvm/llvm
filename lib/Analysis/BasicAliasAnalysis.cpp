@@ -359,7 +359,7 @@ static int64_t adjustToPointerSize(int64_t Offset, unsigned PointerSize) {
     if (!Op) {
       // The only non-operator case we can handle are GlobalAliases.
       if (const GlobalAlias *GA = dyn_cast<GlobalAlias>(V)) {
-        if (!GA->mayBeOverridden()) {
+        if (!GA->isInterposable()) {
           V = GA->getAliasee();
           continue;
         }
@@ -541,22 +541,6 @@ bool BasicAAResult::pointsToConstantMemory(const MemoryLocation &Loc,
   return Worklist.empty();
 }
 
-// FIXME: This code is duplicated with MemoryLocation and should be hoisted to
-// some common utility location.
-static bool isMemsetPattern16(const Function *MS,
-                              const TargetLibraryInfo &TLI) {
-  if (TLI.has(LibFunc::memset_pattern16) &&
-      MS->getName() == "memset_pattern16") {
-    FunctionType *MemsetType = MS->getFunctionType();
-    if (!MemsetType->isVarArg() && MemsetType->getNumParams() == 3 &&
-        isa<PointerType>(MemsetType->getParamType(0)) &&
-        isa<PointerType>(MemsetType->getParamType(1)) &&
-        isa<IntegerType>(MemsetType->getParamType(2)))
-      return true;
-  }
-  return false;
-}
-
 /// Returns the behavior when calling the given call site.
 FunctionModRefBehavior BasicAAResult::getModRefBehavior(ImmutableCallSite CS) {
   if (CS.doesNotAccessMemory())
@@ -573,8 +557,15 @@ FunctionModRefBehavior BasicAAResult::getModRefBehavior(ImmutableCallSite CS) {
   if (CS.onlyAccessesArgMemory())
     Min = FunctionModRefBehavior(Min & FMRB_OnlyAccessesArgumentPointees);
 
-  // The AAResultBase base class has some smarts, lets use them.
-  return FunctionModRefBehavior(AAResultBase::getModRefBehavior(CS) & Min);
+  // If CS has operand bundles then aliasing attributes from the function it
+  // calls do not directly apply to the CallSite.  This can be made more
+  // precise in the future.
+  if (!CS.hasOperandBundles())
+    if (const Function *F = CS.getCalledFunction())
+      Min =
+          FunctionModRefBehavior(Min & getBestAAResults().getModRefBehavior(F));
+
+  return Min;
 }
 
 /// Returns the behavior when calling the given function. For use when the call
@@ -582,6 +573,12 @@ FunctionModRefBehavior BasicAAResult::getModRefBehavior(ImmutableCallSite CS) {
 FunctionModRefBehavior BasicAAResult::getModRefBehavior(const Function *F) {
   // If the function declares it doesn't access memory, we can't do better.
   if (F->doesNotAccessMemory())
+    return FMRB_DoesNotAccessMemory;
+
+  // While the assume intrinsic is marked as arbitrarily writing so that
+  // proper control dependencies will be maintained, it never aliases any
+  // particular memory location.
+  if (F->getIntrinsicID() == Intrinsic::assume)
     return FMRB_DoesNotAccessMemory;
 
   FunctionModRefBehavior Min = FMRB_UnknownModRefBehavior;
@@ -593,8 +590,7 @@ FunctionModRefBehavior BasicAAResult::getModRefBehavior(const Function *F) {
   if (F->onlyAccessesArgMemory())
     Min = FunctionModRefBehavior(Min & FMRB_OnlyAccessesArgumentPointees);
 
-  // Otherwise be conservative.
-  return FunctionModRefBehavior(AAResultBase::getModRefBehavior(F) & Min);
+  return Min;
 }
 
 /// Returns true if this is a writeonly (i.e Mod only) parameter.  Currently,
@@ -623,7 +619,9 @@ static bool isWriteOnlyParam(ImmutableCallSite CS, unsigned ArgIdx,
   // LoopIdiomRecognizer likes to turn loops into calls to memset_pattern16
   // whenever possible.  Note that all but the missing writeonly attribute are
   // handled via InferFunctionAttr.
-  if (CS.getCalledFunction() && isMemsetPattern16(CS.getCalledFunction(), TLI))
+  LibFunc::Func F;
+  if (CS.getCalledFunction() && TLI.getLibFunc(*CS.getCalledFunction(), F) &&
+      F == LibFunc::memset_pattern16 && TLI.has(F))
     if (ArgIdx == 0)
       return true;
 
@@ -751,6 +749,20 @@ ModRefInfo BasicAAResult::getModRefInfo(ImmutableCallSite CS,
     }
 
     if (!PassedAsArg)
+      return MRI_NoModRef;
+  }
+
+  // If the CallSite is to malloc or calloc, we can assume that it doesn't
+  // modify any IR visible value.  This is only valid because we assume these
+  // routines do not read values visible in the IR.  TODO: Consider special
+  // casing realloc and strdup routines which access only their arguments as
+  // well.  Or alternatively, replace all of this with inaccessiblememonly once
+  // that's implemented fully. 
+  auto *Inst = CS.getInstruction();
+  if (isMallocLikeFn(Inst, &TLI) || isCallocLikeFn(Inst, &TLI)) {
+    // Be conservative if the accessed pointer may alias the allocation -
+    // fallback to the generic handling below.
+    if (getBestAAResults().alias(MemoryLocation(Inst), Loc) == NoAlias)
       return MRI_NoModRef;
   }
 
@@ -1586,12 +1598,14 @@ bool BasicAAResult::constantOffsetHeuristic(
 // BasicAliasAnalysis Pass
 //===----------------------------------------------------------------------===//
 
-BasicAAResult BasicAA::run(Function &F, AnalysisManager<Function> *AM) {
+char BasicAA::PassID;
+
+BasicAAResult BasicAA::run(Function &F, AnalysisManager<Function> &AM) {
   return BasicAAResult(F.getParent()->getDataLayout(),
-                       AM->getResult<TargetLibraryAnalysis>(F),
-                       AM->getResult<AssumptionAnalysis>(F),
-                       AM->getCachedResult<DominatorTreeAnalysis>(F),
-                       AM->getCachedResult<LoopAnalysis>(F));
+                       AM.getResult<TargetLibraryAnalysis>(F),
+                       AM.getResult<AssumptionAnalysis>(F),
+                       &AM.getResult<DominatorTreeAnalysis>(F),
+                       AM.getCachedResult<LoopAnalysis>(F));
 }
 
 BasicAAWrapperPass::BasicAAWrapperPass() : FunctionPass(ID) {
@@ -1604,6 +1618,7 @@ void BasicAAWrapperPass::anchor() {}
 INITIALIZE_PASS_BEGIN(BasicAAWrapperPass, "basicaa",
                       "Basic Alias Analysis (stateless AA impl)", true, true)
 INITIALIZE_PASS_DEPENDENCY(AssumptionCacheTracker)
+INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
 INITIALIZE_PASS_END(BasicAAWrapperPass, "basicaa",
                     "Basic Alias Analysis (stateless AA impl)", true, true)
@@ -1615,12 +1630,11 @@ FunctionPass *llvm::createBasicAAWrapperPass() {
 bool BasicAAWrapperPass::runOnFunction(Function &F) {
   auto &ACT = getAnalysis<AssumptionCacheTracker>();
   auto &TLIWP = getAnalysis<TargetLibraryInfoWrapperPass>();
-  auto *DTWP = getAnalysisIfAvailable<DominatorTreeWrapperPass>();
+  auto &DTWP = getAnalysis<DominatorTreeWrapperPass>();
   auto *LIWP = getAnalysisIfAvailable<LoopInfoWrapperPass>();
 
   Result.reset(new BasicAAResult(F.getParent()->getDataLayout(), TLIWP.getTLI(),
-                                 ACT.getAssumptionCache(F),
-                                 DTWP ? &DTWP->getDomTree() : nullptr,
+                                 ACT.getAssumptionCache(F), &DTWP.getDomTree(),
                                  LIWP ? &LIWP->getLoopInfo() : nullptr));
 
   return false;
@@ -1629,6 +1643,7 @@ bool BasicAAWrapperPass::runOnFunction(Function &F) {
 void BasicAAWrapperPass::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.setPreservesAll();
   AU.addRequired<AssumptionCacheTracker>();
+  AU.addRequired<DominatorTreeWrapperPass>();
   AU.addRequired<TargetLibraryInfoWrapperPass>();
 }
 

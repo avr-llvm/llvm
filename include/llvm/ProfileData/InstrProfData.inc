@@ -73,6 +73,10 @@ INSTR_PROF_DATA(const uint64_t, llvm::Type::getInt64Ty(Ctx), FuncHash, \
 INSTR_PROF_DATA(const IntPtrT, llvm::Type::getInt64PtrTy(Ctx), CounterPtr, \
                 ConstantExpr::getBitCast(CounterPtr, \
                 llvm::Type::getInt64PtrTy(Ctx)))
+/* This is used to map function pointers for the indirect call targets to
+ * function name hashes during the conversion from raw to merged profile
+ * data.
+ */
 INSTR_PROF_DATA(const IntPtrT, llvm::Type::getInt8PtrTy(Ctx), FunctionPointer, \
                 FunctionAddr)
 INSTR_PROF_DATA(IntPtrT, llvm::Type::getInt8PtrTy(Ctx), Values, \
@@ -99,8 +103,6 @@ INSTR_PROF_RAW_HEADER(uint64_t, NamesSize,  NamesSize)
 INSTR_PROF_RAW_HEADER(uint64_t, CountersDelta, (uintptr_t)CountersBegin)
 INSTR_PROF_RAW_HEADER(uint64_t, NamesDelta, (uintptr_t)NamesBegin)
 INSTR_PROF_RAW_HEADER(uint64_t, ValueKindLast, IPVK_Last)
-INSTR_PROF_RAW_HEADER(uint64_t, ValueDataSize, ValueDataSize)
-INSTR_PROF_RAW_HEADER(uint64_t, ValueDataDelta, (uintptr_t)ValueDataBegin)
 #undef INSTR_PROF_RAW_HEADER
 /* INSTR_PROF_RAW_HEADER  end */
 
@@ -129,6 +131,15 @@ VALUE_PROF_FUNC_PARAM(uint32_t, CounterIndex, Type::getInt32Ty(Ctx))
 #else
 #define INSTR_PROF_DATA_DEFINED
 #endif
+/* For indirect function call value profiling, the addresses of the target
+ * functions are profiled by the instrumented code. The target addresses are
+ * written in the raw profile data and converted to target function name's MD5
+ * hash by the profile reader during deserialization.  Typically, this happens
+ * when the the raw profile data is read during profile merging.
+ *
+ * For this remapping the ProfData is used.  ProfData contains both the function
+ * name hash and the function address.
+ */
 VALUE_PROF_KIND(IPVK_IndirectCallTarget, 0)
 /* These two kinds must be the last to be
  * declared. This is to make sure the string
@@ -698,7 +709,7 @@ serializeValueProfDataFromRT(const ValueProfRuntimeRecord *Record,
         (uint64_t)'f' << 16 | (uint64_t)'R' << 8 | (uint64_t)129
 
 /* Raw profile format version (start from 1). */
-#define INSTR_PROF_RAW_VERSION 3
+#define INSTR_PROF_RAW_VERSION 4
 /* Indexed profile format version (start from 1). */
 #define INSTR_PROF_INDEX_VERSION 4
 /* Coverage mapping format vresion (start from 0). */

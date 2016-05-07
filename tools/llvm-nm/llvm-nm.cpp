@@ -16,6 +16,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -343,7 +344,7 @@ static void darwinPrintSymbol(SymbolicFile &Obj, SymbolListT::iterator I,
           MachO::REFERENCE_FLAG_UNDEFINED_LAZY)
         outs() << "undefined [lazy bound]) ";
       else if ((NDesc & MachO::REFERENCE_TYPE) ==
-               MachO::REFERENCE_FLAG_UNDEFINED_LAZY)
+               MachO::REFERENCE_FLAG_PRIVATE_UNDEFINED_LAZY)
         outs() << "undefined [private lazy bound]) ";
       else if ((NDesc & MachO::REFERENCE_TYPE) ==
                MachO::REFERENCE_FLAG_PRIVATE_UNDEFINED_NON_LAZY)
@@ -372,9 +373,10 @@ static void darwinPrintSymbol(SymbolicFile &Obj, SymbolListT::iterator I,
         outs() << "(?,?) ";
       break;
     }
-    ErrorOr<section_iterator> SecOrErr =
+    Expected<section_iterator> SecOrErr =
       MachO->getSymbolSection(I->Sym.getRawDataRefImpl());
-    if (SecOrErr.getError()) {
+    if (!SecOrErr) {
+      consumeError(SecOrErr.takeError());
       outs() << "(?,?) ";
       break;
     }
@@ -583,26 +585,26 @@ static void sortAndPrintSymbolList(SymbolicFile &Obj, bool printName,
     printDashes = "----------------";
     switch (AddressRadix) {
     case Radix::o:
-      printFormat = "%016" PRIo64;
+      printFormat = OutputFormat == posix ? "%" PRIo64 : "%016" PRIo64;
       break;
     case Radix::x:
-      printFormat = "%016" PRIx64;
+      printFormat = OutputFormat == posix ? "%" PRIx64 : "%016" PRIx64;
       break;
     default:
-      printFormat = "%016" PRId64;
+      printFormat = OutputFormat == posix ? "%" PRId64 : "%016" PRId64;
     }
   } else {
     printBlanks = "        ";
     printDashes = "--------";
     switch (AddressRadix) {
     case Radix::o:
-      printFormat = "%08" PRIo64;
+      printFormat = OutputFormat == posix ? "%" PRIo64 : "%08" PRIo64;
       break;
     case Radix::x:
-      printFormat = "%08" PRIx64;
+      printFormat = OutputFormat == posix ? "%" PRIx64 : "%08" PRIx64;
       break;
     default:
-      printFormat = "%08" PRId64;
+      printFormat = OutputFormat == posix ? "%" PRId64 : "%08" PRId64;
     }
   }
 
@@ -617,9 +619,13 @@ static void sortAndPrintSymbolList(SymbolicFile &Obj, bool printName,
     if (PrintFileName) {
       if (!ArchitectureName.empty())
         outs() << "(for architecture " << ArchitectureName << "):";
-      if (!ArchiveName.empty())
-        outs() << ArchiveName << ":";
-      outs() << CurrentFilename << ": ";
+      if (OutputFormat == posix && !ArchiveName.empty())
+        outs() << ArchiveName << "[" << CurrentFilename << "]: ";
+      else {
+        if (!ArchiveName.empty())
+          outs() << ArchiveName << ":";
+        outs() << CurrentFilename << ": ";
+      }
     }
     if ((JustSymbolName || (UndefinedOnly && isa<MachOObjectFile>(Obj) &&
                             OutputFormat != darwin)) && OutputFormat != posix) {
@@ -630,8 +636,13 @@ static void sortAndPrintSymbolList(SymbolicFile &Obj, bool printName,
     char SymbolAddrStr[18] = "";
     char SymbolSizeStr[18] = "";
 
-    if (OutputFormat == sysv || I->TypeChar == 'U')
-      strcpy(SymbolAddrStr, printBlanks);
+    if (OutputFormat == sysv || I->TypeChar == 'U') {
+      if (OutputFormat == posix)
+        format(printFormat, I->Address)
+          .print(SymbolAddrStr, sizeof(SymbolAddrStr));
+      else
+        strcpy(SymbolAddrStr, printBlanks);
+    }
     if (OutputFormat == sysv)
       strcpy(SymbolSizeStr, printBlanks);
 
@@ -656,9 +667,9 @@ static void sortAndPrintSymbolList(SymbolicFile &Obj, bool printName,
     } else if (OutputFormat == posix) {
       outs() << I->Name << " " << I->TypeChar << " ";
       if (MachO)
-        outs() << I->Address << " " << "0" /* SymbolSizeStr */ << "\n";
+        outs() << SymbolAddrStr << " " << "0" /* SymbolSizeStr */ << "\n";
       else
-        outs() << SymbolAddrStr << SymbolSizeStr << "\n";
+        outs() << SymbolAddrStr << " " << SymbolSizeStr << "\n";
     } else if (OutputFormat == bsd || (OutputFormat == darwin && !MachO)) {
       if (PrintAddress)
         outs() << SymbolAddrStr << ' ';
@@ -687,9 +698,11 @@ static char getSymbolNMTypeChar(ELFObjectFileBase &Obj,
   // OK, this is ELF
   elf_symbol_iterator SymI(I);
 
-  ErrorOr<elf_section_iterator> SecIOrErr = SymI->getSection();
-  if (error(SecIOrErr.getError()))
+  Expected<elf_section_iterator> SecIOrErr = SymI->getSection();
+  if (!SecIOrErr) {
+    consumeError(SecIOrErr.takeError());
     return '?';
+  }
 
   elf_section_iterator SecI = *SecIOrErr;
   if (SecI != Obj.section_end()) {
@@ -714,9 +727,11 @@ static char getSymbolNMTypeChar(ELFObjectFileBase &Obj,
   }
 
   if (SymI->getELFType() == ELF::STT_SECTION) {
-    ErrorOr<StringRef> Name = SymI->getName();
-    if (error(Name.getError()))
+    Expected<StringRef> Name = SymI->getName();
+    if (!Name) {
+      consumeError(Name.takeError());
       return '?';
+    }
     return StringSwitch<char>(*Name)
         .StartsWith(".debug", 'N')
         .StartsWith(".note", 'n')
@@ -731,9 +746,11 @@ static char getSymbolNMTypeChar(COFFObjectFile &Obj, symbol_iterator I) {
   // OK, this is COFF.
   symbol_iterator SymI(I);
 
-  ErrorOr<StringRef> Name = SymI->getName();
-  if (error(Name.getError()))
+  Expected<StringRef> Name = SymI->getName();
+  if (!Name) {
+    consumeError(Name.takeError());
     return '?';
+  }
 
   char Ret = StringSwitch<char>(*Name)
                  .StartsWith(".debug", 'N')
@@ -745,9 +762,11 @@ static char getSymbolNMTypeChar(COFFObjectFile &Obj, symbol_iterator I) {
 
   uint32_t Characteristics = 0;
   if (!COFF::isReservedSectionNumber(Symb.getSectionNumber())) {
-    ErrorOr<section_iterator> SecIOrErr = SymI->getSection();
-    if (error(SecIOrErr.getError()))
+    Expected<section_iterator> SecIOrErr = SymI->getSection();
+    if (!SecIOrErr) {
+      consumeError(SecIOrErr.takeError());
       return '?';
+    }
     section_iterator SecI = *SecIOrErr;
     const coff_section *Section = Obj.getCOFFSection(*SecI);
     Characteristics = Section->Characteristics;
@@ -788,9 +807,11 @@ static char getSymbolNMTypeChar(MachOObjectFile &Obj, basic_symbol_iterator I) {
   case MachO::N_INDR:
     return 'i';
   case MachO::N_SECT: {
-    ErrorOr<section_iterator> SecOrErr = Obj.getSymbolSection(Symb);
-    if (SecOrErr.getError())
+    Expected<section_iterator> SecOrErr = Obj.getSymbolSection(Symb);
+    if (!SecOrErr) {
+      consumeError(SecOrErr.takeError());
       return 's';
+    }
     section_iterator Sec = *SecOrErr;
     DataRefImpl Ref = Sec->getRawDataRefImpl();
     StringRef SectionName;
@@ -991,10 +1012,10 @@ static bool checkMachOAndArchFlags(SymbolicFile *O, std::string &Filename) {
   Triple T;
   if (MachO->is64Bit()) {
     H_64 = MachO->MachOObjectFile::getHeader64();
-    T = MachOObjectFile::getArch(H_64.cputype, H_64.cpusubtype);
+    T = MachOObjectFile::getArchTriple(H_64.cputype, H_64.cpusubtype);
   } else {
     H = MachO->MachOObjectFile::getHeader();
-    T = MachOObjectFile::getArch(H.cputype, H.cpusubtype);
+    T = MachOObjectFile::getArchTriple(H.cputype, H.cpusubtype);
   }
   if (std::none_of(
           ArchFlags.begin(), ArchFlags.end(),
@@ -1011,11 +1032,13 @@ static void dumpSymbolNamesFromFile(std::string &Filename) {
   if (error(BufferOrErr.getError(), Filename))
     return;
 
-  LLVMContext &Context = getGlobalContext();
-  ErrorOr<std::unique_ptr<Binary>> BinaryOrErr = createBinary(
+  LLVMContext Context;
+  Expected<std::unique_ptr<Binary>> BinaryOrErr = createBinary(
       BufferOrErr.get()->getMemBufferRef(), NoLLVMBitcode ? nullptr : &Context);
-  if (error(BinaryOrErr.getError(), Filename))
+  if (!BinaryOrErr) {
+    error(errorToErrorCode(BinaryOrErr.takeError()), Filename);
     return;
+  }
   Binary &Bin = *BinaryOrErr.get();
 
   if (Archive *A = dyn_cast<Archive>(&Bin)) {

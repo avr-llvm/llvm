@@ -81,6 +81,7 @@
 #include "llvm/CodeGen/MachinePassRegistry.h"
 #include "llvm/CodeGen/RegisterPressure.h"
 #include "llvm/CodeGen/ScheduleDAGInstrs.h"
+#include "llvm/CodeGen/ScheduleDAGMutation.h"
 #include <memory>
 
 namespace llvm {
@@ -218,15 +219,6 @@ public:
   /// When all successor dependencies have been resolved, free this node for
   /// bottom-up scheduling.
   virtual void releaseBottomNode(SUnit *SU) = 0;
-};
-
-/// Mutate the DAG as a postpass after normal DAG building.
-class ScheduleDAGMutation {
-  virtual void anchor();
-public:
-  virtual ~ScheduleDAGMutation() {}
-
-  virtual void apply(ScheduleDAGMI *DAG) = 0;
 };
 
 /// ScheduleDAGMI is an implementation of ScheduleDAGInstrs that simply
@@ -468,6 +460,10 @@ protected:
   /// region, TopTracker and BottomTracker will be initialized to the top and
   /// bottom of the DAG region without covereing any unscheduled instruction.
   void buildDAGWithRegPressure();
+
+  /// Release ExitSU predecessors and setup scheduler queues. Re-position
+  /// the Top RP tracker in case the region beginning has changed.
+  void initQueues(ArrayRef<SUnit*> TopRoots, ArrayRef<SUnit*> BotRoots);
 
   /// Move an instruction and update register pressure.
   void scheduleMI(SUnit *SU, bool IsTopNode);
@@ -911,11 +907,13 @@ public:
 protected:
   void checkAcyclicLatency();
 
+  void initCandidate(SchedCandidate &Cand, SUnit *SU, bool AtTop,
+                     const RegPressureTracker &RPTracker,
+                     RegPressureTracker &TempTracker);
+
   void tryCandidate(SchedCandidate &Cand,
                     SchedCandidate &TryCand,
-                    SchedBoundary &Zone,
-                    const RegPressureTracker &RPTracker,
-                    RegPressureTracker &TempTracker);
+                    SchedBoundary &Zone);
 
   SUnit *pickNodeBidirectional(bool &IsTopNode);
 

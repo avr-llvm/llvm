@@ -194,6 +194,7 @@ ScalarEnumerationTraits<ELFYAML::ELF_EM>::enumeration(IO &IO,
   ECase(EM_78KOR)
   ECase(EM_56800EX)
   ECase(EM_AMDGPU)
+  ECase(EM_LANAI)
 #undef ECase
 }
 
@@ -239,6 +240,7 @@ void ScalarEnumerationTraits<ELFYAML::ELF_ELFOSABI>::enumeration(
   ECase(ELFOSABI_FENIXOS)
   ECase(ELFOSABI_CLOUDABI)
   ECase(ELFOSABI_C6000_ELFABI)
+  ECase(ELFOSABI_AMDGPU_HSA)
   ECase(ELFOSABI_C6000_LINUX)
   ECase(ELFOSABI_ARM)
   ECase(ELFOSABI_STANDALONE)
@@ -525,6 +527,9 @@ void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
     break;
   case ELF::EM_ARM:
 #include "llvm/Support/ELFRelocs/ARM.def"
+    break;
+  case ELF::EM_LANAI:
+#include "llvm/Support/ELFRelocs/Lanai.def"
     break;
   default:
     llvm_unreachable("Unsupported architecture");

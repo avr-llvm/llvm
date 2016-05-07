@@ -71,16 +71,14 @@ unsigned AVRInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
                                            int &FrameIndex) const {
   switch (MI->getOpcode()) {
   case AVR::LDDRdPtrQ:
-  case AVR::LDDWRdYQ: //:FIXME: remove this once PR13375 gets fixed
-    // case AVR::LDDWRdPtrQ:
-    {
-      if ((MI->getOperand(1).isFI()) && (MI->getOperand(2).isImm()) &&
-          (MI->getOperand(2).getImm() == 0)) {
-        FrameIndex = MI->getOperand(1).getIndex();
-        return MI->getOperand(0).getReg();
-      }
-      break;
+  case AVR::LDDWRdYQ: { //:FIXME: remove this once PR13375 gets fixed
+    if ((MI->getOperand(1).isFI()) && (MI->getOperand(2).isImm()) &&
+        (MI->getOperand(2).getImm() == 0)) {
+      FrameIndex = MI->getOperand(1).getIndex();
+      return MI->getOperand(0).getReg();
     }
+    break;
+  }
   default:
     break;
   }
@@ -399,7 +397,6 @@ unsigned AVRInstrInfo::InsertBranch(MachineBasicBlock &MBB,
          "AVR branch conditions have one component!");
 
   if (Cond.empty()) {
-    // Unconditional branch?
     assert(!FBB && "Unconditional branch with multiple successors!");
     BuildMI(&MBB, DL, get(AVR::RJMPk)).addMBB(TBB);
     return 1;
@@ -471,7 +468,7 @@ unsigned AVRInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
     return 0;
   case TargetOpcode::INLINEASM: {
     const MachineFunction *MF = MI->getParent()->getParent();
-    const AVRTargetMachine &TM = (const AVRTargetMachine &)MF->getTarget();
+    const AVRTargetMachine &TM = static_cast<const AVRTargetMachine&>(MF->getTarget());
     const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
     return TII.getInlineAsmLength(MI->getOperand(0).getSymbolName(),
                                   *TM.getMCAsmInfo());

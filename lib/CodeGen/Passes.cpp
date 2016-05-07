@@ -602,6 +602,8 @@ void TargetPassConfig::addMachinePasses() {
   addPass(&StackMapLivenessID, false);
   addPass(&LiveDebugValuesID, false);
 
+  addPass(&PatchableFunctionID, false);
+
   AddingMachinePasses = false;
 }
 
@@ -734,6 +736,8 @@ void TargetPassConfig::addFastRegAlloc(FunctionPass *RegAllocPass) {
 /// optimized register allocation, including coalescing, machine instruction
 /// scheduling, and register allocation itself.
 void TargetPassConfig::addOptimizedRegAlloc(FunctionPass *RegAllocPass) {
+  addPass(&DetectDeadLanesID, false);
+
   addPass(&ProcessImplicitDefsID, false);
 
   // LiveVariables currently requires pure SSA form.

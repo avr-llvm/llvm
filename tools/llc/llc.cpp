@@ -103,6 +103,11 @@ static cl::opt<bool>
                           "manager and verify the result is the same."),
                  cl::init(false));
 
+static cl::opt<bool> DiscardValueNames(
+    "discard-value-names",
+    cl::desc("Discard names from Value (other than GlobalValue)."),
+    cl::init(false), cl::Hidden);
+
 static int compileModule(char **, LLVMContext &);
 
 static std::unique_ptr<tool_output_file>
@@ -182,7 +187,7 @@ int main(int argc, char **argv) {
   // Enable debug stream buffering.
   EnableDebugBuffering = true;
 
-  LLVMContext &Context = getGlobalContext();
+  LLVMContext Context;
   llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
 
   // Initialize targets first, so that --version shows registered targets.
@@ -204,6 +209,8 @@ int main(int argc, char **argv) {
   cl::AddExtraVersionPrinter(TargetRegistry::printRegisteredTargetsForVersion);
 
   cl::ParseCommandLineOptions(argc, argv, "llvm system compiler\n");
+
+  Context.setDiscardValueNames(DiscardValueNames);
 
   // Compile the module TimeCompilations times to give better compile time
   // metrics.

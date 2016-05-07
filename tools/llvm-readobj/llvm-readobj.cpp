@@ -22,7 +22,6 @@
 #include "llvm-readobj.h"
 #include "Error.h"
 #include "ObjDumper.h"
-#include "StreamWriter.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/COFFImportFile.h"
 #include "llvm/Object/ELFObjectFile.h"
@@ -35,6 +34,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
@@ -168,6 +168,10 @@ namespace opts {
   cl::opt<bool> MipsReginfo("mips-reginfo",
                             cl::desc("Display the MIPS .reginfo section"));
 
+  // -mips-options
+  cl::opt<bool> MipsOptions("mips-options",
+                            cl::desc("Display the MIPS .MIPS.options section"));
+
   // -coff-imports
   cl::opt<bool>
   COFFImports("coff-imports", cl::desc("Display the PE/COFF import table"));
@@ -232,6 +236,11 @@ namespace opts {
                               cl::desc("Display ELF section group contents"));
   cl::alias SectionGroupsShort("g", cl::desc("Alias for -elf-sections-groups"),
                                cl::aliasopt(SectionGroups));
+  cl::opt<bool> HashHistogram(
+      "elf-hash-histogram",
+      cl::desc("Display bucket list histogram for hash sections"));
+  cl::alias HashHistogramShort("I", cl::desc("Alias for -elf-hash-histogram"),
+                               cl::aliasopt(HashHistogram));
 
   cl::opt<OutputStyleTy>
       Output("elf-output-style", cl::desc("Specify ELF dump style"),
@@ -288,7 +297,8 @@ static bool isMipsArch(unsigned Arch) {
 }
 
 /// @brief Creates an format-specific object file dumper.
-static std::error_code createDumper(const ObjectFile *Obj, StreamWriter &Writer,
+static std::error_code createDumper(const ObjectFile *Obj,
+                                    ScopedPrinter &Writer,
                                     std::unique_ptr<ObjDumper> &Result) {
   if (!Obj)
     return readobj_error::unsupported_file_format;
@@ -305,7 +315,7 @@ static std::error_code createDumper(const ObjectFile *Obj, StreamWriter &Writer,
 
 /// @brief Dumps the specified object file.
 static void dumpObject(const ObjectFile *Obj) {
-  StreamWriter Writer(outs());
+  ScopedPrinter Writer(outs());
   std::unique_ptr<ObjDumper> Dumper;
   if (std::error_code EC = createDumper(Obj, Writer, Dumper))
     reportError(Obj->getFileName(), EC);
@@ -357,9 +367,13 @@ static void dumpObject(const ObjectFile *Obj) {
         Dumper->printMipsABIFlags();
       if (opts::MipsReginfo)
         Dumper->printMipsReginfo();
+      if (opts::MipsOptions)
+        Dumper->printMipsOptions();
     }
     if (opts::SectionGroups)
       Dumper->printGroupSections();
+    if (opts::HashHistogram)
+      Dumper->printHashHistogram();
   }
   if (Obj->isCOFF()) {
     if (opts::COFFImports)
@@ -429,9 +443,9 @@ static void dumpMachOUniversalBinary(const MachOUniversalBinary *UBinary) {
 static void dumpInput(StringRef File) {
 
   // Attempt to open the binary.
-  ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(File);
-  if (std::error_code EC = BinaryOrErr.getError())
-    reportError(File, EC);
+  Expected<OwningBinary<Binary>> BinaryOrErr = createBinary(File);
+  if (!BinaryOrErr)
+    reportError(File, errorToErrorCode(BinaryOrErr.takeError()));
   Binary &Binary = *BinaryOrErr.get().getBinary();
 
   if (Archive *Arc = dyn_cast<Archive>(&Binary))

@@ -33,6 +33,9 @@ namespace llvm {
       SELECT_XCC,  // Select between two values using the current XCC flags.
       SELECT_FCC,  // Select between two values using the current FCC flags.
 
+      EH_SJLJ_SETJMP,  // builtin setjmp operation
+      EH_SJLJ_LONGJMP, // builtin longjmp operation
+
       Hi, Lo,      // Hi/Lo operations, typically on a global address.
 
       FTOI,        // FP to Int within a FP register.
@@ -54,7 +57,7 @@ namespace llvm {
   class SparcTargetLowering : public TargetLowering {
     const SparcSubtarget *Subtarget;
   public:
-    SparcTargetLowering(TargetMachine &TM, const SparcSubtarget &STI);
+    SparcTargetLowering(const TargetMachine &TM, const SparcSubtarget &STI);
     SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
     /// computeKnownBitsForTargetNode - Determine which of the bits specified
@@ -102,6 +105,10 @@ namespace llvm {
     getExceptionSelectorRegister(const Constant *PersonalityFn) const override {
       return SP::I1;
     }
+
+    /// Override to support customized stack guard loading.
+    bool useLoadStackGuardNode() const override;
+    void insertSSPDeclarations(Module &M) const override;
 
     /// getSetCCResultType - Return the ISD::SETCC ValueType
     EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
@@ -157,6 +164,11 @@ namespace llvm {
     SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
 
+    SDValue LowerEH_SJLJ_SETJMP(SDValue Op, SelectionDAG &DAG,
+                                const SparcTargetLowering &TLI) const ;
+    SDValue LowerEH_SJLJ_LONGJMP(SDValue Op, SelectionDAG &DAG,
+                                 const SparcTargetLowering &TLI) const ;
+
     unsigned getSRetArgSize(SelectionDAG &DAG, SDValue Callee) const;
     SDValue withTargetFlags(SDValue Op, unsigned TF, SelectionDAG &DAG) const;
     SDValue makeHiLoPair(SDValue Op, unsigned HiTF, unsigned LoTF,
@@ -174,11 +186,22 @@ namespace llvm {
                              SDLoc DL,
                              SelectionDAG &DAG) const;
 
+    SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
+
     bool ShouldShrinkFPConstant(EVT VT) const override {
       // Do not shrink FP constpool if VT == MVT::f128.
       // (ldd, call _Q_fdtoq) is more expensive than two ldds.
       return VT != MVT::f128;
     }
+
+    bool shouldInsertFencesForAtomic(const Instruction *I) const override {
+      // FIXME: We insert fences for each atomics and generate
+      // sub-optimal code for PSO/TSO. (Approximately nobody uses any
+      // mode but TSO, which makes this even more silly)
+      return true;
+    }
+
+    AtomicExpansionKind shouldExpandAtomicRMWInIR(AtomicRMWInst *AI) const override;
 
     void ReplaceNodeResults(SDNode *N,
                             SmallVectorImpl<SDValue>& Results,
@@ -190,6 +213,10 @@ namespace llvm {
                                        MachineBasicBlock *BB,
                                        unsigned Opcode,
                                        unsigned CondCode = 0) const;
+    MachineBasicBlock *emitEHSjLjSetJmp(MachineInstr *MI,
+                                        MachineBasicBlock *MBB) const;
+    MachineBasicBlock *emitEHSjLjLongJmp(MachineInstr *MI,
+                                         MachineBasicBlock *MBB) const;
   };
 } // end namespace llvm
 

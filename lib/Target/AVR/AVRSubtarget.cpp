@@ -34,11 +34,12 @@ AVRSubtarget::AVRSubtarget(const Triple &TT, const std::string &CPU,
       TLInfo(TM), TSInfo(),
 
       // Subtarget features
-      m_hasSRAM(), m_hasJMPCALL(), m_hasIJMPCALL(), m_hasEIJMPCALL(),
-      m_hasADDSUBIW(), m_hasSmallStack(), m_hasMOVW(), m_hasLPM(), m_hasLPMX(),
-      m_hasELPM(), m_hasELPMX(), m_hasSPM(), m_hasSPMX(), m_hasDES(),
-      m_supportsRMW(), m_supportsMultiplication(), m_hasBREAK(),
-      m_hasTinyEncoding(), ELFArch(), m_FeatureSetDummy() {
+      m_hasSRAM(false), m_hasJMPCALL(false), m_hasIJMPCALL(false),
+      m_hasEIJMPCALL(false), m_hasADDSUBIW(false), m_hasSmallStack(false),
+      m_hasMOVW(false), m_hasLPM(false), m_hasLPMX(false),  m_hasELPM(false),
+      m_hasELPMX(false), m_hasSPM(false), m_hasSPMX(false), m_hasDES(false),
+      m_supportsRMW(false), m_supportsMultiplication(false), m_hasBREAK(false),
+      m_hasTinyEncoding(false), ELFArch(false), m_FeatureSetDummy(false) {
   // Parse features string.
   ParseSubtargetFeatures(CPU, FS);
 }

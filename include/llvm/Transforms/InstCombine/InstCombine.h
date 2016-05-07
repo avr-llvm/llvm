@@ -24,21 +24,26 @@
 
 namespace llvm {
 
-class InstCombinePass : public PassBase<InstCombinePass> {
+class InstCombinePass : public PassInfoMixin<InstCombinePass> {
   InstCombineWorklist Worklist;
+  bool ExpensiveCombines;
 
 public:
   static StringRef name() { return "InstCombinePass"; }
 
   // Explicitly define constructors for MSVC.
-  InstCombinePass() {}
-  InstCombinePass(InstCombinePass &&Arg) : Worklist(std::move(Arg.Worklist)) {}
+  InstCombinePass(bool ExpensiveCombines = true)
+      : ExpensiveCombines(ExpensiveCombines) {}
+  InstCombinePass(InstCombinePass &&Arg)
+      : Worklist(std::move(Arg.Worklist)),
+        ExpensiveCombines(Arg.ExpensiveCombines) {}
   InstCombinePass &operator=(InstCombinePass &&RHS) {
     Worklist = std::move(RHS.Worklist);
+    ExpensiveCombines = RHS.ExpensiveCombines;
     return *this;
   }
 
-  PreservedAnalyses run(Function &F, AnalysisManager<Function> *AM);
+  PreservedAnalyses run(Function &F, AnalysisManager<Function> &AM);
 };
 
 /// \brief The legacy pass manager's instcombine pass.
@@ -47,11 +52,13 @@ public:
 /// will try to combine all instructions in the function.
 class InstructionCombiningPass : public FunctionPass {
   InstCombineWorklist Worklist;
+  const bool ExpensiveCombines;
 
 public:
   static char ID; // Pass identification, replacement for typeid
 
-  InstructionCombiningPass() : FunctionPass(ID) {
+  InstructionCombiningPass(bool ExpensiveCombines = true)
+      : FunctionPass(ID), ExpensiveCombines(ExpensiveCombines) {
     initializeInstructionCombiningPassPass(*PassRegistry::getPassRegistry());
   }
 

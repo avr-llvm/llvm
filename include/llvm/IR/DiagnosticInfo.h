@@ -15,12 +15,13 @@
 #ifndef LLVM_IR_DIAGNOSTICINFO_H
 #define LLVM_IR_DIAGNOSTICINFO_H
 
-#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/IR/DebugLoc.h"
-#include "llvm/IR/Module.h"
-#include "llvm/Support/Casting.h"
+#include "llvm/Support/CBindingWrapping.h"
+#include "llvm-c/Types.h"
 #include <functional>
+#include <string>
 
 namespace llvm {
 
@@ -28,9 +29,8 @@ namespace llvm {
 class DiagnosticPrinter;
 class Function;
 class Instruction;
-class LLVMContextImpl;
-class Value;
-class DebugLoc;
+class LLVMContext;
+class Module;
 class SMDiagnostic;
 
 /// \brief Defines the different supported severity of a diagnostic.
@@ -58,6 +58,8 @@ enum DiagnosticKind {
   DK_OptimizationRemarkAnalysisFPCommute,
   DK_OptimizationRemarkAnalysisAliasing,
   DK_OptimizationFailure,
+  DK_FirstRemark = DK_OptimizationRemark,
+  DK_LastRemark = DK_OptimizationFailure,
   DK_MIRParser,
   DK_PGOProfile,
   DK_Unsupported,
@@ -340,6 +342,11 @@ public:
   const char *getPassName() const { return PassName; }
   const Twine &getMsg() const { return Msg; }
 
+  static bool classof(const DiagnosticInfo *DI) {
+    return DI->getKind() >= DK_FirstRemark &&
+           DI->getKind() <= DK_LastRemark;
+  }
+
 private:
   /// Name of the pass that triggers this report. If this matches the
   /// regular expression given in -Rpass=regexp, then the remark will
@@ -611,7 +618,7 @@ public:
 
   const Twine &getMessage() const { return Msg; }
 
-  void print(DiagnosticPrinter &DP) const;
+  void print(DiagnosticPrinter &DP) const override;
 };
 
 /// Emit a warning when loop vectorization is specified but fails. \p Fn is the
@@ -626,6 +633,6 @@ void emitLoopVectorizeWarning(LLVMContext &Ctx, const Function &Fn,
 void emitLoopInterleaveWarning(LLVMContext &Ctx, const Function &Fn,
                                const DebugLoc &DLoc, const Twine &Msg);
 
-} // End namespace llvm
+} // end namespace llvm
 
-#endif
+#endif // LLVM_IR_DIAGNOSTICINFO_H

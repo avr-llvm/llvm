@@ -19,11 +19,11 @@ class COFFImportFile;
 class ObjectFile;
 }
 
-class StreamWriter;
+class ScopedPrinter;
 
 class ObjDumper {
 public:
-  ObjDumper(StreamWriter& Writer);
+  ObjDumper(ScopedPrinter &Writer);
   virtual ~ObjDumper();
 
   virtual void printFileHeaders() = 0;
@@ -43,6 +43,7 @@ public:
   virtual void printLoadName() {}
   virtual void printVersionInfo() {}
   virtual void printGroupSections() {}
+  virtual void printHashHistogram() {}
 
   // Only implemented for ARM ELF at this time.
   virtual void printAttributes() { }
@@ -51,6 +52,7 @@ public:
   virtual void printMipsPLTGOT() { }
   virtual void printMipsABIFlags() { }
   virtual void printMipsReginfo() { }
+  virtual void printMipsOptions() { }
 
   // Only implemented for PE/COFF.
   virtual void printCOFFImports() { }
@@ -70,19 +72,19 @@ public:
   virtual void printStackMap() const = 0;
 
 protected:
-  StreamWriter& W;
+  ScopedPrinter &W;
 };
 
 std::error_code createCOFFDumper(const object::ObjectFile *Obj,
-                                 StreamWriter &Writer,
+                                 ScopedPrinter &Writer,
                                  std::unique_ptr<ObjDumper> &Result);
 
 std::error_code createELFDumper(const object::ObjectFile *Obj,
-                                StreamWriter &Writer,
+                                ScopedPrinter &Writer,
                                 std::unique_ptr<ObjDumper> &Result);
 
 std::error_code createMachODumper(const object::ObjectFile *Obj,
-                                  StreamWriter &Writer,
+                                  ScopedPrinter &Writer,
                                   std::unique_ptr<ObjDumper> &Result);
 
 void dumpCOFFImportFile(const object::COFFImportFile *File);
