@@ -355,7 +355,7 @@ static void fixStackStores(MachineBasicBlock &MBB,
   }
 }
 
-void AVRFrameLowering::eliminateCallFramePseudoInstr(
+MachineBasicBlock::iterator AVRFrameLowering::eliminateCallFramePseudoInstr(
     MachineFunction &MF, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator MI) const {
   const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
@@ -368,8 +368,7 @@ void AVRFrameLowering::eliminateCallFramePseudoInstr(
   // with real store instructions.
   if (TFI->hasReservedCallFrame(MF)) {
     fixStackStores(MBB, MI, TII, false);
-    MBB.erase(MI);
-    return;
+    return MBB.erase(MI);
   }
 
   DebugLoc dl = MI->getDebugLoc();
@@ -410,7 +409,7 @@ void AVRFrameLowering::eliminateCallFramePseudoInstr(
     }
   }
 
-  MBB.erase(MI);
+  return MBB.erase(MI);
 }
 
 void AVRFrameLowering::determineCalleeSaves(MachineFunction &MF,
