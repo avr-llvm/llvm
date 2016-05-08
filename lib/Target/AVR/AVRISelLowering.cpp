@@ -1474,9 +1474,12 @@ MachineBasicBlock *AVRTargetLowering::insertShift(MachineInstr *MI,
 }
 
 inline bool isCopyMulResult(MachineBasicBlock::iterator const &I) {
-  unsigned SrcReg = I->getOperand(1).getReg();
-  return I->getOpcode() == AVR::COPY &&
-         (SrcReg == AVR::R0 || SrcReg == AVR::R1);
+  if (I->getOpcode() == AVR::COPY) {
+    unsigned SrcReg = I->getOperand(1).getReg();
+    return (SrcReg == AVR::R0 || SrcReg == AVR::R1);
+  }
+
+  return false;
 }
 
 // The mul instructions wreak havock on our zero_reg R1. We need to clear it
