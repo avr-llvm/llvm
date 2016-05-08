@@ -214,7 +214,7 @@ const char *AVRTargetLowering::getTargetNodeName(unsigned Opcode) const {
     NODE(RET_FLAG);
     NODE(RETI_FLAG);
     NODE(CALL);
-    NODE(Wrapper);
+    NODE(WRAPPER);
     NODE(LSL);
     NODE(LSR);
     NODE(ROL);
@@ -353,7 +353,7 @@ SDValue AVRTargetLowering::LowerGlobalAddress(SDValue Op,
   // Create the TargetGlobalAddress node, folding in the constant offset.
   SDValue Result =
       DAG.getTargetGlobalAddress(GV, SDLoc(Op), getPointerTy(DL), Offset);
-  return DAG.getNode(AVRISD::Wrapper, SDLoc(Op), getPointerTy(DL), Result);
+  return DAG.getNode(AVRISD::WRAPPER, SDLoc(Op), getPointerTy(DL), Result);
 }
 
 SDValue AVRTargetLowering::LowerBlockAddress(SDValue Op,
@@ -363,7 +363,7 @@ SDValue AVRTargetLowering::LowerBlockAddress(SDValue Op,
 
   SDValue Result = DAG.getTargetBlockAddress(BA, getPointerTy(DL));
 
-  return DAG.getNode(AVRISD::Wrapper, SDLoc(Op), getPointerTy(DL), Result);
+  return DAG.getNode(AVRISD::WRAPPER, SDLoc(Op), getPointerTy(DL), Result);
 }
 
 /// IntCCToAVRCC - Convert a DAG integer condition code to an AVR CC.
