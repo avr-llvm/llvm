@@ -33,9 +33,7 @@ namespace adjust {
 
 using namespace llvm;
 
-/**
- * Adjusts the value of a branch target before fixup application.
- */
+/// Adjusts the value of a branch target before fixup application.
 template <typename T>
 void adjustBranch(unsigned Size, const MCFixup &Fixup, T &Value,
                   MCContext *Ctx = nullptr) {
@@ -48,9 +46,7 @@ void adjustBranch(unsigned Size, const MCFixup &Fixup, T &Value,
   AVR::fixups::adjustBranchTarget(Value);
 }
 
-/**
- * Adjusts the value of a relative branch target before fixup application.
- */
+/// Adjusts the value of a relative branch target before fixup application.
 template <typename T>
 void adjustRelativeBranch(unsigned Size, const MCFixup &Fixup, T &Value,
                           MCContext *Ctx = nullptr) {
@@ -58,14 +54,13 @@ void adjustRelativeBranch(unsigned Size, const MCFixup &Fixup, T &Value,
 
   adjustBranch(Size, Fixup, Value, Ctx);
 }
-/*
- * 22-bit absolute fixup.
- *
- * Resolves to:
- * 1001 kkkk 010k kkkk kkkk kkkk 111k kkkk
- *
- * Offset of 0 (so the result is left shifted by 3 bits before application).
-*/
+
+/// 22-bit absolute fixup.
+///
+/// Resolves to:
+/// 1001 kkkk 010k kkkk kkkk kkkk 111k kkkk
+///
+/// Offset of 0 (so the result is left shifted by 3 bits before application).
 template <typename T>
 void fixup_call(unsigned Size, const MCFixup &Fixup, T &Value,
                 MCContext *Ctx = nullptr) {
@@ -78,13 +73,11 @@ void fixup_call(unsigned Size, const MCFixup &Fixup, T &Value,
   Value = (top << 6) | (middle << 3) | (bottom << 0);
 }
 
-/**
- * 7-bit PC-relative fixup.
- *
- * Resolves to:
- * 0000 00kk kkkk k000
- * Offset of 0 (so the result is left shifted by 3 bits before application).
- */
+/// 7-bit PC-relative fixup.
+///
+/// Resolves to:
+/// 0000 00kk kkkk k000
+/// Offset of 0 (so the result is left shifted by 3 bits before application).
 template <typename T>
 void fixup_7_pcrel(unsigned Size, const MCFixup &Fixup, T &Value,
                    MCContext *Ctx = nullptr) {
@@ -93,15 +86,13 @@ void fixup_7_pcrel(unsigned Size, const MCFixup &Fixup, T &Value,
   // Because the value may be negative, we must mask out the sign bits
   Value &= 0x7f;
 }
-/**
- * 12-bit PC-relative fixup.
- * Yes, the fixup is 12 bits even though the name says otherwise.
- *
- * Resolves to:
- * 0000 kkkk kkkk kkkk
- * Offset of 0 (so the result isn't left-shifted before application).
- */
 
+/// 12-bit PC-relative fixup.
+/// Yes, the fixup is 12 bits even though the name says otherwise.
+///
+/// Resolves to:
+/// 0000 kkkk kkkk kkkk
+/// Offset of 0 (so the result isn't left-shifted before application).
 template <typename T>
 void fixup_13_pcrel(unsigned Size, const MCFixup &Fixup, T &Value,
                     MCContext *Ctx = nullptr) {
@@ -113,13 +104,12 @@ void fixup_13_pcrel(unsigned Size, const MCFixup &Fixup, T &Value,
 
 /// Fixups relating to the LDI instruction.
 namespace ldi {
-/**
- * Adjusts a value to fix up the immediate of an `LDI Rd, K` instruction.
- *
- * Resolves to:
- * 0000 KKKK 0000 KKKK
- * Offset of 0 (so the result isn't left-shifted before application).
- */
+
+/// Adjusts a value to fix up the immediate of an `LDI Rd, K` instruction.
+///
+/// Resolves to:
+/// 0000 KKKK 0000 KKKK
+/// Offset of 0 (so the result isn't left-shifted before application).
 template <typename T>
 void fixup(unsigned Size, const MCFixup &Fixup, T &Value,
            MCContext *Ctx = nullptr) {

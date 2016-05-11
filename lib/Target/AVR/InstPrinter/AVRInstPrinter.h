@@ -22,9 +22,7 @@
 
 namespace llvm {
 
-/**
- * Prints AVR instructions to a textual stream.
- */
+/// Prints AVR instructions to a textual stream.
 class AVRInstPrinter : public MCInstPrinter {
 public:
   AVRInstPrinter(const MCAsmInfo &MAI, const MCInstrInfo &MII,
@@ -34,7 +32,7 @@ public:
   static const char *getPrettyRegisterName(unsigned RegNo,
                                            MCRegisterInfo const &MRI);
 
-public: // MCInstPrinter
+public:
   void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot,
                  const MCSubtargetInfo &STI) override;
 

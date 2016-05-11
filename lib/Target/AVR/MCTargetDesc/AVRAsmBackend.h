@@ -29,26 +29,19 @@ struct MCFixupKindInfo;
 class Target;
 class MCObjectWriter;
 
-/**
- * Utilities for manipulating generated AVR machine code.
- */
+/// Utilities for manipulating generated AVR machine code.
 class AVRAsmBackend : public MCAsmBackend {
 
 public:
   AVRAsmBackend(const Target &T, Triple::OSType OSType)
       : MCAsmBackend(), OSType(OSType) {}
 
-  /**
-   * Adjusts a fixup value before it is applied.
-   */
+  /// Adjusts a fixup value before it is applied.
   void adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
                         MCContext *Ctx = nullptr) const;
 
   MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override;
 
-  /**
-   * Applies a fixup to a piece of data.
-   */
   void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
                   uint64_t Value, bool IsPCRel) const override;
 

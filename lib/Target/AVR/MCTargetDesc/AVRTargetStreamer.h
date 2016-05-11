@@ -15,30 +15,23 @@
 
 namespace llvm {
 
-/**
- * A generic AVR target output stream.
- */
+/// A generic AVR target output stream.
 class AVRTargetStreamer : public MCTargetStreamer {
 public:
   explicit AVRTargetStreamer(MCStreamer &S);
 };
 
-/**
- * A target streamer for textual AVR assembly code.
- */
+/// A target streamer for textual AVR assembly code.
 class AVRTargetAsmStreamer : public AVRTargetStreamer {
 public:
   explicit AVRTargetAsmStreamer(MCStreamer &S);
 };
 
-/**
- * A target streamer for an AVR ELF object file.
- */
+/// A target streamer for an AVR ELF object file.
 class AVRTargetELFStreamer : public AVRTargetStreamer {
 public:
   AVRTargetELFStreamer(MCStreamer &S, const MCSubtargetInfo &STI);
 
-  /// Gets the ELF streamer.
   MCELFStreamer &getStreamer() {
     return static_cast<MCELFStreamer &>(Streamer);
   }

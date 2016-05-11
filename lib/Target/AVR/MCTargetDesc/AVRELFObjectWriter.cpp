@@ -23,9 +23,7 @@
 
 namespace llvm {
 
-/**
- * Writes AVR machine code as an ELF32 object file.
- */
+/// Writes AVR machine code as an ELF32 object file.
 class AVRELFObjectWriter : public MCELFObjectTargetWriter {
 public:
   AVRELFObjectWriter(uint8_t OSABI);

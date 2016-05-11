@@ -35,9 +35,7 @@
 
 namespace llvm {
 
-/**
- * An assembly code printer.
- */
+/// An AVR assembly code printer.
 class AVRAsmPrinter : public AsmPrinter {
   const MCRegisterInfo *MRI;
 
@@ -61,7 +59,7 @@ public:
                              unsigned AsmVariant, const char *ExtraCode,
                              raw_ostream &O) override;
 
-public: // AsmPrinter
+public:
   void EmitInstruction(const MachineInstr *MI) override;
 };
 
@@ -96,6 +94,7 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
   // Default asm printer can only deal with some extra codes,
   // so try it first.
   bool Error = AsmPrinter::PrintAsmOperand(MI, OpNum, AsmVariant, ExtraCode, O);
+
   if (Error && ExtraCode && ExtraCode[0]) {
     if (ExtraCode[1] != 0)
       return true; // Unknown modifier.
@@ -143,7 +142,6 @@ bool AVRAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
                                           const char *ExtraCode,
                                           raw_ostream &O) {
   if (ExtraCode && ExtraCode[0]) {
-    // TODO:
     llvm_unreachable("This branch is not implemented yet");
   }
 
@@ -166,6 +164,7 @@ bool AVRAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   // Though it is weird that imm is counted as register too.
   unsigned OpFlags = MI->getOperand(OpNum - 1).getImm();
   unsigned NumOpRegs = InlineAsm::getNumOperandRegisters(OpFlags);
+
   if (NumOpRegs == 2) {
     O << '+' << MI->getOperand(OpNum + 1).getImm();
   }
@@ -173,7 +172,6 @@ bool AVRAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   return false;
 }
 
-//===----------------------------------------------------------------------===//
 void AVRAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   AVRMCInstLower MCInstLowering(OutContext, *this);
 
@@ -184,11 +182,6 @@ void AVRAsmPrinter::EmitInstruction(const MachineInstr *MI) {
 
 } // end of namespace llvm
 
-//===----------------------------------------------------------------------===//
-// Target Registry Stuff
-//===----------------------------------------------------------------------===//
-
-// Force static initialization.
 extern "C" void LLVMInitializeAVRAsmPrinter() {
   llvm::RegisterAsmPrinter<llvm::AVRAsmPrinter> X(llvm::TheAVRTarget);
 }

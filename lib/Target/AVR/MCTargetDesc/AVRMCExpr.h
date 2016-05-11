@@ -18,9 +18,7 @@
 
 namespace llvm {
 
-/**
- * A expression in AVR machine code.
- */
+/// A expression in AVR machine code.
 class AVRMCExpr : public MCTargetExpr {
 public:
   /// Specifies the type of an expression.

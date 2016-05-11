@@ -24,14 +24,10 @@
 #include "AVRTargetMachine.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 
-#define UNUSED_VARIABLE(x) (void)(x)
-
 namespace llvm {
 
-/**
- * Expands "placeholder" instructions marked as pseudo into
- * actual AVR instructions.
- */
+/// Expands "placeholder" instructions marked as pseudo into
+/// actual AVR instructions.
 class AVRExpandPseudo : public MachineFunctionPass {
 public:
   static char ID;
@@ -57,6 +53,7 @@ private:
   MachineInstrBuilder buildMI(Block &MBB, BlockIt MBBI, unsigned Opcode) {
     return BuildMI(MBB, MBBI, MBBI->getDebugLoc(), TII->get(Opcode));
   }
+
   MachineInstrBuilder buildMI(Block &MBB, BlockIt MBBI, unsigned Opcode,
                               unsigned DstReg) {
     return BuildMI(MBB, MBBI, MBBI->getDebugLoc(), TII->get(Opcode), DstReg);
@@ -114,22 +111,18 @@ bool AVRExpandPseudo::expand<AVR::ADDWRdRr>(Block &MBB, BlockIt MBBI) {
   splitRegs(SrcReg, SrcLoReg, SrcHiReg);
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(DstIsKill))
-          .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+  buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(DstIsKill))
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(DstIsKill))
-          .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(DstIsKill))
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  UNUSED_VARIABLE(MIBLO);
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
 
-  if (ImpIsDead)
-    MIBHI->getOperand(3).setIsDead();
   // SREG is always implicitly killed
   MIBHI->getOperand(4).setIsKill();
 
@@ -152,22 +145,21 @@ bool AVRExpandPseudo::expand<AVR::ADCWRdRr>(Block &MBB, BlockIt MBBI) {
   splitRegs(SrcReg, SrcLoReg, SrcHiReg);
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(DstIsKill))
-          .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(DstIsKill))
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+
   // SREG is always implicitly killed
   MIBLO->getOperand(4).setIsKill();
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(DstIsKill))
-          .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(DstIsKill))
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  if (ImpIsDead)
-    MIBHI->getOperand(3).setIsDead();
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead() }
+
   // SREG is always implicitly killed
   MIBHI->getOperand(4).setIsKill();
 
@@ -190,22 +182,19 @@ bool AVRExpandPseudo::expand<AVR::SUBWRdRr>(Block &MBB, BlockIt MBBI) {
   splitRegs(SrcReg, SrcLoReg, SrcHiReg);
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(DstIsKill))
-          .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+  // Low part
+  buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(DstIsKill))
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(DstIsKill))
-          .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(DstIsKill))
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  UNUSED_VARIABLE(MIBLO);
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
 
-  if (ImpIsDead)
-    MIBHI->getOperand(3).setIsDead();
   // SREG is always implicitly killed
   MIBHI->getOperand(4).setIsKill();
 
@@ -225,15 +214,13 @@ bool AVRExpandPseudo::expand<AVR::SUBIWRdK>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::SBCIRdK;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(SrcIsKill));
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(SrcIsKill));
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(SrcIsKill));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(SrcIsKill));
 
   switch (MI.getOperand(2).getType()) {
   case MachineOperand::MO_GlobalAddress: {
@@ -254,8 +241,8 @@ bool AVRExpandPseudo::expand<AVR::SUBIWRdK>(Block &MBB, BlockIt MBBI) {
     llvm_unreachable("Unknown operand type!");
   }
 
-  if (ImpIsDead)
-    MIBHI->getOperand(3).setIsDead();
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
+
   // SREG is always implicitly killed
   MIBHI->getOperand(4).setIsKill();
 
@@ -278,22 +265,21 @@ bool AVRExpandPseudo::expand<AVR::SBCWRdRr>(Block &MBB, BlockIt MBBI) {
   splitRegs(SrcReg, SrcLoReg, SrcHiReg);
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(DstIsKill))
-          .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(DstIsKill))
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+
   // SREG is always implicitly killed
   MIBLO->getOperand(4).setIsKill();
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(DstIsKill))
-          .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(DstIsKill))
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  if (ImpIsDead)
-    MIBHI->getOperand(3).setIsDead();
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
+
   // SREG is always implicitly killed
   MIBHI->getOperand(4).setIsKill();
 
@@ -316,22 +302,21 @@ bool AVRExpandPseudo::expand<AVR::SBCIWRdK>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::SBCIRdK;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(SrcIsKill))
-          .addImm(Lo8);
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(SrcIsKill))
+    .addImm(Lo8);
+
   // SREG is always implicitly killed
   MIBLO->getOperand(4).setIsKill();
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(SrcIsKill))
-          .addImm(Hi8);
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(SrcIsKill))
+    .addImm(Hi8);
 
-  if (ImpIsDead)
-    MIBHI->getOperand(3).setIsDead();
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
+
   // SREG is always implicitly killed
   MIBHI->getOperand(4).setIsKill();
 
@@ -354,22 +339,20 @@ bool AVRExpandPseudo::expand<AVR::ANDWRdRr>(Block &MBB, BlockIt MBBI) {
   splitRegs(SrcReg, SrcLoReg, SrcHiReg);
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(DstIsKill))
-          .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(DstIsKill))
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+
   // SREG is always implicitly dead
   MIBLO->getOperand(3).setIsDead();
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(DstIsKill))
-          .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(DstIsKill))
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  if (ImpIsDead)
-    MIBHI->getOperand(3).setIsDead();
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
 
   MI.eraseFromParent();
   return true;
@@ -390,22 +373,20 @@ bool AVRExpandPseudo::expand<AVR::ANDIWRdK>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::ANDIRdK;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(SrcIsKill))
-          .addImm(Lo8);
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(SrcIsKill))
+    .addImm(Lo8);
+
   // SREG is always implicitly dead
   MIBLO->getOperand(3).setIsDead();
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(SrcIsKill))
-          .addImm(Hi8);
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(SrcIsKill))
+    .addImm(Hi8);
 
-  if (ImpIsDead)
-    MIBHI->getOperand(3).setIsDead();
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
 
   MI.eraseFromParent();
   return true;
@@ -426,22 +407,20 @@ bool AVRExpandPseudo::expand<AVR::ORWRdRr>(Block &MBB, BlockIt MBBI) {
   splitRegs(SrcReg, SrcLoReg, SrcHiReg);
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(DstIsKill))
-          .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(DstIsKill))
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+
   // SREG is always implicitly dead
   MIBLO->getOperand(3).setIsDead();
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(DstIsKill))
-          .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(DstIsKill))
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  if (ImpIsDead)
-    MIBHI->getOperand(3).setIsDead();
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
 
   MI.eraseFromParent();
   return true;
@@ -462,22 +441,20 @@ bool AVRExpandPseudo::expand<AVR::ORIWRdK>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::ORIRdK;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(SrcIsKill))
-          .addImm(Lo8);
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(SrcIsKill))
+    .addImm(Lo8);
+
   // SREG is always implicitly dead
   MIBLO->getOperand(3).setIsDead();
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(SrcIsKill))
-          .addImm(Hi8);
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(SrcIsKill))
+    .addImm(Hi8);
 
-  if (ImpIsDead)
-    MIBHI->getOperand(3).setIsDead();
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
 
   MI.eraseFromParent();
   return true;
@@ -498,22 +475,20 @@ bool AVRExpandPseudo::expand<AVR::EORWRdRr>(Block &MBB, BlockIt MBBI) {
   splitRegs(SrcReg, SrcLoReg, SrcHiReg);
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(DstIsKill))
-          .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(DstIsKill))
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+
   // SREG is always implicitly dead
   MIBLO->getOperand(3).setIsDead();
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(DstIsKill))
-          .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(DstIsKill))
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  if (ImpIsDead)
-    MIBHI->getOperand(3).setIsDead();
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
 
   MI.eraseFromParent();
   return true;
@@ -531,20 +506,18 @@ bool AVRExpandPseudo::expand<AVR::COMWRd>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::COMRd;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(DstIsKill));
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(DstIsKill));
+
   // SREG is always implicitly dead
   MIBLO->getOperand(2).setIsDead();
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(DstIsKill));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(DstIsKill));
 
-  if (ImpIsDead)
-    MIBHI->getOperand(2).setIsDead();
+  if (ImpIsDead) { MIBHI->getOperand(2).setIsDead(); }
 
   MI.eraseFromParent();
   return true;
@@ -564,18 +537,17 @@ bool AVRExpandPseudo::expand<AVR::CPWRdRr>(Block &MBB, BlockIt MBBI) {
   splitRegs(SrcReg, SrcLoReg, SrcHiReg);
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO = buildMI(MBB, MBBI, OpLo)
-                   .addReg(DstLoReg, getKillRegState(DstIsKill))
-                   .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+  // Low part
+  buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, getKillRegState(DstIsKill))
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
 
   auto MIBHI = buildMI(MBB, MBBI, OpHi)
-                   .addReg(DstHiReg, getKillRegState(DstIsKill))
-                   .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+    .addReg(DstHiReg, getKillRegState(DstIsKill))
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  UNUSED_VARIABLE(MIBLO);
+  if (ImpIsDead) { MIBHI->getOperand(2).setIsDead(); }
 
-  if (ImpIsDead)
-    MIBHI->getOperand(2).setIsDead();
   // SREG is always implicitly killed
   MIBHI->getOperand(3).setIsKill();
 
@@ -598,17 +570,18 @@ bool AVRExpandPseudo::expand<AVR::CPCWRdRr>(Block &MBB, BlockIt MBBI) {
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
   auto MIBLO = buildMI(MBB, MBBI, OpLo)
-                   .addReg(DstLoReg, getKillRegState(DstIsKill))
-                   .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+    .addReg(DstLoReg, getKillRegState(DstIsKill))
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+
   // SREG is always implicitly killed
   MIBLO->getOperand(3).setIsKill();
 
   auto MIBHI = buildMI(MBB, MBBI, OpHi)
-                   .addReg(DstHiReg, getKillRegState(DstIsKill))
-                   .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+    .addReg(DstHiReg, getKillRegState(DstIsKill))
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  if (ImpIsDead)
-    MIBHI->getOperand(2).setIsDead();
+  if (ImpIsDead) { MIBHI->getOperand(2).setIsDead(); }
+
   // SREG is always implicitly killed
   MIBHI->getOperand(3).setIsKill();
 
@@ -626,19 +599,18 @@ bool AVRExpandPseudo::expand<AVR::LDIWRdK>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::LDIRdK;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead));
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead));
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead));
 
   switch (MI.getOperand(1).getType()) {
   case MachineOperand::MO_GlobalAddress: {
     const GlobalValue *GV = MI.getOperand(1).getGlobal();
     int64_t Offs = MI.getOperand(1).getOffset();
     unsigned TF = MI.getOperand(1).getTargetFlags();
+
     MIBLO.addGlobalAddress(GV, Offs, TF | AVRII::MO_LO);
     MIBHI.addGlobalAddress(GV, Offs, TF | AVRII::MO_HI);
     break;
@@ -646,12 +618,14 @@ bool AVRExpandPseudo::expand<AVR::LDIWRdK>(Block &MBB, BlockIt MBBI) {
   case MachineOperand::MO_BlockAddress: {
     const BlockAddress *BA = MI.getOperand(1).getBlockAddress();
     unsigned TF = MI.getOperand(1).getTargetFlags();
+
     MIBLO.addOperand(MachineOperand::CreateBA(BA, TF | AVRII::MO_LO));
     MIBHI.addOperand(MachineOperand::CreateBA(BA, TF | AVRII::MO_HI));
     break;
   }
   case MachineOperand::MO_Immediate: {
     unsigned Imm = MI.getOperand(1).getImm();
+
     MIBLO.addImm(Imm & 0xff);
     MIBHI.addImm((Imm >> 8) & 0xff);
     break;
@@ -674,25 +648,25 @@ bool AVRExpandPseudo::expand<AVR::LDSWRdK>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::LDSRdK;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead));
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead));
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead));
 
   switch (MI.getOperand(1).getType()) {
   case MachineOperand::MO_GlobalAddress: {
     const GlobalValue *GV = MI.getOperand(1).getGlobal();
     int64_t Offs = MI.getOperand(1).getOffset();
     unsigned TF = MI.getOperand(1).getTargetFlags();
+
     MIBLO.addGlobalAddress(GV, Offs, TF);
     MIBHI.addGlobalAddress(GV, Offs + 1, TF);
     break;
   }
   case MachineOperand::MO_Immediate: {
     unsigned Imm = MI.getOperand(1).getImm();
+
     MIBLO.addImm(Imm);
     MIBHI.addImm(Imm + 1);
     break;
@@ -722,16 +696,14 @@ bool AVRExpandPseudo::expand<AVR::LDWRdPtr>(Block &MBB, BlockIt MBBI) {
 
   assert(DstReg != SrcReg && "SrcReg and DstReg cannot be the same");
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(SrcReg);
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(SrcReg);
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(SrcReg, getKillRegState(SrcIsKill))
-          .addImm(1);
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(SrcReg, getKillRegState(SrcIsKill))
+    .addImm(1);
 
   MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
   MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
@@ -754,17 +726,15 @@ bool AVRExpandPseudo::expand<AVR::LDWRdPtrPi>(Block &MBB, BlockIt MBBI) {
 
   assert(DstReg != SrcReg && "SrcReg and DstReg cannot be the same");
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(SrcReg, RegState::Define)
-          .addReg(SrcReg, RegState::Kill);
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(SrcReg, RegState::Define)
+    .addReg(SrcReg, RegState::Kill);
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(SrcReg, RegState::Define | getDeadRegState(SrcIsDead))
-          .addReg(SrcReg, RegState::Kill);
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(SrcReg, RegState::Define | getDeadRegState(SrcIsDead))
+    .addReg(SrcReg, RegState::Kill);
 
   MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
   MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
@@ -777,7 +747,6 @@ template <>
 bool AVRExpandPseudo::expand<AVR::LDWRdPtrPd>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
   unsigned OpLo, OpHi, DstLoReg, DstHiReg;
-  //:TODO: verify this expansion
   unsigned DstReg = MI.getOperand(0).getReg();
   unsigned SrcReg = MI.getOperand(1).getReg();
   bool DstIsDead = MI.getOperand(0).isDead();
@@ -788,17 +757,15 @@ bool AVRExpandPseudo::expand<AVR::LDWRdPtrPd>(Block &MBB, BlockIt MBBI) {
 
   assert(DstReg != SrcReg && "SrcReg and DstReg cannot be the same");
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(SrcReg, RegState::Define)
-          .addReg(SrcReg, RegState::Kill);
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(SrcReg, RegState::Define)
+    .addReg(SrcReg, RegState::Kill);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(SrcReg, RegState::Define | getDeadRegState(SrcIsDead))
-          .addReg(SrcReg, RegState::Kill);
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(SrcReg, RegState::Define | getDeadRegState(SrcIsDead))
+    .addReg(SrcReg, RegState::Kill);
 
   MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
   MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
@@ -823,17 +790,15 @@ bool AVRExpandPseudo::expand<AVR::LDDWRdPtrQ>(Block &MBB, BlockIt MBBI) {
   assert(Imm < 63 && "Offset is out of range");
   assert(DstReg != SrcReg && "SrcReg and DstReg cannot be the same");
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(SrcReg)
-          .addImm(Imm);
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(SrcReg)
+    .addImm(Imm);
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(SrcReg, getKillRegState(SrcIsKill))
-          .addImm(Imm + 1);
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(SrcReg, getKillRegState(SrcIsKill))
+    .addImm(Imm + 1);
 
   MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
   MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
@@ -862,12 +827,14 @@ bool AVRExpandPseudo::expand<AVR::STSWKRr>(Block &MBB, BlockIt MBBI) {
     const GlobalValue *GV = MI.getOperand(0).getGlobal();
     int64_t Offs = MI.getOperand(0).getOffset();
     unsigned TF = MI.getOperand(0).getTargetFlags();
+
     MIBLO.addGlobalAddress(GV, Offs, TF);
     MIBHI.addGlobalAddress(GV, Offs + 1, TF);
     break;
   }
   case MachineOperand::MO_Immediate: {
     unsigned Imm = MI.getOperand(0).getImm();
+
     MIBLO.addImm(Imm);
     MIBHI.addImm(Imm + 1);
     break;
@@ -900,13 +867,13 @@ bool AVRExpandPseudo::expand<AVR::STWPtrRr>(Block &MBB, BlockIt MBBI) {
 
   //:TODO: need to reverse this order like inw and stsw?
   auto MIBLO = buildMI(MBB, MBBI, OpLo)
-                   .addReg(DstReg)
-                   .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+    .addReg(DstReg)
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
 
   auto MIBHI = buildMI(MBB, MBBI, OpHi)
-                   .addReg(DstReg, getKillRegState(DstIsKill))
-                   .addImm(1)
-                   .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+    .addReg(DstReg, getKillRegState(DstIsKill))
+    .addImm(1)
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
   MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
   MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
@@ -931,17 +898,16 @@ bool AVRExpandPseudo::expand<AVR::STWPtrPiRr>(Block &MBB, BlockIt MBBI) {
   assert(DstReg != SrcReg && "SrcReg and DstReg cannot be the same");
 
   auto MIBLO = buildMI(MBB, MBBI, OpLo)
-                   .addReg(DstReg, RegState::Define)
-                   .addReg(DstReg, RegState::Kill)
-                   .addReg(SrcLoReg, getKillRegState(SrcIsKill))
-                   .addImm(Imm);
+    .addReg(DstReg, RegState::Define)
+    .addReg(DstReg, RegState::Kill)
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill))
+    .addImm(Imm);
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstReg, RegState::Kill)
-          .addReg(SrcHiReg, getKillRegState(SrcIsKill))
-          .addImm(Imm);
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstReg, RegState::Kill)
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill))
+    .addImm(Imm);
 
   MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
   MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
@@ -954,7 +920,6 @@ template <>
 bool AVRExpandPseudo::expand<AVR::STWPtrPdRr>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
   unsigned OpLo, OpHi, SrcLoReg, SrcHiReg;
-  //:TODO: verify this expansion
   unsigned DstReg = MI.getOperand(0).getReg();
   unsigned SrcReg = MI.getOperand(2).getReg();
   unsigned Imm = MI.getOperand(3).getImm();
@@ -967,17 +932,16 @@ bool AVRExpandPseudo::expand<AVR::STWPtrPdRr>(Block &MBB, BlockIt MBBI) {
   assert(DstReg != SrcReg && "SrcReg and DstReg cannot be the same");
 
   auto MIBHI = buildMI(MBB, MBBI, OpHi)
-                   .addReg(DstReg, RegState::Define)
-                   .addReg(DstReg, RegState::Kill)
-                   .addReg(SrcHiReg, getKillRegState(SrcIsKill))
-                   .addImm(Imm);
+    .addReg(DstReg, RegState::Define)
+    .addReg(DstReg, RegState::Kill)
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill))
+    .addImm(Imm);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstReg, RegState::Kill)
-          .addReg(SrcLoReg, getKillRegState(SrcIsKill))
-          .addImm(Imm);
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstReg, RegState::Kill)
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill))
+    .addImm(Imm);
 
   MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
   MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
@@ -1002,14 +966,14 @@ bool AVRExpandPseudo::expand<AVR::STDWPtrQRr>(Block &MBB, BlockIt MBBI) {
   assert(Imm < 63 && "Offset is out of range");
 
   auto MIBLO = buildMI(MBB, MBBI, OpLo)
-                   .addReg(DstReg)
-                   .addImm(Imm)
-                   .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+    .addReg(DstReg)
+    .addImm(Imm)
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
 
   auto MIBHI = buildMI(MBB, MBBI, OpHi)
-                   .addReg(DstReg, getKillRegState(DstIsKill))
-                   .addImm(Imm + 1)
-                   .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+    .addReg(DstReg, getKillRegState(DstIsKill))
+    .addImm(Imm + 1)
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
   MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
   MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
@@ -1031,15 +995,13 @@ bool AVRExpandPseudo::expand<AVR::INWRdA>(Block &MBB, BlockIt MBBI) {
 
   assert(Imm < 63 && "Address is out of range");
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addImm(Imm);
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addImm(Imm);
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addImm(Imm + 1);
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addImm(Imm + 1);
 
   MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
   MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
@@ -1063,12 +1025,12 @@ bool AVRExpandPseudo::expand<AVR::OUTWARr>(Block &MBB, BlockIt MBBI) {
 
   // 16 bit I/O writes need the high byte first
   auto MIBHI = buildMI(MBB, MBBI, OpHi)
-                   .addImm(Imm + 1)
-                   .addReg(SrcHiReg, getKillRegState(SrcIsKill));
+    .addImm(Imm + 1)
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
   auto MIBLO = buildMI(MBB, MBBI, OpLo)
-                   .addImm(Imm)
-                   .addReg(SrcLoReg, getKillRegState(SrcIsKill));
+    .addImm(Imm)
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill));
 
   MIBLO->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
   MIBHI->setMemRefs(MI.memoperands_begin(), MI.memoperands_end());
@@ -1088,16 +1050,15 @@ bool AVRExpandPseudo::expand<AVR::PUSHWRr>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::PUSHRr;
   splitRegs(SrcReg, SrcLoReg, SrcHiReg);
 
-  auto MIBLO = buildMI(MBB, MBBI, OpLo)
-                   .addReg(SrcLoReg, getKillRegState(SrcIsKill))
-                   .setMIFlags(Flags);
+  // Low part
+  buildMI(MBB, MBBI, OpLo)
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill))
+    .setMIFlags(Flags);
 
-  auto MIBHI = buildMI(MBB, MBBI, OpHi)
-                   .addReg(SrcHiReg, getKillRegState(SrcIsKill))
-                   .setMIFlags(Flags);
-
-  UNUSED_VARIABLE(MIBLO);
-  UNUSED_VARIABLE(MIBHI);
+  // High part
+  buildMI(MBB, MBBI, OpHi)
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill))
+    .setMIFlags(Flags);
 
   MI.eraseFromParent();
   return true;
@@ -1113,12 +1074,8 @@ bool AVRExpandPseudo::expand<AVR::POPWRd>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::POPRd;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBHI = buildMI(MBB, MBBI, OpHi, DstHiReg).setMIFlags(Flags);
-
-  auto MIBLO = buildMI(MBB, MBBI, OpLo, DstLoReg).setMIFlags(Flags);
-
-  UNUSED_VARIABLE(MIBLO);
-  UNUSED_VARIABLE(MIBHI);
+  buildMI(MBB, MBBI, OpHi, DstHiReg).setMIFlags(Flags); // High
+  buildMI(MBB, MBBI, OpLo, DstLoReg).setMIFlags(Flags); // Low
 
   MI.eraseFromParent();
   return true;
@@ -1136,20 +1093,17 @@ bool AVRExpandPseudo::expand<AVR::LSLWRd>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::ROLRd;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(DstIsKill));
+  // Low part
+  buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(DstIsKill));
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(DstIsKill));
+  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(DstIsKill));
 
-  UNUSED_VARIABLE(MIBLO);
+  if (ImpIsDead) { MIBHI->getOperand(2).setIsDead(); }
 
-  if (ImpIsDead)
-    MIBHI->getOperand(2).setIsDead();
   // SREG is always implicitly killed
   MIBHI->getOperand(3).setIsKill();
 
@@ -1169,20 +1123,17 @@ bool AVRExpandPseudo::expand<AVR::LSRWRd>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::LSRRd;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(DstIsKill));
+  // High part
+  buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(DstIsKill));
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(DstIsKill));
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(DstIsKill));
 
-  UNUSED_VARIABLE(MIBHI);
+  if (ImpIsDead) { MIBLO->getOperand(2).setIsDead(); }
 
-  if (ImpIsDead)
-    MIBLO->getOperand(2).setIsDead();
   // SREG is always implicitly killed
   MIBLO->getOperand(3).setIsKill();
 
@@ -1214,20 +1165,17 @@ bool AVRExpandPseudo::expand<AVR::ASRWRd>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::ASRRd;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, getKillRegState(DstIsKill));
+  // High part
+  buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, getKillRegState(DstIsKill));
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstLoReg, getKillRegState(DstIsKill));
+  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstLoReg, getKillRegState(DstIsKill));
 
-  UNUSED_VARIABLE(MIBHI);
+  if (ImpIsDead) { MIBLO->getOperand(2).setIsDead(); }
 
-  if (ImpIsDead)
-    MIBLO->getOperand(2).setIsDead();
   // SREG is always implicitly killed
   MIBLO->getOperand(3).setIsKill();
 
@@ -1238,21 +1186,19 @@ bool AVRExpandPseudo::expand<AVR::ASRWRd>(Block &MBB, BlockIt MBBI) {
 template <> bool AVRExpandPseudo::expand<AVR::SEXT>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
   unsigned DstLoReg, DstHiReg;
-  /*
-     sext R17:R16, R17
-     mov     r16, r17
-     lsl     r17
-     sbc     r17, r17
-     sext R17:R16, R13
-     mov     r16, r13
-     mov     r17, r13
-     lsl     r17
-     sbc     r17, r17
-     sext R17:R16, R16
-     mov     r17, r16
-     lsl     r17
-     sbc     r17, r17
-   */
+  // sext R17:R16, R17
+  // mov     r16, r17
+  // lsl     r17
+  // sbc     r17, r17
+  // sext R17:R16, R13
+  // mov     r16, r13
+  // mov     r17, r13
+  // lsl     r17
+  // sbc     r17, r17
+  // sext R17:R16, R16
+  // mov     r17, r16
+  // lsl     r17
+  // sbc     r17, r17
   unsigned DstReg = MI.getOperand(0).getReg();
   unsigned SrcReg = MI.getOperand(1).getReg();
   bool DstIsDead = MI.getOperand(0).isDead();
@@ -1261,32 +1207,32 @@ template <> bool AVRExpandPseudo::expand<AVR::SEXT>(Block &MBB, BlockIt MBBI) {
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
   if (SrcReg != DstLoReg) {
-    auto MOV =
-        buildMI(MBB, MBBI, AVR::MOVRdRr)
-            .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-            .addReg(SrcReg);
-    if (SrcReg == DstHiReg)
+    auto MOV = buildMI(MBB, MBBI, AVR::MOVRdRr)
+      .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+      .addReg(SrcReg);
+
+    if (SrcReg == DstHiReg) {
       MOV->getOperand(1).setIsKill();
+    }
   }
 
   if (SrcReg != DstHiReg) {
     buildMI(MBB, MBBI, AVR::MOVRdRr)
-        .addReg(DstHiReg, RegState::Define)
-        .addReg(SrcReg, getKillRegState(SrcIsKill));
+      .addReg(DstHiReg, RegState::Define)
+      .addReg(SrcReg, getKillRegState(SrcIsKill));
   }
 
   buildMI(MBB, MBBI, AVR::LSLRd)
-      .addReg(DstHiReg, RegState::Define)
-      .addReg(DstHiReg, RegState::Kill);
+    .addReg(DstHiReg, RegState::Define)
+    .addReg(DstHiReg, RegState::Kill);
 
-  auto SBC =
-      buildMI(MBB, MBBI, AVR::SBCRdRr)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, RegState::Kill)
-          .addReg(DstHiReg, RegState::Kill);
+  auto SBC = buildMI(MBB, MBBI, AVR::SBCRdRr)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, RegState::Kill)
+    .addReg(DstHiReg, RegState::Kill);
 
-  if (ImpIsDead)
-    SBC->getOperand(3).setIsDead();
+  if (ImpIsDead) { SBC->getOperand(3).setIsDead(); }
+
   // SREG is always implicitly killed
   SBC->getOperand(4).setIsKill();
 
@@ -1297,16 +1243,14 @@ template <> bool AVRExpandPseudo::expand<AVR::SEXT>(Block &MBB, BlockIt MBBI) {
 template <> bool AVRExpandPseudo::expand<AVR::ZEXT>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
   unsigned DstLoReg, DstHiReg;
-  /*
-     zext R25:R24, R20
-     mov      R24, R20
-     eor      R25, R25
-     zext R25:R24, R24
-     eor      R25, R25
-     zext R25:R24, R25
-     mov      R24, R25
-     eor      R25, R25
-   */
+  // zext R25:R24, R20
+  // mov      R24, R20
+  // eor      R25, R25
+  // zext R25:R24, R24
+  // eor      R25, R25
+  // zext R25:R24, R25
+  // mov      R24, R25
+  // eor      R25, R25
   unsigned DstReg = MI.getOperand(0).getReg();
   unsigned SrcReg = MI.getOperand(1).getReg();
   bool DstIsDead = MI.getOperand(0).isDead();
@@ -1316,18 +1260,16 @@ template <> bool AVRExpandPseudo::expand<AVR::ZEXT>(Block &MBB, BlockIt MBBI) {
 
   if (SrcReg != DstLoReg) {
     buildMI(MBB, MBBI, AVR::MOVRdRr)
-        .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-        .addReg(SrcReg, getKillRegState(SrcIsKill));
+      .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+      .addReg(SrcReg, getKillRegState(SrcIsKill));
   }
 
-  auto EOR =
-      buildMI(MBB, MBBI, AVR::EORRdRr)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addReg(DstHiReg, RegState::Kill)
-          .addReg(DstHiReg, RegState::Kill);
+  auto EOR = buildMI(MBB, MBBI, AVR::EORRdRr)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addReg(DstHiReg, RegState::Kill)
+    .addReg(DstHiReg, RegState::Kill);
 
-  if (ImpIsDead)
-    EOR->getOperand(3).setIsDead();
+  if (ImpIsDead) { EOR->getOperand(3).setIsDead(); }
 
   MI.eraseFromParent();
   return true;
@@ -1344,20 +1286,17 @@ bool AVRExpandPseudo::expand<AVR::SPREAD>(Block &MBB, BlockIt MBBI) {
   OpHi = AVR::INRdA;
   splitRegs(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO =
-      buildMI(MBB, MBBI, OpLo)
-          .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addImm(0x3d)
-          .setMIFlags(Flags);
+  // Low part
+  buildMI(MBB, MBBI, OpLo)
+    .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addImm(0x3d)
+    .setMIFlags(Flags);
 
-  auto MIBHI =
-      buildMI(MBB, MBBI, OpHi)
-          .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
-          .addImm(0x3e)
-          .setMIFlags(Flags);
-
-  UNUSED_VARIABLE(MIBLO);
-  UNUSED_VARIABLE(MIBHI);
+  // High part
+  buildMI(MBB, MBBI, OpHi)
+    .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
+    .addImm(0x3e)
+    .setMIFlags(Flags);
 
   MI.eraseFromParent();
   return true;
@@ -1373,22 +1312,26 @@ bool AVRExpandPseudo::expand<AVR::SPWRITE>(Block &MBB, BlockIt MBBI) {
   splitRegs(SrcReg, SrcLoReg, SrcHiReg);
 
   buildMI(MBB, MBBI, AVR::INRdA)
-      .addReg(AVR::R0, RegState::Define)
-      .addImm(0x3f)
-      .setMIFlags(Flags);
+    .addReg(AVR::R0, RegState::Define)
+    .addImm(0x3f)
+    .setMIFlags(Flags);
+
   buildMI(MBB, MBBI, AVR::BCLRs).addImm(0x07).setMIFlags(Flags);
+
   buildMI(MBB, MBBI, AVR::OUTARr)
-      .addImm(0x3e)
-      .addReg(SrcHiReg, getKillRegState(SrcIsKill))
-      .setMIFlags(Flags);
+    .addImm(0x3e)
+    .addReg(SrcHiReg, getKillRegState(SrcIsKill))
+    .setMIFlags(Flags);
+
   buildMI(MBB, MBBI, AVR::OUTARr)
-      .addImm(0x3f)
-      .addReg(AVR::R0, RegState::Kill)
-      .setMIFlags(Flags);
+    .addImm(0x3f)
+    .addReg(AVR::R0, RegState::Kill)
+    .setMIFlags(Flags);
+
   buildMI(MBB, MBBI, AVR::OUTARr)
-      .addImm(0x3d)
-      .addReg(SrcLoReg, getKillRegState(SrcIsKill))
-      .setMIFlags(Flags);
+    .addImm(0x3d)
+    .addReg(SrcLoReg, getKillRegState(SrcIsKill))
+    .setMIFlags(Flags);
 
   MI.eraseFromParent();
   return true;
@@ -1397,9 +1340,11 @@ bool AVRExpandPseudo::expand<AVR::SPWRITE>(Block &MBB, BlockIt MBBI) {
 bool AVRExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
   int Opcode = MBBI->getOpcode();
-#define EXPAND(Op)                                                             \
-  case Op:                                                                     \
+
+#define EXPAND(Op)               \
+  case Op:                       \
     return expand<Op>(MBB, MI)
+
   switch (Opcode) {
     EXPAND(AVR::ADDWRdRr);
     EXPAND(AVR::ADCWRdRr);

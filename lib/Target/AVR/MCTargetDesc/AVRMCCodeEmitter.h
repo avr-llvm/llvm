@@ -36,21 +36,16 @@ class MCOperand;
 class MCSubtargetInfo;
 class raw_ostream;
 
-/**
- * Writes AVR machine code to a stream.
- */
+/// Writes AVR machine code to a stream.
 class AVRMCCodeEmitter : public MCCodeEmitter {
 public:
   AVRMCCodeEmitter(const MCInstrInfo &mcii, MCContext &Ctx_)
       : MCII(mcii), Ctx(Ctx_) {}
 
 private:
-  /**
-   * Finishes up encoding an LD/ST instruction.
-   *
-   * The purpose of this function is to set an bit in the instruction
-   * which follows no logical pattern. See the implementation for details.
-   */
+  ///Finishes up encoding an LD/ST instruction.
+  /// The purpose of this function is to set an bit in the instruction
+  /// which follows no logical pattern. See the implementation for details.
   unsigned loadStorePostEncoder(const MCInst &MI, unsigned EncodedValue,
                                 const MCSubtargetInfo &STI) const;
 
@@ -87,12 +82,10 @@ private:
   unsigned getExprOpValue(const MCExpr *Expr, SmallVectorImpl<MCFixup> &Fixups,
                           const MCSubtargetInfo &STI) const;
 
-  /*!
-   * Returns the binary encoding of operand.
-   *
-   * If the machine operand requires relocation, the relocation is recorded
-   * and zero is returned.
-   */
+  /// Returns the binary encoding of operand.
+  ///
+  /// If the machine operand requires relocation, the relocation is recorded
+  /// and zero is returned.
   unsigned getMachineOpValue(const MCInst &MI, const MCOperand &MO,
                              SmallVectorImpl<MCFixup> &Fixups,
                              const MCSubtargetInfo &STI) const;
