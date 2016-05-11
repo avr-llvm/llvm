@@ -1,19 +1,19 @@
+dist: trusty
 language: cpp
 script: cmake
 
-matrix:
-  include:
-    - env: CLANG_VERSION=3.7 CPP=11 LIBCXX=On
-      os: linux
-      addons: *clang37
+addons:
+  apt:
+    sources:
+      - kubuntu-backports
+      - ubuntu-toolchain-r-test
+    packages:
+      - gcc-5
+      - g++-5
+      - cmake
 
-# Attempt to get the right GCC/Clang versions
-before_script:
-  - sudo add-apt-repository ppa:kubuntu-ppa/backports -y
-  - sudo apt-get update -qq
-  - sudo apt-get install cmake
-  - git clone --depth=1 https://github.com/avr-llvm/clang.git tools/clang
-  - git clone --depth=1 https://github.com/avr-llvm/compiler-rt.git projects/compiler-rt
+install:
+  - export CC="gcc-5" CXX="g++-5"
 
 script:
   - mkdir build && cd build
