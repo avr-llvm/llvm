@@ -158,7 +158,7 @@ bool AVRExpandPseudo::expand<AVR::ADCWRdRr>(Block &MBB, BlockIt MBBI) {
     .addReg(DstHiReg, getKillRegState(DstIsKill))
     .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead() }
+  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
 
   // SREG is always implicitly killed
   MIBHI->getOperand(4).setIsKill();
