@@ -1264,7 +1264,6 @@ SDValue AVRTargetLowering::LowerCallResult(
     SDValue Chain, SDValue InFlag, CallingConv::ID CallConv, bool isVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc dl, SelectionDAG &DAG,
     SmallVectorImpl<SDValue> &InVals) const {
-  bool ShouldReverseVals;
 
   // Assign locations to each value returned by this call.
   SmallVector<CCValAssign, 16> RVLocs;
@@ -1272,19 +1271,12 @@ SDValue AVRTargetLowering::LowerCallResult(
                  *DAG.getContext());
 
   // Handle runtime calling convs.
-  if (CallConv == CallingConv::AVR_BUILTIN) {
-    CCInfo.AnalyzeCallResult(Ins, RetCC_AVR_BUILTIN);
+  auto CCFunction = CCAssignFnForReturn(CallConv);
+  CCInfo.AnalyzeCallResult(Ins, CCFunction);
 
-    ShouldReverseVals = false;
-  } else {
-    CCInfo.AnalyzeCallResult(Ins, RetCC_AVR);
-
+  if (CallConv != CallingConv::AVR_BUILTIN && RVLocs.size() > 1) {
     // Reverse splitted return values to get the "big endian" format required
     // to agree with the calling convention ABI.
-    ShouldReverseVals = (RVLocs.size() > 1);
-  }
-
-  if (ShouldReverseVals) {
     std::reverse(RVLocs.begin(), RVLocs.end());
   }
 
@@ -1304,6 +1296,27 @@ SDValue AVRTargetLowering::LowerCallResult(
 //               Return Value Calling Convention Implementation
 //===----------------------------------------------------------------------===//
 
+CCAssignFn *AVRTargetLowering::CCAssignFnForReturn(CallingConv::ID CC) const {
+  switch (CC) {
+  case CallingConv::AVR_BUILTIN:
+    return RetCC_AVR_BUILTIN;
+  default:
+    return RetCC_AVR;
+  }
+}
+
+bool
+AVRTargetLowering::CanLowerReturn(CallingConv::ID CallConv,
+                                  MachineFunction &MF, bool isVarArg,
+                                  const SmallVectorImpl<ISD::OutputArg> &Outs,
+                                  LLVMContext &Context) const
+{
+  SmallVector<CCValAssign, 16> RVLocs;
+  CCState CCInfo(CallConv, isVarArg, MF, RVLocs, Context);
+  auto CCFunction = CCAssignFnForReturn(CallConv);
+  return CCInfo.CheckReturn(Outs, CCFunction);
+}
+
 SDValue
 AVRTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                                bool isVarArg,
@@ -1317,11 +1330,9 @@ AVRTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), RVLocs,
                  *DAG.getContext());
 
-  // Analize return values.
-  if (CallConv == CallingConv::AVR_BUILTIN)
-    CCInfo.AnalyzeReturn(Outs, RetCC_AVR_BUILTIN);
-  else
-    CCInfo.AnalyzeReturn(Outs, RetCC_AVR);
+  // Analyze return values.
+  auto CCFunction = CCAssignFnForReturn(CallConv);
+  CCInfo.AnalyzeReturn(Outs, CCFunction);
 
   // If this is the first return lowered for this function, add the regs to
   // the liveout set for the function.
