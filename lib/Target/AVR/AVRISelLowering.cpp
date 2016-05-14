@@ -1500,7 +1500,7 @@ MachineBasicBlock *AVRTargetLowering::insertMul(MachineInstr *MI,
 
 MachineBasicBlock *
 AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
-                                               MachineBasicBlock *BB) const {
+                                               MachineBasicBlock *MBB) const {
   int Opc = MI->getOpcode();
 
   // Pseudo shift instructions with a non constant shift amount are expanded
@@ -1512,10 +1512,10 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   case AVR::Lsr16:
   case AVR::Asr8:
   case AVR::Asr16:
-    return insertShift(MI, BB);
+    return insertShift(MI, MBB);
   case AVR::MULRdRr:
   case AVR::MULSRdRr:
-    return insertMul(MI, BB);
+    return insertMul(MI, MBB);
   }
 
   assert((Opc == AVR::Select16 || Opc == AVR::Select8) &&
@@ -1527,59 +1527,48 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
                                 .getInstrInfo();
   DebugLoc dl = MI->getDebugLoc();
 
-  // To "insert" a SELECT instruction, we actually have to insert the diamond
-  // control-flow pattern.  The incoming instruction knows the destination vreg
-  // to set, the condition code register to branch on, the true/false values to
-  // select between, and a branch opcode to use.
-  const BasicBlock *LLVM_BB = BB->getBasicBlock();
-  MachineFunction::iterator I = BB->getParent()->begin();
+  // To "insert" a SELECT instruction, we insert the diamond
+  // control-flow pattern. The incoming instruction knows the
+  // destination vreg to set, the condition code register to branch
+  // on, the true/false values to select between, and a branch opcode
+  // to use.
+
+  MachineFunction *MF = MBB->getParent();
+  const BasicBlock *LLVM_BB = MBB->getBasicBlock();
+  MachineBasicBlock *trueMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *falseMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+
+  MachineFunction::iterator I = MBB->getParent()->begin();
   ++I;
+  MF->insert(I, trueMBB);
+  MF->insert(I, falseMBB);
 
-  //  thisMBB:
-  //  ...
-  //   TrueVal = ...
-  //   cmpTY ccX, r1, r2
-  //   jCC copy1MBB
-  //   fallthrough --> copy0MBB
-  MachineBasicBlock *thisMBB = BB;
-  MachineFunction *F = BB->getParent();
-  MachineBasicBlock *copy0MBB = F->CreateMachineBasicBlock(LLVM_BB);
-  MachineBasicBlock *copy1MBB = F->CreateMachineBasicBlock(LLVM_BB);
+  // Transfer remaining instructions and all successors of the current
+  // block to the block which will contain the Phi node for the
+  // select.
+  trueMBB->splice(trueMBB->begin(), MBB,
+                  std::next(MachineBasicBlock::iterator(MI)), MBB->end());
+  trueMBB->transferSuccessorsAndUpdatePHIs(MBB);
+
   AVRCC::CondCodes CC = (AVRCC::CondCodes)MI->getOperand(3).getImm();
-  F->insert(I, copy0MBB);
-  F->insert(I, copy1MBB);
-  // Update machine-CFG edges by transferring all successors of the current
-  // block to the new block which will contain the Phi node for the select.
-  copy1MBB->splice(copy1MBB->begin(), BB,
-                   std::next(MachineBasicBlock::iterator(MI)), BB->end());
-  copy1MBB->transferSuccessorsAndUpdatePHIs(BB);
-  // Next, add the true and fallthrough blocks as its successors.
-  BB->addSuccessor(copy0MBB);
-  BB->addSuccessor(copy1MBB);
+  BuildMI(MBB, dl, TII.getBrCond(CC)).addMBB(trueMBB);
+  BuildMI(MBB, dl, TII.get(AVR::RJMPk)).addMBB(falseMBB);
+  MBB->addSuccessor(falseMBB);
+  MBB->addSuccessor(trueMBB);
 
-  BuildMI(BB, dl, TII.getBrCond(CC)).addMBB(copy1MBB);
-  BuildMI(BB, dl, TII.get(AVR::RJMPk)).addMBB(copy0MBB);
+  // Unconditionally flow back to the true block
+  BuildMI(falseMBB, dl, TII.get(AVR::RJMPk)).addMBB(trueMBB);
+  falseMBB->addSuccessor(trueMBB);
 
-  //  copy0MBB:
-  //   %FalseValue = ...
-  //   # fallthrough to copy1MBB
-  BB = copy0MBB;
-
-  // Update machine-CFG edges.
-  BB->addSuccessor(copy1MBB);
-
-  //  copy1MBB:
-  //   %Result = phi [ %FalseValue, copy0MBB ], [ %TrueValue, thisMBB ]
-  //  ...
-  BB = copy1MBB;
-  BuildMI(*BB, BB->begin(), dl, TII.get(AVR::PHI), MI->getOperand(0).getReg())
-      .addReg(MI->getOperand(2).getReg())
-      .addMBB(copy0MBB)
-      .addReg(MI->getOperand(1).getReg())
-      .addMBB(thisMBB);
+  // Set up the Phi node to determine where we came from
+  BuildMI(*trueMBB, trueMBB->begin(), dl, TII.get(AVR::PHI), MI->getOperand(0).getReg())
+    .addReg(MI->getOperand(1).getReg())
+    .addMBB(MBB)
+    .addReg(MI->getOperand(2).getReg())
+    .addMBB(falseMBB) ;
 
   MI->eraseFromParent(); // The pseudo instruction is gone now.
-  return BB;
+  return trueMBB;
 }
 
 //===----------------------------------------------------------------------===//
