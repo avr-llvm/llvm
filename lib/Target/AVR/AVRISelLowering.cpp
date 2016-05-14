@@ -1558,6 +1558,7 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   BB->addSuccessor(copy1MBB);
 
   BuildMI(BB, dl, TII.getBrCond(CC)).addMBB(copy1MBB);
+  BuildMI(BB, dl, TII.get(AVR::RJMPk)).addMBB(copy0MBB);
 
   //  copy0MBB:
   //   %FalseValue = ...
