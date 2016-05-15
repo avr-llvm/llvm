@@ -53,7 +53,7 @@ public:
 #include "AVRGenDAGISel.inc"
 
 private:
-  SDNode *Select(SDNode *N) override;
+  SDNode *SelectImpl(SDNode *N) override;
 
   template <unsigned NodeType> SDNode *select(SDNode *N);
   SDNode *selectMultiplication(SDNode *N);
@@ -505,7 +505,7 @@ SDNode *AVRDAGToDAGISel::selectMultiplication(llvm::SDNode *N) {
   return nullptr;
 }
 
-SDNode *AVRDAGToDAGISel::Select(SDNode *N) {
+SDNode *AVRDAGToDAGISel::SelectImpl(SDNode *N) {
   unsigned Opcode = N->getOpcode();
   SDLoc DL(N);
 

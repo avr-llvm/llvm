@@ -1,5 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
-; XFAIL:
+; XFAIL: *
 
 ; Test case for an assertion error.
 ;

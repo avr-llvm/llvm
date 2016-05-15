@@ -1,5 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
-; XFAIL:
+; XFAIL: *
 
 define fastcc void @foo(i32) unnamed_addr {
 ; CHECK-LABEL: foo:

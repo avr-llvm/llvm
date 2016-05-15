@@ -1,5 +1,5 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
-; XFAIL:
+; XFAIL: *
 
 ; Test case for an assertion error.
 ;
@@ -23,4 +23,3 @@ next:                                             ; preds = %entry-block
 cond:                                             ; preds = %entry-block
   unreachable
 }
-
