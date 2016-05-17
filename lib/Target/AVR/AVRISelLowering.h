@@ -94,6 +94,9 @@ public:
 
   bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
 
+  EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
+                         EVT VT) const override;
+
   MachineBasicBlock *
   EmitInstrWithCustomInserter(MachineInstr *MI,
                               MachineBasicBlock *MBB) const override;

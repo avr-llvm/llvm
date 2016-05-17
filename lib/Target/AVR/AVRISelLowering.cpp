@@ -137,8 +137,11 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm)
   // Expand 16 bit multiplications.
   setOperationAction(ISD::SMUL_LOHI, MVT::i16, Expand);
   setOperationAction(ISD::UMUL_LOHI, MVT::i16, Expand);
-  setOperationAction(ISD::MULHS, MVT::i16, Expand);
-  setOperationAction(ISD::MULHU, MVT::i16, Expand);
+
+  for (MVT VT : MVT::integer_valuetypes()) {
+    setOperationAction(ISD::MULHS, VT, Expand);
+    setOperationAction(ISD::MULHU, VT, Expand);
+  }
 
   //  Runtime library functions
   {
@@ -230,6 +233,12 @@ const char *AVRTargetLowering::getTargetNodeName(unsigned Opcode) const {
     NODE(SELECT_CC);
 #undef NODE
   }
+}
+
+EVT AVRTargetLowering::getSetCCResultType(const DataLayout &DL, LLVMContext &,
+                                          EVT VT) const {
+  assert(!VT.isVector() && "No AVR SetCC type for vectors!");
+  return MVT::i8;
 }
 
 SDValue AVRTargetLowering::LowerShifts(SDValue Op, SelectionDAG &DAG) const {
@@ -1474,9 +1483,12 @@ MachineBasicBlock *AVRTargetLowering::insertShift(MachineInstr *MI,
 }
 
 inline bool isCopyMulResult(MachineBasicBlock::iterator const &I) {
-  unsigned SrcReg = I->getOperand(1).getReg();
-  return I->getOpcode() == AVR::COPY &&
-         (SrcReg == AVR::R0 || SrcReg == AVR::R1);
+  if (I->getOpcode() == AVR::COPY) {
+    unsigned SrcReg = I->getOperand(1).getReg();
+    return (SrcReg == AVR::R0 || SrcReg == AVR::R1);
+  }
+
+  return false;
 }
 
 // The mul instructions wreak havock on our zero_reg R1. We need to clear it
