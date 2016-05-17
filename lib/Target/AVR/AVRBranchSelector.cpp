@@ -140,6 +140,8 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
         // block.
         MachineBasicBlock *Dest = I->getOperand(0).getMBB();
 
+        assert(Dest->getNumber() >= 0 && "Destination basic block isn't in a function");
+
         int BranchSize;
         if (Dest->getNumber() <= MBB.getNumber()) {
           // If this is a backwards branch, the delta is the offset from the
