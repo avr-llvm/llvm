@@ -11,8 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AVRConfig.h"
-
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Support/Debug.h"

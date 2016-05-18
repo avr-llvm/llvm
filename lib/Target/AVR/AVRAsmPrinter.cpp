@@ -12,8 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AVRConfig.h"
-
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineFunction.h"

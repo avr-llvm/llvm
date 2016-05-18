@@ -15,8 +15,6 @@
 #ifndef LLVM_AVR_ASM_BACKEND_H
 #define LLVM_AVR_ASM_BACKEND_H
 
-#include "AVRConfig.h"
-
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/ADT/Triple.h"
 

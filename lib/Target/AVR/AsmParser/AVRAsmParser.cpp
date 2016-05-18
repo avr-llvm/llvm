@@ -7,8 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "AVRConfig.h"
-
 #include <sstream>
 
 #include "llvm/ADT/APInt.h"
@@ -318,7 +316,6 @@ int AVRAsmParser::parseRegisterName(unsigned (*matchFn)(StringRef)) {
 
   int RegNum = matchFn(Name);
 
-#ifdef LLVM_AVR_GCC_COMPAT
   // GCC supports case insensitive register names. Some of the AVR registers
   // are all lower case, some are all upper case but non are mixed. We prefer
   // to use the original names in the register definitions. That is why we
@@ -329,7 +326,7 @@ int AVRAsmParser::parseRegisterName(unsigned (*matchFn)(StringRef)) {
   if (RegNum == AVR::NoRegister) {
     RegNum = matchFn(Name.upper());
   }
-#endif
+
   return RegNum;
 }
 
@@ -548,9 +545,7 @@ void AVRAsmParser::eatComma() {
   if (getLexer().is(AsmToken::Comma)) {
     Parser.Lex();
   } else {
-#ifndef LLVM_AVR_GCC_COMPAT
-    Error(Parser.getTok().getLoc(), "missing comma");
-#endif
+    // GCC allows commas to be omitted.
   }
 }
 
@@ -603,7 +598,7 @@ unsigned AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp,
                                                   unsigned ExpectedKind) {
   AVROperand &Op = static_cast<AVROperand &>(AsmOp);
   MatchClassKind Expected = static_cast<MatchClassKind>(ExpectedKind);
-#ifdef LLVM_AVR_GCC_COMPAT
+
   // If need be, GCC converts bare numbers to register names
   if (Op.isImm()) {
     if (MCConstantExpr const *Const = dyn_cast<MCConstantExpr>(Op.getImm())) {
@@ -620,10 +615,8 @@ unsigned AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp,
       // Let the other quirks try their magic.
     }
   }
-#endif
 
   if (Op.isReg()) {
-#ifdef LLVM_AVR_GCC_COMPAT
     // If the instruction uses a register pair but we got a single, lower
     // register we perform a "class cast".
     if (isSubclass(Expected, MCK_DREGS)) {
@@ -633,7 +626,6 @@ unsigned AVRAsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp,
         return validateOperandClass(Op, Expected);
       }
     }
-#endif
   }
   return Match_InvalidOperand;
 }

@@ -112,6 +112,7 @@ void AVRInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
                                        const TargetRegisterClass *RC,
                                        const TargetRegisterInfo *TRI) const {
   MachineFunction &MF = *MBB.getParent();
+  AVRMachineFunctionInfo *AFI = MF.getInfo<AVRMachineFunctionInfo>();
 
   if (RA_InSpillerCode && !AFI->getHasSpills()) {
     AFI->setHasSpills(true);

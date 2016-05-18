@@ -10,8 +10,6 @@
 #ifndef LLVM_AVR_MCEXPR_H
 #define LLVM_AVR_MCEXPR_H
 
-#include "AVRConfig.h"
-
 #include "llvm/MC/MCExpr.h"
 
 #include "MCTargetDesc/AVRFixupKinds.h"

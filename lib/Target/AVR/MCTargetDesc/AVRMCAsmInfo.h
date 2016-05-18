@@ -14,8 +14,6 @@
 #ifndef LLVM_AVR_ASM_INFO_H
 #define LLVM_AVR_ASM_INFO_H
 
-#include "AVRConfig.h"
-
 #include "llvm/MC/MCAsmInfo.h"
 
 namespace llvm {
