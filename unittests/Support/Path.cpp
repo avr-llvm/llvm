@@ -716,6 +716,20 @@ TEST_F(FileSystemTest, DirectoryIteration) {
   ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive/z0/za1"));
   ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive/z0"));
   ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive"));
+
+  // Test recursive_directory_iterator level()
+  ASSERT_NO_ERROR(
+      fs::create_directories(Twine(TestDirectory) + "/reclevel/a/b/c"));
+  fs::recursive_directory_iterator I(Twine(TestDirectory) + "/reclevel", ec), E;
+  for (int l = 0; I != E; I.increment(ec), ++l) {
+    ASSERT_NO_ERROR(ec);
+    EXPECT_EQ(I.level(), l);
+  }
+  EXPECT_EQ(I, E);
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/reclevel/a/b/c"));
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/reclevel/a/b"));
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/reclevel/a"));
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/reclevel"));
 }
 
 const char archive[] = "!<arch>\x0A";
@@ -955,5 +969,30 @@ TEST(Support, RemoveDots) {
   EXPECT_TRUE(path::remove_dots(Path1, true));
   EXPECT_EQ("c", Path1);
 #endif
+}
+
+TEST(Support, ReplacePathPrefix) {
+  SmallString<64> Path1("/foo");
+  SmallString<64> Path2("/old/foo");
+  SmallString<64> OldPrefix("/old");
+  SmallString<64> NewPrefix("/new");
+  SmallString<64> NewPrefix2("/longernew");
+  SmallString<64> EmptyPrefix("");
+
+  SmallString<64> Path = Path1;
+  path::replace_path_prefix(Path, OldPrefix, NewPrefix);
+  EXPECT_EQ(Path, "/foo");
+  Path = Path2;
+  path::replace_path_prefix(Path, OldPrefix, NewPrefix);
+  EXPECT_EQ(Path, "/new/foo");
+  Path = Path2;
+  path::replace_path_prefix(Path, OldPrefix, NewPrefix2);
+  EXPECT_EQ(Path, "/longernew/foo");
+  Path = Path1;
+  path::replace_path_prefix(Path, EmptyPrefix, NewPrefix);
+  EXPECT_EQ(Path, "/new/foo");
+  Path = Path2;
+  path::replace_path_prefix(Path, OldPrefix, EmptyPrefix);
+  EXPECT_EQ(Path, "/foo");
 }
 } // anonymous namespace

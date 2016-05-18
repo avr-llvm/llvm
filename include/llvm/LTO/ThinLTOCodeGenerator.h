@@ -19,6 +19,7 @@
 #include "llvm-c/lto.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/Triple.h"
+#include "llvm/IR/ModuleSummaryIndex.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Target/TargetOptions.h"
@@ -27,7 +28,6 @@
 
 namespace llvm {
 class StringRef;
-class ModuleSummaryIndex;
 class LLVMContext;
 class TargetMachine;
 
@@ -119,21 +119,26 @@ public:
   void setCacheDir(std::string Path) { CacheOptions.Path = std::move(Path); }
 
   /// Cache policy: interval (seconds) between two prune of the cache. Set to a
-  /// negative value (default) to disable pruning.
+  /// negative value (default) to disable pruning. A value of 0 will be ignored.
   void setCachePruningInterval(int Interval) {
-    CacheOptions.PruningInterval = Interval;
+    if (Interval)
+      CacheOptions.PruningInterval = Interval;
   }
 
   /// Cache policy: expiration (in seconds) for an entry.
+  /// A value of 0 will be ignored.
   void setCacheEntryExpiration(unsigned Expiration) {
-    CacheOptions.Expiration = Expiration;
+    if (Expiration)
+      CacheOptions.Expiration = Expiration;
   }
 
   /**
    * Sets the maximum cache size that can be persistent across build, in terms
    * of percentage of the available space on the the disk. Set to 100 to
    * indicate no limit, 50 to indicate that the cache size will not be left over
-   * half the available space. A value over 100 will be reduced to 100.
+   * half the available space. A value over 100 will be reduced to 100, and a
+   * value of 0 will be ignored.
+   *
    *
    * The formula looks like:
    *  AvailableSpace = FreeSpace + ExistingCacheSize
@@ -141,7 +146,8 @@ public:
    *
    */
   void setMaxCacheSizeRelativeToAvailableSpace(unsigned Percentage) {
-    CacheOptions.MaxPercentageOfAvailableSpace = Percentage;
+    if (Percentage)
+      CacheOptions.MaxPercentageOfAvailableSpace = Percentage;
   }
 
   /**@}*/
@@ -195,10 +201,23 @@ public:
   void promote(Module &Module, ModuleSummaryIndex &Index);
 
   /**
+   * Compute and emit the imported files for module at \p ModulePath.
+   */
+  static void emitImports(StringRef ModulePath, StringRef OutputName,
+                          ModuleSummaryIndex &Index);
+
+  /**
    * Perform cross-module importing for the module identified by
    * ModuleIdentifier.
    */
   void crossModuleImport(Module &Module, ModuleSummaryIndex &Index);
+
+  /**
+   * Compute the list of summaries needed for importing into module.
+   */
+  static void gatherImportedSummariesForModule(
+      StringRef ModulePath, ModuleSummaryIndex &Index,
+      std::map<std::string, GVSummaryMapTy> &ModuleToSummariesForIndex);
 
   /**
    * Perform internalization.

@@ -2821,15 +2821,23 @@ static bool SimplifyCondBranchToCondBranch(BranchInst *PBI, BranchInst *BI,
 
   // Update branch weight for PBI.
   uint64_t PredTrueWeight, PredFalseWeight, SuccTrueWeight, SuccFalseWeight;
+  uint64_t PredCommon, PredOther, SuccCommon, SuccOther;
   bool PredHasWeights =
       PBI->extractProfMetadata(PredTrueWeight, PredFalseWeight);
   bool SuccHasWeights =
       BI->extractProfMetadata(SuccTrueWeight, SuccFalseWeight);
-  if (PredHasWeights && SuccHasWeights) {
-    uint64_t PredCommon = PBIOp ? PredFalseWeight : PredTrueWeight;
-    uint64_t PredOther = PBIOp ?PredTrueWeight : PredFalseWeight;
-    uint64_t SuccCommon = BIOp ? SuccFalseWeight : SuccTrueWeight;
-    uint64_t SuccOther = BIOp ? SuccTrueWeight : SuccFalseWeight;
+  bool HasWeights = PredHasWeights || SuccHasWeights;
+  if (HasWeights) {
+    if (!PredHasWeights) {
+      PredFalseWeight = PredTrueWeight = 1;
+    }
+    if (!SuccHasWeights) {
+      SuccFalseWeight = SuccTrueWeight = 1;
+    }
+    PredCommon = PBIOp ? PredFalseWeight : PredTrueWeight;
+    PredOther = PBIOp ? PredTrueWeight : PredFalseWeight;
+    SuccCommon = BIOp ? SuccFalseWeight : SuccTrueWeight;
+    SuccOther = BIOp ? SuccTrueWeight : SuccFalseWeight;
     // The weight to CommonDest should be PredCommon * SuccTotal +
     //                                    PredOther * SuccCommon.
     // The weight to OtherDest should be PredOther * SuccOther.
@@ -3857,12 +3865,12 @@ static bool EliminateDeadSwitchCases(SwitchInst *SI, AssumptionCache *AC,
 
   // Gather dead cases.
   SmallVector<ConstantInt*, 8> DeadCases;
-  for (SwitchInst::CaseIt I = SI->case_begin(), E = SI->case_end(); I != E; ++I) {
-    if ((I.getCaseValue()->getValue() & KnownZero) != 0 ||
-        (I.getCaseValue()->getValue() & KnownOne) != KnownOne) {
-      DeadCases.push_back(I.getCaseValue());
+  for (auto &Case : SI->cases()) {
+    if ((Case.getCaseValue()->getValue() & KnownZero) != 0 ||
+        (Case.getCaseValue()->getValue() & KnownOne) != KnownOne) {
+      DeadCases.push_back(Case.getCaseValue());
       DEBUG(dbgs() << "SimplifyCFG: switch case '"
-                   << I.getCaseValue() << "' is dead.\n");
+                   << Case.getCaseValue() << "' is dead.\n");
     }
   }
 
@@ -3897,8 +3905,8 @@ static bool EliminateDeadSwitchCases(SwitchInst *SI, AssumptionCache *AC,
   }
 
   // Remove dead cases from the switch.
-  for (unsigned I = 0, E = DeadCases.size(); I != E; ++I) {
-    SwitchInst::CaseIt Case = SI->findCaseValue(DeadCases[I]);
+  for (ConstantInt *DeadCase : DeadCases) {
+    SwitchInst::CaseIt Case = SI->findCaseValue(DeadCase);
     assert(Case != SI->case_default() &&
            "Case was not found. Probably mistake in DeadCases forming.");
     if (HasWeight) {

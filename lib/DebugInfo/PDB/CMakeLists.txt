@@ -29,13 +29,15 @@ endif()
 
 add_pdb_impl_folder(Raw
   Raw/ByteStream.cpp
-  Raw/MappedBlockStream.cpp
-  Raw/ModInfo.cpp
-  Raw/PDBFile.cpp
   Raw/DbiStream.cpp
   Raw/InfoStream.cpp
+  Raw/MappedBlockStream.cpp
+  Raw/ModInfo.cpp
+  Raw/ModStream.cpp
   Raw/NameHashTable.cpp
   Raw/NameMap.cpp
+  Raw/PDBFile.cpp
+  Raw/PublicsStream.cpp
   Raw/RawError.cpp
   Raw/RawSession.cpp
   Raw/StreamReader.cpp

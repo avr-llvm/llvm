@@ -59,7 +59,7 @@ bool UnrolledInstAnalyzer::simplifyInstWithSCEV(Instruction *I) {
   Address.Base = Base->getValue();
   Address.Offset = Offset->getValue();
   SimplifiedAddresses[I] = Address;
-  return true;
+  return false;
 }
 
 /// Try to simplify binary operator I.
@@ -188,4 +188,14 @@ bool UnrolledInstAnalyzer::visitCmpInst(CmpInst &I) {
   }
 
   return Base::visitCmpInst(I);
+}
+
+bool UnrolledInstAnalyzer::visitPHINode(PHINode &PN) {
+  // Run base visitor first. This way we can gather some useful for later
+  // analysis information.
+  if (Base::visitPHINode(PN))
+    return true;
+
+  // The loop induction PHI nodes are definitionally free.
+  return PN.getParent() == L->getHeader();
 }

@@ -111,12 +111,22 @@ static cl::opt<unsigned> MaxNumAnnotations(
     cl::desc("Max number of annotations for a single indirect "
              "call callsite"));
 
+// Command line option to enable/disable the warning about missing profile
+// information.
+static cl::opt<bool> NoPGOWarnMissing("no-pgo-warn-missing", cl::init(false),
+                                      cl::Hidden);
+
+// Command line option to enable/disable the warning about a hash mismatch in
+// the profile data.
+static cl::opt<bool> NoPGOWarnMismatch("no-pgo-warn-mismatch", cl::init(false),
+                                       cl::Hidden);
+
 namespace {
 class PGOInstrumentationGenLegacyPass : public ModulePass {
 public:
   static char ID;
 
-  PGOInstrumentationGenLegacyPass() : ModulePass(ID), PGOInstrGen() {
+  PGOInstrumentationGenLegacyPass() : ModulePass(ID) {
     initializePGOInstrumentationGenLegacyPassPass(
         *PassRegistry::getPassRegistry());
   }
@@ -126,7 +136,6 @@ public:
   }
 
 private:
-  PGOInstrumentationGen PGOInstrGen;
   bool runOnModule(Module &M) override;
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -152,13 +161,9 @@ public:
   }
 
 private:
-  bool annotateAllFunctions(
-      Module &M, function_ref<BranchProbabilityInfo &(Function &)> LookupBPI,
-      function_ref<BlockFrequencyInfo &(Function &)> LookupBFI);
   std::string ProfileFileName;
-  std::unique_ptr<IndexedInstrProfReader> PGOReader;
-  bool runOnModule(Module &M) override;
 
+  bool runOnModule(Module &M) override;
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<BlockFrequencyInfoWrapperPass>();
   }
@@ -580,11 +585,16 @@ bool PGOUseFunc::readCounters(IndexedInstrProfReader *PGOReader) {
   ErrorOr<InstrProfRecord> Result =
       PGOReader->getInstrProfRecord(FuncInfo.FuncName, FuncInfo.FunctionHash);
   if (std::error_code EC = Result.getError()) {
-    if (EC == instrprof_error::unknown_function)
+    if (EC == instrprof_error::unknown_function) {
       NumOfPGOMissing++;
-    else if (EC == instrprof_error::hash_mismatch ||
-             EC == llvm::instrprof_error::malformed)
+      if (NoPGOWarnMissing)
+        return false;
+    } else if (EC == instrprof_error::hash_mismatch ||
+               EC == llvm::instrprof_error::malformed) {
       NumOfPGOMismatch++;
+      if (NoPGOWarnMismatch)
+        return false;
+    }
 
     std::string Msg = EC.message() + std::string(" ") + F.getName().str();
     Ctx.diagnose(
@@ -776,22 +786,22 @@ static void createIRLevelProfileFlagVariable(Module &M) {
   IRLevelVersionVariable->setVisibility(GlobalValue::DefaultVisibility);
   Triple TT(M.getTargetTriple());
   if (TT.isOSBinFormatMachO())
-    IRLevelVersionVariable->setLinkage(GlobalValue::LinkOnceODRLinkage);
+    IRLevelVersionVariable->setLinkage(GlobalValue::WeakAnyLinkage);
   else
     IRLevelVersionVariable->setComdat(M.getOrInsertComdat(
         StringRef(INSTR_PROF_QUOTE(IR_LEVEL_PROF_VERSION_VAR))));
 }
 
 static bool InstrumentAllFunctions(
-    Module &M, function_ref<BranchProbabilityInfo &(Function &)> LookupBPI,
-    function_ref<BlockFrequencyInfo &(Function &)> LookupBFI) {
+    Module &M, function_ref<BranchProbabilityInfo *(Function &)> LookupBPI,
+    function_ref<BlockFrequencyInfo *(Function &)> LookupBFI) {
   createIRLevelProfileFlagVariable(M);
   for (auto &F : M) {
     if (F.isDeclaration())
       continue;
-    auto &BPI = LookupBPI(F);
-    auto &BFI = LookupBFI(F);
-    instrumentOneFunc(F, &M, &BPI, &BFI);
+    auto *BPI = LookupBPI(F);
+    auto *BFI = LookupBFI(F);
+    instrumentOneFunc(F, &M, BPI, BFI);
   }
   return true;
 }
@@ -800,11 +810,11 @@ bool PGOInstrumentationGenLegacyPass::runOnModule(Module &M) {
   if (skipModule(M))
     return false;
 
-  auto LookupBPI = [this](Function &F) -> BranchProbabilityInfo & {
-    return this->getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI();
+  auto LookupBPI = [this](Function &F) {
+    return &this->getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI();
   };
-  auto LookupBFI = [this](Function &F) -> BlockFrequencyInfo & {
-    return this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
+  auto LookupBFI = [this](Function &F) {
+    return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
   };
   return InstrumentAllFunctions(M, LookupBPI, LookupBFI);
 }
@@ -813,12 +823,12 @@ PreservedAnalyses PGOInstrumentationGen::run(Module &M,
                                              AnalysisManager<Module> &AM) {
 
   auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
-  auto LookupBPI = [&FAM](Function &F) -> BranchProbabilityInfo & {
-    return FAM.getResult<BranchProbabilityAnalysis>(F);
+  auto LookupBPI = [&FAM](Function &F) {
+    return &FAM.getResult<BranchProbabilityAnalysis>(F);
   };
 
-  auto LookupBFI = [&FAM](Function &F) -> BlockFrequencyInfo & {
-    return FAM.getResult<BlockFrequencyAnalysis>(F);
+  auto LookupBFI = [&FAM](Function &F) {
+    return &FAM.getResult<BlockFrequencyAnalysis>(F);
   };
 
   if (!InstrumentAllFunctions(M, LookupBPI, LookupBFI))
@@ -836,9 +846,10 @@ static void setPGOCountOnFunc(PGOUseFunc &Func,
   }
 }
 
-bool PGOInstrumentationUseLegacyPass::annotateAllFunctions(
-    Module &M, function_ref<BranchProbabilityInfo &(Function &)> LookupBPI,
-    function_ref<BlockFrequencyInfo &(Function &)> LookupBFI) {
+static bool annotateAllFunctions(
+    Module &M, StringRef ProfileFileName,
+    function_ref<BranchProbabilityInfo *(Function &)> LookupBPI,
+    function_ref<BlockFrequencyInfo *(Function &)> LookupBFI) {
   DEBUG(dbgs() << "Read in profile counters: ");
   auto &Ctx = M.getContext();
   // Read the counter array from file.
@@ -849,10 +860,11 @@ bool PGOInstrumentationUseLegacyPass::annotateAllFunctions(
     return false;
   }
 
-  PGOReader = std::move(ReaderOrErr.get());
+  std::unique_ptr<IndexedInstrProfReader> PGOReader =
+      std::move(ReaderOrErr.get());
   if (!PGOReader) {
     Ctx.diagnose(DiagnosticInfoPGOProfile(ProfileFileName.data(),
-                                          "Cannot get PGOReader"));
+                                          StringRef("Cannot get PGOReader")));
     return false;
   }
   // TODO: might need to change the warning once the clang option is finalized.
@@ -867,9 +879,9 @@ bool PGOInstrumentationUseLegacyPass::annotateAllFunctions(
   for (auto &F : M) {
     if (F.isDeclaration())
       continue;
-    auto &BPI = LookupBPI(F);
-    auto &BFI = LookupBFI(F);
-    PGOUseFunc Func(F, &M, &BPI, &BFI);
+    auto *BPI = LookupBPI(F);
+    auto *BFI = LookupBFI(F);
+    PGOUseFunc Func(F, &M, BPI, BFI);
     setPGOCountOnFunc(Func, PGOReader.get());
     PGOUseFunc::FuncFreqAttr FreqAttr = Func.getFuncFreqAttr();
     if (FreqAttr == PGOUseFunc::FFA_Cold)
@@ -892,16 +904,40 @@ bool PGOInstrumentationUseLegacyPass::annotateAllFunctions(
   return true;
 }
 
+PGOInstrumentationUse::PGOInstrumentationUse(std::string Filename)
+    : ProfileFileName(Filename) {
+  if (!PGOTestProfileFile.empty())
+    ProfileFileName = PGOTestProfileFile;
+}
+
+PreservedAnalyses PGOInstrumentationUse::run(Module &M,
+                                             AnalysisManager<Module> &AM) {
+
+  auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  auto LookupBPI = [&FAM](Function &F) {
+    return &FAM.getResult<BranchProbabilityAnalysis>(F);
+  };
+
+  auto LookupBFI = [&FAM](Function &F) {
+    return &FAM.getResult<BlockFrequencyAnalysis>(F);
+  };
+
+  if (!annotateAllFunctions(M, ProfileFileName, LookupBPI, LookupBFI))
+    return PreservedAnalyses::all();
+
+  return PreservedAnalyses::none();
+}
+
 bool PGOInstrumentationUseLegacyPass::runOnModule(Module &M) {
   if (skipModule(M))
     return false;
 
-  auto LookupBPI = [this](Function &F) -> BranchProbabilityInfo & {
-    return this->getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI();
+  auto LookupBPI = [this](Function &F) {
+    return &this->getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI();
   };
-  auto LookupBFI = [this](Function &F) -> BlockFrequencyInfo & {
-    return this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
+  auto LookupBFI = [this](Function &F) {
+    return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
   };
 
-  return annotateAllFunctions(M, LookupBPI, LookupBFI);
+  return annotateAllFunctions(M, ProfileFileName, LookupBPI, LookupBFI);
 }

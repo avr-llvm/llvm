@@ -52,6 +52,8 @@
 #include "llvm/Transforms/ObjCARC.h"
 #include "llvm/Transforms/Utils/FunctionImportUtils.h"
 
+#include <numeric>
+
 using namespace llvm;
 
 #define DEBUG_TYPE "thinlto"
@@ -484,9 +486,10 @@ public:
   }
 
   // Cache the Produced object file
-  void write(MemoryBufferRef OutputBuffer) {
+  std::unique_ptr<MemoryBuffer>
+  write(std::unique_ptr<MemoryBuffer> OutputBuffer) {
     if (EntryPath.empty())
-      return;
+      return OutputBuffer;
 
     // Write to a temporary to avoid race condition
     SmallString<128> TempFilename;
@@ -499,10 +502,26 @@ public:
     }
     {
       raw_fd_ostream OS(TempFD, /* ShouldClose */ true);
-      OS << OutputBuffer.getBuffer();
+      OS << OutputBuffer->getBuffer();
     }
     // Rename to final destination (hopefully race condition won't matter here)
-    sys::fs::rename(TempFilename, EntryPath);
+    EC = sys::fs::rename(TempFilename, EntryPath);
+    if (EC) {
+      sys::fs::remove(TempFilename);
+      raw_fd_ostream OS(EntryPath, EC, sys::fs::F_None);
+      if (EC)
+        report_fatal_error(Twine("Failed to open ") + EntryPath +
+                           " to save cached entry\n");
+      OS << OutputBuffer->getBuffer();
+    }
+    auto ReloadedBufferOrErr = MemoryBuffer::getFile(EntryPath);
+    if (auto EC = ReloadedBufferOrErr.getError()) {
+      // FIXME diagnose
+      errs() << "error: can't reload cached file '" << EntryPath
+             << "': " << EC.message() << "\n";
+      return OutputBuffer;
+    }
+    return std::move(*ReloadedBufferOrErr);
   }
 };
 
@@ -720,6 +739,53 @@ void ThinLTOCodeGenerator::crossModuleImport(Module &TheModule,
 }
 
 /**
+ * Compute the list of summaries needed for importing into module.
+ */
+void ThinLTOCodeGenerator::gatherImportedSummariesForModule(
+    StringRef ModulePath, ModuleSummaryIndex &Index,
+    std::map<std::string, GVSummaryMapTy> &ModuleToSummariesForIndex) {
+  auto ModuleCount = Index.modulePaths().size();
+
+  // Collect for each module the list of function it defines (GUID -> Summary).
+  StringMap<GVSummaryMapTy> ModuleToDefinedGVSummaries(ModuleCount);
+  Index.collectDefinedGVSummariesPerModule(ModuleToDefinedGVSummaries);
+
+  // Generate import/export list
+  StringMap<FunctionImporter::ImportMapTy> ImportLists(ModuleCount);
+  StringMap<FunctionImporter::ExportSetTy> ExportLists(ModuleCount);
+  ComputeCrossModuleImport(Index, ModuleToDefinedGVSummaries, ImportLists,
+                           ExportLists);
+
+  llvm::gatherImportedSummariesForModule(ModulePath, ModuleToDefinedGVSummaries,
+                                         ImportLists,
+                                         ModuleToSummariesForIndex);
+}
+
+/**
+ * Emit the list of files needed for importing into module.
+ */
+void ThinLTOCodeGenerator::emitImports(StringRef ModulePath,
+                                       StringRef OutputName,
+                                       ModuleSummaryIndex &Index) {
+  auto ModuleCount = Index.modulePaths().size();
+
+  // Collect for each module the list of function it defines (GUID -> Summary).
+  StringMap<GVSummaryMapTy> ModuleToDefinedGVSummaries(ModuleCount);
+  Index.collectDefinedGVSummariesPerModule(ModuleToDefinedGVSummaries);
+
+  // Generate import/export list
+  StringMap<FunctionImporter::ImportMapTy> ImportLists(ModuleCount);
+  StringMap<FunctionImporter::ExportSetTy> ExportLists(ModuleCount);
+  ComputeCrossModuleImport(Index, ModuleToDefinedGVSummaries, ImportLists,
+                           ExportLists);
+
+  std::error_code EC;
+  if ((EC = EmitImportsFiles(ModulePath, OutputName, ImportLists)))
+    report_fatal_error(Twine("Failed to open ") + OutputName +
+                       " to save imports lists\n");
+}
+
+/**
  * Perform internalization.
  */
 void ThinLTOCodeGenerator::internalize(Module &TheModule,
@@ -829,11 +895,29 @@ void ThinLTOCodeGenerator::run() {
   auto GUIDPreservedSymbols =
       computeGUIDPreservedSymbols(PreservedSymbols, TMBuilder.TheTriple);
 
+  // Make sure that every module has an entry in the ExportLists to enable
+  // threaded access to this map below
+  for (auto &DefinedGVSummaries : ModuleToDefinedGVSummaries)
+    ExportLists[DefinedGVSummaries.first()];
+
+  // Compute the ordering we will process the inputs: the rough heuristic here
+  // is to sort them per size so that the largest module get schedule as soon as
+  // possible. This is purely a compile-time optimization.
+  std::vector<int> ModulesOrdering;
+  ModulesOrdering.resize(Modules.size());
+  std::iota(ModulesOrdering.begin(), ModulesOrdering.end(), 0);
+  std::sort(ModulesOrdering.begin(), ModulesOrdering.end(),
+            [&](int LeftIndex, int RightIndex) {
+              auto LSize = Modules[LeftIndex].getBufferSize();
+              auto RSize = Modules[RightIndex].getBufferSize();
+              return LSize > RSize;
+            });
+
   // Parallel optimizer + codegen
   {
     ThreadPool Pool(ThreadCount);
-    int count = 0;
-    for (auto &ModuleBuffer : Modules) {
+    for (auto IndexCount : ModulesOrdering) {
+      auto &ModuleBuffer = Modules[IndexCount];
       Pool.async([&](int count) {
         auto ModuleIdentifier = ModuleBuffer.getBufferIdentifier();
         auto &ExportList = ExportLists[ModuleIdentifier];
@@ -883,10 +967,9 @@ void ThinLTOCodeGenerator::run() {
             ExportList, GUIDPreservedSymbols, ResolvedODR, CacheOptions,
             DisableCodeGen, SaveTempsDir, count);
 
-        CacheEntry.write(*OutputBuffer);
+        OutputBuffer = CacheEntry.write(std::move(OutputBuffer));
         ProducedBinaries[count] = std::move(OutputBuffer);
-      }, count);
-      count++;
+      }, IndexCount);
     }
   }
 

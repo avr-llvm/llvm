@@ -25,9 +25,10 @@
 #include "llvm/Analysis/Passes.h"
 #include "llvm/CodeGen/GlobalISel/IRTranslator.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
-#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
+#include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -54,7 +55,7 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPUAnnotateUniformValuesPass(*PR);
   initializeAMDGPUPromoteAllocaPass(*PR);
   initializeSIAnnotateControlFlowPass(*PR);
-  initializeSIInsertNopsPass(*PR);
+  initializeSIDebuggerInsertNopsPass(*PR);
   initializeSIInsertWaitsPass(*PR);
   initializeSIWholeQuadModePass(*PR);
   initializeSILowerControlFlowPass(*PR);
@@ -395,7 +396,7 @@ void GCNPassConfig::addPreEmitPass() {
   addPass(createSIInsertWaitsPass(), false);
   addPass(createSIShrinkInstructionsPass());
   addPass(createSILowerControlFlowPass(), false);
-  addPass(createSIInsertNopsPass(), false);
+  addPass(createSIDebuggerInsertNopsPass(), false);
 }
 
 TargetPassConfig *GCNTargetMachine::createPassConfig(PassManagerBase &PM) {

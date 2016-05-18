@@ -3146,6 +3146,12 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL,
     if (OpOpcode == ISD::UNDEF)
       return getUNDEF(VT);
     break;
+  case ISD::BITREVERSE:
+    assert(VT.isInteger() && VT == Operand.getValueType() &&
+           "Invalid BITREVERSE!");
+    if (OpOpcode == ISD::UNDEF)
+      return getUNDEF(VT);
+    break;
   case ISD::BITCAST:
     // Basic sanity checking.
     assert(VT.getSizeInBits() == Operand.getValueType().getSizeInBits()
@@ -5936,10 +5942,14 @@ SDNode *SelectionDAG::SelectNodeTo(SDNode *N, unsigned MachineOpc,
 
 SDNode *SelectionDAG::SelectNodeTo(SDNode *N, unsigned MachineOpc,
                                    SDVTList VTs,ArrayRef<SDValue> Ops) {
-  N = MorphNodeTo(N, ~MachineOpc, VTs, Ops);
+  SDNode *New = MorphNodeTo(N, ~MachineOpc, VTs, Ops);
   // Reset the NodeID to -1.
-  N->setNodeId(-1);
-  return N;
+  New->setNodeId(-1);
+  if (New != N) {
+    ReplaceAllUsesWith(N, New);
+    RemoveDeadNode(N);
+  }
+  return New;
 }
 
 /// UpdadeSDLocOnMergedSDNode - If the opt level is -O0 then it throws away

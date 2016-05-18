@@ -31,6 +31,7 @@
 #include "llvm/ProfileData/InstrProfReader.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Instrumentation.h"
+#include "llvm/Transforms/PGOInstrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include <string>
 #include <utility>
@@ -111,12 +112,14 @@ static cl::opt<bool>
                  cl::desc("Dump IR after transformation happens"));
 
 namespace {
-class PGOIndirectCallPromotion : public ModulePass {
+class PGOIndirectCallPromotionLegacyPass : public ModulePass {
 public:
   static char ID;
 
-  PGOIndirectCallPromotion(bool InLTO = false) : ModulePass(ID), InLTO(InLTO) {
-    initializePGOIndirectCallPromotionPass(*PassRegistry::getPassRegistry());
+  PGOIndirectCallPromotionLegacyPass(bool InLTO = false)
+      : ModulePass(ID), InLTO(InLTO) {
+    initializePGOIndirectCallPromotionLegacyPassPass(
+        *PassRegistry::getPassRegistry());
   }
 
   const char *getPassName() const override {
@@ -132,16 +135,17 @@ private:
 };
 } // end anonymous namespace
 
-char PGOIndirectCallPromotion::ID = 0;
-INITIALIZE_PASS(PGOIndirectCallPromotion, "pgo-icall-prom",
+char PGOIndirectCallPromotionLegacyPass::ID = 0;
+INITIALIZE_PASS(PGOIndirectCallPromotionLegacyPass, "pgo-icall-prom",
                 "Use PGO instrumentation profile to promote indirect calls to "
                 "direct calls.",
                 false, false)
 
-ModulePass *llvm::createPGOIndirectCallPromotionPass(bool InLTO) {
-  return new PGOIndirectCallPromotion(InLTO);
+ModulePass *llvm::createPGOIndirectCallPromotionLegacyPass(bool InLTO) {
+  return new PGOIndirectCallPromotionLegacyPass(InLTO);
 }
 
+namespace {
 // The class for main data structure to promote indirect calls to conditional
 // direct calls.
 class ICallPromotionFunc {
@@ -232,6 +236,7 @@ public:
   }
   bool processFunction();
 };
+} // end anonymous namespace
 
 bool ICallPromotionFunc::isPromotionProfitable(uint64_t Count,
                                                uint64_t TotalCount) {
@@ -454,7 +459,6 @@ static void fixupPHINodeForNormalDest(Instruction *Inst, BasicBlock *BB,
   }
 }
 
-// Add a bitcast instruction to the direct-call return value if needed.
 // Add a bitcast instruction to the direct-call return value if needed.
 static Instruction *insertCallRetCast(const Instruction *Inst,
                                       Instruction *DirectCallInst,
@@ -685,8 +689,14 @@ static bool promoteIndirectCalls(Module &M, bool InLTO) {
   return Changed;
 }
 
-bool PGOIndirectCallPromotion::runOnModule(Module &M) {
+bool PGOIndirectCallPromotionLegacyPass::runOnModule(Module &M) {
   // Command-line option has the priority for InLTO.
-  InLTO |= ICPLTOMode;
-  return promoteIndirectCalls(M, InLTO);
+  return promoteIndirectCalls(M, InLTO | ICPLTOMode);
+}
+
+PreservedAnalyses PGOIndirectCallPromotion::run(Module &M, AnalysisManager<Module> &AM) {
+  if (!promoteIndirectCalls(M, InLTO | ICPLTOMode))
+    return PreservedAnalyses::all();
+
+  return PreservedAnalyses::none();
 }

@@ -154,9 +154,11 @@ MVT WebAssemblyTargetLowering::getScalarShiftAmountTy(const DataLayout & /*DL*/,
   if (BitWidth > 1 && BitWidth < 8) BitWidth = 8;
 
   if (BitWidth > 64) {
-    BitWidth = 64;
+    // The shift will be lowered to a libcall, and compiler-rt libcalls expect
+    // the count to be an i32.
+    BitWidth = 32;
     assert(BitWidth >= Log2_32_Ceil(VT.getSizeInBits()) &&
-           "64-bit shift counts ought to be enough for anyone");
+           "32-bit shift counts ought to be enough for anyone");
   }
 
   MVT Result = MVT::getIntegerVT(BitWidth);

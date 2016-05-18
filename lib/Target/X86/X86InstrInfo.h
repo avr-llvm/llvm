@@ -90,7 +90,6 @@ inline static bool isGlobalStubReference(unsigned char TargetFlag) {
   case X86II::MO_GOT:       // normal GOT reference.
   case X86II::MO_DARWIN_NONLAZY_PIC_BASE:        // Normal $non_lazy_ptr ref.
   case X86II::MO_DARWIN_NONLAZY:                 // Normal $non_lazy_ptr ref.
-  case X86II::MO_DARWIN_HIDDEN_NONLAZY_PIC_BASE: // Hidden $non_lazy_ptr ref.
     return true;
   default:
     return false;
@@ -106,7 +105,6 @@ inline static bool isGlobalRelativeToPICBase(unsigned char TargetFlag) {
   case X86II::MO_GOT:                            // isPICStyleGOT: other global.
   case X86II::MO_PIC_BASE_OFFSET:                // Darwin local global.
   case X86II::MO_DARWIN_NONLAZY_PIC_BASE:        // Darwin/32 external global.
-  case X86II::MO_DARWIN_HIDDEN_NONLAZY_PIC_BASE: // Darwin/32 hidden global.
   case X86II::MO_TLVP:                           // ??? Pretty sure..
     return true;
   default:
@@ -370,7 +368,8 @@ public:
   MachineInstr *foldMemoryOperandImpl(MachineFunction &MF, MachineInstr *MI,
                                       ArrayRef<unsigned> Ops,
                                       MachineBasicBlock::iterator InsertPt,
-                                      int FrameIndex) const override;
+                                      int FrameIndex,
+                                      LiveIntervals *LIS = nullptr) const override;
 
   /// foldMemoryOperand - Same as the previous version except it allows folding
   /// of any load and store from / to any address, not just from a specific
@@ -378,7 +377,8 @@ public:
   MachineInstr *foldMemoryOperandImpl(MachineFunction &MF, MachineInstr *MI,
                                       ArrayRef<unsigned> Ops,
                                       MachineBasicBlock::iterator InsertPt,
-                                      MachineInstr *LoadMI) const override;
+                                      MachineInstr *LoadMI,
+                                      LiveIntervals *LIS = nullptr) const override;
 
   /// unfoldMemoryOperand - Separate a single instruction which folded a load or
   /// a store or a load and a store into two or more instruction. If this is

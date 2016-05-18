@@ -47,9 +47,15 @@ def MicroMipsMemGPRMM16AsmOperand : AsmOperandClass {
   let PredicateMethod = "isMemWithGRPMM16Base";
 }
 
+// Define the classes of pointers used by microMIPS.
+// The numbers must match those in MipsRegisterInfo::MipsPtrClass.
+def ptr_gpr16mm_rc : PointerLikeRegClass<1>;
+def ptr_sp_rc : PointerLikeRegClass<2>;
+def ptr_gp_rc : PointerLikeRegClass<3>;
+
 class mem_mm_4_generic : Operand<i32> {
   let PrintMethod = "printMemOperand";
-  let MIOperandInfo = (ops ptr_rc, simm4);
+  let MIOperandInfo = (ops ptr_gpr16mm_rc, simm4);
   let OperandType = "OPERAND_MEMORY";
   let ParserMatchClass = MicroMipsMemGPRMM16AsmOperand;
 }
@@ -73,18 +79,26 @@ def MicroMipsMemSPAsmOperand : AsmOperandClass {
   let PredicateMethod = "isMemWithUimmWordAlignedOffsetSP<7>";
 }
 
+def MicroMipsMemGPAsmOperand : AsmOperandClass {
+  let Name = "MicroMipsMemGP";
+  let RenderMethod = "addMemOperands";
+  let ParserMethod = "parseMemOperand";
+  let PredicateMethod = "isMemWithSimmWordAlignedOffsetGP<9>";
+}
+
 def mem_mm_sp_imm5_lsl2 : Operand<i32> {
   let PrintMethod = "printMemOperand";
-  let MIOperandInfo = (ops ptr_rc:$base, simm5:$offset);
+  let MIOperandInfo = (ops ptr_sp_rc:$base, simm5:$offset);
   let OperandType = "OPERAND_MEMORY";
   let ParserMatchClass = MicroMipsMemSPAsmOperand;
   let EncoderMethod = "getMemEncodingMMSPImm5Lsl2";
 }
 
-def mem_mm_gp_imm7_lsl2 : Operand<i32> {
+def mem_mm_gp_simm7_lsl2 : Operand<i32> {
   let PrintMethod = "printMemOperand";
-  let MIOperandInfo = (ops GPRMM16:$base, simm7_lsl2:$offset);
+  let MIOperandInfo = (ops ptr_gp_rc:$base, simm7_lsl2:$offset);
   let OperandType = "OPERAND_MEMORY";
+  let ParserMatchClass = MicroMipsMemGPAsmOperand;
   let EncoderMethod = "getMemEncodingMMGPImm7Lsl2";
 }
 
@@ -122,10 +136,25 @@ def MipsMemUimm4AsmOperand : AsmOperandClass {
 
 def mem_mm_4sp : Operand<i32> {
   let PrintMethod = "printMemOperand";
-  let MIOperandInfo = (ops ptr_rc, uimm8);
+  let MIOperandInfo = (ops ptr_sp_rc, uimm8);
   let EncoderMethod = "getMemEncodingMMImm4sp";
   let ParserMatchClass = MipsMemUimm4AsmOperand;
   let OperandType = "OPERAND_MEMORY";
+}
+
+def MipsMemSimm12AsmOperand : AsmOperandClass {
+  let Name = "MemOffsetSimm12";
+  let SuperClasses = [MipsMemAsmOperand];
+  let RenderMethod = "addMemOperands";
+  let ParserMethod = "parseMemOperand";
+  let PredicateMethod = "isMemWithSimmOffset<12>";
+  let DiagnosticType = "MemSImm12";
+}
+
+def mem_simm12 : mem_generic {
+  let MIOperandInfo = (ops ptr_rc, simm12);
+  let EncoderMethod = "getMemEncoding";
+  let ParserMatchClass = MipsMemSimm12AsmOperand;
 }
 
 def jmptarget_mm : Operand<OtherVT> {
@@ -217,6 +246,7 @@ MicroMipsInst16<(outs movep_regpair:$dst_regs), (ins RO:$rs, RO:$rt),
 def RegPairAsmOperand : AsmOperandClass {
   let Name = "RegPair";
   let ParserMethod = "parseRegisterPair";
+  let PredicateMethod = "isRegPair";
 }
 
 def regpair : Operand<i32> {
@@ -229,7 +259,7 @@ def regpair : Operand<i32> {
 
 class StorePairMM<string opstr, InstrItinClass Itin = NoItinerary,
                   ComplexPattern Addr = addr> :
-  InstSE<(outs), (ins regpair:$rt, mem_mm_12:$addr),
+  InstSE<(outs), (ins regpair:$rt, mem_simm12:$addr),
          !strconcat(opstr, "\t$rt, $addr"), [], Itin, FrmI, opstr> {
   let DecoderMethod = "DecodeMemMMImm12";
   let mayStore = 1;
@@ -237,7 +267,7 @@ class StorePairMM<string opstr, InstrItinClass Itin = NoItinerary,
 
 class LoadPairMM<string opstr, InstrItinClass Itin = NoItinerary,
                  ComplexPattern Addr = addr> :
-  InstSE<(outs regpair:$rt), (ins mem_mm_12:$addr),
+  InstSE<(outs regpair:$rt), (ins mem_simm12:$addr),
           !strconcat(opstr, "\t$rt, $addr"), [], Itin, FrmI, opstr> {
   let DecoderMethod = "DecodeMemMMImm12";
   let mayLoad = 1;
@@ -602,7 +632,7 @@ def SH16_MM : StoreMM16<"sh16", GPRMM16OpndZero, GPRMM16Opnd, truncstorei16,
                         LOAD_STORE_FM_MM16<0x2a>;
 def SW16_MM : StoreMM16<"sw16", GPRMM16OpndZero, GPRMM16Opnd, store, II_SW,
                         mem_mm_4_lsl2>, LOAD_STORE_FM_MM16<0x3a>;
-def LWGP_MM : LoadGPMM16<"lw", GPRMM16Opnd, II_LW, mem_mm_gp_imm7_lsl2>,
+def LWGP_MM : LoadGPMM16<"lw", GPRMM16Opnd, II_LW, mem_mm_gp_simm7_lsl2>,
                          LOAD_GP_FM_MM16<0x19>;
 def LWSP_MM : LoadSPMM16<"lw", GPR32Opnd, II_LW, mem_mm_sp_imm5_lsl2>,
               LOAD_STORE_SP_FM_MM16<0x12>;
@@ -731,8 +761,10 @@ let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
   let DecoderMethod = "DecodeMemMMImm16" in {
     def LB_MM  : Load<"lb", GPR32Opnd>, MMRel, LW_FM_MM<0x7>;
     def LBu_MM : Load<"lbu", GPR32Opnd>, MMRel, LW_FM_MM<0x5>;
-    def LH_MM  : Load<"lh", GPR32Opnd>, MMRel, LW_FM_MM<0xf>;
-    def LHu_MM : Load<"lhu", GPR32Opnd>, MMRel, LW_FM_MM<0xd>;
+    def LH_MM  : LoadMemory<"lh", GPR32Opnd, mem_simm16, sextloadi16, II_LH,
+                            addrDefault>, MMRel, LW_FM_MM<0xf>;
+    def LHu_MM : LoadMemory<"lhu", GPR32Opnd, mem_simm16, zextloadi16, II_LHU>,
+                 MMRel, LW_FM_MM<0xd>;
     def LW_MM  : Load<"lw", GPR32Opnd>, MMRel, LW_FM_MM<0x3f>;
     def SB_MM  : Store<"sb", GPR32Opnd>, MMRel, LW_FM_MM<0x6>;
     def SH_MM  : Store<"sh", GPR32Opnd>, MMRel, LW_FM_MM<0xe>;
@@ -742,8 +774,10 @@ let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
   let DecoderMethod = "DecodeMemMMImm9" in {
     def LBE_MM  : Load<"lbe", GPR32Opnd>, POOL32C_LHUE_FM_MM<0x18, 0x6, 0x4>;
     def LBuE_MM : Load<"lbue", GPR32Opnd>, POOL32C_LHUE_FM_MM<0x18, 0x6, 0x0>;
-    def LHE_MM  : Load<"lhe", GPR32Opnd>, POOL32C_LHUE_FM_MM<0x18, 0x6, 0x5>;
-    def LHuE_MM : Load<"lhue", GPR32Opnd>, POOL32C_LHUE_FM_MM<0x18, 0x6, 0x1>;
+    def LHE_MM  : LoadMemory<"lhe", GPR32Opnd, mem_simm9>,
+                  POOL32C_LHUE_FM_MM<0x18, 0x6, 0x5>;
+    def LHuE_MM : LoadMemory<"lhue", GPR32Opnd, mem_simm9>,
+                  POOL32C_LHUE_FM_MM<0x18, 0x6, 0x1>;
     def LWE_MM  : LoadMemory<"lwe", GPR32Opnd, mem_simm9>,
                   POOL32C_LHUE_FM_MM<0x18, 0x6, 0x7>;
     def SBE_MM  : StoreMemory<"sbe", GPR32Opnd, mem_simm9>,
@@ -1007,6 +1041,15 @@ def : MipsPat<(load addr:$addr),
               (LW_MM addr:$addr)>;
 def : MipsPat<(subc GPR32:$lhs, GPR32:$rhs),
               (SUBu_MM GPR32:$lhs, GPR32:$rhs)>;
+
+let AddedComplexity = 40 in {
+  def : MipsPat<(i32 (sextloadi16 addrRegImm:$a)),
+                (LH_MM addrRegImm:$a)>;
+}
+def : MipsPat<(atomic_load_16 addr:$a),
+              (LH_MM addr:$a)>;
+def : MipsPat<(i32 (extloadi16 addr:$src)),
+              (LHu_MM addr:$src)>;
 
 //===----------------------------------------------------------------------===//
 // MicroMips instruction aliases

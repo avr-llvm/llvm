@@ -3927,17 +3927,21 @@ bool X86InstrInfo::isUnpredicatedTerminator(const MachineInstr &MI) const {
   return !isPredicated(MI);
 }
 
-// Given a MBB and its TBB, find the FBB which was a fallthrough MBB (it may not
-// be a fallthorough MBB now due to layout changes). Return nullptr if the
-// fallthough MBB cannot be identified.
+// Given a MBB and its TBB, find the FBB which was a fallthrough MBB (it may
+// not be a fallthrough MBB now due to layout changes). Return nullptr if the
+// fallthrough MBB cannot be identified.
 static MachineBasicBlock *getFallThroughMBB(MachineBasicBlock *MBB,
                                             MachineBasicBlock *TBB) {
+  // Look for non-EHPad successors other than TBB. If we find exactly one, it
+  // is the fallthrough MBB. If we find zero, then TBB is both the target MBB
+  // and fallthrough MBB. If we find more than one, we cannot identify the
+  // fallthrough MBB and should return nullptr.
   MachineBasicBlock *FallthroughBB = nullptr;
   for (auto SI = MBB->succ_begin(), SE = MBB->succ_end(); SI != SE; ++SI) {
-    if ((*SI)->isEHPad() || *SI == TBB)
+    if ((*SI)->isEHPad() || (*SI == TBB && FallthroughBB))
       continue;
     // Return a nullptr if we found more than one fallthrough successor.
-    if (FallthroughBB)
+    if (FallthroughBB && FallthroughBB != TBB)
       return nullptr;
     FallthroughBB = *SI;
   }
@@ -4527,8 +4531,9 @@ void X86InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     // first frame index.
     // See X86ISelLowering.cpp - X86::hasCopyImplyingStackAdjustment.
 
+    const TargetRegisterInfo *TRI = &getRegisterInfo();
     MachineBasicBlock::LivenessQueryResult LQR =
-        MBB.computeRegisterLiveness(&getRegisterInfo(), AX, MI);
+        MBB.computeRegisterLiveness(TRI, AX, MI);
     // We do not want to save and restore AX if we do not have to.
     // Moreover, if we do so whereas AX is dead, we would need to set
     // an undef flag on the use of AX, otherwise the verifier will
@@ -4536,15 +4541,19 @@ void X86InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     // We do not want to change the behavior of the machine verifier
     // as this is usually wrong to read an undef value.
     if (MachineBasicBlock::LQR_Unknown == LQR) {
-      LivePhysRegs LPR(&getRegisterInfo());
+      LivePhysRegs LPR(TRI);
       LPR.addLiveOuts(MBB);
       MachineBasicBlock::iterator I = MBB.end();
       while (I != MI) {
         --I;
         LPR.stepBackward(*I);
       }
-      LQR = LPR.contains(AX) ? MachineBasicBlock::LQR_Live
-                             : MachineBasicBlock::LQR_Dead;
+      // AX contains the top most register in the aliasing hierarchy.
+      // It may not be live, but one of its aliases may be.
+      for (MCRegAliasIterator AI(AX, TRI, true);
+           AI.isValid() && LQR != MachineBasicBlock::LQR_Live; ++AI)
+        LQR = LPR.contains(*AI) ? MachineBasicBlock::LQR_Live
+                                : MachineBasicBlock::LQR_Dead;
     }
     bool AXDead = (Reg == AX) || (MachineBasicBlock::LQR_Dead == LQR);
     if (!AXDead)
@@ -4645,25 +4654,38 @@ static unsigned getLoadStoreRegOpcode(unsigned Reg,
     assert((X86::VR128RegClass.hasSubClassEq(RC) ||
             X86::VR128XRegClass.hasSubClassEq(RC))&& "Unknown 16-byte regclass");
     // If stack is realigned we can use aligned stores.
+    if (X86::VR128RegClass.hasSubClassEq(RC)) {
+      if (isStackAligned)
+        return load ? (HasAVX ? X86::VMOVAPSrm : X86::MOVAPSrm)
+                    : (HasAVX ? X86::VMOVAPSmr : X86::MOVAPSmr);
+      else
+        return load ? (HasAVX ? X86::VMOVUPSrm : X86::MOVUPSrm)
+                    : (HasAVX ? X86::VMOVUPSmr : X86::MOVUPSmr);
+    }
+    assert(STI.hasVLX() && "Using extended register requires VLX");
     if (isStackAligned)
-      return load ?
-        (HasAVX ? X86::VMOVAPSrm : X86::MOVAPSrm) :
-        (HasAVX ? X86::VMOVAPSmr : X86::MOVAPSmr);
+      return load ? X86::VMOVAPSZ128rm : X86::VMOVAPSZ128mr;
     else
-      return load ?
-        (HasAVX ? X86::VMOVUPSrm : X86::MOVUPSrm) :
-        (HasAVX ? X86::VMOVUPSmr : X86::MOVUPSmr);
+      return load ? X86::VMOVUPSZ128rm : X86::VMOVUPSZ128mr;
   }
   case 32:
     assert((X86::VR256RegClass.hasSubClassEq(RC) ||
             X86::VR256XRegClass.hasSubClassEq(RC)) && "Unknown 32-byte regclass");
     // If stack is realigned we can use aligned stores.
+    if (X86::VR256RegClass.hasSubClassEq(RC)) {
+      if (isStackAligned)
+        return load ? X86::VMOVAPSYrm : X86::VMOVAPSYmr;
+      else
+        return load ? X86::VMOVUPSYrm : X86::VMOVUPSYmr;
+    }
+    assert(STI.hasVLX() && "Using extended register requires VLX");
     if (isStackAligned)
-      return load ? X86::VMOVAPSYrm : X86::VMOVAPSYmr;
+      return load ? X86::VMOVAPSZ256rm : X86::VMOVAPSZ256mr;
     else
-      return load ? X86::VMOVUPSYrm : X86::VMOVUPSYmr;
+      return load ? X86::VMOVUPSZ256rm : X86::VMOVUPSZ256mr;
   case 64:
     assert(X86::VR512RegClass.hasSubClassEq(RC) && "Unknown 64-byte regclass");
+    assert(STI.hasVLX() && "Using 512-bit register requires AVX512");
     if (isStackAligned)
       return load ? X86::VMOVAPSZrm : X86::VMOVAPSZmr;
     else
@@ -5512,6 +5534,10 @@ bool X86InstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
   case X86::AVX_SET0:
     assert(HasAVX && "AVX not supported");
     return Expand2AddrUndef(MIB, get(X86::VXORPSYrr));
+  case X86::AVX512_128_SET0:
+    return Expand2AddrUndef(MIB, get(X86::VPXORDZ128rr));
+  case X86::AVX512_256_SET0:
+    return Expand2AddrUndef(MIB, get(X86::VPXORDZ256rr));
   case X86::AVX512_512_SET0:
     return Expand2AddrUndef(MIB, get(X86::VPXORDZrr));
   case X86::V_SETALLONES:
@@ -6064,7 +6090,8 @@ breakPartialRegDependency(MachineBasicBlock::iterator MI, unsigned OpNum,
 
 MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
     MachineFunction &MF, MachineInstr *MI, ArrayRef<unsigned> Ops,
-    MachineBasicBlock::iterator InsertPt, int FrameIndex) const {
+    MachineBasicBlock::iterator InsertPt, int FrameIndex,
+    LiveIntervals *LIS) const {
   // Check switch flag
   if (NoFusing)
     return nullptr;
@@ -6176,14 +6203,15 @@ static bool isNonFoldablePartialRegisterLoad(const MachineInstr &LoadMI,
 
 MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
     MachineFunction &MF, MachineInstr *MI, ArrayRef<unsigned> Ops,
-    MachineBasicBlock::iterator InsertPt, MachineInstr *LoadMI) const {
+    MachineBasicBlock::iterator InsertPt, MachineInstr *LoadMI,
+    LiveIntervals *LIS) const {
   // If loading from a FrameIndex, fold directly from the FrameIndex.
   unsigned NumOps = LoadMI->getDesc().getNumOperands();
   int FrameIndex;
   if (isLoadFromStackSlot(LoadMI, FrameIndex)) {
     if (isNonFoldablePartialRegisterLoad(*LoadMI, *MI, MF))
       return nullptr;
-    return foldMemoryOperandImpl(MF, MI, Ops, InsertPt, FrameIndex);
+    return foldMemoryOperandImpl(MF, MI, Ops, InsertPt, FrameIndex, LIS);
   }
 
   // Check switch flag
@@ -7305,7 +7333,6 @@ X86InstrInfo::getSerializableDirectMachineOperandTargetFlags() const {
       {MO_DARWIN_STUB, "x86-darwin-stub"},
       {MO_DARWIN_NONLAZY, "x86-darwin-nonlazy"},
       {MO_DARWIN_NONLAZY_PIC_BASE, "x86-darwin-nonlazy-pic-base"},
-      {MO_DARWIN_HIDDEN_NONLAZY_PIC_BASE, "x86-darwin-hidden-nonlazy-pic-base"},
       {MO_TLVP, "x86-tlvp"},
       {MO_TLVP_PIC_BASE, "x86-tlvp-pic-base"},
       {MO_SECREL, "x86-secrel"}};

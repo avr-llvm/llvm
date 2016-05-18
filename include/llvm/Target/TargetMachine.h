@@ -29,6 +29,7 @@ class InstrItineraryData;
 class GlobalValue;
 class Mangler;
 class MachineFunctionInitializer;
+class MachineModuleInfo;
 class MCAsmInfo;
 class MCCodeGenInfo;
 class MCContext;
@@ -37,7 +38,6 @@ class MCRegisterInfo;
 class MCSubtargetInfo;
 class MCSymbol;
 class Target;
-class DataLayout;
 class TargetLibraryInfo;
 class TargetFrameLowering;
 class TargetIRAnalysis;
@@ -264,6 +264,12 @@ public:
   void getNameWithPrefix(SmallVectorImpl<char> &Name, const GlobalValue *GV,
                          Mangler &Mang, bool MayAlwaysUsePrivate = false) const;
   MCSymbol *getSymbol(const GlobalValue *GV, Mangler &Mang) const;
+
+  /// True if the target uses physical regs at Prolog/Epilog insertion
+  /// time. If true (most machines), all vregs must be allocated before
+  /// PEI. If false (virtual-register machines), then callee-save register
+  /// spilling and scavenging are not needed or used.
+  virtual bool usesPhysRegsForPEI() const { return true; }
 };
 
 /// This class describes a target machine that is implemented with the LLVM
@@ -303,6 +309,13 @@ public:
   bool addPassesToEmitMC(PassManagerBase &PM, MCContext *&Ctx,
                          raw_pwrite_stream &OS,
                          bool DisableVerify = true) override;
+
+  /// Add MachineModuleInfo pass to pass manager.
+  MachineModuleInfo &addMachineModuleInfo(PassManagerBase &PM) const;
+
+  /// Add MachineFunctionAnalysis pass to pass manager.
+  void addMachineFunctionAnalysis(PassManagerBase &PM,
+      MachineFunctionInitializer *MFInitializer) const;
 };
 
 } // End llvm namespace

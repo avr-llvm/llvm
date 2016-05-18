@@ -196,8 +196,8 @@ namespace {
 #include "X86GenDAGISel.inc"
 
   private:
-    SDNode *SelectImpl(SDNode *N) override;
-    SDNode *selectGather(SDNode *N, unsigned Opc);
+    void Select(SDNode *N) override;
+    bool tryGather(SDNode *N, unsigned Opc);
 
     bool foldOffsetIntoAddress(uint64_t Offset, X86ISelAddressMode &AM);
     bool matchLoadInAddress(LoadSDNode *N, X86ISelAddressMode &AM);
@@ -1895,7 +1895,7 @@ static unsigned getFusedLdStOpcode(EVT &LdVT, unsigned Opc) {
 }
 
 /// Customized ISel for GATHER operations.
-SDNode *X86DAGToDAGISel::selectGather(SDNode *Node, unsigned Opc) {
+bool X86DAGToDAGISel::tryGather(SDNode *Node, unsigned Opc) {
   // Operands of Gather: VSrc, Base, VIdx, VMask, Scale
   SDValue Chain = Node->getOperand(0);
   SDValue VSrc = Node->getOperand(2);
@@ -1904,7 +1904,7 @@ SDNode *X86DAGToDAGISel::selectGather(SDNode *Node, unsigned Opc) {
   SDValue VMask = Node->getOperand(5);
   ConstantSDNode *Scale = dyn_cast<ConstantSDNode>(Node->getOperand(6));
   if (!Scale)
-    return nullptr;
+    return false;
 
   SDVTList VTs = CurDAG->getVTList(VSrc.getValueType(), VSrc.getValueType(),
                                    MVT::Other);
@@ -1923,10 +1923,11 @@ SDNode *X86DAGToDAGISel::selectGather(SDNode *Node, unsigned Opc) {
   // of ResNode.
   ReplaceUses(SDValue(Node, 0), SDValue(ResNode, 0));
   ReplaceUses(SDValue(Node, 1), SDValue(ResNode, 2));
-  return ResNode;
+  CurDAG->RemoveDeadNode(Node);
+  return true;
 }
 
-SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
+void X86DAGToDAGISel::Select(SDNode *Node) {
   MVT NVT = Node->getSimpleValueType(0);
   unsigned Opc, MOpc;
   unsigned Opcode = Node->getOpcode();
@@ -1937,7 +1938,7 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
   if (Node->isMachineOpcode()) {
     DEBUG(dbgs() << "== ";  Node->dump(CurDAG); dbgs() << '\n');
     Node->setNodeId(-1);
-    return nullptr;   // Already selected.
+    return;   // Already selected.
   }
 
   switch (Opcode) {
@@ -1956,10 +1957,10 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
       SDValue ZextTarget = CurDAG->getZExtOrTrunc(Target, dl, EVT(MVT::i64));
       SDValue Brind = CurDAG->getNode(ISD::BRIND, dl, MVT::Other,
                                       Node->getOperand(0), ZextTarget);
-      ReplaceUses(SDValue(Node, 0), Brind);
+      ReplaceNode(Node, Brind.getNode());
       SelectCode(ZextTarget.getNode());
       SelectCode(Brind.getNode());
-      return nullptr;
+      return;
     }
     break;
   }
@@ -2005,17 +2006,16 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
       case Intrinsic::x86_avx2_gather_q_d:      Opc = X86::VPGATHERQDrm;  break;
       case Intrinsic::x86_avx2_gather_q_d_256:  Opc = X86::VPGATHERQDYrm; break;
       }
-      SDNode *RetVal = selectGather(Node, Opc);
-      if (RetVal)
-        // We already called ReplaceUses inside SelectGather.
-        return nullptr;
+      if (tryGather(Node, Opc))
+        return;
       break;
     }
     }
     break;
   }
   case X86ISD::GlobalBaseReg:
-    return getGlobalBaseReg();
+    ReplaceNode(Node, getGlobalBaseReg());
+    return;
 
   case X86ISD::SHRUNKBLEND: {
     // SHRUNKBLEND selects like a regular VSELECT.
@@ -2025,7 +2025,7 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
     ReplaceUses(SDValue(Node, 0), VSelect);
     SelectCode(VSelect.getNode());
     // We already called ReplaceUses.
-    return nullptr;
+    return;
   }
 
   case ISD::AND:
@@ -2105,10 +2105,12 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
     SDValue NewCst = CurDAG->getTargetConstant(Val >> ShlVal, dl, CstVT);
     SDNode *New = CurDAG->getMachineNode(Op, dl, NVT, N0->getOperand(0),NewCst);
     if (ShlVal == 1)
-      return CurDAG->SelectNodeTo(Node, AddOp, NVT, SDValue(New, 0),
-                                  SDValue(New, 0));
-    return CurDAG->SelectNodeTo(Node, ShlOp, NVT, SDValue(New, 0),
-                                getI8Imm(ShlVal, dl));
+      CurDAG->SelectNodeTo(Node, AddOp, NVT, SDValue(New, 0),
+                           SDValue(New, 0));
+    else
+      CurDAG->SelectNodeTo(Node, ShlOp, NVT, SDValue(New, 0),
+                           getI8Imm(ShlVal, dl));
+    return;
   }
   case X86ISD::UMUL8:
   case X86ISD::SMUL8: {
@@ -2124,9 +2126,8 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
     SDValue Ops[] = {N1, InFlag};
     SDNode *CNode = CurDAG->getMachineNode(Opc, dl, VTs, Ops);
 
-    ReplaceUses(SDValue(Node, 0), SDValue(CNode, 0));
-    ReplaceUses(SDValue(Node, 1), SDValue(CNode, 1));
-    return nullptr;
+    ReplaceNode(Node, CNode);
+    return;
   }
 
   case X86ISD::UMUL: {
@@ -2149,10 +2150,8 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
     SDValue Ops[] = {N1, InFlag};
     SDNode *CNode = CurDAG->getMachineNode(Opc, dl, VTs, Ops);
 
-    ReplaceUses(SDValue(Node, 0), SDValue(CNode, 0));
-    ReplaceUses(SDValue(Node, 1), SDValue(CNode, 1));
-    ReplaceUses(SDValue(Node, 2), SDValue(CNode, 2));
-    return nullptr;
+    ReplaceNode(Node, CNode);
+    return;
   }
 
   case ISD::SMUL_LOHI:
@@ -2301,7 +2300,7 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
       DEBUG(dbgs() << "=> "; ResHi.getNode()->dump(CurDAG); dbgs() << '\n');
     }
 
-    return nullptr;
+    return;
   }
 
   case ISD::SDIVREM:
@@ -2485,7 +2484,7 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
       ReplaceUses(SDValue(Node, 1), Result);
       DEBUG(dbgs() << "=> "; Result.getNode()->dump(CurDAG); dbgs() << '\n');
     }
-    return nullptr;
+    return;
   }
 
   case X86ISD::CMP:
@@ -2543,7 +2542,7 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
         // one, do not call ReplaceAllUsesWith.
         ReplaceUses(SDValue(Node, (Opcode == X86ISD::SUB ? 1 : 0)),
                     SDValue(NewNode, 0));
-        return nullptr;
+        return;
       }
 
       // For example, "testl %eax, $2048" to "testb %ah, $8".
@@ -2580,7 +2579,7 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
         // one, do not call ReplaceAllUsesWith.
         ReplaceUses(SDValue(Node, (Opcode == X86ISD::SUB ? 1 : 0)),
                     SDValue(NewNode, 0));
-        return nullptr;
+        return;
       }
 
       // For example, "testl %eax, $32776" to "testw %ax, $32776".
@@ -2603,7 +2602,7 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
         // one, do not call ReplaceAllUsesWith.
         ReplaceUses(SDValue(Node, (Opcode == X86ISD::SUB ? 1 : 0)),
                     SDValue(NewNode, 0));
-        return nullptr;
+        return;
       }
 
       // For example, "testq %rax, $268468232" to "testl %eax, $268468232".
@@ -2626,7 +2625,7 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
         // one, do not call ReplaceAllUsesWith.
         ReplaceUses(SDValue(Node, (Opcode == X86ISD::SUB ? 1 : 0)),
                     SDValue(NewNode, 0));
-        return nullptr;
+        return;
       }
     }
     break;
@@ -2677,21 +2676,12 @@ SDNode *X86DAGToDAGISel::SelectImpl(SDNode *Node) {
 
     ReplaceUses(SDValue(StoreNode, 0), SDValue(Result, 1));
     ReplaceUses(SDValue(StoredVal.getNode(), 1), SDValue(Result, 0));
-
-    return Result;
+    CurDAG->RemoveDeadNode(Node);
+    return;
   }
   }
 
-  SDNode *ResNode = SelectCode(Node);
-
-  DEBUG(dbgs() << "=> ";
-        if (ResNode == nullptr || ResNode == Node)
-          Node->dump(CurDAG);
-        else
-          ResNode->dump(CurDAG);
-        dbgs() << '\n');
-
-  return ResNode;
+  SelectCode(Node);
 }
 
 bool X86DAGToDAGISel::

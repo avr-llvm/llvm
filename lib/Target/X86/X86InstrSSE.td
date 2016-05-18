@@ -472,16 +472,13 @@ let isReMaterializable = 1, isAsCheapAsAMove = 1, canFoldAsLoad = 1,
 // We set canFoldAsLoad because this can be converted to a constant-pool
 // load of an all-zeros value if folding it would be beneficial.
 let isReMaterializable = 1, isAsCheapAsAMove = 1, canFoldAsLoad = 1,
-    isPseudo = 1, SchedRW = [WriteZero] in {
+    isPseudo = 1, Predicates = [NoVLX], SchedRW = [WriteZero] in {
 def V_SET0 : I<0, Pseudo, (outs VR128:$dst), (ins), "",
                [(set VR128:$dst, (v4f32 immAllZerosV))]>;
 }
 
-def : Pat<(v2f64 immAllZerosV), (V_SET0)>;
+let Predicates = [NoVLX] in
 def : Pat<(v4i32 immAllZerosV), (V_SET0)>;
-def : Pat<(v2i64 immAllZerosV), (V_SET0)>;
-def : Pat<(v8i16 immAllZerosV), (V_SET0)>;
-def : Pat<(v16i8 immAllZerosV), (V_SET0)>;
 
 
 // The same as done above but for AVX.  The 256-bit AVX1 ISA doesn't support PI,
@@ -489,39 +486,9 @@ def : Pat<(v16i8 immAllZerosV), (V_SET0)>;
 // at the rename stage without using any execution unit, so SET0PSY
 // and SET0PDY can be used for vector int instructions without penalty
 let isReMaterializable = 1, isAsCheapAsAMove = 1, canFoldAsLoad = 1,
-    isPseudo = 1, Predicates = [HasAVX], SchedRW = [WriteZero] in {
+    isPseudo = 1, Predicates = [HasAVX, NoVLX], SchedRW = [WriteZero] in {
 def AVX_SET0 : I<0, Pseudo, (outs VR256:$dst), (ins), "",
-                 [(set VR256:$dst, (v8f32 immAllZerosV))]>;
-}
-
-let Predicates = [HasAVX] in
-  def : Pat<(v4f64 immAllZerosV), (AVX_SET0)>;
-
-let Predicates = [HasAVX2] in {
-  def : Pat<(v4i64 immAllZerosV), (AVX_SET0)>;
-  def : Pat<(v8i32 immAllZerosV), (AVX_SET0)>;
-  def : Pat<(v16i16 immAllZerosV), (AVX_SET0)>;
-  def : Pat<(v32i8 immAllZerosV), (AVX_SET0)>;
-}
-
-// AVX1 has no support for 256-bit integer instructions, but since the 128-bit
-// VPXOR instruction writes zero to its upper part, it's safe build zeros.
-let Predicates = [HasAVX1Only] in {
-def : Pat<(v32i8 immAllZerosV), (SUBREG_TO_REG (i8 0), (V_SET0), sub_xmm)>;
-def : Pat<(bc_v32i8 (v8f32 immAllZerosV)),
-          (SUBREG_TO_REG (i8 0), (V_SET0), sub_xmm)>;
-
-def : Pat<(v16i16 immAllZerosV), (SUBREG_TO_REG (i16 0), (V_SET0), sub_xmm)>;
-def : Pat<(bc_v16i16 (v8f32 immAllZerosV)),
-          (SUBREG_TO_REG (i16 0), (V_SET0), sub_xmm)>;
-
-def : Pat<(v8i32 immAllZerosV), (SUBREG_TO_REG (i32 0), (V_SET0), sub_xmm)>;
-def : Pat<(bc_v8i32 (v8f32 immAllZerosV)),
-          (SUBREG_TO_REG (i32 0), (V_SET0), sub_xmm)>;
-
-def : Pat<(v4i64 immAllZerosV), (SUBREG_TO_REG (i64 0), (V_SET0), sub_xmm)>;
-def : Pat<(bc_v4i64 (v8f32 immAllZerosV)),
-          (SUBREG_TO_REG (i64 0), (V_SET0), sub_xmm)>;
+                 [(set VR256:$dst, (v8i32 immAllZerosV))]>;
 }
 
 // We set canFoldAsLoad because this can be converted to a constant-pool
@@ -998,17 +965,9 @@ let Predicates = [HasAVX, NoVLX] in {
             (VMOVAPSmr addr:$dst, VR128:$src)>;
   def : Pat<(alignedstore (v4i32 VR128:$src), addr:$dst),
             (VMOVAPSmr addr:$dst, VR128:$src)>;
-  def : Pat<(alignedstore (v8i16 VR128:$src), addr:$dst),
-            (VMOVAPSmr addr:$dst, VR128:$src)>;
-  def : Pat<(alignedstore (v16i8 VR128:$src), addr:$dst),
-            (VMOVAPSmr addr:$dst, VR128:$src)>;
   def : Pat<(store (v2i64 VR128:$src), addr:$dst),
             (VMOVUPSmr addr:$dst, VR128:$src)>;
   def : Pat<(store (v4i32 VR128:$src), addr:$dst),
-            (VMOVUPSmr addr:$dst, VR128:$src)>;
-  def : Pat<(store (v8i16 VR128:$src), addr:$dst),
-            (VMOVUPSmr addr:$dst, VR128:$src)>;
-  def : Pat<(store (v16i8 VR128:$src), addr:$dst),
             (VMOVUPSmr addr:$dst, VR128:$src)>;
 
   // 256-bit load/store
@@ -1020,17 +979,9 @@ let Predicates = [HasAVX, NoVLX] in {
             (VMOVAPSYmr addr:$dst, VR256:$src)>;
   def : Pat<(alignedstore256 (v8i32 VR256:$src), addr:$dst),
             (VMOVAPSYmr addr:$dst, VR256:$src)>;
-  def : Pat<(alignedstore256 (v16i16 VR256:$src), addr:$dst),
-            (VMOVAPSYmr addr:$dst, VR256:$src)>;
-  def : Pat<(alignedstore256 (v32i8 VR256:$src), addr:$dst),
-            (VMOVAPSYmr addr:$dst, VR256:$src)>;
   def : Pat<(store (v4i64 VR256:$src), addr:$dst),
             (VMOVUPSYmr addr:$dst, VR256:$src)>;
   def : Pat<(store (v8i32 VR256:$src), addr:$dst),
-            (VMOVUPSYmr addr:$dst, VR256:$src)>;
-  def : Pat<(store (v16i16 VR256:$src), addr:$dst),
-            (VMOVUPSYmr addr:$dst, VR256:$src)>;
-  def : Pat<(store (v32i8 VR256:$src), addr:$dst),
             (VMOVUPSYmr addr:$dst, VR256:$src)>;
 
   // Special patterns for storing subvector extracts of lower 128-bits
@@ -1072,6 +1023,28 @@ let Predicates = [HasAVX, NoVLX] in {
   def : Pat<(store (v16i8 (extract_subvector
                            (v32i8 VR256:$src), (iPTR 0))), addr:$dst),
             (VMOVUPSmr addr:$dst, (v16i8 (EXTRACT_SUBREG VR256:$src,sub_xmm)))>;
+}
+
+let Predicates = [HasAVX, NoVLX_Or_NoBWI] in {
+  // 128-bit load/store
+  def : Pat<(alignedstore (v8i16 VR128:$src), addr:$dst),
+            (VMOVAPSmr addr:$dst, VR128:$src)>;
+  def : Pat<(alignedstore (v16i8 VR128:$src), addr:$dst),
+            (VMOVAPSmr addr:$dst, VR128:$src)>;
+  def : Pat<(store (v8i16 VR128:$src), addr:$dst),
+            (VMOVUPSmr addr:$dst, VR128:$src)>;
+  def : Pat<(store (v16i8 VR128:$src), addr:$dst),
+            (VMOVUPSmr addr:$dst, VR128:$src)>;
+
+  // 256-bit load/store
+  def : Pat<(alignedstore256 (v16i16 VR256:$src), addr:$dst),
+            (VMOVAPSYmr addr:$dst, VR256:$src)>;
+  def : Pat<(alignedstore256 (v32i8 VR256:$src), addr:$dst),
+            (VMOVAPSYmr addr:$dst, VR256:$src)>;
+  def : Pat<(store (v16i16 VR256:$src), addr:$dst),
+            (VMOVUPSYmr addr:$dst, VR256:$src)>;
+  def : Pat<(store (v32i8 VR256:$src), addr:$dst),
+            (VMOVUPSYmr addr:$dst, VR256:$src)>;
 }
 
 // Use movaps / movups for SSE integer load / store (one byte shorter).
@@ -3670,6 +3643,18 @@ let Predicates = [HasAVX2, NoVLX] in {
             (VMOVNTDQYmr addr:$dst, VR256:$src)>;
 }
 
+// If integer type isn't available, use the floating point type.
+let Predicates = [HasAVX1Only] in {
+  def : Pat<(alignednontemporalstore (v4i64 VR256:$src), addr:$dst),
+            (VMOVNTPSYmr addr:$dst, VR256:$src)>;
+  def : Pat<(alignednontemporalstore (v8i32 VR256:$src), addr:$dst),
+            (VMOVNTPSYmr addr:$dst, VR256:$src)>;
+  def : Pat<(alignednontemporalstore (v16i16 VR256:$src), addr:$dst),
+            (VMOVNTPSYmr addr:$dst, VR256:$src)>;
+  def : Pat<(alignednontemporalstore (v32i8 VR256:$src), addr:$dst),
+            (VMOVNTPSYmr addr:$dst, VR256:$src)>;
+}
+
 let Predicates = [HasAVX, NoVLX] in {
   def : Pat<(alignednontemporalstore (v4i32 VR128:$src), addr:$dst),
             (VMOVNTDQmr addr:$dst, VR128:$src)>;
@@ -3679,12 +3664,14 @@ let Predicates = [HasAVX, NoVLX] in {
             (VMOVNTDQmr addr:$dst, VR128:$src)>;
 }
 
-def : Pat<(alignednontemporalstore (v4i32 VR128:$src), addr:$dst),
-          (MOVNTDQmr addr:$dst, VR128:$src)>;
-def : Pat<(alignednontemporalstore (v8i16 VR128:$src), addr:$dst),
-          (MOVNTDQmr addr:$dst, VR128:$src)>;
-def : Pat<(alignednontemporalstore (v16i8 VR128:$src), addr:$dst),
-          (MOVNTDQmr addr:$dst, VR128:$src)>;
+let Predicates = [UseSSE2] in {
+  def : Pat<(alignednontemporalstore (v4i32 VR128:$src), addr:$dst),
+            (MOVNTDQmr addr:$dst, VR128:$src)>;
+  def : Pat<(alignednontemporalstore (v8i16 VR128:$src), addr:$dst),
+            (MOVNTDQmr addr:$dst, VR128:$src)>;
+  def : Pat<(alignednontemporalstore (v16i8 VR128:$src), addr:$dst),
+            (MOVNTDQmr addr:$dst, VR128:$src)>;
+}
 
 } // AddedComplexity
 
@@ -8713,22 +8700,17 @@ multiclass maskmov_lowering<string InstrStr, RegisterClass RC, ValueType VT,
 let Predicates = [HasAVX] in {
   defm : maskmov_lowering<"VMASKMOVPS", VR128, v4f32, v4i32, "VBLENDVPS", v4i32>;
   defm : maskmov_lowering<"VMASKMOVPD", VR128, v2f64, v2i64, "VBLENDVPD", v4i32>;
+  defm : maskmov_lowering<"VMASKMOVPSY", VR256, v8f32, v8i32, "VBLENDVPSY", v8i32>;
+  defm : maskmov_lowering<"VMASKMOVPDY", VR256, v4f64, v4i64, "VBLENDVPDY", v8i32>;
 }
 let Predicates = [HasAVX1Only] in {
-  // zero vector created as v8f32 (base on X86TargetLowering::LowerBUILD_VECTOR)
-  defm : maskmov_lowering<"VMASKMOVPSY", VR256, v8f32, v8i32, "VBLENDVPSY", v8f32>;
-  defm : maskmov_lowering<"VMASKMOVPDY", VR256, v4f64, v4i64, "VBLENDVPDY", v8f32>;
   // load/store i32/i64 not supported use ps/pd version
   defm : maskmov_lowering<"VMASKMOVPSY", VR256, v8i32, v8i32, "VBLENDVPSY", v8i32>;
-  defm : maskmov_lowering<"VMASKMOVPDY", VR256, v4i64, v4i64, "VBLENDVPDY", v8f32>;
+  defm : maskmov_lowering<"VMASKMOVPDY", VR256, v4i64, v4i64, "VBLENDVPDY", v8i32>;
   defm : maskmov_lowering<"VMASKMOVPS", VR128, v4i32, v4i32, "VBLENDVPS", v4i32>;
   defm : maskmov_lowering<"VMASKMOVPD", VR128, v2i64, v2i64, "VBLENDVPD", v4i32>;
 }
 let Predicates = [HasAVX2] in {
-  // zero vector created as v8i32 (base on X86TargetLowering::LowerBUILD_VECTOR)
-  defm : maskmov_lowering<"VMASKMOVPSY", VR256, v8f32, v8i32, "VBLENDVPSY", v8i32>;
-  defm : maskmov_lowering<"VMASKMOVPDY", VR256, v4f64, v4i64, "VBLENDVPDY", v8i32>;
-
   defm : maskmov_lowering<"VPMASKMOVDY", VR256, v8i32, v8i32, "VBLENDVPSY", v8i32>;
   defm : maskmov_lowering<"VPMASKMOVQY", VR256, v4i64, v4i64, "VBLENDVPDY", v8i32>;
   defm : maskmov_lowering<"VPMASKMOVD", VR128, v4i32, v4i32, "VBLENDVPS", v4i32>;

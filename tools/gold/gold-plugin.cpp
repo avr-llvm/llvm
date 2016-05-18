@@ -35,12 +35,14 @@
 #include "llvm/Support/Host.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/thread.h"
 #include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/IPO/FunctionImport.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Utils/FunctionImportUtils.h"
 #include "llvm/Transforms/Utils/GlobalStatus.h"
@@ -179,9 +181,22 @@ namespace options {
   static bool thinlto = false;
   // If false, all ThinLTO backend compilations through code gen are performed
   // using multiple threads in the gold-plugin, before handing control back to
-  // gold. If true, exit after creating the combined index, the assuming is
+  // gold. If true, write individual backend index files which reflect
+  // the import decisions, and exit afterwards. The assumption is
   // that the build system will launch the backend processes.
   static bool thinlto_index_only = false;
+  // If true, when generating individual index files for distributed backends,
+  // also generate a "${bitcodefile}.imports" file at the same location for each
+  // bitcode file, listing the files it imports from in plain text. This is to
+  // support distributed build file staging.
+  static bool thinlto_emit_imports_files = false;
+  // Option to control where files for a distributed backend (the individual
+  // index files and optional imports files) are created.
+  // If specified, expects a string of the form "oldprefix:newprefix", and
+  // instead of generating these files in the same directory path as the
+  // corresponding bitcode file, will use a path formed by replacing the
+  // bitcode file's path prefix matching oldprefix with newprefix.
+  static std::string thinlto_prefix_replace;
   // Additional options to pass into the code generator.
   // Note: This array will contain all plugin options which are not claimed
   // as plugin exclusive to pass to the code generator.
@@ -215,6 +230,12 @@ namespace options {
       thinlto = true;
     } else if (opt == "thinlto-index-only") {
       thinlto_index_only = true;
+    } else if (opt == "thinlto-emit-imports-files") {
+      thinlto_emit_imports_files = true;
+    } else if (opt.startswith("thinlto-prefix-replace=")) {
+      thinlto_prefix_replace = opt.substr(strlen("thinlto-prefix-replace="));
+      if (thinlto_prefix_replace.find(";") == std::string::npos)
+        message(LDPL_FATAL, "thinlto-prefix-replace expects 'old;new' format");
     } else if (opt.size() == 2 && opt[0] == 'O') {
       if (opt[1] < '0' || opt[1] > '3')
         message(LDPL_FATAL, "Optimization level must be between 0 and 3");
@@ -961,7 +982,10 @@ void CodeGen::runLTOPasses() {
   PMB.SLPVectorize = true;
   PMB.OptLevel = options::OptLevel;
   PMB.ModuleSummary = CombinedIndex;
-  PMB.populateLTOPassManager(passes);
+  if (options::thinlto)
+    PMB.populateThinLTOPassManager(passes);
+  else
+    PMB.populateLTOPassManager(passes);
   passes.run(*M);
 }
 
@@ -1190,6 +1214,131 @@ static void thinLTOBackends(raw_fd_ostream *ApiFile,
     Task.cleanup();
 }
 
+/// Parse the thinlto_prefix_replace option into the \p OldPrefix and
+/// \p NewPrefix strings, if it was specified.
+static void getThinLTOOldAndNewPrefix(std::string &OldPrefix,
+                                      std::string &NewPrefix) {
+  StringRef PrefixReplace = options::thinlto_prefix_replace;
+  assert(PrefixReplace.empty() || PrefixReplace.find(";") != StringRef::npos);
+  std::pair<StringRef, StringRef> Split = PrefixReplace.split(";");
+  OldPrefix = Split.first.str();
+  NewPrefix = Split.second.str();
+}
+
+/// Given the original \p Path to an output file, replace any path
+/// prefix matching \p OldPrefix with \p NewPrefix. Also, create the
+/// resulting directory if it does not yet exist.
+static std::string getThinLTOOutputFile(const std::string &Path,
+                                        const std::string &OldPrefix,
+                                        const std::string &NewPrefix) {
+  if (OldPrefix.empty() && NewPrefix.empty())
+    return Path;
+  SmallString<128> NewPath(Path);
+  llvm::sys::path::replace_path_prefix(NewPath, OldPrefix, NewPrefix);
+  StringRef ParentPath = llvm::sys::path::parent_path(NewPath.str());
+  if (!ParentPath.empty()) {
+    // Make sure the new directory exists, creating it if necessary.
+    if (std::error_code EC = llvm::sys::fs::create_directories(ParentPath))
+      llvm::errs() << "warning: could not create directory '" << ParentPath
+                   << "': " << EC.message() << '\n';
+  }
+  return NewPath.str();
+}
+
+/// Perform ThinLTO link, which creates the combined index file.
+/// Also, either launch backend threads or (under thinlto-index-only)
+/// emit individual index files for distributed backends and exit.
+static ld_plugin_status thinLTOLink(raw_fd_ostream *ApiFile) {
+  ModuleSummaryIndex CombinedIndex;
+  uint64_t NextModuleId = 0;
+  for (claimed_file &F : Modules) {
+    PluginInputFile InputFile(F.handle);
+
+    std::unique_ptr<ModuleSummaryIndex> Index =
+        getModuleSummaryIndexForFile(F, InputFile.file());
+
+    // Skip files without a module summary.
+    if (Index)
+      CombinedIndex.mergeFrom(std::move(Index), ++NextModuleId);
+  }
+
+  if (options::thinlto_emit_imports_files && !options::thinlto_index_only)
+    message(LDPL_WARNING,
+            "thinlto-emit-imports-files ignored unless thinlto-index-only");
+
+  if (options::thinlto_index_only) {
+    // Collect for each module the list of function it defines (GUID ->
+    // Summary).
+    StringMap<std::map<GlobalValue::GUID, GlobalValueSummary *>>
+        ModuleToDefinedGVSummaries(NextModuleId);
+    CombinedIndex.collectDefinedGVSummariesPerModule(
+        ModuleToDefinedGVSummaries);
+
+    // FIXME: We want to do this for the case where the threads are launched
+    // from gold as well, in which case this will be moved out of the
+    // thinlto_index_only handling, and the function importer will be invoked
+    // directly using the Lists.
+    StringMap<FunctionImporter::ImportMapTy> ImportLists(NextModuleId);
+    StringMap<FunctionImporter::ExportSetTy> ExportLists(NextModuleId);
+    ComputeCrossModuleImport(CombinedIndex, ModuleToDefinedGVSummaries,
+                             ImportLists, ExportLists);
+
+    // If the thinlto-prefix-replace option was specified, parse it and
+    // extract the old and new prefixes.
+    std::string OldPrefix, NewPrefix;
+    getThinLTOOldAndNewPrefix(OldPrefix, NewPrefix);
+
+    // For each input bitcode file, generate an individual index that
+    // contains summaries only for its own global values, and for any that
+    // should be imported.
+    for (claimed_file &F : Modules) {
+      PluginInputFile InputFile(F.handle);
+      std::error_code EC;
+
+      std::string NewModulePath =
+          getThinLTOOutputFile(InputFile.file().name, OldPrefix, NewPrefix);
+      raw_fd_ostream OS((Twine(NewModulePath) + ".thinlto.bc").str(), EC,
+                        sys::fs::OpenFlags::F_None);
+      if (EC)
+        message(LDPL_FATAL, "Unable to open %s.thinlto.bc for writing: %s",
+                NewModulePath.c_str(), EC.message().c_str());
+      // Build a map of module to the GUIDs and summary objects that should
+      // be written to its index.
+      std::map<std::string, GVSummaryMapTy> ModuleToSummariesForIndex;
+      gatherImportedSummariesForModule(InputFile.file().name,
+                                       ModuleToDefinedGVSummaries, ImportLists,
+                                       ModuleToSummariesForIndex);
+      WriteIndexToFile(CombinedIndex, OS, &ModuleToSummariesForIndex);
+
+      if (options::thinlto_emit_imports_files) {
+        if ((EC = EmitImportsFiles(
+                 InputFile.file().name,
+                 (Twine(NewModulePath) + ".imports").str(),
+                 ImportLists)))
+          message(LDPL_FATAL, "Unable to open %s.imports",
+                  NewModulePath.c_str(), EC.message().c_str());
+      }
+    }
+
+    cleanup_hook();
+    exit(0);
+  }
+
+  // Create OS in nested scope so that it will be closed on destruction.
+  {
+    std::error_code EC;
+    raw_fd_ostream OS(output_name + ".thinlto.bc", EC,
+                      sys::fs::OpenFlags::F_None);
+    if (EC)
+      message(LDPL_FATAL, "Unable to open %s.thinlto.bc for writing: %s",
+              output_name.data(), EC.message().c_str());
+    WriteIndexToFile(CombinedIndex, OS);
+  }
+
+  thinLTOBackends(ApiFile, CombinedIndex);
+  return LDPS_OK;
+}
+
 /// gold informs us that all symbols have been read. At this point, we use
 /// get_symbols to see if any of our definitions have been overridden by a
 /// native object file. Then, perform optimization and codegen.
@@ -1200,40 +1349,8 @@ static ld_plugin_status allSymbolsReadHook(raw_fd_ostream *ApiFile) {
   if (unsigned NumOpts = options::extra.size())
     cl::ParseCommandLineOptions(NumOpts, &options::extra[0]);
 
-  // If we are doing ThinLTO compilation, simply build the combined
-  // module index/summary and emit it. We don't need to parse the modules
-  // and link them in this case.
-  if (options::thinlto) {
-    ModuleSummaryIndex CombinedIndex;
-    uint64_t NextModuleId = 0;
-    for (claimed_file &F : Modules) {
-      PluginInputFile InputFile(F.handle);
-
-      std::unique_ptr<ModuleSummaryIndex> Index =
-          getModuleSummaryIndexForFile(F, InputFile.file());
-
-      // Skip files without a module summary.
-      if (Index)
-        CombinedIndex.mergeFrom(std::move(Index), ++NextModuleId);
-    }
-
-    std::error_code EC;
-    raw_fd_ostream OS(output_name + ".thinlto.bc", EC,
-                      sys::fs::OpenFlags::F_None);
-    if (EC)
-      message(LDPL_FATAL, "Unable to open %s.thinlto.bc for writing: %s",
-              output_name.data(), EC.message().c_str());
-    WriteIndexToFile(CombinedIndex, OS);
-    OS.close();
-
-    if (options::thinlto_index_only) {
-      cleanup_hook();
-      exit(0);
-    }
-
-    thinLTOBackends(ApiFile, CombinedIndex);
-    return LDPS_OK;
-  }
+  if (options::thinlto)
+    return thinLTOLink(ApiFile);
 
   LLVMContext Context;
   Context.setDiscardValueNames(options::TheOutputType !=

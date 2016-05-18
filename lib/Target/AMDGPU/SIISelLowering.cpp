@@ -1494,22 +1494,6 @@ SDValue SITargetLowering::lowerADDRSPACECAST(SDValue Op,
   return DAG.getUNDEF(ASC->getValueType(0));
 }
 
-SDValue SITargetLowering::LowerGlobalAddress(AMDGPUMachineFunction *MFI,
-                                             SDValue Op,
-                                             SelectionDAG &DAG) const {
-  GlobalAddressSDNode *GSD = cast<GlobalAddressSDNode>(Op);
-
-  if (GSD->getAddressSpace() != AMDGPUAS::CONSTANT_ADDRESS)
-    return AMDGPUTargetLowering::LowerGlobalAddress(MFI, Op, DAG);
-
-  SDLoc DL(GSD);
-  const GlobalValue *GV = GSD->getGlobal();
-  MVT PtrVT = getPointerTy(DAG.getDataLayout(), GSD->getAddressSpace());
-
-  SDValue GA = DAG.getTargetGlobalAddress(GV, DL, MVT::i32);
-  return DAG.getNode(AMDGPUISD::CONST_DATA_PTR, DL, PtrVT, GA);
-}
-
 SDValue SITargetLowering::copyToM0(SelectionDAG &DAG, SDValue Chain, SDLoc DL,
                                    SDValue V) const {
   // We can't use S_MOV_B32 directly, because there is no way to specify m0 as
@@ -2818,8 +2802,22 @@ SDValue SITargetLowering::PerformDAGCombine(SDNode *N,
   case AMDGPUISD::CVT_F32_UBYTE2:
   case AMDGPUISD::CVT_F32_UBYTE3: {
     unsigned Offset = N->getOpcode() - AMDGPUISD::CVT_F32_UBYTE0;
-
     SDValue Src = N->getOperand(0);
+
+    if (Src.getOpcode() == ISD::SRL) {
+      // cvt_f32_ubyte0 (srl x, 16) -> cvt_f32_ubyte2 x
+      // cvt_f32_ubyte1 (srl x, 16) -> cvt_f32_ubyte3 x
+      // cvt_f32_ubyte0 (srl x, 8) -> cvt_f32_ubyte1 x
+
+      if (const ConstantSDNode *C = dyn_cast<ConstantSDNode>(Src.getOperand(1))) {
+        unsigned SrcOffset = C->getZExtValue() + 8 * Offset;
+        if (SrcOffset < 32 && SrcOffset % 8 == 0) {
+          return DAG.getNode(AMDGPUISD::CVT_F32_UBYTE0 + SrcOffset / 8, DL,
+                             MVT::f32, Src.getOperand(0));
+        }
+      }
+    }
+
     APInt Demanded = APInt::getBitsSet(32, 8 * Offset, 8 * Offset + 8);
 
     APInt KnownZero, KnownOne;

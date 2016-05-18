@@ -2792,6 +2792,12 @@ def LDRBT_POST
   : ARMAsmPseudo<"ldrbt${q} $Rt, $addr", (ins addr_offset_none:$addr, pred:$q),
                  (outs GPR:$Rt)>;
 
+// Pseudo instruction ldr Rt, =immediate
+def LDRConstPool
+  : ARMAsmPseudo<"ldr${q} $Rt, $immediate",
+                 (ins const_pool_asm_imm:$immediate, pred:$q),
+                 (outs GPR:$Rt)>;
+
 // Store
 
 // Stores with truncate
@@ -3328,7 +3334,7 @@ def MOVi16 : AI1<0b1000, (outs GPR:$Rd), (ins imm0_65535_expr:$imm),
 
 def : InstAlias<"mov${p} $Rd, $imm",
                 (MOVi16 GPR:$Rd, imm0_65535_expr:$imm, pred:$p)>,
-        Requires<[IsARM]>;
+        Requires<[IsARM, HasV6T2]>;
 
 def MOVi16_ga_pcrel : PseudoInst<(outs GPR:$Rd),
                                 (ins i32imm:$addr, pclabel:$id), IIC_iMOVi, []>,

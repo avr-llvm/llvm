@@ -97,8 +97,12 @@ namespace llvm {
 
   /// Write the specified module summary index to the given raw output stream,
   /// where it will be written in a new bitcode block. This is used when
-  /// writing the combined index file for ThinLTO.
-  void WriteIndexToFile(const ModuleSummaryIndex &Index, raw_ostream &Out);
+  /// writing the combined index file for ThinLTO. When writing a subset of the
+  /// index for a distributed backend, provide the \p ModuleToSummariesForIndex
+  /// map.
+  void WriteIndexToFile(const ModuleSummaryIndex &Index, raw_ostream &Out,
+                        std::map<std::string, GVSummaryMapTy>
+                            *ModuleToSummariesForIndex = nullptr);
 
   /// isBitcodeWrapper - Return true if the given bytes are the magic bytes
   /// for an LLVM IR bitcode wrapper.
@@ -162,9 +166,10 @@ namespace llvm {
 
     unsigned Offset = support::endian::read32le(&BufPtr[BWH_OffsetField]);
     unsigned Size = support::endian::read32le(&BufPtr[BWH_SizeField]);
+    uint64_t BitcodeOffsetEnd = (uint64_t)Offset + (uint64_t)Size;
 
     // Verify that Offset+Size fits in the file.
-    if (VerifyBufferSize && Offset+Size > unsigned(BufEnd-BufPtr))
+    if (VerifyBufferSize && BitcodeOffsetEnd > uint64_t(BufEnd-BufPtr))
       return true;
     BufPtr += Offset;
     BufEnd = BufPtr+Size;

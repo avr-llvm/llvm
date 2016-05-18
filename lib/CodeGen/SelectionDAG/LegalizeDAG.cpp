@@ -2565,7 +2565,7 @@ SDValue SelectionDAGLegalize::ExpandBITREVERSE(SDValue Op, SDLoc dl) {
   EVT VT = Op.getValueType();
   EVT SHVT = TLI.getShiftAmountTy(VT, DAG.getDataLayout());
   unsigned Sz = VT.getScalarSizeInBits();
-  
+
   SDValue Tmp, Tmp2;
   Tmp = DAG.getConstant(0, dl, VT);
   for (unsigned I = 0, J = Sz-1; I < Sz; ++I, --J) {
@@ -2837,25 +2837,38 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
         cast<AtomicSDNode>(Node)->getFailureOrdering(),
         cast<AtomicSDNode>(Node)->getSynchScope());
 
+    SDValue ExtRes = Res;
     SDValue LHS = Res;
     SDValue RHS = Node->getOperand(1);
 
     EVT AtomicType = cast<AtomicSDNode>(Node)->getMemoryVT();
     EVT OuterType = Node->getValueType(0);
-    if (TLI.hasSignExtendedAtomicOps()) {
+    switch (TLI.getExtendForAtomicOps()) {
+    case ISD::SIGN_EXTEND:
       LHS = DAG.getNode(ISD::AssertSext, dl, OuterType, Res,
                         DAG.getValueType(AtomicType));
       RHS = DAG.getNode(ISD::SIGN_EXTEND_INREG, dl, OuterType,
                         Node->getOperand(2), DAG.getValueType(AtomicType));
-    } else {
-      LHS = DAG.getNode(ISD::AssertZext, dl, OuterType, Res, DAG.getValueType(AtomicType));
+      ExtRes = LHS;
+      break;
+    case ISD::ZERO_EXTEND:
+      LHS = DAG.getNode(ISD::AssertZext, dl, OuterType, Res,
+                        DAG.getValueType(AtomicType));
       RHS = DAG.getNode(ISD::ZERO_EXTEND, dl, OuterType, Node->getOperand(2));
+      ExtRes = LHS;
+      break;
+    case ISD::ANY_EXTEND:
+      LHS = DAG.getZeroExtendInReg(Res, dl, AtomicType);
+      RHS = DAG.getNode(ISD::ZERO_EXTEND, dl, OuterType, Node->getOperand(2));
+      break;
+    default:
+      llvm_unreachable("Invalid atomic op extension");
     }
 
     SDValue Success =
         DAG.getSetCC(dl, Node->getValueType(1), LHS, RHS, ISD::SETEQ);
 
-    Results.push_back(LHS.getValue(0));
+    Results.push_back(ExtRes.getValue(0));
     Results.push_back(Success);
     Results.push_back(Res.getValue(1));
     break;

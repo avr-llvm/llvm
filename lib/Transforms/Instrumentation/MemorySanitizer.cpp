@@ -379,6 +379,7 @@ class MemorySanitizer : public FunctionPass {
   friend struct VarArgAMD64Helper;
   friend struct VarArgMIPS64Helper;
   friend struct VarArgAArch64Helper;
+  friend struct VarArgPowerPC64Helper;
 };
 } // anonymous namespace
 
@@ -3131,13 +3132,13 @@ struct VarArgMIPS64Helper : public VarArgHelper {
 
 /// \brief AArch64-specific implementation of VarArgHelper.
 struct VarArgAArch64Helper : public VarArgHelper {
-  static const unsigned kAArch64GrArgSize = 56;
+  static const unsigned kAArch64GrArgSize = 64;
   static const unsigned kAArch64VrArgSize = 128;
 
   static const unsigned AArch64GrBegOffset = 0;
   static const unsigned AArch64GrEndOffset = kAArch64GrArgSize;
   // Make VR space aligned to 16 bytes.
-  static const unsigned AArch64VrBegOffset = AArch64GrEndOffset + 8;
+  static const unsigned AArch64VrBegOffset = AArch64GrEndOffset;
   static const unsigned AArch64VrEndOffset = AArch64VrBegOffset
                                              + kAArch64VrArgSize;
   static const unsigned AArch64VAEndOffset = AArch64VrEndOffset;
@@ -3182,9 +3183,11 @@ struct VarArgAArch64Helper : public VarArgHelper {
     unsigned OverflowOffset = AArch64VAEndOffset;
 
     const DataLayout &DL = F.getParent()->getDataLayout();
-    for (CallSite::arg_iterator ArgIt = CS.arg_begin() + 1, End = CS.arg_end();
+    for (CallSite::arg_iterator ArgIt = CS.arg_begin(), End = CS.arg_end();
          ArgIt != End; ++ArgIt) {
       Value *A = *ArgIt;
+      unsigned ArgNo = CS.getArgumentNo(ArgIt);
+      bool IsFixed = ArgNo < CS.getFunctionType()->getNumParams();
       ArgKind AK = classifyArgument(A);
       if (AK == AK_GeneralPurpose && GrOffset >= AArch64GrEndOffset)
         AK = AK_Memory;
@@ -3201,11 +3204,19 @@ struct VarArgAArch64Helper : public VarArgHelper {
           VrOffset += 16;
           break;
         case AK_Memory:
+          // Don't count fixed arguments in the overflow area - va_start will
+          // skip right over them.
+          if (IsFixed)
+            continue;
           uint64_t ArgSize = DL.getTypeAllocSize(A->getType());
           Base = getShadowPtrForVAArgument(A->getType(), IRB, OverflowOffset);
           OverflowOffset += alignTo(ArgSize, 8);
           break;
       }
+      // Count Gp/Vr fixed arguments to their respective offsets, but don't
+      // bother to actually store a shadow.
+      if (IsFixed)
+        continue;
       IRB.CreateAlignedStore(MSV.getShadow(A), Base, kShadowTLSAlignment);
     }
     Constant *OverflowSize =
@@ -3364,6 +3375,163 @@ struct VarArgAArch64Helper : public VarArgHelper {
   }
 };
 
+/// \brief PowerPC64-specific implementation of VarArgHelper.
+struct VarArgPowerPC64Helper : public VarArgHelper {
+  Function &F;
+  MemorySanitizer &MS;
+  MemorySanitizerVisitor &MSV;
+  Value *VAArgTLSCopy;
+  Value *VAArgSize;
+
+  SmallVector<CallInst*, 16> VAStartInstrumentationList;
+
+  VarArgPowerPC64Helper(Function &F, MemorySanitizer &MS,
+                    MemorySanitizerVisitor &MSV)
+    : F(F), MS(MS), MSV(MSV), VAArgTLSCopy(nullptr),
+      VAArgSize(nullptr) {}
+
+  void visitCallSite(CallSite &CS, IRBuilder<> &IRB) override {
+    // For PowerPC, we need to deal with alignment of stack arguments -
+    // they are mostly aligned to 8 bytes, but vectors and i128 arrays
+    // are aligned to 16 bytes, byvals can be aligned to 8 or 16 bytes,
+    // and QPX vectors are aligned to 32 bytes.  For that reason, we
+    // compute current offset from stack pointer (which is always properly
+    // aligned), and offset for the first vararg, then subtract them.
+    unsigned VAArgBase;
+    llvm::Triple TargetTriple(F.getParent()->getTargetTriple());
+    // Parameter save area starts at 48 bytes from frame pointer for ABIv1,
+    // and 32 bytes for ABIv2.  This is usually determined by target
+    // endianness, but in theory could be overriden by function attribute.
+    // For simplicity, we ignore it here (it'd only matter for QPX vectors).
+    if (TargetTriple.getArch() == llvm::Triple::ppc64)
+      VAArgBase = 48;
+    else
+      VAArgBase = 32;
+    unsigned VAArgOffset = VAArgBase;
+    const DataLayout &DL = F.getParent()->getDataLayout();
+    for (CallSite::arg_iterator ArgIt = CS.arg_begin(), End = CS.arg_end();
+         ArgIt != End; ++ArgIt) {
+      Value *A = *ArgIt;
+      unsigned ArgNo = CS.getArgumentNo(ArgIt);
+      bool IsFixed = ArgNo < CS.getFunctionType()->getNumParams();
+      bool IsByVal = CS.paramHasAttr(ArgNo + 1, Attribute::ByVal);
+      if (IsByVal) {
+        assert(A->getType()->isPointerTy());
+        Type *RealTy = A->getType()->getPointerElementType();
+        uint64_t ArgSize = DL.getTypeAllocSize(RealTy);
+        uint64_t ArgAlign = CS.getParamAlignment(ArgNo + 1);
+        if (ArgAlign < 8)
+          ArgAlign = 8;
+        VAArgOffset = alignTo(VAArgOffset, ArgAlign);
+        if (!IsFixed) {
+          Value *Base = getShadowPtrForVAArgument(RealTy, IRB,
+                                                  VAArgOffset - VAArgBase);
+          IRB.CreateMemCpy(Base, MSV.getShadowPtr(A, IRB.getInt8Ty(), IRB),
+                           ArgSize, kShadowTLSAlignment);
+        }
+        VAArgOffset += alignTo(ArgSize, 8);
+      } else {
+        Value *Base;
+        uint64_t ArgSize = DL.getTypeAllocSize(A->getType());
+        uint64_t ArgAlign = 8;
+        if (A->getType()->isArrayTy()) {
+          // Arrays are aligned to element size, except for long double
+          // arrays, which are aligned to 8 bytes.
+          Type *ElementTy = A->getType()->getArrayElementType();
+          if (!ElementTy->isPPC_FP128Ty())
+            ArgAlign = DL.getTypeAllocSize(ElementTy);
+        } else if (A->getType()->isVectorTy()) {
+          // Vectors are naturally aligned.
+          ArgAlign = DL.getTypeAllocSize(A->getType());
+        }
+        if (ArgAlign < 8)
+          ArgAlign = 8;
+        VAArgOffset = alignTo(VAArgOffset, ArgAlign);
+        if (DL.isBigEndian()) {
+          // Adjusting the shadow for argument with size < 8 to match the placement
+          // of bits in big endian system
+          if (ArgSize < 8)
+            VAArgOffset += (8 - ArgSize);
+        }
+        if (!IsFixed) {
+          Base = getShadowPtrForVAArgument(A->getType(), IRB,
+                                           VAArgOffset - VAArgBase);
+          IRB.CreateAlignedStore(MSV.getShadow(A), Base, kShadowTLSAlignment);
+        }
+        VAArgOffset += ArgSize;
+        VAArgOffset = alignTo(VAArgOffset, 8);
+      }
+      if (IsFixed)
+        VAArgBase = VAArgOffset;
+    }
+
+    Constant *TotalVAArgSize = ConstantInt::get(IRB.getInt64Ty(),
+                                                VAArgOffset - VAArgBase);
+    // Here using VAArgOverflowSizeTLS as VAArgSizeTLS to avoid creation of
+    // a new class member i.e. it is the total size of all VarArgs.
+    IRB.CreateStore(TotalVAArgSize, MS.VAArgOverflowSizeTLS);
+  }
+
+  /// \brief Compute the shadow address for a given va_arg.
+  Value *getShadowPtrForVAArgument(Type *Ty, IRBuilder<> &IRB,
+                                   int ArgOffset) {
+    Value *Base = IRB.CreatePointerCast(MS.VAArgTLS, MS.IntptrTy);
+    Base = IRB.CreateAdd(Base, ConstantInt::get(MS.IntptrTy, ArgOffset));
+    return IRB.CreateIntToPtr(Base, PointerType::get(MSV.getShadowTy(Ty), 0),
+                              "_msarg");
+  }
+
+  void visitVAStartInst(VAStartInst &I) override {
+    IRBuilder<> IRB(&I);
+    VAStartInstrumentationList.push_back(&I);
+    Value *VAListTag = I.getArgOperand(0);
+    Value *ShadowPtr = MSV.getShadowPtr(VAListTag, IRB.getInt8Ty(), IRB);
+    IRB.CreateMemSet(ShadowPtr, Constant::getNullValue(IRB.getInt8Ty()),
+                     /* size */8, /* alignment */8, false);
+  }
+
+  void visitVACopyInst(VACopyInst &I) override {
+    IRBuilder<> IRB(&I);
+    Value *VAListTag = I.getArgOperand(0);
+    Value *ShadowPtr = MSV.getShadowPtr(VAListTag, IRB.getInt8Ty(), IRB);
+    // Unpoison the whole __va_list_tag.
+    // FIXME: magic ABI constants.
+    IRB.CreateMemSet(ShadowPtr, Constant::getNullValue(IRB.getInt8Ty()),
+                     /* size */8, /* alignment */8, false);
+  }
+
+  void finalizeInstrumentation() override {
+    assert(!VAArgSize && !VAArgTLSCopy &&
+           "finalizeInstrumentation called twice");
+    IRBuilder<> IRB(F.getEntryBlock().getFirstNonPHI());
+    VAArgSize = IRB.CreateLoad(MS.VAArgOverflowSizeTLS);
+    Value *CopySize = IRB.CreateAdd(ConstantInt::get(MS.IntptrTy, 0),
+                                    VAArgSize);
+
+    if (!VAStartInstrumentationList.empty()) {
+      // If there is a va_start in this function, make a backup copy of
+      // va_arg_tls somewhere in the function entry block.
+      VAArgTLSCopy = IRB.CreateAlloca(Type::getInt8Ty(*MS.C), CopySize);
+      IRB.CreateMemCpy(VAArgTLSCopy, MS.VAArgTLS, CopySize, 8);
+    }
+
+    // Instrument va_start.
+    // Copy va_list shadow from the backup copy of the TLS contents.
+    for (size_t i = 0, n = VAStartInstrumentationList.size(); i < n; i++) {
+      CallInst *OrigInst = VAStartInstrumentationList[i];
+      IRBuilder<> IRB(OrigInst->getNextNode());
+      Value *VAListTag = OrigInst->getArgOperand(0);
+      Value *RegSaveAreaPtrPtr =
+        IRB.CreateIntToPtr(IRB.CreatePtrToInt(VAListTag, MS.IntptrTy),
+                        Type::getInt64PtrTy(*MS.C));
+      Value *RegSaveAreaPtr = IRB.CreateLoad(RegSaveAreaPtrPtr);
+      Value *RegSaveAreaShadowPtr =
+      MSV.getShadowPtr(RegSaveAreaPtr, IRB.getInt8Ty(), IRB);
+      IRB.CreateMemCpy(RegSaveAreaShadowPtr, VAArgTLSCopy, CopySize, 8);
+    }
+  }
+};
+
 /// \brief A no-op implementation of VarArgHelper.
 struct VarArgNoOpHelper : public VarArgHelper {
   VarArgNoOpHelper(Function &F, MemorySanitizer &MS,
@@ -3390,6 +3558,9 @@ VarArgHelper *CreateVarArgHelper(Function &Func, MemorySanitizer &Msan,
     return new VarArgMIPS64Helper(Func, Msan, Visitor);
   else if (TargetTriple.getArch() == llvm::Triple::aarch64)
     return new VarArgAArch64Helper(Func, Msan, Visitor);
+  else if (TargetTriple.getArch() == llvm::Triple::ppc64 ||
+           TargetTriple.getArch() == llvm::Triple::ppc64le)
+    return new VarArgPowerPC64Helper(Func, Msan, Visitor);
   else
     return new VarArgNoOpHelper(Func, Msan, Visitor);
 }

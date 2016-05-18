@@ -59,6 +59,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/InstIterator.h"
@@ -242,6 +243,9 @@ class Verifier : public InstVisitor<Verifier>, VerifierSupport {
   /// Cache of constants visited in search of ConstantExprs.
   SmallPtrSet<const Constant *, 32> ConstantExprVisited;
 
+  /// Cache of declarations of the llvm.experimental.deoptimize.<ty> intrinsic.
+  SmallVector<const Function *, 4> DeoptimizeDeclarations;
+
   // Verify that this GlobalValue is only used in this module.
   // This map is used to avoid visiting uses twice. We can arrive at a user
   // twice, if they have multiple operands. In particular for very large
@@ -321,8 +325,11 @@ public:
       visitGlobalValue(F);
 
       // Check to make sure function prototypes are okay.
-      if (F.isDeclaration())
+      if (F.isDeclaration()) {
         visitFunction(F);
+        if (F.getIntrinsicID() == Intrinsic::experimental_deoptimize)
+          DeoptimizeDeclarations.push_back(&F);
+      }
     }
 
     // Now that we've visited every function, verify that we never asked to
@@ -344,6 +351,8 @@ public:
     visitModuleIdents(M);
 
     verifyCompileUnits();
+
+    verifyDeoptimizeCallingConvs();
 
     return !Broken;
   }
@@ -469,6 +478,10 @@ private:
 
   /// Module-level debug info verification...
   void verifyCompileUnits();
+
+  /// Module-level verification that all @llvm.experimental.deoptimize
+  /// declarations share the same calling convention.
+  void verifyDeoptimizeCallingConvs();
 };
 } // End anonymous namespace
 
@@ -502,8 +515,7 @@ static void forEachUser(const Value *User,
 }
 
 void Verifier::visitGlobalValue(const GlobalValue &GV) {
-  Assert(!GV.isDeclaration() || GV.hasExternalLinkage() ||
-             GV.hasExternalWeakLinkage(),
+  Assert(!GV.isDeclaration() || GV.hasValidDeclarationLinkage(),
          "Global is external, but doesn't have external or weak linkage!", &GV);
 
   Assert(GV.getAlignment() <= Value::MaximumAlignment,
@@ -556,9 +568,6 @@ void Verifier::visitGlobalVariable(const GlobalVariable &GV) {
              &GV);
       Assert(!GV.hasComdat(), "'common' global may not be in a Comdat!", &GV);
     }
-  } else {
-    Assert(GV.hasExternalLinkage() || GV.hasExternalWeakLinkage(),
-           "invalid linkage type for global declaration", &GV);
   }
 
   if (GV.hasName() && (GV.getName() == "llvm.global_ctors" ||
@@ -1962,8 +1971,6 @@ void Verifier::visitFunction(const Function &F) {
     Assert(MDs.empty(), "unmaterialized function cannot have metadata", &F,
            MDs.empty() ? nullptr : MDs.front().second);
   } else if (F.isDeclaration()) {
-    Assert(F.hasExternalLinkage() || F.hasExternalWeakLinkage(),
-           "invalid linkage type for function declaration", &F);
     Assert(MDs.empty(), "function without a body cannot have metadata", &F,
            MDs.empty() ? nullptr : MDs.front().second);
     Assert(!F.hasPersonalityFn(),
@@ -4401,6 +4408,19 @@ void Verifier::verifyCompileUnits() {
   CUVisited.clear();
 }
 
+void Verifier::verifyDeoptimizeCallingConvs() {
+  if (DeoptimizeDeclarations.empty())
+    return;
+
+  const Function *First = DeoptimizeDeclarations[0];
+  for (auto *F : makeArrayRef(DeoptimizeDeclarations).slice(1)) {
+    Assert(First->getCallingConv() == F->getCallingConv(),
+           "All llvm.experimental.deoptimize declarations must have the same "
+           "calling convention",
+           First, F);
+  }
+}
+
 //===----------------------------------------------------------------------===//
 //  Implement the public interfaces to this file...
 //===----------------------------------------------------------------------===//
@@ -4417,18 +4437,22 @@ bool llvm::verifyFunction(const Function &f, raw_ostream *OS) {
   return !V.verify(F);
 }
 
-bool llvm::verifyModule(const Module &M, raw_ostream *OS) {
+bool llvm::verifyModule(const Module &M, raw_ostream *OS,
+                        bool *BrokenDebugInfo) {
   // Don't use a raw_null_ostream.  Printing IR is expensive.
-  Verifier V(OS, /*ShouldTreatBrokenDebugInfoAsError=*/true);
+  Verifier V(OS, /*ShouldTreatBrokenDebugInfoAsError=*/!BrokenDebugInfo);
 
   bool Broken = false;
   for (const Function &F : M)
     if (!F.isDeclaration() && !F.isMaterializable())
       Broken |= !V.verify(F);
 
+  Broken |= !V.verify(M);
+  if (BrokenDebugInfo)
+    *BrokenDebugInfo = V.hasBrokenDebugInfo();
   // Note that this function's return value is inverted from what you would
   // expect of a function called "verify".
-  return !V.verify(M) || Broken;
+  return Broken;
 }
 
 namespace {
@@ -4478,15 +4502,38 @@ FunctionPass *llvm::createVerifierPass(bool FatalErrors) {
   return new VerifierLegacyPass(FatalErrors);
 }
 
-PreservedAnalyses VerifierPass::run(Module &M) {
-  if (verifyModule(M, &dbgs()) && FatalErrors)
-    report_fatal_error("Broken module found, compilation aborted!");
+char VerifierAnalysis::PassID;
+VerifierAnalysis::Result VerifierAnalysis::run(Module &M) {
+  Result Res;
+  Res.IRBroken = llvm::verifyModule(M, &dbgs(), &Res.DebugInfoBroken);
+  return Res;
+}
 
+VerifierAnalysis::Result VerifierAnalysis::run(Function &F) {
+  return { llvm::verifyFunction(F, &dbgs()), false };
+}
+
+PreservedAnalyses VerifierPass::run(Module &M, ModuleAnalysisManager &AM) {
+  auto Res = AM.getResult<VerifierAnalysis>(M);
+  if (FatalErrors) {
+    if (Res.IRBroken)
+      report_fatal_error("Broken module found, compilation aborted!");
+    assert(!Res.DebugInfoBroken && "Module contains invalid debug info");
+  }
+
+  // Strip broken debug info.
+  if (Res.DebugInfoBroken) {
+    DiagnosticInfoIgnoringInvalidDebugMetadata DiagInvalid(M);
+    M.getContext().diagnose(DiagInvalid);
+    if (!StripDebugInfo(M))
+      report_fatal_error("Failed to strip malformed debug info");
+  }
   return PreservedAnalyses::all();
 }
 
-PreservedAnalyses VerifierPass::run(Function &F) {
-  if (verifyFunction(F, &dbgs()) && FatalErrors)
+PreservedAnalyses VerifierPass::run(Function &F, FunctionAnalysisManager &AM) {
+  auto res = AM.getResult<VerifierAnalysis>(F);
+  if (res.IRBroken && FatalErrors)
     report_fatal_error("Broken function found, compilation aborted!");
 
   return PreservedAnalyses::all();

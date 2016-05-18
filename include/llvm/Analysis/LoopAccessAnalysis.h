@@ -321,6 +321,9 @@ private:
 
   /// \brief Check whether the data dependence could prevent store-load
   /// forwarding.
+  ///
+  /// \return false if we shouldn't vectorize at all or avoid larger
+  /// vectorization factors by limiting MaxSafeDepDistBytes.
   bool couldPreventStoreLoadForward(unsigned Distance, unsigned TypeByteSize);
 };
 
@@ -662,7 +665,7 @@ const SCEV *replaceSymbolicStrideSCEV(PredicatedScalarEvolution &PSE,
 /// to \p PtrToStride and therefore add further predicates to \p PSE.
 /// The \p Assume parameter indicates if we are allowed to make additional
 /// run-time assumptions.
-int isStridedPtr(PredicatedScalarEvolution &PSE, Value *Ptr, const Loop *Lp,
+int getPtrStride(PredicatedScalarEvolution &PSE, Value *Ptr, const Loop *Lp,
                  const ValueToValueMap &StridesMap = ValueToValueMap(),
                  bool Assume = false);
 
