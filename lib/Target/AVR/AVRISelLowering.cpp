@@ -210,7 +210,7 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm)
 const char *AVRTargetLowering::getTargetNodeName(unsigned Opcode) const {
 #define NODE(name)                                                             \
   case AVRISD::name:                                                           \
-    return "##name##"
+    return #name
   switch (Opcode) {
   default:
     return nullptr;
