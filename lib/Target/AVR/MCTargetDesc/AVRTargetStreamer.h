@@ -11,9 +11,9 @@
 #define LLVM_AVR_TARGET_STREAMER_H
 
 #include "llvm/MC/MCELFStreamer.h"
-#include "llvm/MC/MCStreamer.h"
 
 namespace llvm {
+class MCStreamer;
 
 /// A generic AVR target output stream.
 class AVRTargetStreamer : public MCTargetStreamer {
@@ -25,16 +25,6 @@ public:
 class AVRTargetAsmStreamer : public AVRTargetStreamer {
 public:
   explicit AVRTargetAsmStreamer(MCStreamer &S);
-};
-
-/// A target streamer for an AVR ELF object file.
-class AVRTargetELFStreamer : public AVRTargetStreamer {
-public:
-  AVRTargetELFStreamer(MCStreamer &S, const MCSubtargetInfo &STI);
-
-  MCELFStreamer &getStreamer() {
-    return static_cast<MCELFStreamer &>(Streamer);
-  }
 };
 
 } // end namespace llvm

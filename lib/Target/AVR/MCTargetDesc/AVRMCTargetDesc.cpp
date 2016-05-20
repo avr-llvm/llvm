@@ -22,6 +22,7 @@
 
 #include "AVRMCAsmInfo.h"
 #include "AVRTargetStreamer.h"
+#include "AVRELFStreamer.h"
 #include "InstPrinter/AVRInstPrinter.h"
 
 #define GET_INSTRINFO_MC_DESC
@@ -83,8 +84,7 @@ static MCStreamer *createMCStreamer(const Triple &T, MCContext &Context,
 
 static MCTargetStreamer *
 createAVRObjectTargetStreamer(MCStreamer &S, const MCSubtargetInfo &STI) {
-
-  return new AVRTargetELFStreamer(S, STI);
+  return new AVRELFStreamer(S, STI);
 }
 
 static MCTargetStreamer *createMCAsmTargetStreamer(MCStreamer &S,

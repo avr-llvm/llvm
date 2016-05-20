@@ -312,7 +312,7 @@ static Error dumpDbiStream(ScopedPrinter &P, PDBFile &File) {
   P.printBoolean("Has CTypes", DS.hasCTypes());
   P.printBoolean("Is Stripped", DS.isStripped());
   P.printObject("Machine Type", DS.getMachineType());
-  P.printNumber("Number of Symbols", DS.getNumberOfSymbols());
+  P.printNumber("Symbol Record Stream Index", DS.getSymRecordStreamIndex());
 
   uint16_t Major = DS.getBuildMajorVersion();
   uint16_t Minor = DS.getBuildMinorVersion();
@@ -414,6 +414,7 @@ static Error dumpPublicsStream(ScopedPrinter &P, PDBFile &File) {
   P.printList("Hash Buckets", Publics.getHashBuckets());
   P.printList("Address Map", Publics.getAddressMap());
   P.printList("Thunk Map", Publics.getThunkMap());
+  P.printList("Section Offsets", Publics.getSectionOffsets());
   return Error::success();
 }
 
