@@ -23,9 +23,10 @@
 namespace llvm {
 
 class MCAssembler;
-struct MCFixupKindInfo;
-class Target;
 class MCObjectWriter;
+class Target;
+
+struct MCFixupKindInfo;
 
 /// Utilities for manipulating generated AVR machine code.
 class AVRAsmBackend : public MCAsmBackend {
@@ -34,7 +35,6 @@ public:
   AVRAsmBackend(const Target &T, Triple::OSType OSType)
       : MCAsmBackend(), OSType(OSType) {}
 
-  /// Adjusts a fixup value before it is applied.
   void adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
                         MCContext *Ctx = nullptr) const;
 
@@ -49,17 +49,8 @@ public:
     return AVR::NumTargetFixupKinds;
   }
 
-  /// @name Target Relaxation Interfaces
-  /// @{
-
-  /// MayNeedRelaxation - Check whether the given instruction may need
-  /// relaxation.
-  ///
-  /// \param Inst - The instruction to test.
   bool mayNeedRelaxation(const MCInst &Inst) const override { return false; }
 
-  /// fixupNeedsRelaxation - Target specific predicate for whether a given
-  /// fixup requires the associated instruction to be relaxed.
   bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
                             const MCRelaxableFragment *DF,
                             const MCAsmLayout &Layout) const override {
@@ -67,15 +58,7 @@ public:
     return false;
   }
 
-  /// RelaxInstruction - Relax the instruction in the given fragment
-  /// to the next wider instruction.
-  ///
-  /// \param Inst - The instruction to relax, which may be the same
-  /// as the output.
-  /// \param [out] Res On return, the relaxed instruction.
   void relaxInstruction(const MCInst &Inst, MCInst &Res) const override {}
-
-  /// @}
 
   bool writeNopData(uint64_t Count, MCObjectWriter *OW) const override;
 
@@ -86,8 +69,8 @@ public:
 
 private:
   Triple::OSType OSType;
-}; // class AVRAsmBackend
+};
 
-} // namespace
+} // end namespace llvm
 
 #endif // LLVM_AVR_ASM_BACKEND_H

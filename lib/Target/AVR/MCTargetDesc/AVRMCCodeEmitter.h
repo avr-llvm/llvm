@@ -27,9 +27,9 @@ namespace llvm {
 
 class MCContext;
 class MCExpr;
+class MCFixup;
 class MCInst;
 class MCInstrInfo;
-class MCFixup;
 class MCOperand;
 class MCSubtargetInfo;
 class raw_ostream;
@@ -90,9 +90,12 @@ private:
 
   inline void emitByte(unsigned char C, raw_ostream &OS) const;
   inline void emitWord(uint16_t word, raw_ostream &OS) const;
+
   void emitWords(uint16_t const *words, size_t count, raw_ostream &OS) const;
+
   void emitInstruction(uint64_t Val, unsigned Size, const MCSubtargetInfo &STI,
                        raw_ostream &OS) const;
+
   void encodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups,
                          const MCSubtargetInfo &STI) const override;
@@ -107,3 +110,4 @@ private:
 } // end namespace of llvm.
 
 #endif // LLVM_AVR_CODE_EMITTER_H
+

@@ -162,7 +162,7 @@ namespace llvm {
 void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
                                      MCContext *Ctx) const {
 
-  // the Size in bits
+  // The size of the fixup in bits.
   uint64_t Size = AVRAsmBackend::getFixupKindInfo(Fixup.getKind()).TargetSize;
 
   switch ((unsigned)Fixup.getKind()) {
@@ -234,7 +234,7 @@ MCObjectWriter *AVRAsmBackend::createObjectWriter(raw_pwrite_stream &OS) const {
                                   MCELFObjectTargetWriter::getOSABI(OSType));
 }
 
-/// ApplyFixup - Apply the \p Value for given \p Fixup into the provided
+/// Apply the \p Value for given \p Fixup into the provided
 /// data fragment, at the offset specified by the fixup and following the
 /// fixup kind as appropriate.
 void AVRAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
@@ -329,7 +329,7 @@ MCFixupKindInfo const &AVRAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
   return Infos[Kind - FirstTargetFixupKind];
 }
 
-/// WriteNopData - Write an (optimal) nop sequence of Count bytes
+/// Write an (optimal) nop sequence of Count bytes
 /// to the given output. If the target cannot generate such a sequence,
 /// it should return an error.
 bool AVRAsmBackend::writeNopData(uint64_t Count, MCObjectWriter *OW) const {
@@ -342,7 +342,7 @@ bool AVRAsmBackend::writeNopData(uint64_t Count, MCObjectWriter *OW) const {
   return true;
 }
 
-/// processFixupValue - Target hook to process the literal value of a fixup
+/// Target hook to process the literal value of a fixup
 /// if necessary.
 void AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
                                       const MCAsmLayout &Layout,

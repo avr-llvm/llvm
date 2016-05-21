@@ -97,6 +97,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
   }
 
   assert(!(FuncSize & 1) && "FuncSize should have an even number of bytes");
+
   // If the entire function is smaller than the displacement of a branch field,
   // we know we don't need to shrink any branches in this function.  This is a
   // common case.
@@ -172,6 +173,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
 
         assert(!(BranchSize & 1) &&
                "BranchSize should have an even number of bytes");
+
         // If this branch is in range, ignore it.
         if ((isCondBranch(Opc) && isInt<8>(BranchSize)) ||
             (Opc == AVR::RJMPk && isInt<13>(BranchSize))) {
@@ -244,8 +246,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
   return true;
 }
 
-/// createAVRBranchSelectionPass - returns an instance of the Branch
-/// Selection Pass.
 FunctionPass *createAVRBranchSelectionPass() { return new AVRBSel(); }
 
 } // end of namespace llvm
+
