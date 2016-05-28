@@ -143,6 +143,12 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm)
     setOperationAction(ISD::MULHU, VT, Expand);
   }
 
+  for (MVT VT : MVT::integer_valuetypes()) {
+    setOperationAction(ISD::CTPOP, VT, Expand);
+    setOperationAction(ISD::CTLZ, VT, Expand);
+    setOperationAction(ISD::CTTZ, VT, Expand);
+  }
+
   //  Runtime library functions
   {
     // Division rtlib functions (not supported)
