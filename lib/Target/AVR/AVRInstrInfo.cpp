@@ -27,6 +27,7 @@
 
 #include "AVR.h"
 #include "AVRMachineFunctionInfo.h"
+#include "AVRRegisterInfo.h"
 #include "AVRTargetMachine.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 
@@ -49,22 +50,41 @@ void AVRInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                MachineBasicBlock::iterator MI, DebugLoc DL,
                                unsigned DestReg, unsigned SrcReg,
                                bool KillSrc) const {
+  const auto &Subtarget = static_cast<const AVRSubtarget&>(MBB.getParent()->getSubtarget());
+  const auto &TRI = *Subtarget.getRegisterInfo();
   unsigned Opc;
 
-  if (AVR::GPR8RegClass.contains(DestReg, SrcReg)) {
-    Opc = AVR::MOVRdRr;
-  } else if (AVR::DREGSRegClass.contains(DestReg, SrcReg)) {
-    Opc = AVR::MOVWRdRr;
-  } else if (SrcReg == AVR::SP && AVR::DREGSRegClass.contains(DestReg)) {
-    Opc = AVR::SPREAD;
-  } else if (DestReg == AVR::SP && AVR::DREGSRegClass.contains(SrcReg)) {
-    Opc = AVR::SPWRITE;
-  } else {
-    llvm_unreachable("Impossible reg-to-reg copy");
-  }
+  // Not all AVR devices support the 16-bit `MOVW` instruction.
+  if (AVR::DREGSRegClass.contains(DestReg, SrcReg)) {
+    if (Subtarget.hasMOVW()) {
+      BuildMI(MBB, MI, DL, get(AVR::MOVWRdRr), DestReg)
+          .addReg(SrcReg, getKillRegState(KillSrc));
+    } else {
+      unsigned DestLo, DestHi, SrcLo, SrcHi;
 
-  BuildMI(MBB, MI, DL, get(Opc), DestReg)
-      .addReg(SrcReg, getKillRegState(KillSrc));
+      TRI.splitReg(DestReg, DestLo, DestHi);
+      TRI.splitReg(SrcReg,  SrcLo,  SrcHi);
+
+      // Copy each individual register with the `MOV` instruction.
+      BuildMI(MBB, MI, DL, get(AVR::MOVRdRr), DestLo)
+        .addReg(SrcLo, getKillRegState(KillSrc));
+      BuildMI(MBB, MI, DL, get(AVR::MOVRdRr), DestHi)
+        .addReg(SrcHi, getKillRegState(KillSrc));
+    }
+  } else {
+    if (AVR::GPR8RegClass.contains(DestReg, SrcReg)) {
+      Opc = AVR::MOVRdRr;
+    } else if (SrcReg == AVR::SP && AVR::DREGSRegClass.contains(DestReg)) {
+      Opc = AVR::SPREAD;
+    } else if (DestReg == AVR::SP && AVR::DREGSRegClass.contains(SrcReg)) {
+      Opc = AVR::SPWRITE;
+    } else {
+      llvm_unreachable("Impossible reg-to-reg copy");
+    }
+
+    BuildMI(MBB, MI, DL, get(Opc), DestReg)
+        .addReg(SrcReg, getKillRegState(KillSrc));
+  }
 }
 
 unsigned AVRInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
