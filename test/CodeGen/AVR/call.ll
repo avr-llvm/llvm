@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=avr | FileCheck %s
+; RUN: llc < %s -march=avr -mattr=avr6 | FileCheck %s
 
 ; TODO: test returning byval structs
 

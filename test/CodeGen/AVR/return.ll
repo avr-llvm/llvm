@@ -1,4 +1,4 @@
-; RUN: llc -mattr=sram < %s -march=avr | FileCheck %s
+; RUN: llc -mattr=avr6,sram < %s -march=avr | FileCheck %s
 
 ;TODO: test returning byval structs
 ; TODO: test naked functions

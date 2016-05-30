@@ -1,4 +1,4 @@
-; RUN: llc -mattr=sram < %s -march=avr | FileCheck %s
+; RUN: llc -mattr=avr6,sram < %s -march=avr | FileCheck %s
 
 define void @store8(i8* %x, i8 %y) {
 ; CHECK-LABEL: store8:
