@@ -184,10 +184,20 @@ unsigned AVRMCCodeEmitter::encodeImm(const MCInst &MI, unsigned OpNo,
                                      const MCSubtargetInfo &STI) const {
   auto MO = MI.getOperand(OpNo);
 
+
   if (MO.isExpr()) {
-    MCFixupKind FixupKind = static_cast<MCFixupKind>(Fixup);
-    Fixups.push_back(MCFixup::create(0, MO.getExpr(), FixupKind, MI.getLoc()));
-    return 0;
+    if (isa<AVRMCExpr>(MO.getExpr())) {
+      // If the expression is already an AVRMCExpr (i.e. a lo8(symbol),
+      // we shouldn't perform any more fixups. Without this check, we would
+      // instead create a fixup to the symbol named 'lo8(symbol)' which
+      // is not correct.
+      return getExprOpValue(MO.getExpr(), Fixups, STI);
+    } else {
+      MCFixupKind FixupKind = static_cast<MCFixupKind>(Fixup);
+      Fixups.push_back(MCFixup::create(0, MO.getExpr(), FixupKind, MI.getLoc()));
+
+      return 0;
+    }
   }
 
   assert(MO.isImm());

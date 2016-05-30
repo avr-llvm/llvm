@@ -192,6 +192,13 @@ def arith_imm6 : Operand<i16>
     let EncoderMethod = "encodeImm<AVR::fixup_6_adiw>";
 }
 
+/// An 8-bit immediate inside an instruction with the same format
+/// as the `LDI` instruction (the `FRdK` format).
+def imm_ldi8 : Operand<i8>
+{
+    let EncoderMethod = "encodeImm<AVR::fixup_ldi>";
+}
+
 // Addressing mode pattern reg+imm6
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], [SDNPWantRoot]>;
 
@@ -421,7 +428,7 @@ Defs = [SREG] in
 
   def SUBIRdK : FRdK<0b0101,
                      (outs LD8:$rd),
-                     (ins LD8:$src, i8imm:$k),
+                     (ins LD8:$src, imm_ldi8:$k),
                      "subi\t$rd, $k",
                      [(set i8:$rd, (sub i8:$src, imm:$k)),
                       (implicit SREG)]>;
@@ -469,7 +476,7 @@ Defs = [SREG] in
 
     def SBCIRdK : FRdK<0b0100,
                        (outs LD8:$rd),
-                       (ins LD8:$src, i8imm:$k),
+                       (ins LD8:$src, imm_ldi8:$k),
                        "sbci\t$rd, $k",
                        [(set i8:$rd, (sube i8:$src, imm:$k)),
                         (implicit SREG)]>;
@@ -638,7 +645,7 @@ Defs = [SREG] in
 
   def ANDIRdK : FRdK<0b0111,
                      (outs LD8:$rd),
-                     (ins LD8:$src, i8imm:$k),
+                     (ins LD8:$src, imm_ldi8:$k),
                      "andi\t$rd, $k",
                      [(set i8:$rd, (and i8:$src, imm:$k)),
                       (implicit SREG)]>;
@@ -656,7 +663,7 @@ Defs = [SREG] in
 
   def ORIRdK : FRdK<0b0110,
                     (outs LD8:$rd),
-                    (ins LD8:$src, i8imm:$k),
+                    (ins LD8:$src, imm_ldi8:$k),
                     "ori\t$rd, $k",
                     [(set i8:$rd, (or i8:$src, imm:$k)),
                      (implicit SREG)]>;
@@ -883,7 +890,7 @@ let Defs = [SREG] in
   let Uses = [SREG] in
   def CPIRdK : FRdK<0b0011,
                     (outs),
-                    (ins GPR8:$rd, i8imm:$k),
+                    (ins GPR8:$rd, imm_ldi8:$k),
                     "cpi\t$rd, $k",
                     [(AVRcmp i8:$rd, imm:$k), (implicit SREG)]>;
 }
@@ -1077,7 +1084,7 @@ let isReMaterializable = 1 in
 {
   def LDIRdK : FRdK<0b1110,
                     (outs LD8:$rd),
-                    (ins i8imm:$k),
+                    (ins imm_ldi8:$k),
                     "ldi\t$rd, $k",
                     [(set i8:$rd, imm:$k)]>;
 
@@ -1660,13 +1667,15 @@ Defs = [SREG] in
   // Alias for ORI Rd, K
   def SBRRdK : FRdK<0b0110,
                     (outs LD8:$rd),
-                    (ins LD8:$src, i8imm:$k),
+                    (ins LD8:$src, imm_ldi8:$k),
                     "sbr\t$rd, $k",
                     [(set i8:$rd, (or i8:$src, imm:$k)),
                      (implicit SREG)]>;
 
   // CBR Rd, K
   // Alias for `ANDI Rd, COM(K)` where COM(K) is the compliment of K.
+  // FIXME: This uses the 'complement' encoder. We need it to also use the
+  // imm_ldi8 encoder. This will cause no fixups to be created on this instruction.
   def CBRRdK : FRdK<0b0111,
                     (outs LD8:$rd),
                     (ins LD8:$src, i8imm_com:$k),
