@@ -67,6 +67,11 @@ private:
                             SmallVectorImpl<MCFixup> &Fixups,
                             const MCSubtargetInfo &STI) const;
 
+  /// Encodes a 16-bit address.
+  unsigned encodeAddr16(const MCInst &MI, unsigned OpNo,
+                        SmallVectorImpl<MCFixup> &Fixups,
+                        const MCSubtargetInfo &STI) const;
+
   /// Gets the encoding of the target for the `CALL k` instruction.
   unsigned encodeCallTarget(const MCInst &MI, unsigned OpNo,
                             SmallVectorImpl<MCFixup> &Fixups,

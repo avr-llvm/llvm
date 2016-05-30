@@ -180,6 +180,12 @@ def call_target : Operand<iPTR>
     let EncoderMethod = "encodeCallTarget";
 }
 
+// A 16-bit address (which can lead to an R_AVR_16 relocation).
+def addr16 : Operand<i16>
+{
+    let EncoderMethod = "encodeAddr16";
+}
+
 // Addressing mode pattern reg+imm6
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], [SDNPWantRoot]>;
 
@@ -1086,7 +1092,7 @@ isReMaterializable = 1 in
 {
   def LDSRdK : F32DM<0b0,
                      (outs GPR8:$rd),
-                     (ins i16imm:$k),
+                     (ins addr16:$k),
                      "lds\t$rd, $k",
                      [(set i8:$rd, (load imm:$k))]>,
                Requires<[HasSRAM]>;
@@ -1208,7 +1214,7 @@ isReMaterializable = 1 in
 // Indirect store from register to data space.
 def STSKRr : F32DM<0b1,
                    (outs),
-                   (ins i16imm:$k, GPR8:$rd),
+                   (ins addr16:$k, GPR8:$rd),
                    "sts\t$k, $rd",
                    [(store i8:$rd, imm:$k)]>,
              Requires<[HasSRAM]>;

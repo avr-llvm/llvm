@@ -221,6 +221,10 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
     llvm_unreachable("program memory fixups are unimplemented");
     break;
 
+  // AVR fixups that don't need to be adjusted.
+  case AVR::fixup_16:
+    break;
+
   case FK_Data_2:
   case FK_GPRel_4:
   case FK_Data_4:
