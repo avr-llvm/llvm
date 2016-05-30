@@ -149,6 +149,14 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm)
     setOperationAction(ISD::CTTZ, VT, Expand);
   }
 
+  for (MVT VT : MVT::integer_valuetypes()) {
+    setOperationAction(ISD::SIGN_EXTEND_INREG, VT, Expand);
+    // TODO: The generated code is pretty poor. Investigate using the
+    // same "shift and subtract with carry" trick that we do for
+    // extending 8-bit to 16-bit. This may require infrastructure
+    // improvements in how we treat 16-bit "registers" to be feasible.
+  }
+
   //  Runtime library functions
   {
     // Division rtlib functions (not supported)
