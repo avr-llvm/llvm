@@ -269,6 +269,8 @@ void AVRAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
 }
 
 MCFixupKindInfo const &AVRAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
+  // NOTE: Many AVR fixups are non-contignous. We work around this by
+  // saying that the fixup is the size of the entire instruction (16 or 32 bits).
   const static MCFixupKindInfo Infos[AVR::NumTargetFixupKinds] = {
       // This table *must* be in same the order of fixup_* kinds in
       // AVRFixupKinds.h.
@@ -304,7 +306,7 @@ MCFixupKindInfo const &AVRAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
 
       {"fixup_call", 0, 22, 0},
 
-      {"fixup_6", 0, 6, 0},
+      {"fixup_6", 0, 16, 0}, // non-contignous
       {"fixup_6_adiw", 0, 6, 0},
 
       {"fixup_lo8_ldi_gs", 0, 8, 0},

@@ -1279,6 +1279,7 @@ let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
   // ST P+, Rr
   // Stores the value of Rr into the location addressed by pointer P.
   // Post increments P.
+  // FIXME: what is `$offs` and is it needed?
   def STPtrPiRr : FSTLD<1,
                         0b01,
                         (outs LDSTPtrReg:$base_wb),
