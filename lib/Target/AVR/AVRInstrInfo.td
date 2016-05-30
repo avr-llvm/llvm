@@ -181,9 +181,9 @@ def call_target : Operand<iPTR>
 }
 
 // A 16-bit address (which can lead to an R_AVR_16 relocation).
-def addr16 : Operand<i16>
+def imm16 : Operand<i16>
 {
-    let EncoderMethod = "encodeAddr16";
+    let EncoderMethod = "encodeImm16";
 }
 
 // Addressing mode pattern reg+imm6
@@ -1092,7 +1092,7 @@ isReMaterializable = 1 in
 {
   def LDSRdK : F32DM<0b0,
                      (outs GPR8:$rd),
-                     (ins addr16:$k),
+                     (ins imm16:$k),
                      "lds\t$rd, $k",
                      [(set i8:$rd, (load imm:$k))]>,
                Requires<[HasSRAM]>;
@@ -1214,7 +1214,7 @@ isReMaterializable = 1 in
 // Indirect store from register to data space.
 def STSKRr : F32DM<0b1,
                    (outs),
-                   (ins addr16:$k, GPR8:$rd),
+                   (ins imm16:$k, GPR8:$rd),
                    "sts\t$k, $rd",
                    [(store i8:$rd, imm:$k)]>,
              Requires<[HasSRAM]>;

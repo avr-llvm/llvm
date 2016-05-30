@@ -178,9 +178,9 @@ unsigned AVRMCCodeEmitter::encodeComplement(const MCInst &MI, unsigned OpNo,
   return (~0) - imm;
 }
 
-unsigned AVRMCCodeEmitter::encodeAddr16(const MCInst &MI, unsigned OpNo,
-                                        SmallVectorImpl<MCFixup> &Fixups,
-                                        const MCSubtargetInfo &STI) const {
+unsigned AVRMCCodeEmitter::encodeImm16(const MCInst &MI, unsigned OpNo,
+                                       SmallVectorImpl<MCFixup> &Fixups,
+                                       const MCSubtargetInfo &STI) const {
   auto MO = MI.getOperand(OpNo);
 
   if (MO.isExpr()) {
