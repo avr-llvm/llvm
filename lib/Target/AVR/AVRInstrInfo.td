@@ -183,7 +183,7 @@ def call_target : Operand<iPTR>
 // A 16-bit address (which can lead to an R_AVR_16 relocation).
 def imm16 : Operand<i16>
 {
-    let EncoderMethod = "encodeImm16";
+    let EncoderMethod = "encodeImm<AVR::fixup_16>";
 }
 
 // Addressing mode pattern reg+imm6
