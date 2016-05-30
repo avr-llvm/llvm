@@ -186,6 +186,12 @@ def imm16 : Operand<i16>
     let EncoderMethod = "encodeImm<AVR::fixup_16>";
 }
 
+/// A 6-bit immediate used in the ADIW/SBIW instructions.
+def arith_imm6 : Operand<i16>
+{
+    let EncoderMethod = "encodeImm<AVR::fixup_6_adiw>";
+}
+
 // Addressing mode pattern reg+imm6
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], [SDNPWantRoot]>;
 
@@ -378,7 +384,7 @@ Defs = [SREG] in
   // Adds an immediate 6-bit value K to Rd, placing the result in Rd.
   def ADIWRdK : FWRdK<0b0,
                       (outs IWREGS:$rd),
-                      (ins IWREGS:$src, i16imm:$k),
+                      (ins IWREGS:$src, arith_imm6:$k),
                       "adiw\t$rd, $k",
                       [(set i16:$rd, (add i16:$src, uimm6:$k)),
                        (implicit SREG)]>,
@@ -433,7 +439,7 @@ Defs = [SREG] in
 
   def SBIWRdK : FWRdK<0b1,
                       (outs IWREGS:$rd),
-                      (ins IWREGS:$src, i16imm:$k),
+                      (ins IWREGS:$src, arith_imm6:$k),
                       "sbiw\t$rd, $k",
                       [(set i16:$rd, (sub i16:$src, uimm6:$k)),
                        (implicit SREG)]>,
