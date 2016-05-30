@@ -199,6 +199,12 @@ def imm_ldi8 : Operand<i8>
     let EncoderMethod = "encodeImm<AVR::fixup_ldi>";
 }
 
+/// A 5-bit port number used in SBIC and friends (the `FIOBIT` format).
+def imm_port5 : Operand<i8>
+{
+    let EncoderMethod = "encodeImm<AVR::fixup_port5>";
+}
+
 // Addressing mode pattern reg+imm6
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], [SDNPWantRoot]>;
 
@@ -919,13 +925,13 @@ isTerminator = 1 in
 
     def SBICAb : FIOBIT<0b01,
                         (outs),
-                        (ins i16imm:$a, i8imm:$b),
+                        (ins imm_port5:$a, i8imm:$b),
                         "sbic\t$a, $b",
                         []>;
 
     def SBISAb : FIOBIT<0b11,
                         (outs),
-                        (ins i16imm:$a, i8imm:$b),
+                        (ins imm_port5:$a, i8imm:$b),
                         "sbis\t$a, $b",
                         []>;
   }
@@ -1632,14 +1638,14 @@ def SWAPRd : FRd<0b1001,
 // instead of in+ori+out which requires one more instr.
 def SBIAb : FIOBIT<0b10,
                    (outs),
-                   (ins i16imm:$addr, i8imm:$bit),
+                   (ins imm_port5:$addr, i8imm:$bit),
                    "sbi\t$addr, $bit",
                    [(store (or (i8 (load lowioaddr8:$addr)), iobitpos8:$bit),
                      lowioaddr8:$addr)]>;
 
 def CBIAb : FIOBIT<0b00,
                    (outs),
-                   (ins i16imm:$addr, i8imm:$bit),
+                   (ins imm_port5:$addr, i8imm:$bit),
                    "cbi\t$addr, $bit",
                    [(store (and (i8 (load lowioaddr8:$addr)), iobitposn8:$bit),
                      lowioaddr8:$addr)]>;

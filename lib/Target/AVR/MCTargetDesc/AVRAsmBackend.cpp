@@ -223,6 +223,7 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
 
   // AVR fixups that don't need to be adjusted.
   case AVR::fixup_16:
+  case AVR::fixup_port5:
     break;
 
   case FK_Data_2:
@@ -320,7 +321,7 @@ MCFixupKindInfo const &AVRAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
       {"fixup_lds_sts_16", 0, 16, 0},
 
       {"fixup_port6", 0, 6, 0},
-      {"fixup_port5", 0, 5, 0},
+      {"fixup_port5", 3, 5, 0},
 
   };
 
