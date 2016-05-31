@@ -1,7 +1,5 @@
 ; RUN: llvm-mc -filetype=obj -triple=avr %s -mattr=avr6 | llvm-objdump -r - | FileCheck %s
 
-; FIXME: implement program memory exprs (`ldi r17, pm_lo8(foo)`)
-
 ; CHECK: RELOCATION RECORDS FOR
 
 ; CHECK-NEXT: R_AVR_LDI SYMBOL+3
@@ -57,4 +55,22 @@ ldi r24, hhi8(bar)
 
 ; CHECK-NEXT: R_AVR_MS8_LDI_NEG bar
 ldi r24, -hhi8(bar)
+
+; CHECK-NEXT: R_AVR_LO8_LDI_PM foo
+ldi r17, pm_lo8(foo)
+
+; CHECK-NEXT: R_AVR_HI8_LDI_PM bar
+ldi r22, pm_hi8(bar)
+
+; CHECK-NEXT: R_AVR_HH8_LDI_PM baz
+ldi r25, pm_hh8(baz)
+
+; CHECK-NEXT: R_AVR_LO8_LDI_PM_NEG
+ldi r25, -pm_lo8(foo)
+
+; CHECK-NEXT: R_AVR_HI8_LDI_PM_NEG
+ldi r25, -pm_hi8(foo)
+
+; CHECK-NEXT: R_AVR_HH8_LDI_PM_NEG
+ldi r25, -pm_hh8(foo)
 

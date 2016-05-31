@@ -1,6 +1,7 @@
 ; RUN: llvm-mc -triple avr -show-encoding < %s | FileCheck %s
 
 ; TODO: Add support for lo8(-foo + 3), and add test
+; FIXME: most of these tests use values (i.e. 0x0815) that are out of bounds.
 
 foo:
 
@@ -165,4 +166,38 @@ pm_hh8:
 ; CHECK:                            ; fixup A - offset: 0, value: pm_hh8(foo), kind: fixup_hh8_ldi_pm
 ; CHECK: ldi  r24, pm_hh8(bar+5)    ; encoding: [0x80'A',0xe0]
 ; CHECK:                            ; fixup A - offset: 0, value: pm_hh8(bar+5), kind: fixup_hh8_ldi_pm
+
+
+pm_lo8_neg:
+    ldi r24, -pm_lo8(0x0815)
+    ldi r24, -pm_lo8(foo)
+    ldi r24, -pm_lo8(bar + 5)
+
+; CHECK: ldi  r24, -pm_lo8(2069)     ; encoding: [0x85,0xef]
+; CHECK: ldi  r24, -pm_lo8(foo)      ; encoding: [0x80'A',0xe0]
+; CHECK:                             ; fixup A - offset: 0, value: -pm_lo8(foo), kind: fixup_lo8_ldi_pm_neg
+; CHECK: ldi  r24, -pm_lo8(bar+5)    ; encoding: [0x80'A',0xe0]
+; CHECK:                             ; fixup A - offset: 0, value: -pm_lo8(bar+5), kind: fixup_lo8_ldi_pm_neg
+
+pm_hi8_neg:
+    ldi r24, -pm_hi8(0x0815)
+    ldi r24, -pm_hi8(foo)
+    ldi r24, -pm_hi8(bar + 5)
+
+; CHECK: ldi  r24, -pm_hi8(2069)     ; encoding: [0x8b,0xef]
+; CHECK: ldi  r24, -pm_hi8(foo)      ; encoding: [0x80'A',0xe0]
+; CHECK:                             ; fixup A - offset: 0, value: -pm_hi8(foo), kind: fixup_hi8_ldi_pm_neg
+; CHECK: ldi  r24, -pm_hi8(bar+5)    ; encoding: [0x80'A',0xe0]
+; CHECK:                             ; fixup A - offset: 0, value: -pm_hi8(bar+5), kind: fixup_hi8_ldi_pm_neg
+
+pm_hh8_neg:
+    ldi r24, -pm_hh8(0x0815)
+    ldi r24, -pm_hh8(foo)
+    ldi r24, -pm_hh8(bar + 5)
+
+; CHECK: ldi  r24, -pm_hh8(2069)     ; encoding: [0x8f,0xef]
+; CHECK: ldi  r24, -pm_hh8(foo)      ; encoding: [0x80'A',0xe0]
+; CHECK:                             ; fixup A - offset: 0, value: -pm_hh8(foo), kind: fixup_hh8_ldi_pm_neg
+; CHECK: ldi  r24, -pm_hh8(bar+5)    ; encoding: [0x80'A',0xe0]
+; CHECK:                             ; fixup A - offset: 0, value: -pm_hh8(bar+5), kind: fixup_hh8_ldi_pm_neg
 

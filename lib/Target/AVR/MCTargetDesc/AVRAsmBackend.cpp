@@ -102,6 +102,13 @@ void fixup_13_pcrel(unsigned Size, const MCFixup &Fixup, T &Value,
   Value &= 0xfff;
 }
 
+/// Adjusts a program memory address.
+/// This is a simply right-shift.
+template <typename T>
+void pm(T &Value) {
+  Value >>= 1;
+}
+
 /// Fixups relating to the LDI instruction.
 namespace ldi {
 
@@ -165,7 +172,9 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
   // The size of the fixup in bits.
   uint64_t Size = AVRAsmBackend::getFixupKindInfo(Fixup.getKind()).TargetSize;
 
-  switch ((unsigned)Fixup.getKind()) {
+  unsigned Kind = Fixup.getKind();
+
+  switch (Kind) {
   default:
     llvm_unreachable("unhandled fixup");
   case AVR::fixup_7_pcrel:
@@ -182,12 +191,22 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
     adjust::ldi::fixup(Size, Fixup, Value, Ctx);
     break;
   case AVR::fixup_lo8_ldi:
+  case AVR::fixup_lo8_ldi_pm:
+    if (Kind == AVR::fixup_lo8_ldi_pm) adjust::pm(Value);
+
     adjust::ldi::lo8(Size, Fixup, Value, Ctx);
+
     break;
   case AVR::fixup_hi8_ldi:
+  case AVR::fixup_hi8_ldi_pm:
+    if (Kind == AVR::fixup_hi8_ldi_pm) adjust::pm(Value);
+
     adjust::ldi::hi8(Size, Fixup, Value, Ctx);
     break;
   case AVR::fixup_hh8_ldi:
+  case AVR::fixup_hh8_ldi_pm:
+    if (Kind == AVR::fixup_hh8_ldi_pm) adjust::pm(Value);
+
     adjust::ldi::hh8(Size, Fixup, Value, Ctx);
     break;
   case AVR::fixup_ms8_ldi:
@@ -195,14 +214,23 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
     break;
 
   case AVR::fixup_lo8_ldi_neg:
+  case AVR::fixup_lo8_ldi_pm_neg:
+    if (Kind == AVR::fixup_lo8_ldi_pm_neg) adjust::pm(Value);
+
     adjust::ldi::neg(Value);
     adjust::ldi::lo8(Size, Fixup, Value, Ctx);
     break;
   case AVR::fixup_hi8_ldi_neg:
+  case AVR::fixup_hi8_ldi_pm_neg:
+    if (Kind == AVR::fixup_hi8_ldi_pm_neg) adjust::pm(Value);
+
     adjust::ldi::neg(Value);
     adjust::ldi::hi8(Size, Fixup, Value, Ctx);
     break;
   case AVR::fixup_hh8_ldi_neg:
+  case AVR::fixup_hh8_ldi_pm_neg:
+    if (Kind == AVR::fixup_hh8_ldi_pm_neg) adjust::pm(Value);
+
     adjust::ldi::neg(Value);
     adjust::ldi::hh8(Size, Fixup, Value, Ctx);
     break;
@@ -211,17 +239,11 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
     adjust::ldi::ms8(Size, Fixup, Value, Ctx);
     break;
 
-  case AVR::fixup_lo8_ldi_pm:
-  case AVR::fixup_hi8_ldi_pm:
-  case AVR::fixup_hh8_ldi_pm:
-
-  case AVR::fixup_lo8_ldi_pm_neg:
-  case AVR::fixup_hi8_ldi_pm_neg:
-  case AVR::fixup_hh8_ldi_pm_neg:
     llvm_unreachable("program memory fixups are unimplemented");
     break;
 
   // AVR fixups that don't need to be adjusted.
+  // FIXME: this is definitely wrong
   case AVR::fixup_16:
   case AVR::fixup_6_adiw:
   case AVR::fixup_port5:
