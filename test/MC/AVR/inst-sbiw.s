@@ -15,6 +15,8 @@ foo:
   sbiw r24, 1
   sbiw r24, 2
 
+  sbiw r24, SYMBOL-1
+
 ; CHECK: sbiw r26,  54                 ; encoding: [0xd6,0x97]
 ; CHECK: sbiw r26,  63                 ; encoding: [0xdf,0x97]
 
@@ -26,3 +28,7 @@ foo:
 
 ; CHECK: sbiw r24,  1                  ; encoding: [0x01,0x97]
 ; CHECK: sbiw r24,  2                  ; encoding: [0x02,0x97]
+
+; CHECK: sbiw    r24, SYMBOL-1         ; encoding: [0b00AAAAAA,0x97]
+                                       ;   fixup A - offset: 0, value: SYMBOL-1, kind: fixup_6_adiw
+

@@ -141,22 +141,27 @@ void AVRInstPrinter::printPCRelImm(const MCInst *MI, unsigned OpNo,
 void AVRInstPrinter::printMemri(const MCInst *MI, unsigned OpNo,
                                 raw_ostream &O) {
   const MCOperand &RegOp = MI->getOperand(OpNo);
-  const MCOperand &ImmOp = MI->getOperand(OpNo + 1);
+  const MCOperand &OffsetOp = MI->getOperand(OpNo + 1);
 
   assert(RegOp.isReg() && "Expected a register");
-  assert(ImmOp.isImm() && "Expected an immediate value");
 
   // Print the register.
   printOperand(MI, OpNo, O);
 
-  // Print the immediate.
+  // Print the offset.
   {
-    auto Imm = ImmOp.getImm();
+    if (OffsetOp.isImm()) {
+      auto Offset = OffsetOp.getImm();
 
-    if (Imm >= 0)
-      O << '+';
+      if (Offset >= 0)
+        O << '+';
 
-    O << Imm;
+      O << Offset;
+    } else if (OffsetOp.isExpr()) {
+      O << *OffsetOp.getExpr();
+    } else {
+      llvm_unreachable("unknown type for offset");
+    }
   }
 }
 

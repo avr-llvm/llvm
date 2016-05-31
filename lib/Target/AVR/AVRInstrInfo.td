@@ -155,7 +155,7 @@ def memspi : Operand<iPTR>
   let MIOperandInfo = (ops GPRSP, i16imm);
 }
 
-def i8imm_com : Operand<i8>
+def imm_com8 : Operand<i8>
 {
   let EncoderMethod = "encodeComplement";
 
@@ -183,7 +183,33 @@ def call_target : Operand<iPTR>
 // A 16-bit address (which can lead to an R_AVR_16 relocation).
 def imm16 : Operand<i16>
 {
-    let EncoderMethod = "encodeImm16";
+    let EncoderMethod = "encodeImm<AVR::fixup_16>";
+}
+
+/// A 6-bit immediate used in the ADIW/SBIW instructions.
+def imm_arith6 : Operand<i16>
+{
+    let EncoderMethod = "encodeImm<AVR::fixup_6_adiw>";
+}
+
+/// An 8-bit immediate inside an instruction with the same format
+/// as the `LDI` instruction (the `FRdK` format).
+def imm_ldi8 : Operand<i8>
+{
+    let EncoderMethod = "encodeImm<AVR::fixup_ldi>";
+}
+
+/// A 5-bit port number used in SBIC and friends (the `FIOBIT` format).
+def imm_port5 : Operand<i8>
+{
+    let EncoderMethod = "encodeImm<AVR::fixup_port5>";
+}
+
+/// A 6-bit port number used in the `IN` instruction and friends (the
+/// `FIORdA` format.
+def imm_port6 : Operand<i8>
+{
+    let EncoderMethod = "encodeImm<AVR::fixup_port6>";
 }
 
 // Addressing mode pattern reg+imm6
@@ -378,7 +404,7 @@ Defs = [SREG] in
   // Adds an immediate 6-bit value K to Rd, placing the result in Rd.
   def ADIWRdK : FWRdK<0b0,
                       (outs IWREGS:$rd),
-                      (ins IWREGS:$src, i16imm:$k),
+                      (ins IWREGS:$src, imm_arith6:$k),
                       "adiw\t$rd, $k",
                       [(set i16:$rd, (add i16:$src, uimm6:$k)),
                        (implicit SREG)]>,
@@ -415,7 +441,7 @@ Defs = [SREG] in
 
   def SUBIRdK : FRdK<0b0101,
                      (outs LD8:$rd),
-                     (ins LD8:$src, i8imm:$k),
+                     (ins LD8:$src, imm_ldi8:$k),
                      "subi\t$rd, $k",
                      [(set i8:$rd, (sub i8:$src, imm:$k)),
                       (implicit SREG)]>;
@@ -433,7 +459,7 @@ Defs = [SREG] in
 
   def SBIWRdK : FWRdK<0b1,
                       (outs IWREGS:$rd),
-                      (ins IWREGS:$src, i16imm:$k),
+                      (ins IWREGS:$src, imm_arith6:$k),
                       "sbiw\t$rd, $k",
                       [(set i16:$rd, (sub i16:$src, uimm6:$k)),
                        (implicit SREG)]>,
@@ -463,7 +489,7 @@ Defs = [SREG] in
 
     def SBCIRdK : FRdK<0b0100,
                        (outs LD8:$rd),
-                       (ins LD8:$src, i8imm:$k),
+                       (ins LD8:$src, imm_ldi8:$k),
                        "sbci\t$rd, $k",
                        [(set i8:$rd, (sube i8:$src, imm:$k)),
                         (implicit SREG)]>;
@@ -632,7 +658,7 @@ Defs = [SREG] in
 
   def ANDIRdK : FRdK<0b0111,
                      (outs LD8:$rd),
-                     (ins LD8:$src, i8imm:$k),
+                     (ins LD8:$src, imm_ldi8:$k),
                      "andi\t$rd, $k",
                      [(set i8:$rd, (and i8:$src, imm:$k)),
                       (implicit SREG)]>;
@@ -650,7 +676,7 @@ Defs = [SREG] in
 
   def ORIRdK : FRdK<0b0110,
                     (outs LD8:$rd),
-                    (ins LD8:$src, i8imm:$k),
+                    (ins LD8:$src, imm_ldi8:$k),
                     "ori\t$rd, $k",
                     [(set i8:$rd, (or i8:$src, imm:$k)),
                      (implicit SREG)]>;
@@ -877,7 +903,7 @@ let Defs = [SREG] in
   let Uses = [SREG] in
   def CPIRdK : FRdK<0b0011,
                     (outs),
-                    (ins GPR8:$rd, i8imm:$k),
+                    (ins GPR8:$rd, imm_ldi8:$k),
                     "cpi\t$rd, $k",
                     [(AVRcmp i8:$rd, imm:$k), (implicit SREG)]>;
 }
@@ -906,13 +932,13 @@ isTerminator = 1 in
 
     def SBICAb : FIOBIT<0b01,
                         (outs),
-                        (ins i16imm:$a, i8imm:$b),
+                        (ins imm_port5:$a, i8imm:$b),
                         "sbic\t$a, $b",
                         []>;
 
     def SBISAb : FIOBIT<0b11,
                         (outs),
-                        (ins i16imm:$a, i8imm:$b),
+                        (ins imm_port5:$a, i8imm:$b),
                         "sbis\t$a, $b",
                         []>;
   }
@@ -1071,7 +1097,7 @@ let isReMaterializable = 1 in
 {
   def LDIRdK : FRdK<0b1110,
                     (outs LD8:$rd),
-                    (ins i8imm:$k),
+                    (ins imm_ldi8:$k),
                     "ldi\t$rd, $k",
                     [(set i8:$rd, imm:$k)]>;
 
@@ -1260,6 +1286,7 @@ let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
   // ST P+, Rr
   // Stores the value of Rr into the location addressed by pointer P.
   // Post increments P.
+  // FIXME: what is `$offs` and is it needed?
   def STPtrPiRr : FSTLD<1,
                         0b01,
                         (outs LDSTPtrReg:$base_wb),
@@ -1439,7 +1466,7 @@ let canFoldAsLoad = 1,
 isReMaterializable = 1 in
 {
   def INRdA : FIORdA<(outs GPR8:$dst),
-                     (ins i16imm:$src),
+                     (ins imm_port6:$src),
                      "in\t$dst, $src",
                      [(set i8:$dst, (load ioaddr8:$src))]>;
 
@@ -1451,7 +1478,7 @@ isReMaterializable = 1 in
 
 // Write data to IO location operations.
 def OUTARr : FIOARr<(outs),
-                    (ins i16imm:$dst, GPR8:$src),
+                    (ins imm_port6:$dst, GPR8:$src),
                     "out\t$dst, $src",
                     [(store i8:$src, ioaddr8:$dst)]>;
 
@@ -1619,14 +1646,14 @@ def SWAPRd : FRd<0b1001,
 // instead of in+ori+out which requires one more instr.
 def SBIAb : FIOBIT<0b10,
                    (outs),
-                   (ins i16imm:$addr, i8imm:$bit),
+                   (ins imm_port5:$addr, i8imm:$bit),
                    "sbi\t$addr, $bit",
                    [(store (or (i8 (load lowioaddr8:$addr)), iobitpos8:$bit),
                      lowioaddr8:$addr)]>;
 
 def CBIAb : FIOBIT<0b00,
                    (outs),
-                   (ins i16imm:$addr, i8imm:$bit),
+                   (ins imm_port5:$addr, i8imm:$bit),
                    "cbi\t$addr, $bit",
                    [(store (and (i8 (load lowioaddr8:$addr)), iobitposn8:$bit),
                      lowioaddr8:$addr)]>;
@@ -1654,16 +1681,18 @@ Defs = [SREG] in
   // Alias for ORI Rd, K
   def SBRRdK : FRdK<0b0110,
                     (outs LD8:$rd),
-                    (ins LD8:$src, i8imm:$k),
+                    (ins LD8:$src, imm_ldi8:$k),
                     "sbr\t$rd, $k",
                     [(set i8:$rd, (or i8:$src, imm:$k)),
                      (implicit SREG)]>;
 
   // CBR Rd, K
   // Alias for `ANDI Rd, COM(K)` where COM(K) is the compliment of K.
+  // FIXME: This uses the 'complement' encoder. We need it to also use the
+  // imm_ldi8 encoder. This will cause no fixups to be created on this instruction.
   def CBRRdK : FRdK<0b0111,
                     (outs LD8:$rd),
-                    (ins LD8:$src, i8imm_com:$k),
+                    (ins LD8:$src, imm_com8:$k),
                     "cbr\t$rd, $k",
                     []>;
 }

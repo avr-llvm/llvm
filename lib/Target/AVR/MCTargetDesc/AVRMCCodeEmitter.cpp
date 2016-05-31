@@ -146,13 +146,11 @@ unsigned AVRMCCodeEmitter::encodeMemri(const MCInst &MI, unsigned OpNo,
                                        SmallVectorImpl<MCFixup> &Fixups,
                                        const MCSubtargetInfo &STI) const {
   auto RegOp = MI.getOperand(OpNo);
-  auto ImmOp = MI.getOperand(OpNo + 1);
+  auto OffsetOp = MI.getOperand(OpNo + 1);
 
   assert(RegOp.isReg() && "Expected register operand");
-  assert(ImmOp.isImm() && "Expected immediate operand");
 
   uint8_t RegBit = 0;
-  int8_t ImmBits = ImmOp.getImm();
 
   switch (RegOp.getReg()) {
   default:
@@ -165,7 +163,18 @@ unsigned AVRMCCodeEmitter::encodeMemri(const MCInst &MI, unsigned OpNo,
     break; // Y register
   }
 
-  return (RegBit << 6) | ImmBits;
+  int8_t OffsetBits;
+
+  if (OffsetOp.isImm()) {
+    OffsetBits = OffsetOp.getImm();
+  } else if (OffsetOp.isExpr()) {
+    OffsetBits = 0;
+    Fixups.push_back(MCFixup::create(0, OffsetOp.getExpr(), MCFixupKind(AVR::fixup_6), MI.getLoc()));
+  } else {
+    llvm_unreachable("invalid value for offset");
+  }
+
+  return (RegBit << 6) | OffsetBits;
 }
 
 unsigned AVRMCCodeEmitter::encodeComplement(const MCInst &MI, unsigned OpNo,
@@ -178,15 +187,26 @@ unsigned AVRMCCodeEmitter::encodeComplement(const MCInst &MI, unsigned OpNo,
   return (~0) - imm;
 }
 
-unsigned AVRMCCodeEmitter::encodeImm16(const MCInst &MI, unsigned OpNo,
-                                       SmallVectorImpl<MCFixup> &Fixups,
-                                       const MCSubtargetInfo &STI) const {
+template <AVR::Fixups Fixup>
+unsigned AVRMCCodeEmitter::encodeImm(const MCInst &MI, unsigned OpNo,
+                                     SmallVectorImpl<MCFixup> &Fixups,
+                                     const MCSubtargetInfo &STI) const {
   auto MO = MI.getOperand(OpNo);
 
+
   if (MO.isExpr()) {
-    MCFixupKind FixupKind = static_cast<MCFixupKind>(AVR::fixup_16);
-    Fixups.push_back(MCFixup::create(0, MO.getExpr(), FixupKind, MI.getLoc()));
-    return 0;
+    if (isa<AVRMCExpr>(MO.getExpr())) {
+      // If the expression is already an AVRMCExpr (i.e. a lo8(symbol),
+      // we shouldn't perform any more fixups. Without this check, we would
+      // instead create a fixup to the symbol named 'lo8(symbol)' which
+      // is not correct.
+      return getExprOpValue(MO.getExpr(), Fixups, STI);
+    } else {
+      MCFixupKind FixupKind = static_cast<MCFixupKind>(Fixup);
+      Fixups.push_back(MCFixup::create(0, MO.getExpr(), FixupKind, MI.getLoc()));
+
+      return 0;
+    }
   }
 
   assert(MO.isImm());
