@@ -29,6 +29,9 @@
 #include "MCTargetDesc/AVRFixupKinds.h"
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 
+// FIXME: we should be doing checks to make sure asm operands
+// are not out of bounds.
+
 namespace adjust {
 
 using namespace llvm;
@@ -102,6 +105,39 @@ void fixup_13_pcrel(unsigned Size, const MCFixup &Fixup, T &Value,
   Value &= 0xfff;
 }
 
+/// 6-bit fixup for the immediate operand of the ADIW family of
+/// instructions.
+///
+/// Resolves to:
+/// 0000 0000 kk00 kkkk
+template <typename T>
+void fixup_6_adiw(const MCFixup &Fixup, T &Value,
+                  MCContext *Ctx = nullptr) {
+  Value = ((Value & 0x30) << 2) | (Value & 0x0f);
+}
+
+/// 5-bit port number fixup on the SBIC family of instructions.
+///
+/// Resolves to:
+/// 0000 0000 AAAA A000
+template <typename T>
+void fixup_port5(const MCFixup &Fixup, T &Value,
+                 MCContext *Ctx = nullptr) {
+  Value &= 0x1f;
+
+  Value <<= 3;
+}
+
+/// 6-bit port number fixup on the `IN` family of instructions.
+///
+/// Resolves to:
+/// 1011 0AAd dddd AAAA
+template <typename T>
+void fixup_port6(const MCFixup &Fixup, T &Value,
+                 MCContext *Ctx = nullptr) {
+  Value = ((Value & 0x30) << 5) | (Value & 0x0f);
+}
+
 /// Adjusts a program memory address.
 /// This is a simply right-shift.
 template <typename T>
@@ -120,10 +156,6 @@ namespace ldi {
 template <typename T>
 void fixup(unsigned Size, const MCFixup &Fixup, T &Value,
            MCContext *Ctx = nullptr) {
-  // make sure there are no bits above 0xff
-  if ((Value & ~0xff) != 0 && Ctx != nullptr)
-    Ctx->reportFatalError(Fixup.getLoc(), "out of range immediate to LDI");
-
   T upper = Value & 0xf0;
   T lower = Value & 0x0f;
 
@@ -195,7 +227,6 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
     if (Kind == AVR::fixup_lo8_ldi_pm) adjust::pm(Value);
 
     adjust::ldi::lo8(Size, Fixup, Value, Ctx);
-
     break;
   case AVR::fixup_hi8_ldi:
   case AVR::fixup_hi8_ldi_pm:
@@ -239,16 +270,20 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
     adjust::ldi::ms8(Size, Fixup, Value, Ctx);
     break;
 
-    llvm_unreachable("program memory fixups are unimplemented");
+  case AVR::fixup_16:
+    Value &= 0xffff;
     break;
 
-  // AVR fixups that don't need to be adjusted.
-  // FIXME: this is definitely wrong
-  case AVR::fixup_16:
   case AVR::fixup_6_adiw:
-  case AVR::fixup_port5:
-  case AVR::fixup_port6:
+    adjust::fixup_6_adiw(Fixup, Value, Ctx);
+    break;
 
+  case AVR::fixup_port5:
+    adjust::fixup_port5(Fixup, Value, Ctx);
+    break;
+
+  case AVR::fixup_port6:
+    adjust::fixup_port6(Fixup, Value, Ctx);
     break;
 
   case FK_Data_2:
