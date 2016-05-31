@@ -306,7 +306,7 @@ MCFixupKindInfo const &AVRAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
 
       {"fixup_call", 0, 22, 0},
 
-      {"fixup_6", 0, 16, 0}, // non-contignous
+      {"fixup_6", 0, 16, 0}, // non-contiguous
       {"fixup_6_adiw", 0, 6, 0},
 
       {"fixup_lo8_ldi_gs", 0, 8, 0},
@@ -322,7 +322,7 @@ MCFixupKindInfo const &AVRAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
 
       {"fixup_lds_sts_16", 0, 16, 0},
 
-      {"fixup_port6", 0, 6, 0},
+      {"fixup_port6", 0, 16, 0}, // non-contiguous
       {"fixup_port5", 3, 5, 0},
 
   };

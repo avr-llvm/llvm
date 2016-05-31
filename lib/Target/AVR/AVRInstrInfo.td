@@ -205,6 +205,13 @@ def imm_port5 : Operand<i8>
     let EncoderMethod = "encodeImm<AVR::fixup_port5>";
 }
 
+/// A 6-bit port number used in the `IN` instruction and friends (the
+/// `FIORdA` format.
+def imm_port6 : Operand<i8>
+{
+    let EncoderMethod = "encodeImm<AVR::fixup_port6>";
+}
+
 // Addressing mode pattern reg+imm6
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], [SDNPWantRoot]>;
 
@@ -1459,7 +1466,7 @@ let canFoldAsLoad = 1,
 isReMaterializable = 1 in
 {
   def INRdA : FIORdA<(outs GPR8:$dst),
-                     (ins i16imm:$src),
+                     (ins imm_port6:$src),
                      "in\t$dst, $src",
                      [(set i8:$dst, (load ioaddr8:$src))]>;
 
@@ -1471,7 +1478,7 @@ isReMaterializable = 1 in
 
 // Write data to IO location operations.
 def OUTARr : FIOARr<(outs),
-                    (ins i16imm:$dst, GPR8:$src),
+                    (ins imm_port6:$dst, GPR8:$src),
                     "out\t$dst, $src",
                     [(store i8:$src, ioaddr8:$dst)]>;
 
