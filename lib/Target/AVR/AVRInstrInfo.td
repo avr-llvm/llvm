@@ -155,7 +155,7 @@ def memspi : Operand<iPTR>
   let MIOperandInfo = (ops GPRSP, i16imm);
 }
 
-def i8imm_com : Operand<i8>
+def imm_com8 : Operand<i8>
 {
   let EncoderMethod = "encodeComplement";
 
@@ -187,7 +187,7 @@ def imm16 : Operand<i16>
 }
 
 /// A 6-bit immediate used in the ADIW/SBIW instructions.
-def arith_imm6 : Operand<i16>
+def imm_arith6 : Operand<i16>
 {
     let EncoderMethod = "encodeImm<AVR::fixup_6_adiw>";
 }
@@ -404,7 +404,7 @@ Defs = [SREG] in
   // Adds an immediate 6-bit value K to Rd, placing the result in Rd.
   def ADIWRdK : FWRdK<0b0,
                       (outs IWREGS:$rd),
-                      (ins IWREGS:$src, arith_imm6:$k),
+                      (ins IWREGS:$src, imm_arith6:$k),
                       "adiw\t$rd, $k",
                       [(set i16:$rd, (add i16:$src, uimm6:$k)),
                        (implicit SREG)]>,
@@ -459,7 +459,7 @@ Defs = [SREG] in
 
   def SBIWRdK : FWRdK<0b1,
                       (outs IWREGS:$rd),
-                      (ins IWREGS:$src, arith_imm6:$k),
+                      (ins IWREGS:$src, imm_arith6:$k),
                       "sbiw\t$rd, $k",
                       [(set i16:$rd, (sub i16:$src, uimm6:$k)),
                        (implicit SREG)]>,
@@ -1692,7 +1692,7 @@ Defs = [SREG] in
   // imm_ldi8 encoder. This will cause no fixups to be created on this instruction.
   def CBRRdK : FRdK<0b0111,
                     (outs LD8:$rd),
-                    (ins LD8:$src, i8imm_com:$k),
+                    (ins LD8:$src, imm_com8:$k),
                     "cbr\t$rd, $k",
                     []>;
 }
