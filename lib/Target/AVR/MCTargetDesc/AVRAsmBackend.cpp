@@ -223,7 +223,10 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
 
   // AVR fixups that don't need to be adjusted.
   case AVR::fixup_16:
+  case AVR::fixup_6_adiw:
   case AVR::fixup_port5:
+  case AVR::fixup_port6:
+
     break;
 
   case FK_Data_2:
