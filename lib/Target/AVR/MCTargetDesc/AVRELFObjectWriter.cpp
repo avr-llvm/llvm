@@ -46,11 +46,10 @@ unsigned AVRELFObjectWriter::getRelocType(MCContext &Ctx,
                                           bool IsPCRel) const {
   switch ((unsigned)Fixup.getKind()) {
   case FK_Data_1:
-    return ELF::R_AVR_8;
-  case FK_Data_2:
-    return ELF::R_AVR_16;
   case FK_Data_4:
-    return ELF::R_AVR_32;
+    llvm_unreachable("unsupported relocation size");
+  case FK_Data_2:
+    return ELF::R_AVR_16_PM;
   case AVR::fixup_32:
     return ELF::R_AVR_32;
   case AVR::fixup_7_pcrel:
