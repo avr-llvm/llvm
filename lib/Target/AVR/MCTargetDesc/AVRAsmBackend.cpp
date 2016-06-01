@@ -91,11 +91,11 @@ void adjustBranch(unsigned Size, const MCFixup &Fixup, T &Value,
 template <typename T>
 void adjustRelativeBranch(unsigned Size, const MCFixup &Fixup, T &Value,
                           MCContext *Ctx = nullptr) {
-  Value -= 2;
-
   // We have one extra bit of precision because the value is rightshifted by
   // one.
   signed_width(Size + 1, Value, std::string("branch target"), Fixup, Ctx);
+
+  Value -= 2;
 
   // Rightshifts the value by one.
   AVR::fixups::adjustBranchTarget(Value);
@@ -156,6 +156,8 @@ void fixup_13_pcrel(unsigned Size, const MCFixup &Fixup, T &Value,
 template <typename T>
 void fixup_6_adiw(const MCFixup &Fixup, T &Value,
                   MCContext *Ctx = nullptr) {
+  unsigned_width(6, Value, std::string("immediate"), Fixup, Ctx);
+
   Value = ((Value & 0x30) << 2) | (Value & 0x0f);
 }
 
@@ -166,6 +168,8 @@ void fixup_6_adiw(const MCFixup &Fixup, T &Value,
 template <typename T>
 void fixup_port5(const MCFixup &Fixup, T &Value,
                  MCContext *Ctx = nullptr) {
+  unsigned_width(5, Value, std::string("port number"), Fixup, Ctx);
+
   Value &= 0x1f;
 
   Value <<= 3;
@@ -178,6 +182,8 @@ void fixup_port5(const MCFixup &Fixup, T &Value,
 template <typename T>
 void fixup_port6(const MCFixup &Fixup, T &Value,
                  MCContext *Ctx = nullptr) {
+  unsigned_width(6, Value, std::string("port number"), Fixup, Ctx);
+
   Value = ((Value & 0x30) << 5) | (Value & 0x0f);
 }
 
@@ -314,6 +320,8 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
     break;
 
   case AVR::fixup_16:
+    adjust::unsigned_width(16, Value, std::string("port number"), Fixup, Ctx);
+
     Value &= 0xffff;
     break;
 
@@ -329,10 +337,14 @@ void AVRAsmBackend::adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
     adjust::fixup_port6(Fixup, Value, Ctx);
     break;
 
+  // Fixups which do not require adjustments.
   case FK_Data_2:
-  case FK_GPRel_4:
   case FK_Data_4:
   case FK_Data_8:
+    break;
+
+  case FK_GPRel_4:
+    llvm_unreachable("don't know how to adjust this fixup");
     break;
   }
 }

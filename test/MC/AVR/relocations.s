@@ -14,8 +14,8 @@ lds r8, BAR+2
 ; CHECK-NEXT: R_AVR_PORT5 foo
 sbic foo, 1
 
-; CHECK-NEXT: R_AVR_PORT6 Bar-2
-in r30, Bar-2
+; CHECK-NEXT: R_AVR_PORT6 Bar+2
+in r30, Bar+2
 
 ; CHECK-NEXT: R_AVR_CALL foo+3
 call foo+3
