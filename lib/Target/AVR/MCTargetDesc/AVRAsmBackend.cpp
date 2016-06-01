@@ -36,14 +36,52 @@ namespace adjust {
 
 using namespace llvm;
 
+template <typename T>
+void signed_width(unsigned Width, T Value, std::string Description,
+                  const MCFixup &Fixup, MCContext *Ctx = nullptr) {
+  if (!isIntN(Width, Value)) {
+    std::string Diagnostic = "out of range " + Description;
+
+    int64_t Min = minIntN(Width);
+    int64_t Max = maxIntN(Width);
+
+    Diagnostic += " (expected a integer in the range " + std::to_string(Min) +
+      " to " + std::to_string(Max) + ")";
+
+    if (Ctx) {
+      Ctx->reportFatalError(Fixup.getLoc(), Diagnostic);
+    } else {
+      llvm_unreachable(Diagnostic.c_str());
+    }
+  }
+}
+
+template <typename T>
+void unsigned_width(unsigned Width, T Value, std::string Description,
+                    const MCFixup &Fixup, MCContext *Ctx = nullptr) {
+  if (!isUIntN(Width, Value)) {
+    std::string Diagnostic = "out of range " + Description;
+
+    int64_t Max = maxUIntN(Width);
+
+    Diagnostic += " (expected a integer in the range 0 to " +
+      std::to_string(Max) + ")";
+
+    if (Ctx) {
+      Ctx->reportFatalError(Fixup.getLoc(), Diagnostic);
+    } else {
+      llvm_unreachable(Diagnostic.c_str());
+    }
+  }
+}
+
 /// Adjusts the value of a branch target before fixup application.
 template <typename T>
 void adjustBranch(unsigned Size, const MCFixup &Fixup, T &Value,
                   MCContext *Ctx = nullptr) {
   // We have one extra bit of precision because the value is rightshifted by
   // one.
-  if (!isIntN(Size + 1, Value) && Ctx != nullptr)
-    Ctx->reportFatalError(Fixup.getLoc(), "out of range branch target");
+  unsigned_width(Size + 1, Value, std::string("branch target"), Fixup, Ctx);
 
   // Rightshifts the value by one.
   AVR::fixups::adjustBranchTarget(Value);
@@ -55,7 +93,12 @@ void adjustRelativeBranch(unsigned Size, const MCFixup &Fixup, T &Value,
                           MCContext *Ctx = nullptr) {
   Value -= 2;
 
-  adjustBranch(Size, Fixup, Value, Ctx);
+  // We have one extra bit of precision because the value is rightshifted by
+  // one.
+  signed_width(Size + 1, Value, std::string("branch target"), Fixup, Ctx);
+
+  // Rightshifts the value by one.
+  AVR::fixups::adjustBranchTarget(Value);
 }
 
 /// 22-bit absolute fixup.
