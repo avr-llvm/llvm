@@ -1,7 +1,6 @@
-; RUN: llc < %s -march=avr -mattr=movw,lpm | FileCheck %s
-; XFAIL: *
+; RUN: llc < %s -march=avr -mattr=movw,lpmx | FileCheck %s
 
-; Tests the standard LPM instruction
+; Tests the extended LPM instructions (LPMW, LPM Rd, Z+).
 
 define i8 @test8(i8 addrspace(1)* %p) {
 ; CHECK-LABEL: test8:
@@ -14,8 +13,7 @@ define i8 @test8(i8 addrspace(1)* %p) {
 define i16 @test16(i16 addrspace(1)* %p) {
 ; CHECK-LABEL: test16:
 ; CHECK: movw r30, r24
-; CHECK: lpm r24, Z+
-; CHECK: lpm r25, Z+
+; CHECK: lpmw r24, Z
   %1 = load i16, i16 addrspace(1)* %p
   ret i16 %1
 }
@@ -47,8 +45,7 @@ for.end:                                          ; preds = %for.body, %entry
 define i16 @test16postinc(i16 addrspace(1)* %x, i8 %y) {
 ; CHECK-LABEL: test16postinc:
 ; CHECK: movw r30, r24
-; CHECK: lpm {{.*}}, Z+
-; CHECK: lpm {{.*}}, Z+
+; CHECK: lpmw {{.*}}, Z+
 entry:
   %cmp5 = icmp sgt i8 %y, 0
   br i1 %cmp5, label %for.body, label %for.end
