@@ -407,13 +407,6 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
 
   // Handle common and BSS local symbols (.lcomm).
   if (GVKind.isCommon() || GVKind.isBSSLocal()) {
-    // AVR Specific: symbols that do not belong to the generic address space need
-    // to be placed in a different section and not use the comm directive.
-    if (GV->getType()->getAddressSpace() == 0) {
-      assert(!(IsEmuTLSVar && GVKind.isCommon()) &&
-             "No emulated TLS variables in the common section");
-    }
-
     if (Size == 0) Size = 1;   // .comm Foo, 0 is undefined, avoid it.
     unsigned Align = 1 << AlignLog;
 
