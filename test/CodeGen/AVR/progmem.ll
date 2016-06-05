@@ -1,5 +1,4 @@
 ; RUN: llc < %s -march=avr | FileCheck %s
-; XFAIL: *
 
 define i8 @test8(i8 addrspace(1)* %p) {
 ; CHECK-LABEL: test8:

@@ -378,23 +378,25 @@ template <> SDNode *AVRDAGToDAGISel::select<ISD::LOAD>(SDNode *N) {
   Ptr = CurDAG->getCopyFromReg(Chain, DL, AVR::R31R30, MVT::i16,
                                Chain.getValue(1));
 
+  SDValue RegZ = CurDAG->getRegister(AVR::R31R30, MVT::i16);
+
   // Check if the opcode can be converted into an indexed load.
   if (unsigned LPMOpc = SelectIndexedProgMemLoad(LD, VT)) {
     // It is legal to fold the load into an indexed load.
     ResNode = CurDAG->getMachineNode(LPMOpc, DL, VT, MVT::i16, MVT::Other, Ptr,
-                                     Ptr.getValue(1));
-    ReplaceUses(SDValue(N, 2), SDValue(ResNode, 2));
+                                     RegZ);
+    ReplaceUses(SDValue(N, 1), SDValue(ResNode, 1));
   } else {
     // Selecting an indexed load is not legal, fallback to a normal load.
     switch (VT.SimpleTy) {
     case MVT::i8:
       ResNode = CurDAG->getMachineNode(AVR::LPMRdZ, DL, MVT::i8, MVT::Other,
-                                       Ptr, Ptr.getValue(1));
+                                       Ptr, RegZ);
       break;
     case MVT::i16:
-      ResNode = CurDAG->getMachineNode(AVR::LPMWRdZ, DL, MVT::i16, MVT::i16,
-                                       MVT::Other, Ptr, Ptr.getValue(1));
-      ReplaceUses(SDValue(N, 2), SDValue(ResNode, 2));
+      ResNode = CurDAG->getMachineNode(AVR::LPMWRdZ, DL, MVT::i16,
+                                       MVT::Other, Ptr, RegZ);
+      ReplaceUses(SDValue(N, 1), SDValue(ResNode, 1));
       break;
     default:
       llvm_unreachable("Unsupported VT!");
