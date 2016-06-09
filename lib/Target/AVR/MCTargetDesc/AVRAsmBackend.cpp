@@ -45,7 +45,7 @@ void signed_width(unsigned Width, T Value, std::string Description,
     int64_t Min = minIntN(Width);
     int64_t Max = maxIntN(Width);
 
-    Diagnostic += " (expected a integer in the range " + std::to_string(Min) +
+    Diagnostic += " (expected an integer in the range " + std::to_string(Min) +
       " to " + std::to_string(Max) + ")";
 
     if (Ctx) {
@@ -64,7 +64,7 @@ void unsigned_width(unsigned Width, T Value, std::string Description,
 
     int64_t Max = maxUIntN(Width);
 
-    Diagnostic += " (expected a integer in the range 0 to " +
+    Diagnostic += " (expected an integer in the range 0 to " +
       std::to_string(Max) + ")";
 
     if (Ctx) {
