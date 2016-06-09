@@ -12,8 +12,13 @@
 // into bigger branches with a landing pad inbetween.
 
 #include "AVR.h"
-#include "llvm/CodeGen/MachineFunctionPass.h"
+#include "AVRInstrInfo.h"
 #include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
+
+#include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/Support/MathExtras.h"
+
 
 using namespace llvm;
 
@@ -43,8 +48,56 @@ namespace {
   char AVRPromoteBranches::ID = 0;
 } // end anonymous namespace
 
+static bool ProcessBranch(MachineInstr &MI,
+                          int64_t Min,
+                          int64_t Max,
+                          unsigned WiderOpcode,
+                          bool &Modified) {
+  return false;
+}
+
+static bool ProcessRelativeBranch(MachineInstr &MI,
+                                  unsigned TargetWidth,
+                                  unsigned WiderOpcode,
+                                  bool &Modified) {
+  return ProcessBranch(MI, minIntN(TargetWidth),
+                       maxIntN(TargetWidth), WiderOpcode, Modified);
+}
+
+static bool ProcessAbsoluteBranch(MachineInstr &MI,
+                                  unsigned TargetWidth,
+                                  unsigned WiderOpcode,
+                                  bool &Modified) {
+  return ProcessBranch(MI, 0, maxUIntN(TargetWidth),
+                       WiderOpcode, Modified);
+}
+
 bool AVRPromoteBranches::runOnMachineFunction(MachineFunction &MF) {
   void((this->TM));
+
+  bool Modified = false;
+
+  for (MachineBasicBlock &BB : MF) {
+    for (MachineInstr &MI : BB) {
+      switch (MI.getOpcode()) {
+      case AVR::RJMPk:
+        ProcessRelativeBranch(MI, 12, AVR::JMPk, Modified); break;
+      case AVR::RCALLk:
+        ProcessAbsoluteBranch(MI, 12, AVR::CALLk, Modified); break;
+      case AVR::BREQk:
+      case AVR::BRNEk:
+      case AVR::BRSHk:
+      case AVR::BRLOk:
+      case AVR::BRMIk:
+      case AVR::BRPLk:
+      case AVR::BRGEk:
+      case AVR::BRLTk:
+        ProcessRelativeBranch(MI, 7, AVR::RJMPk, Modified); break;
+      default: break;
+      }
+    }
+  }
+
   return false;
 }
 
