@@ -17,6 +17,7 @@
 #include "MCTargetDesc/AVRMCTargetDesc.h"
 
 #include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/MathExtras.h"
 
 
@@ -48,28 +49,64 @@ namespace {
   char AVRPromoteBranches::ID = 0;
 } // end anonymous namespace
 
-static bool ProcessBranch(MachineInstr &MI,
+static int64_t DistanceToSymbol(MachineInstr &MI, MCSymbol &Sym) {
+  // TODO: handle relative targets
+  return Sym.getOffset();
+}
+
+static int64_t DistanceToTarget(MachineInstr &MI,
+                                MachineOperand &Target,
+                                bool IsRelative) {
+  if (Target.isImm()) {
+    return Target.getImm();
+  } else if (Target.isMBB()) {
+    return DistanceToSymbol(MI, *Target.getMBB()->getSymbol());
+  } else if (Target.isSymbol()) {
+    return DistanceToSymbol(MI, *Target.getMCSymbol());
+  } else {
+    llvm_unreachable("don't know how to handle this branch target");
+  }
+
+  return 0;
+}
+
+static void ProcessBranch(MachineInstr &MI,
+                          unsigned OpNo,
                           int64_t Min,
                           int64_t Max,
                           unsigned WiderOpcode,
-                          bool &Modified) {
-  return false;
+                          bool &Modified,
+                          bool IsRelative) {
+  MachineOperand &Target = MI.getOperand(OpNo);
+
+  auto Distance = DistanceToTarget(MI, Target, IsRelative);
+
+  if (Distance < Min || Distance > Max) {
+    MCInstrDesc Desc = MI.getDesc();
+
+    Desc.Opcode = WiderOpcode;
+    MI.setDesc(Desc);
+
+    if (!Modified) Modified = true;
+  }
 }
 
-static bool ProcessRelativeBranch(MachineInstr &MI,
+static void ProcessRelativeBranch(MachineInstr &MI,
+                                  unsigned OpNo,
                                   unsigned TargetWidth,
                                   unsigned WiderOpcode,
                                   bool &Modified) {
-  return ProcessBranch(MI, minIntN(TargetWidth),
-                       maxIntN(TargetWidth), WiderOpcode, Modified);
+  ProcessBranch(MI, OpNo, minIntN(TargetWidth),
+                maxIntN(TargetWidth), WiderOpcode, Modified, true);
 }
 
-static bool ProcessAbsoluteBranch(MachineInstr &MI,
+static void ProcessAbsoluteBranch(MachineInstr &MI,
+                                  unsigned OpNo,
                                   unsigned TargetWidth,
                                   unsigned WiderOpcode,
                                   bool &Modified) {
-  return ProcessBranch(MI, 0, maxUIntN(TargetWidth),
-                       WiderOpcode, Modified);
+  ProcessBranch(MI, OpNo, 0, maxUIntN(TargetWidth),
+                WiderOpcode, Modified, false);
 }
 
 bool AVRPromoteBranches::runOnMachineFunction(MachineFunction &MF) {
@@ -81,9 +118,9 @@ bool AVRPromoteBranches::runOnMachineFunction(MachineFunction &MF) {
     for (MachineInstr &MI : BB) {
       switch (MI.getOpcode()) {
       case AVR::RJMPk:
-        ProcessRelativeBranch(MI, 12, AVR::JMPk, Modified); break;
+        ProcessRelativeBranch(MI, 0, 12, AVR::JMPk, Modified); break;
       case AVR::RCALLk:
-        ProcessAbsoluteBranch(MI, 12, AVR::CALLk, Modified); break;
+        ProcessAbsoluteBranch(MI, 0, 12, AVR::CALLk, Modified); break;
       case AVR::BREQk:
       case AVR::BRNEk:
       case AVR::BRSHk:
@@ -92,7 +129,7 @@ bool AVRPromoteBranches::runOnMachineFunction(MachineFunction &MF) {
       case AVR::BRPLk:
       case AVR::BRGEk:
       case AVR::BRLTk:
-        ProcessRelativeBranch(MI, 7, AVR::RJMPk, Modified); break;
+        ProcessRelativeBranch(MI, 0, 7, AVR::RJMPk, Modified); break;
       default: break;
       }
     }
