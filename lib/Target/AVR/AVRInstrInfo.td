@@ -1266,6 +1266,8 @@ def AtomicLoadOr8   : AtomicLoadOp<atomic_load_or_8, GPR8>;
 def AtomicLoadOr16  : AtomicLoadOp<atomic_load_or_16, DREGS>;
 def AtomicLoadXor8  : AtomicLoadOp<atomic_load_xor_8, GPR8>;
 def AtomicLoadXor16 : AtomicLoadOp<atomic_load_xor_16, DREGS>;
+def AtomicFence     : Pseudo<(outs), (ins), "atomic_fence",
+                             [(atomic_fence imm, imm)]>;
 
 // Indirect store from register to data space.
 def STSKRr : F32DM<0b1,

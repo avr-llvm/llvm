@@ -955,6 +955,13 @@ bool AVRExpandPseudo::expand<AVR::AtomicLoadXor16>(Block &MBB, BlockIt MBBI) {
   return expandAtomicArithmeticOp(AVR::LDWRdPtr, AVR::EORWRdRr, MBB, MBBI);
 }
 
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicFence>(Block &MBB, BlockIt MBBI) {
+  // On AVR, there is only one core and so atomic fences do nothing.
+  MBBI->eraseFromParent();
+  return true;
+}
+
 template <>
 bool AVRExpandPseudo::expand<AVR::STSWKRr>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
@@ -1529,6 +1536,7 @@ bool AVRExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(AVR::AtomicLoadOr16);
     EXPAND(AVR::AtomicLoadXor8);
     EXPAND(AVR::AtomicLoadXor16);
+    EXPAND(AVR::AtomicFence);
     EXPAND(AVR::STSWKRr);
     EXPAND(AVR::STWPtrRr);
     EXPAND(AVR::STWPtrPiRr);
