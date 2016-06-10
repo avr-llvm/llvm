@@ -29,6 +29,7 @@ FunctionPass *createAVRExpandPseudoPass();
 FunctionPass *createAVRFrameAnalyzerPass();
 FunctionPass *createAVRDynAllocaSRPass();
 FunctionPass *createAVRBranchSelectionPass();
+FunctionPass *createAVRPromoteBranchesPass(AVRTargetMachine&);
 
 /// Contains the AVR backend.
 namespace AVR {

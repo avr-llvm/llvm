@@ -109,6 +109,7 @@ void AVRPassConfig::addPreSched2() { addPass(createAVRExpandPseudoPass()); }
 void AVRPassConfig::addPreEmitPass() {
   // Must run branch selection immediately preceding the asm printer.
   addPass(createAVRBranchSelectionPass());
+  addPass(createAVRPromoteBranchesPass(getAVRTargetMachine()));
 }
 
 } // end of namespace llvm
