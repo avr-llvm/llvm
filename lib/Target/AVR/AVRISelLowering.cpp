@@ -114,6 +114,17 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm)
   setOperationAction(ISD::VAARG, MVT::Other, Expand);
   setOperationAction(ISD::VACOPY, MVT::Other, Expand);
 
+  // Atomic operations which must be lowered to rtlib calls
+  for (MVT VT : MVT::integer_valuetypes()) {
+    setOperationAction(ISD::ATOMIC_SWAP, VT, Expand);
+    setOperationAction(ISD::ATOMIC_CMP_SWAP, VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_NAND, VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_MAX, VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_MIN, VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_UMAX, VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_UMIN, VT, Expand);
+  }
+
   // Division/remainder
   setOperationAction(ISD::UDIV, MVT::i8, Expand);
   setOperationAction(ISD::UDIV, MVT::i16, Expand);
