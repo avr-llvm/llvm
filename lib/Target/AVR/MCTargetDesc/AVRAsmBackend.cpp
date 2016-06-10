@@ -472,15 +472,25 @@ void AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
                                       const MCFragment *DF,
                                       const MCValue &Target, uint64_t &Value,
                                       bool &IsResolved) {
-  // Parsed LLVM-generated temporary labels are already
-  // adjusted for instruction size, but normal labels aren't.
-  //
-  // To handle both cases, we simply un-adjust the temporary label
-  // case so it acts like all other labels.
-  if (Target.getSymA()->getSymbol().isTemporary())
-    Value += 2;
+  switch ((unsigned) Fixup.getKind()) {
+  // Fixups which should always be record as relocations.
+  case AVR::fixup_7_pcrel:
+  case AVR::fixup_13_pcrel:
+  case AVR::fixup_call:
+    IsResolved = false;
+    break;
+  default:
+    // Parsed LLVM-generated temporary labels are already
+    // adjusted for instruction size, but normal labels aren't.
+    //
+    // To handle both cases, we simply un-adjust the temporary label
+    // case so it acts like all other labels.
+    if (Target.getSymA()->getSymbol().isTemporary())
+      Value += 2;
 
-  adjustFixupValue(Fixup, Value, &Asm.getContext());
+    adjustFixupValue(Fixup, Value, &Asm.getContext());
+  }
+
 }
 
 MCAsmBackend *createAVRAsmBackend(const Target &T, const MCRegisterInfo &MRI,
