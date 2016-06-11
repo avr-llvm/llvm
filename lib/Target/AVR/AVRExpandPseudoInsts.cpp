@@ -873,15 +873,26 @@ bool AVRExpandPseudo::expandAtomicBinaryOp(unsigned Opcode, Block &MBB, BlockIt 
   return expandAtomicBinaryOp(Opcode, MBB, MBBI, [](MachineInstr &MI) {});
 }
 
-bool AVRExpandPseudo::expandAtomicArithmeticOp(unsigned MemOpcode,
+bool AVRExpandPseudo::expandAtomicArithmeticOp(unsigned Width,
                                                unsigned ArithOpcode,
                                                Block &MBB,
                                                BlockIt MBBI) {
-  return expandAtomicBinaryOp(MemOpcode, MBB, MBBI, [&](MachineInstr &MI) {
+
+  return expandAtomic(MBB, MBBI, [&](MachineInstr &MI) {
       auto Op1 = MI.getOperand(0);
       auto Op2 = MI.getOperand(1);
 
+      unsigned LoadOpcode = (Width == 8) ? AVR::LDRdPtr : AVR::LDWRdPtr;
+      unsigned StoreOpcode = (Width == 8) ? AVR::STPtrRr : AVR::STWPtrRr;
+
+      // Create the load
+      buildMI(MBB, MBBI, LoadOpcode).addOperand(Op1).addOperand(Op2);
+
+      // Create the arithmetic op
       buildMI(MBB, MBBI, ArithOpcode).addOperand(Op1).addOperand(Op1).addOperand(Op2);
+
+      // Create the store
+      buildMI(MBB, MBBI, StoreOpcode).addOperand(Op2).addOperand(Op1);
   });
 }
 
@@ -907,52 +918,52 @@ bool AVRExpandPseudo::expand<AVR::AtomicStore16>(Block &MBB, BlockIt MBBI) {
 
 template<>
 bool AVRExpandPseudo::expand<AVR::AtomicLoadAdd8>(Block &MBB, BlockIt MBBI) {
-  return expandAtomicArithmeticOp(AVR::LDRdPtr, AVR::ADDRdRr, MBB, MBBI);
+  return expandAtomicArithmeticOp(8, AVR::ADDRdRr, MBB, MBBI);
 }
 
 template<>
 bool AVRExpandPseudo::expand<AVR::AtomicLoadAdd16>(Block &MBB, BlockIt MBBI) {
-  return expandAtomicArithmeticOp(AVR::LDWRdPtr, AVR::ADDWRdRr, MBB, MBBI);
+  return expandAtomicArithmeticOp(16, AVR::ADDWRdRr, MBB, MBBI);
 }
 
 template<>
 bool AVRExpandPseudo::expand<AVR::AtomicLoadSub8>(Block &MBB, BlockIt MBBI) {
-  return expandAtomicArithmeticOp(AVR::LDRdPtr, AVR::SUBRdRr, MBB, MBBI);
+  return expandAtomicArithmeticOp(8, AVR::SUBRdRr, MBB, MBBI);
 }
 
 template<>
 bool AVRExpandPseudo::expand<AVR::AtomicLoadSub16>(Block &MBB, BlockIt MBBI) {
-  return expandAtomicArithmeticOp(AVR::LDWRdPtr, AVR::SUBWRdRr, MBB, MBBI);
+  return expandAtomicArithmeticOp(16, AVR::SUBWRdRr, MBB, MBBI);
 }
 
 template<>
 bool AVRExpandPseudo::expand<AVR::AtomicLoadAnd8>(Block &MBB, BlockIt MBBI) {
-  return expandAtomicArithmeticOp(AVR::LDRdPtr, AVR::ANDRdRr, MBB, MBBI);
+  return expandAtomicArithmeticOp(8, AVR::ANDRdRr, MBB, MBBI);
 }
 
 template<>
 bool AVRExpandPseudo::expand<AVR::AtomicLoadAnd16>(Block &MBB, BlockIt MBBI) {
-  return expandAtomicArithmeticOp(AVR::LDWRdPtr, AVR::ANDWRdRr, MBB, MBBI);
+  return expandAtomicArithmeticOp(16, AVR::ANDWRdRr, MBB, MBBI);
 }
 
 template<>
 bool AVRExpandPseudo::expand<AVR::AtomicLoadOr8>(Block &MBB, BlockIt MBBI) {
-  return expandAtomicArithmeticOp(AVR::LDRdPtr, AVR::ORRdRr, MBB, MBBI);
+  return expandAtomicArithmeticOp(8, AVR::ORRdRr, MBB, MBBI);
 }
 
 template<>
 bool AVRExpandPseudo::expand<AVR::AtomicLoadOr16>(Block &MBB, BlockIt MBBI) {
-  return expandAtomicArithmeticOp(AVR::LDWRdPtr, AVR::ORWRdRr, MBB, MBBI);
+  return expandAtomicArithmeticOp(16, AVR::ORWRdRr, MBB, MBBI);
 }
 
 template<>
 bool AVRExpandPseudo::expand<AVR::AtomicLoadXor8>(Block &MBB, BlockIt MBBI) {
-  return expandAtomicArithmeticOp(AVR::LDRdPtr, AVR::EORRdRr, MBB, MBBI);
+  return expandAtomicArithmeticOp(8, AVR::EORRdRr, MBB, MBBI);
 }
 
 template<>
 bool AVRExpandPseudo::expand<AVR::AtomicLoadXor16>(Block &MBB, BlockIt MBBI) {
-  return expandAtomicArithmeticOp(AVR::LDWRdPtr, AVR::EORWRdRr, MBB, MBBI);
+  return expandAtomicArithmeticOp(16, AVR::EORWRdRr, MBB, MBBI);
 }
 
 template<>
