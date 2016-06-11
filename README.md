@@ -1,7 +1,5 @@
 # AVR-LLVM
 
-**Note**: The backend is currently in the process of being merged into LLVM trunk, so development has halted until that is finished.
-
 [![Build Status](https://travis-ci.org/avr-llvm/llvm.svg?branch=avr-support)](https://travis-ci.org/avr-llvm/llvm)
 
 See the [Wiki](https://github.com/avr-llvm/llvm/wiki/Getting%20Started) for more information.
@@ -14,6 +12,10 @@ As the project is still very much in development, it is likely that you will enc
 a production-quality compiler backend, so bugs will not be tolerated.
 
 AVR-related code can be found in `lib/Target/AVR`.
+
+## Related projects
+
+* [Rust for AVR](https://github.com/avr-rust/rust)
 
 ## Features
 
