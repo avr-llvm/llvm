@@ -15,6 +15,7 @@
 
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 
 #include "AVR.h"
@@ -30,8 +31,15 @@ namespace llvm {
 class AVRExpandPseudo : public MachineFunctionPass {
 public:
   static char ID;
+
   const AVRRegisterInfo *TRI;
   const TargetInstrInfo *TII;
+
+  /// The register to be used for temporary storage.
+  const unsigned SCRATCH_REGISTER = AVR::R0;
+  /// The IO address of the status register.
+  const unsigned SREG_ADDR = 0x3f;
+
   AVRExpandPseudo() : MachineFunctionPass(ID) {}
 
   bool runOnMachineFunction(MachineFunction &MF) override;
@@ -57,6 +65,21 @@ private:
                               unsigned DstReg) {
     return BuildMI(MBB, MBBI, MBBI->getDebugLoc(), TII->get(Opcode), DstReg);
   }
+
+  MachineRegisterInfo &getRegInfo(Block &MBB) { return MBB.getParent()->getRegInfo(); }
+
+  template<typename Func>
+  bool expandAtomic(Block &MBB, BlockIt MBBI, Func f);
+
+  template<typename Func>
+  bool expandAtomicBinaryOp(unsigned Opcode, Block &MBB, BlockIt MBBI, Func f);
+
+  bool expandAtomicBinaryOp(unsigned Opcode, Block &MBB, BlockIt MBBI);
+
+  bool expandAtomicArithmeticOp(unsigned MemOpcode,
+                                unsigned ArithOpcode,
+                                Block &MBB,
+                                BlockIt MBBI);
 };
 
 char AVRExpandPseudo::ID = 0;
@@ -80,9 +103,20 @@ bool AVRExpandPseudo::runOnMachineFunction(MachineFunction &MF) {
   TRI = static_cast<const AVRRegisterInfo*>(TM.getSubtargetImpl()->getRegisterInfo());
   TII = TM.getSubtargetImpl()->getInstrInfo();
 
-  typedef MachineFunction::iterator FuncIt;
-  for (FuncIt MFI = MF.begin(), E = MF.end(); MFI != E; ++MFI) {
-    Modified |= expandMBB(*MFI);
+  for(Block &MBB : MF) {
+    bool ContinueExpanding = true;
+    unsigned ExpandCount = 0;
+
+    // Continue expanding the block until all pseudos are expanded.
+    do {
+      assert(ExpandCount < 10 && "pseudo expand limit reached");
+
+      bool BlockModified = expandMBB(MBB);
+      Modified |= BlockModified;
+      ExpandCount++;
+
+      ContinueExpanding = BlockModified;
+    } while(ContinueExpanding);
   }
 
   return Modified;
@@ -799,6 +833,146 @@ bool AVRExpandPseudo::expand<AVR::LDDWRdPtrQ>(Block &MBB, BlockIt MBBI) {
   return true;
 }
 
+template<typename Func>
+bool AVRExpandPseudo::expandAtomic(Block &MBB, BlockIt MBBI, Func f) {
+  // Remove the pseudo instruction.
+  MachineInstr &MI = *MBBI;
+
+  // Store the SREG.
+  buildMI(MBB, MBBI, AVR::INRdA)
+    .addReg(SCRATCH_REGISTER, RegState::Define)
+    .addImm(SREG_ADDR);
+
+  // Disable exceptions.
+  buildMI(MBB, MBBI, AVR::BCLRs).addImm(7); // CLI
+
+  f(MI);
+
+  // Restore the status reg.
+  buildMI(MBB, MBBI, AVR::OUTARr)
+    .addImm(SREG_ADDR)
+    .addReg(SCRATCH_REGISTER);
+
+  MI.eraseFromParent();
+  return true;
+}
+
+template<typename Func>
+bool AVRExpandPseudo::expandAtomicBinaryOp(unsigned Opcode, Block &MBB, BlockIt MBBI, Func f) {
+  return expandAtomic(MBB, MBBI, [&](MachineInstr &MI) {
+      auto Op1 = MI.getOperand(0);
+      auto Op2 = MI.getOperand(1);
+
+      MachineInstr &NewInst = *buildMI(MBB, MBBI, Opcode).addOperand(Op1).addOperand(Op2).getInstr();
+
+      f(NewInst);
+  });
+}
+
+bool AVRExpandPseudo::expandAtomicBinaryOp(unsigned Opcode, Block &MBB, BlockIt MBBI) {
+  return expandAtomicBinaryOp(Opcode, MBB, MBBI, [](MachineInstr &MI) {});
+}
+
+bool AVRExpandPseudo::expandAtomicArithmeticOp(unsigned Width,
+                                               unsigned ArithOpcode,
+                                               Block &MBB,
+                                               BlockIt MBBI) {
+
+  return expandAtomic(MBB, MBBI, [&](MachineInstr &MI) {
+      auto Op1 = MI.getOperand(0);
+      auto Op2 = MI.getOperand(1);
+
+      unsigned LoadOpcode = (Width == 8) ? AVR::LDRdPtr : AVR::LDWRdPtr;
+      unsigned StoreOpcode = (Width == 8) ? AVR::STPtrRr : AVR::STWPtrRr;
+
+      // Create the load
+      buildMI(MBB, MBBI, LoadOpcode).addOperand(Op1).addOperand(Op2);
+
+      // Create the arithmetic op
+      buildMI(MBB, MBBI, ArithOpcode).addOperand(Op1).addOperand(Op1).addOperand(Op2);
+
+      // Create the store
+      buildMI(MBB, MBBI, StoreOpcode).addOperand(Op2).addOperand(Op1);
+  });
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoad8>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicBinaryOp(AVR::LDRdPtr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoad16>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicBinaryOp(AVR::LDWRdPtr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicStore8>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicBinaryOp(AVR::STPtrRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicStore16>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicBinaryOp(AVR::STWPtrRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoadAdd8>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicArithmeticOp(8, AVR::ADDRdRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoadAdd16>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicArithmeticOp(16, AVR::ADDWRdRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoadSub8>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicArithmeticOp(8, AVR::SUBRdRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoadSub16>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicArithmeticOp(16, AVR::SUBWRdRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoadAnd8>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicArithmeticOp(8, AVR::ANDRdRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoadAnd16>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicArithmeticOp(16, AVR::ANDWRdRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoadOr8>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicArithmeticOp(8, AVR::ORRdRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoadOr16>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicArithmeticOp(16, AVR::ORWRdRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoadXor8>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicArithmeticOp(8, AVR::EORRdRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicLoadXor16>(Block &MBB, BlockIt MBBI) {
+  return expandAtomicArithmeticOp(16, AVR::EORWRdRr, MBB, MBBI);
+}
+
+template<>
+bool AVRExpandPseudo::expand<AVR::AtomicFence>(Block &MBB, BlockIt MBBI) {
+  // On AVR, there is only one core and so atomic fences do nothing.
+  MBBI->eraseFromParent();
+  return true;
+}
+
 template <>
 bool AVRExpandPseudo::expand<AVR::STSWKRr>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
@@ -1305,7 +1479,7 @@ bool AVRExpandPseudo::expand<AVR::SPWRITE>(Block &MBB, BlockIt MBBI) {
 
   buildMI(MBB, MBBI, AVR::INRdA)
     .addReg(AVR::R0, RegState::Define)
-    .addImm(0x3f)
+    .addImm(SREG_ADDR)
     .setMIFlags(Flags);
 
   buildMI(MBB, MBBI, AVR::BCLRs).addImm(0x07).setMIFlags(Flags);
@@ -1316,7 +1490,7 @@ bool AVRExpandPseudo::expand<AVR::SPWRITE>(Block &MBB, BlockIt MBBI) {
     .setMIFlags(Flags);
 
   buildMI(MBB, MBBI, AVR::OUTARr)
-    .addImm(0x3f)
+    .addImm(SREG_ADDR)
     .addReg(AVR::R0, RegState::Kill)
     .setMIFlags(Flags);
 
@@ -1359,6 +1533,21 @@ bool AVRExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
     EXPAND(AVR::LDWRdPtrPd);
   case AVR::LDDWRdYQ: //:FIXME: remove this once PR13375 gets fixed
     EXPAND(AVR::LDDWRdPtrQ);
+    EXPAND(AVR::AtomicLoad8);
+    EXPAND(AVR::AtomicLoad16);
+    EXPAND(AVR::AtomicStore8);
+    EXPAND(AVR::AtomicStore16);
+    EXPAND(AVR::AtomicLoadAdd8);
+    EXPAND(AVR::AtomicLoadAdd16);
+    EXPAND(AVR::AtomicLoadSub8);
+    EXPAND(AVR::AtomicLoadSub16);
+    EXPAND(AVR::AtomicLoadAnd8);
+    EXPAND(AVR::AtomicLoadAnd16);
+    EXPAND(AVR::AtomicLoadOr8);
+    EXPAND(AVR::AtomicLoadOr16);
+    EXPAND(AVR::AtomicLoadXor8);
+    EXPAND(AVR::AtomicLoadXor16);
+    EXPAND(AVR::AtomicFence);
     EXPAND(AVR::STSWKRr);
     EXPAND(AVR::STWPtrRr);
     EXPAND(AVR::STWPtrPiRr);

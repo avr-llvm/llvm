@@ -1237,6 +1237,38 @@ isReMaterializable = 1 in
                  Requires<[HasSRAM]>;
 }
 
+class AtomicLoad<PatFrag Op, RegisterClass DRC> :
+  Pseudo<(outs DRC:$rd), (ins PTRREGS:$rr), "atomic_op",
+         [(set DRC:$rd, (Op i16:$rr))]>;
+
+class AtomicStore<PatFrag Op, RegisterClass DRC> :
+  Pseudo<(outs), (ins LDSTPtrReg:$rd, DRC:$rr), "atomic_op",
+         [(Op i16:$rd, DRC:$rr)]>;
+
+class AtomicLoadOp<PatFrag Op, RegisterClass DRC> :
+  Pseudo<(outs DRC:$rd), (ins PTRREGS:$rr, DRC:$operand),
+         "atomic_op",
+         [(set DRC:$rd, (Op i16:$rr, DRC:$operand))]>;
+
+def AtomicLoad8   : AtomicLoad<atomic_load_8, GPR8>;
+def AtomicLoad16  : AtomicLoad<atomic_load_16, DREGS>;
+
+def AtomicStore8  : AtomicStore<atomic_store_8, GPR8>;
+def AtomicStore16 : AtomicStore<atomic_store_16, DREGS>;
+
+def AtomicLoadAdd8  : AtomicLoadOp<atomic_load_add_8, GPR8>;
+def AtomicLoadAdd16 : AtomicLoadOp<atomic_load_add_16, DREGS>;
+def AtomicLoadSub8  : AtomicLoadOp<atomic_load_sub_8, GPR8>;
+def AtomicLoadSub16 : AtomicLoadOp<atomic_load_sub_16, DREGS>;
+def AtomicLoadAnd8  : AtomicLoadOp<atomic_load_and_8, GPR8>;
+def AtomicLoadAnd16 : AtomicLoadOp<atomic_load_and_16, DREGS>;
+def AtomicLoadOr8   : AtomicLoadOp<atomic_load_or_8, GPR8>;
+def AtomicLoadOr16  : AtomicLoadOp<atomic_load_or_16, DREGS>;
+def AtomicLoadXor8  : AtomicLoadOp<atomic_load_xor_8, GPR8>;
+def AtomicLoadXor16 : AtomicLoadOp<atomic_load_xor_16, DREGS>;
+def AtomicFence     : Pseudo<(outs), (ins), "atomic_fence",
+                             [(atomic_fence imm, imm)]>;
+
 // Indirect store from register to data space.
 def STSKRr : F32DM<0b1,
                    (outs),
