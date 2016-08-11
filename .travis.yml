@@ -21,8 +21,8 @@ install:
   - cmake --version
 
 script:
-  - git clone https://github.com/avr-llvm/clang.git tools/clang
-  - git clone https://github.com/avr-llvm/compiler-rt.git projects/compiler-rt
+  #- git clone https://github.com/avr-llvm/clang.git tools/clang
+  #- git clone https://github.com/avr-llvm/compiler-rt.git projects/compiler-rt
   - mkdir build && cd build
     # Build shared libs - faster linking
   - cmake ../ -DLLVM_TARGETS_TO_BUILD="AVR" -DBUILD_SHARED_LIBS="ON"
