@@ -224,8 +224,8 @@ namespace {
   private:
     bool runOnMachineBasicBlock(MachineBasicBlock &MBB);
 
-    Iter replaceWithCompactBranch(MachineBasicBlock &MBB,
-                                  Iter Branch, DebugLoc DL);
+    Iter replaceWithCompactBranch(MachineBasicBlock &MBB, Iter Branch,
+                                  const DebugLoc &DL);
 
     /// This function checks if it is valid to move Candidate to the delay slot
     /// and returns true if it isn't. It also updates memory and register
@@ -529,8 +529,8 @@ getUnderlyingObjects(const MachineInstr &MI,
 }
 
 // Replace Branch with the compact branch instruction.
-Iter Filler::replaceWithCompactBranch(MachineBasicBlock &MBB,
-                                      Iter Branch, DebugLoc DL) {
+Iter Filler::replaceWithCompactBranch(MachineBasicBlock &MBB, Iter Branch,
+                                      const DebugLoc &DL) {
   const MipsSubtarget &STI = MBB.getParent()->getSubtarget<MipsSubtarget>();
   const MipsInstrInfo *TII = STI.getInstrInfo();
 
@@ -600,9 +600,9 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 
       if (Filled) {
         // Get instruction with delay slot.
-        MachineBasicBlock::instr_iterator DSI(I);
+        MachineBasicBlock::instr_iterator DSI = I.getInstrIterator();
 
-        if (InMicroMipsMode && TII->GetInstSizeInBytes(&*std::next(DSI)) == 2 &&
+        if (InMicroMipsMode && TII->GetInstSizeInBytes(*std::next(DSI)) == 2 &&
             DSI->isCall()) {
           // If instruction in delay slot is 16b change opcode to
           // corresponding instruction with short delay slot.
@@ -692,7 +692,7 @@ bool Filler::searchRange(MachineBasicBlock &MBB, IterTy Begin, IterTy End,
     bool InMicroMipsMode = STI.inMicroMipsMode();
     const MipsInstrInfo *TII = STI.getInstrInfo();
     unsigned Opcode = (*Slot).getOpcode();
-    if (InMicroMipsMode && TII->GetInstSizeInBytes(&(*CurrI)) == 2 &&
+    if (InMicroMipsMode && TII->GetInstSizeInBytes(*CurrI) == 2 &&
         (Opcode == Mips::JR || Opcode == Mips::PseudoIndirectBranch ||
          Opcode == Mips::PseudoReturn))
       continue;
@@ -815,7 +815,7 @@ Filler::getBranch(MachineBasicBlock &MBB, const MachineBasicBlock &Dst) const {
   SmallVector<MachineOperand, 2> Cond;
 
   MipsInstrInfo::BranchType R =
-    TII->AnalyzeBranch(MBB, TrueBB, FalseBB, Cond, false, BranchInstrs);
+      TII->analyzeBranch(MBB, TrueBB, FalseBB, Cond, false, BranchInstrs);
 
   if ((R == MipsInstrInfo::BT_None) || (R == MipsInstrInfo::BT_NoBranch))
     return std::make_pair(R, nullptr);

@@ -22,6 +22,7 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
@@ -298,6 +299,26 @@ bool Loop::isAnnotatedParallel() const {
   return true;
 }
 
+DebugLoc Loop::getStartLoc() const {
+  // If we have a debug location in the loop ID, then use it.
+  if (MDNode *LoopID = getLoopID())
+    for (unsigned i = 1, ie = LoopID->getNumOperands(); i < ie; ++i)
+      if (DILocation *L = dyn_cast<DILocation>(LoopID->getOperand(i)))
+        return DebugLoc(L);
+
+  // Try the pre-header first.
+  if (BasicBlock *PHeadBB = getLoopPreheader())
+    if (DebugLoc DL = PHeadBB->getTerminator()->getDebugLoc())
+      return DL;
+
+  // If we have no pre-header or there are no instructions with debug
+  // info in it, try the header.
+  if (BasicBlock *HeadBB = getHeader())
+    return HeadBB->getTerminator()->getDebugLoc();
+
+  return DebugLoc();
+}
+
 bool Loop::hasDedicatedExits() const {
   // Each predecessor of each exit block of a normal loop is contained
   // within the loop.
@@ -413,17 +434,16 @@ void UnloopUpdater::updateBlockParents() {
     // Perform a post order CFG traversal of all blocks within this loop,
     // propagating the nearest loop from sucessors to predecessors.
     LoopBlocksTraversal Traversal(DFS, LI);
-    for (LoopBlocksTraversal::POTIterator POI = Traversal.begin(),
-           POE = Traversal.end(); POI != POE; ++POI) {
+    for (BasicBlock *POI : Traversal) {
 
-      Loop *L = LI->getLoopFor(*POI);
-      Loop *NL = getNearestLoop(*POI, L);
+      Loop *L = LI->getLoopFor(POI);
+      Loop *NL = getNearestLoop(POI, L);
 
       if (NL != L) {
         // For reducible loops, NL is now an ancestor of Unloop.
         assert((NL != &Unloop && (!NL || NL->contains(&Unloop))) &&
                "uninitialized successor");
-        LI->changeLoopFor(*POI, NL);
+        LI->changeLoopFor(POI, NL);
       }
       else {
         // Or the current block is part of a subloop, in which case its parent
@@ -649,7 +669,7 @@ PrintLoopPass::PrintLoopPass() : OS(dbgs()) {}
 PrintLoopPass::PrintLoopPass(raw_ostream &OS, const std::string &Banner)
     : OS(OS), Banner(Banner) {}
 
-PreservedAnalyses PrintLoopPass::run(Loop &L) {
+PreservedAnalyses PrintLoopPass::run(Loop &L, AnalysisManager<Loop> &) {
   OS << Banner;
   for (auto *Block : L.blocks())
     if (Block)

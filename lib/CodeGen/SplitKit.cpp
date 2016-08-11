@@ -43,10 +43,11 @@ STATISTIC(NumRepairs,  "Number of invalid live ranges repaired");
 
 InsertPointAnalysis::InsertPointAnalysis(const LiveIntervals &lis,
                                          unsigned BBNum)
-    : LIS(lis), CurLI(nullptr), LastInsertPoint(BBNum) {}
+    : LIS(lis), LastInsertPoint(BBNum) {}
 
 SlotIndex
-InsertPointAnalysis::computeLastInsertPoint(const MachineBasicBlock &MBB) {
+InsertPointAnalysis::computeLastInsertPoint(const LiveInterval &CurLI,
+                                            const MachineBasicBlock &MBB) {
   unsigned Num = MBB.getNumber();
   std::pair<SlotIndex, SlotIndex> &LIP = LastInsertPoint[Num];
   SlotIndex MBBEnd = LIS.getMBBEndIdx(&MBB);
@@ -85,14 +86,13 @@ InsertPointAnalysis::computeLastInsertPoint(const MachineBasicBlock &MBB) {
   if (!LIP.second)
     return LIP.first;
 
-  assert(CurLI && "CurLI not being set");
   if (none_of(EHPadSucessors, [&](const MachineBasicBlock *EHPad) {
-        return LIS.isLiveInToMBB(*CurLI, EHPad);
+        return LIS.isLiveInToMBB(CurLI, EHPad);
       }))
     return LIP.first;
 
   // Find the value leaving MBB.
-  const VNInfo *VNI = CurLI->getVNInfoBefore(MBBEnd);
+  const VNInfo *VNI = CurLI.getVNInfoBefore(MBBEnd);
   if (!VNI)
     return LIP.first;
 
@@ -109,8 +109,9 @@ InsertPointAnalysis::computeLastInsertPoint(const MachineBasicBlock &MBB) {
 }
 
 MachineBasicBlock::iterator
-InsertPointAnalysis::getLastInsertPointIter(MachineBasicBlock &MBB) {
-  SlotIndex LIP = getLastInsertPoint(MBB);
+InsertPointAnalysis::getLastInsertPointIter(const LiveInterval &CurLI,
+                                            MachineBasicBlock &MBB) {
+  SlotIndex LIP = getLastInsertPoint(CurLI, MBB);
   if (LIP == LIS.getMBBEndIdx(&MBB))
     return MBB.end();
   return LIS.getInstructionFromIndex(LIP);
@@ -328,7 +329,6 @@ bool SplitAnalysis::isOriginalEndpoint(SlotIndex Idx) const {
 void SplitAnalysis::analyze(const LiveInterval *li) {
   clear();
   CurLI = li;
-  IPA.setInterval(li);
   analyzeUses();
 }
 
@@ -338,11 +338,13 @@ void SplitAnalysis::analyze(const LiveInterval *li) {
 //===----------------------------------------------------------------------===//
 
 /// Create a new SplitEditor for editing the LiveInterval analyzed by SA.
-SplitEditor::SplitEditor(SplitAnalysis &sa, LiveIntervals &lis, VirtRegMap &vrm,
+SplitEditor::SplitEditor(SplitAnalysis &sa, AliasAnalysis &aa,
+                         LiveIntervals &lis, VirtRegMap &vrm,
                          MachineDominatorTree &mdt,
                          MachineBlockFrequencyInfo &mbfi)
-    : SA(sa), LIS(lis), VRM(vrm), MRI(vrm.getMachineFunction().getRegInfo()),
-      MDT(mdt), TII(*vrm.getMachineFunction().getSubtarget().getInstrInfo()),
+    : SA(sa), AA(aa), LIS(lis), VRM(vrm),
+      MRI(vrm.getMachineFunction().getRegInfo()), MDT(mdt),
+      TII(*vrm.getMachineFunction().getSubtarget().getInstrInfo()),
       TRI(*vrm.getMachineFunction().getSubtarget().getRegisterInfo()),
       MBFI(mbfi), Edit(nullptr), OpenIdx(0), SpillMode(SM_Partition),
       RegAssign(Allocator) {}
@@ -1130,7 +1132,7 @@ void SplitEditor::deleteRematVictims() {
   if (Dead.empty())
     return;
 
-  Edit->eliminateDeadDefs(Dead);
+  Edit->eliminateDeadDefs(Dead, None, &AA);
 }
 
 void SplitEditor::finish(SmallVectorImpl<unsigned> *LRMap) {

@@ -88,6 +88,13 @@ void DecodeUNPCKHMask(MVT VT, SmallVectorImpl<int> &ShuffleMask);
 /// datatypes and vector widths.
 void DecodeUNPCKLMask(MVT VT, SmallVectorImpl<int> &ShuffleMask);
 
+/// Decodes a broadcast of the first element of a vector.
+void DecodeVectorBroadcast(MVT DstVT, SmallVectorImpl<int> &ShuffleMask);
+
+/// Decodes a broadcast of a subvector to a larger vector type.
+void DecodeSubVectorBroadcast(MVT DstVT, MVT SrcVT,
+                              SmallVectorImpl<int> &ShuffleMask);
+
 /// Decode a PSHUFB mask from a raw array of constants such as from
 /// BUILD_VECTOR.
 void DecodePSHUFBMask(ArrayRef<uint64_t> RawMask,
@@ -105,8 +112,7 @@ void decodeVSHUF64x2FamilyMask(MVT VT, unsigned Imm,
                                SmallVectorImpl<int> &ShuffleMask);
 
 /// Decodes the shuffle masks for VPERMQ/VPERMPD.
-/// No VT provided since it only works on 256-bit, 4 element vectors.
-void DecodeVPERMMask(unsigned Imm, SmallVectorImpl<int> &ShuffleMask);
+void DecodeVPERMMask(MVT VT, unsigned Imm, SmallVectorImpl<int> &ShuffleMask);
 
 /// Decode a VPPERM mask from a raw array of constants such as from
 /// BUILD_VECTOR.
@@ -137,6 +143,10 @@ void DecodeINSERTQIMask(int Len, int Idx,
 /// Decode a VPERMILPD/VPERMILPS variable mask from a raw array of constants.
 void DecodeVPERMILPMask(MVT VT, ArrayRef<uint64_t> RawMask,
                         SmallVectorImpl<int> &ShuffleMask);
+
+/// Decode a VPERMIL2PD/VPERMIL2PS variable mask from a raw array of constants.
+void DecodeVPERMIL2PMask(MVT VT, unsigned M2Z, ArrayRef<uint64_t> RawMask,
+                         SmallVectorImpl<int> &ShuffleMask);
 
 /// Decode a VPERM W/D/Q/PS/PD mask from a raw array of constants.
 void DecodeVPERMVMask(ArrayRef<uint64_t> RawMask,

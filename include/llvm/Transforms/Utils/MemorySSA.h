@@ -45,9 +45,9 @@
 //   store i32 5, i32* %2, align 4
 //   ; 4 = MemoryDef(3)
 //   store i32 7, i32* %4, align 4
-//   ; MemoryUse(4)
-//   %7 = load i32* %2, align 4
 //   ; MemoryUse(3)
+//   %7 = load i32* %2, align 4
+//   ; MemoryUse(4)
 //   %8 = load i32* %4, align 4
 //   %add = add nsw i32 %7, %8
 //   ret i32 %add
@@ -59,7 +59,7 @@
 //
 // Each def also has a list of users associated with it, so you can walk from
 // both def to users, and users to defs. Note that we disambiguate MemoryUses,
-// but not the RHS of MemoryDefs. You can see this above at %8, which would
+// but not the RHS of MemoryDefs. You can see this above at %7, which would
 // otherwise be a MemoryUse(4). Being disambiguated means that for a given
 // store, all the MemoryUses on its use lists are may-aliases of that store (but
 // the MemoryDefs on its use list may not be).
@@ -398,8 +398,6 @@ public:
   MemoryAccess *getIncomingValue(unsigned I) const { return getOperand(I); }
   void setIncomingValue(unsigned I, MemoryAccess *V) {
     assert(V && "PHI node got a null value!");
-    assert(getType() == V->getType() &&
-           "All operands to PHI node must be the same type as the PHI node!");
     setOperand(I, V);
   }
   static unsigned getOperandNumForIncomingValue(unsigned I) { return I; }
@@ -495,15 +493,11 @@ class MemorySSAWalker;
 /// accesses.
 class MemorySSA {
 public:
-  MemorySSA(Function &);
+  MemorySSA(Function &, AliasAnalysis *, DominatorTree *);
+  MemorySSA(MemorySSA &&);
   ~MemorySSA();
 
-  /// \brief Build Memory SSA, and return the walker we used during building,
-  /// for later reuse. If MemorySSA is already built, just return the walker.
-  MemorySSAWalker *buildMemorySSA(AliasAnalysis *, DominatorTree *);
-
-  /// \brief Returns false if you need to call buildMemorySSA.
-  bool isFinishedBuilding() const { return Walker; }
+  MemorySSAWalker *getWalker();
 
   /// \brief Given a memory Mod/Ref'ing instruction, get the MemorySSA
   /// access associated with it. If passed a basic block gets the memory phi
@@ -530,15 +524,49 @@ public:
     return LiveOnEntryDef.get();
   }
 
-  using AccessListType = iplist<MemoryAccess>;
+  using AccessList = iplist<MemoryAccess>;
 
   /// \brief Return the list of MemoryAccess's for a given basic block.
   ///
   /// This list is not modifiable by the user.
-  const AccessListType *getBlockAccesses(const BasicBlock *BB) const {
+  const AccessList *getBlockAccesses(const BasicBlock *BB) const {
     auto It = PerBlockAccesses.find(BB);
     return It == PerBlockAccesses.end() ? nullptr : It->second.get();
   }
+
+  /// \brief Create an empty MemoryPhi in MemorySSA
+  MemoryPhi *createMemoryPhi(BasicBlock *BB);
+
+  enum InsertionPlace { Beginning, End };
+
+  /// \brief Create a MemoryAccess in MemorySSA at a specified point in a block,
+  /// with a specified clobbering definition.
+  ///
+  /// Returns the new MemoryAccess.
+  /// This should be called when a memory instruction is created that is being
+  /// used to replace an existing memory instruction. It will *not* create PHI
+  /// nodes, or verify the clobbering definition. The insertion place is used
+  /// solely to determine where in the memoryssa access lists the instruction
+  /// will be placed. The caller is expected to keep ordering the same as
+  /// instructions.
+  /// It will return the new MemoryAccess.
+  MemoryAccess *createMemoryAccessInBB(Instruction *I, MemoryAccess *Definition,
+                                       const BasicBlock *BB,
+                                       InsertionPlace Point);
+  /// \brief Create a MemoryAccess in MemorySSA before or after an existing
+  /// MemoryAccess.
+  ///
+  /// Returns the new MemoryAccess.
+  /// This should be called when a memory instruction is created that is being
+  /// used to replace an existing memory instruction. It will *not* create PHI
+  /// nodes, or verify the clobbering definition.  The clobbering definition
+  /// must be non-null.
+  MemoryAccess *createMemoryAccessBefore(Instruction *I,
+                                         MemoryAccess *Definition,
+                                         MemoryAccess *InsertPt);
+  MemoryAccess *createMemoryAccessAfter(Instruction *I,
+                                        MemoryAccess *Definition,
+                                        MemoryAccess *InsertPt);
 
   /// \brief Remove a MemoryAccess from MemorySSA, including updating all
   /// definitions and uses.
@@ -547,8 +575,6 @@ public:
   /// load is simply erased (not replaced), removeMemoryAccess should be called
   /// on the MemoryAccess for that store/load.
   void removeMemoryAccess(MemoryAccess *);
-
-  enum InsertionPlace { Beginning, End };
 
   /// \brief Given two memory accesses in the same basic block, determine
   /// whether MemoryAccess \p A dominates MemoryAccess \p B.
@@ -561,28 +587,31 @@ public:
 protected:
   // Used by Memory SSA annotater, dumpers, and wrapper pass
   friend class MemorySSAAnnotatedWriter;
-  friend class MemorySSAPrinterPass;
+  friend class MemorySSAPrinterLegacyPass;
   void verifyDefUses(Function &F) const;
   void verifyDomination(Function &F) const;
+  void verifyOrdering(Function &F) const;
 
 private:
+  class CachingWalker;
+  void buildMemorySSA();
   void verifyUseInDefs(MemoryAccess *, MemoryAccess *) const;
-  using AccessMap =
-      DenseMap<const BasicBlock *, std::unique_ptr<AccessListType>>;
+  using AccessMap = DenseMap<const BasicBlock *, std::unique_ptr<AccessList>>;
 
   void
   determineInsertionPoint(const SmallPtrSetImpl<BasicBlock *> &DefiningBlocks);
   void computeDomLevels(DenseMap<DomTreeNode *, unsigned> &DomLevels);
   void markUnreachableAsLiveOnEntry(BasicBlock *BB);
   bool dominatesUse(const MemoryAccess *, const MemoryAccess *) const;
-  MemoryUseOrDef *createNewAccess(Instruction *, bool ignoreNonMemory = false);
+  MemoryUseOrDef *createNewAccess(Instruction *);
+  MemoryUseOrDef *createDefinedAccess(Instruction *, MemoryAccess *);
   MemoryAccess *findDominatingDef(BasicBlock *, enum InsertionPlace);
   void removeFromLookups(MemoryAccess *);
 
   MemoryAccess *renameBlock(BasicBlock *, MemoryAccess *);
   void renamePass(DomTreeNode *, MemoryAccess *IncomingVal,
                   SmallPtrSet<BasicBlock *, 16> &Visited);
-  AccessListType *getOrCreateAccessList(BasicBlock *);
+  AccessList *getOrCreateAccessList(const BasicBlock *);
   AliasAnalysis *AA;
   DominatorTree *DT;
   Function &F;
@@ -593,49 +622,62 @@ private:
   std::unique_ptr<MemoryAccess> LiveOnEntryDef;
 
   // Memory SSA building info
-  MemorySSAWalker *Walker;
+  std::unique_ptr<CachingWalker> Walker;
   unsigned NextID;
 };
 
 // This pass does eager building and then printing of MemorySSA. It is used by
 // the tests to be able to build, dump, and verify Memory SSA.
-class MemorySSAPrinterPass : public FunctionPass {
+class MemorySSAPrinterLegacyPass : public FunctionPass {
 public:
-  MemorySSAPrinterPass();
+  MemorySSAPrinterLegacyPass();
 
   static char ID;
-  bool doInitialization(Module &M) override;
   bool runOnFunction(Function &) override;
-  void releaseMemory() override;
   void getAnalysisUsage(AnalysisUsage &AU) const override;
-  void print(raw_ostream &OS, const Module *M) const override;
-  static void registerOptions();
-  MemorySSA &getMSSA() { return *MSSA; }
-
-private:
-  bool VerifyMemorySSA;
-
-  std::unique_ptr<MemorySSA> MSSA;
-  // FIXME(gbiv): It seems that MemorySSA doesn't own the walker it returns?
-  std::unique_ptr<MemorySSAWalker> Walker;
-  Function *F;
 };
 
-class MemorySSALazy : public FunctionPass {
+/// An analysis that produces \c MemorySSA for a function.
+///
+class MemorySSAAnalysis : public AnalysisInfoMixin<MemorySSAAnalysis> {
+  friend AnalysisInfoMixin<MemorySSAAnalysis>;
+  static char PassID;
+
 public:
-  MemorySSALazy();
+  typedef MemorySSA Result;
+
+  MemorySSA run(Function &F, AnalysisManager<Function> &AM);
+};
+
+/// \brief Printer pass for \c MemorySSA.
+class MemorySSAPrinterPass : public PassInfoMixin<MemorySSAPrinterPass> {
+  raw_ostream &OS;
+
+public:
+  explicit MemorySSAPrinterPass(raw_ostream &OS) : OS(OS) {}
+  PreservedAnalyses run(Function &F, AnalysisManager<Function> &AM);
+};
+
+/// \brief Verifier pass for \c MemorySSA.
+struct MemorySSAVerifierPass : PassInfoMixin<MemorySSAVerifierPass> {
+  PreservedAnalyses run(Function &F, AnalysisManager<Function> &AM);
+};
+
+/// \brief Legacy analysis pass which computes \c MemorySSA.
+class MemorySSAWrapperPass : public FunctionPass {
+public:
+  MemorySSAWrapperPass();
 
   static char ID;
   bool runOnFunction(Function &) override;
   void releaseMemory() override;
-  MemorySSA &getMSSA() {
-    assert(MSSA);
-    return *MSSA;
-  }
+  MemorySSA &getMSSA() { return *MSSA; }
+  const MemorySSA &getMSSA() const { return *MSSA; }
 
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesAll();
-  }
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
+
+  void verifyAnalysis() const override;
+  void print(raw_ostream &OS, const Module *M = nullptr) const override;
 
 private:
   std::unique_ptr<MemorySSA> MSSA;
@@ -705,6 +747,8 @@ public:
   virtual void invalidateInfo(MemoryAccess *) {}
 
 protected:
+  friend class MemorySSA; // For updating MSSA pointer in MemorySSA move
+                          // constructor.
   MemorySSA *MSSA;
 };
 
@@ -719,74 +763,6 @@ public:
 
 using MemoryAccessPair = std::pair<MemoryAccess *, MemoryLocation>;
 using ConstMemoryAccessPair = std::pair<const MemoryAccess *, MemoryLocation>;
-
-/// \brief A MemorySSAWalker that does AA walks and caching of lookups to
-/// disambiguate accesses.
-///
-/// FIXME: The current implementation of this can take quadratic space in rare
-/// cases. This can be fixed, but it is something to note until it is fixed.
-///
-/// In order to trigger this behavior, you need to store to N distinct locations
-/// (that AA can prove don't alias), perform M stores to other memory
-/// locations that AA can prove don't alias any of the initial N locations, and
-/// then load from all of the N locations. In this case, we insert M cache
-/// entries for each of the N loads.
-///
-/// For example:
-/// define i32 @foo() {
-///   %a = alloca i32, align 4
-///   %b = alloca i32, align 4
-///   store i32 0, i32* %a, align 4
-///   store i32 0, i32* %b, align 4
-///
-///   ; Insert M stores to other memory that doesn't alias %a or %b here
-///
-///   %c = load i32, i32* %a, align 4 ; Caches M entries in
-///                                   ; CachedUpwardsClobberingAccess for the
-///                                   ; MemoryLocation %a
-///   %d = load i32, i32* %b, align 4 ; Caches M entries in
-///                                   ; CachedUpwardsClobberingAccess for the
-///                                   ; MemoryLocation %b
-///
-///   ; For completeness' sake, loading %a or %b again would not cache *another*
-///   ; M entries.
-///   %r = add i32 %c, %d
-///   ret i32 %r
-/// }
-class CachingMemorySSAWalker final : public MemorySSAWalker {
-public:
-  CachingMemorySSAWalker(MemorySSA *, AliasAnalysis *, DominatorTree *);
-  ~CachingMemorySSAWalker() override;
-
-  MemoryAccess *getClobberingMemoryAccess(const Instruction *) override;
-  MemoryAccess *getClobberingMemoryAccess(MemoryAccess *,
-                                          MemoryLocation &) override;
-  void invalidateInfo(MemoryAccess *) override;
-
-protected:
-  struct UpwardsMemoryQuery;
-  MemoryAccess *doCacheLookup(const MemoryAccess *, const UpwardsMemoryQuery &,
-                              const MemoryLocation &);
-
-  void doCacheInsert(const MemoryAccess *, MemoryAccess *,
-                     const UpwardsMemoryQuery &, const MemoryLocation &);
-
-  void doCacheRemove(const MemoryAccess *, const UpwardsMemoryQuery &,
-                     const MemoryLocation &);
-
-private:
-  MemoryAccessPair UpwardsDFSWalk(MemoryAccess *, const MemoryLocation &,
-                                  UpwardsMemoryQuery &, bool);
-  MemoryAccess *getClobberingMemoryAccess(MemoryAccess *, UpwardsMemoryQuery &);
-  bool instructionClobbersQuery(const MemoryDef *, UpwardsMemoryQuery &,
-                                const MemoryLocation &Loc) const;
-  void verifyRemoved(MemoryAccess *);
-  SmallDenseMap<ConstMemoryAccessPair, MemoryAccess *>
-      CachedUpwardsClobberingAccess;
-  DenseMap<const MemoryAccess *, MemoryAccess *> CachedUpwardsClobberingCall;
-  AliasAnalysis *AA;
-  DominatorTree *DT;
-};
 
 /// \brief Iterator base class used to implement const and non-const iterators
 /// over the defining accesses of a MemoryAccess.

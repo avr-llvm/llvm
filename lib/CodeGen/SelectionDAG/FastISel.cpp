@@ -39,7 +39,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/CodeGen/Analysis.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/BranchProbabilityInfo.h"
@@ -354,7 +353,8 @@ void FastISel::recomputeInsertPt() {
 
 void FastISel::removeDeadCode(MachineBasicBlock::iterator I,
                               MachineBasicBlock::iterator E) {
-  assert(I && E && std::distance(I, E) > 0 && "Invalid iterator!");
+  assert(static_cast<MachineInstr *>(I) && static_cast<MachineInstr *>(E) &&
+         std::distance(I, E) > 0 && "Invalid iterator!");
   while (I != E) {
     MachineInstr *Dead = &*I;
     ++I;
@@ -375,7 +375,7 @@ FastISel::SavePoint FastISel::enterLocalValueArea() {
 
 void FastISel::leaveLocalValueArea(SavePoint OldInsertPt) {
   if (FuncInfo.InsertPt != FuncInfo.MBB->begin())
-    LastLocalValue = std::prev(FuncInfo.InsertPt);
+    LastLocalValue = &*std::prev(FuncInfo.InsertPt);
 
   // Restore the previous insert position.
   FuncInfo.InsertPt = OldInsertPt.InsertPt;
@@ -1435,7 +1435,8 @@ bool FastISel::selectInstruction(const Instruction *I) {
 
 /// Emit an unconditional branch to the given block, unless it is the immediate
 /// (fall-through) successor, and update the CFG.
-void FastISel::fastEmitBranch(MachineBasicBlock *MSucc, DebugLoc DbgLoc) {
+void FastISel::fastEmitBranch(MachineBasicBlock *MSucc,
+                              const DebugLoc &DbgLoc) {
   if (FuncInfo.MBB->getBasicBlock()->size() > 1 &&
       FuncInfo.MBB->isLayoutSuccessor(MSucc)) {
     // For more accurate line information if this is the only instruction
@@ -2075,7 +2076,7 @@ bool FastISel::handlePHINodesInSuccessorBlocks(const BasicBlock *LLVMBB) {
         FuncInfo.PHINodesToUpdate.resize(FuncInfo.OrigNumPHINodesToUpdate);
         return false;
       }
-      FuncInfo.PHINodesToUpdate.push_back(std::make_pair(MBBI++, Reg));
+      FuncInfo.PHINodesToUpdate.push_back(std::make_pair(&*MBBI++, Reg));
       DbgLoc = DebugLoc();
     }
   }
@@ -2160,7 +2161,7 @@ FastISel::createMachineMemOperandFor(const Instruction *I) const {
   const Value *Ptr;
   Type *ValTy;
   unsigned Alignment;
-  unsigned Flags;
+  MachineMemOperand::Flags Flags;
   bool IsVolatile;
 
   if (const auto *LI = dyn_cast<LoadInst>(I)) {

@@ -116,6 +116,9 @@ def SDTIntBinOp : SDTypeProfile<1, 2, [     // add, and, or, xor, udiv, etc.
 def SDTIntShiftOp : SDTypeProfile<1, 2, [   // shl, sra, srl
   SDTCisSameAs<0, 1>, SDTCisInt<0>, SDTCisInt<2>
 ]>;
+def SDTIntSatNoShOp : SDTypeProfile<1, 2, [   // ssat with no shift
+  SDTCisSameAs<0, 1>, SDTCisInt<2>
+]>;
 def SDTIntBinHiLoOp : SDTypeProfile<2, 2, [ // mulhi, mullo, sdivrem, udivrem
   SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>,SDTCisInt<0>
 ]>;
@@ -951,6 +954,18 @@ def unalignednontemporalstore : PatFrag<(ops node:$val, node:$ptr),
                                         (nontemporalstore node:$val, node:$ptr), [{
   StoreSDNode *St = cast<StoreSDNode>(N);
   return St->getAlignment() < St->getMemoryVT().getStoreSize();
+}]>;
+
+// nontemporal load fragments.
+def nontemporalload : PatFrag<(ops node:$ptr),
+                               (load node:$ptr), [{
+  return cast<LoadSDNode>(N)->isNonTemporal();
+}]>;
+
+def alignednontemporalload : PatFrag<(ops node:$ptr),
+                                      (nontemporalload node:$ptr), [{
+  LoadSDNode *Ld = cast<LoadSDNode>(N);
+  return Ld->getAlignment() >= Ld->getMemoryVT().getStoreSize();
 }]>;
 
 // setcc convenience fragments.

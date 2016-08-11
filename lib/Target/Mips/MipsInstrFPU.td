@@ -160,18 +160,18 @@ class MTC1_64_FT<string opstr, RegisterOperand DstRC, RegisterOperand SrcRC,
   let Constraints = "$fs = $fs_in";
 }
 
-class LW_FT<string opstr, RegisterOperand RC, InstrItinClass Itin,
-            SDPatternOperator OpNode= null_frag> :
-  InstSE<(outs RC:$rt), (ins mem:$addr), !strconcat(opstr, "\t$rt, $addr"),
+class LW_FT<string opstr, RegisterOperand RC, DAGOperand MO,
+            InstrItinClass Itin, SDPatternOperator OpNode = null_frag> :
+  InstSE<(outs RC:$rt), (ins MO:$addr), !strconcat(opstr, "\t$rt, $addr"),
          [(set RC:$rt, (OpNode addrDefault:$addr))], Itin, FrmFI, opstr>,
   HARDFLOAT {
   let DecoderMethod = "DecodeFMem";
   let mayLoad = 1;
 }
 
-class SW_FT<string opstr, RegisterOperand RC, InstrItinClass Itin,
-            SDPatternOperator OpNode= null_frag> :
-  InstSE<(outs), (ins RC:$rt, mem:$addr), !strconcat(opstr, "\t$rt, $addr"),
+class SW_FT<string opstr, RegisterOperand RC, DAGOperand MO,
+            InstrItinClass Itin, SDPatternOperator OpNode = null_frag> :
+  InstSE<(outs), (ins RC:$rt, MO:$addr), !strconcat(opstr, "\t$rt, $addr"),
          [(OpNode RC:$rt, addrDefault:$addr)], Itin, FrmFI, opstr>, HARDFLOAT {
   let DecoderMethod = "DecodeFMem";
   let mayStore = 1;
@@ -400,20 +400,30 @@ def FMOV_D64 : ABSS_FT<"mov.d", FGR64Opnd, FGR64Opnd, II_MOV_D>,
 }
 
 /// Floating Point Memory Instructions
-def LWC1 : MMRel, LW_FT<"lwc1", FGR32Opnd, II_LWC1, load>, LW_FM<0x31>;
-def SWC1 : MMRel, SW_FT<"swc1", FGR32Opnd, II_SWC1, store>, LW_FM<0x39>;
-
-let DecoderNamespace = "Mips64" in {
-  def LDC164 : LW_FT<"ldc1", FGR64Opnd, II_LDC1, load>, LW_FM<0x35>, ISA_MIPS2,
-               FGR_64;
-  def SDC164 : SW_FT<"sdc1", FGR64Opnd, II_SDC1, store>, LW_FM<0x3d>, ISA_MIPS2,
-               FGR_64;
+let AdditionalPredicates = [NotInMicroMips] in {
+  def LWC1 : MMRel, LW_FT<"lwc1", FGR32Opnd, mem_simm16, II_LWC1, load>,
+             LW_FM<0x31>;
+  def SWC1 : MMRel, SW_FT<"swc1", FGR32Opnd, mem_simm16, II_SWC1, store>,
+             LW_FM<0x39>;
 }
 
-def LDC1 : MMRel, LW_FT<"ldc1", AFGR64Opnd, II_LDC1, load>, LW_FM<0x35>,
-           ISA_MIPS2, FGR_32;
-def SDC1 : MMRel, SW_FT<"sdc1", AFGR64Opnd, II_SDC1, store>, LW_FM<0x3d>,
-           ISA_MIPS2, FGR_32;
+let DecoderNamespace = "Mips64", AdditionalPredicates = [NotInMicroMips] in {
+  def LDC164 : StdMMR6Rel, LW_FT<"ldc1", FGR64Opnd, mem_simm16, II_LDC1, load>,
+               LW_FM<0x35>, ISA_MIPS2, FGR_64 {
+    let BaseOpcode = "LDC164";
+  }
+  def SDC164 : StdMMR6Rel, SW_FT<"sdc1", FGR64Opnd, mem_simm16, II_SDC1, store>,
+               LW_FM<0x3d>, ISA_MIPS2, FGR_64;
+}
+
+let AdditionalPredicates = [NotInMicroMips] in {
+  def LDC1 : MMRel, StdMMR6Rel, LW_FT<"ldc1", AFGR64Opnd, mem_simm16, II_LDC1,
+                                      load>, LW_FM<0x35>, ISA_MIPS2, FGR_32 {
+    let BaseOpcode = "LDC132";
+  }
+  def SDC1 : MMRel, SW_FT<"sdc1", AFGR64Opnd, mem_simm16, II_SDC1, store>,
+             LW_FM<0x3d>, ISA_MIPS2, FGR_32;
+}
 
 // Indexed loads and stores.
 // Base register + offset register addressing mode (indicated by "x" in the
@@ -525,10 +535,12 @@ def BC1TL : MMRel, BC1F_FT<"bc1tl", brtarget, II_BC1TL, MIPS_BRANCH_T, 0>,
             BC1F_FM<1, 1>, ISA_MIPS2_NOT_32R6_64R6;
 
 /// Floating Point Compare
-def FCMP_S32 : MMRel, CEQS_FT<"s", FGR32, II_C_CC_S, MipsFPCmp>, CEQS_FM<16>,
-               ISA_MIPS1_NOT_32R6_64R6;
-def FCMP_D32 : MMRel, CEQS_FT<"d", AFGR64, II_C_CC_D, MipsFPCmp>, CEQS_FM<17>,
-               ISA_MIPS1_NOT_32R6_64R6, FGR_32;
+let AdditionalPredicates = [NotInMicroMips] in {
+  def FCMP_S32 : MMRel, CEQS_FT<"s", FGR32, II_C_CC_S, MipsFPCmp>, CEQS_FM<16>,
+                 ISA_MIPS1_NOT_32R6_64R6;
+  def FCMP_D32 : MMRel, CEQS_FT<"d", AFGR64, II_C_CC_D, MipsFPCmp>, CEQS_FM<17>,
+                 ISA_MIPS1_NOT_32R6_64R6, FGR_32;
+}
 let DecoderNamespace = "Mips64" in
 def FCMP_D64 : CEQS_FT<"d", FGR64, II_C_CC_D, MipsFPCmp>, CEQS_FM<17>,
                ISA_MIPS1_NOT_32R6_64R6, FGR_64;
@@ -541,7 +553,8 @@ def FCMP_D64 : CEQS_FT<"d", FGR64, II_C_CC_D, MipsFPCmp>, CEQS_FM<17>,
 // allocation.
 class BuildPairF64Base<RegisterOperand RO> :
   PseudoSE<(outs RO:$dst), (ins GPR32Opnd:$lo, GPR32Opnd:$hi),
-           [(set RO:$dst, (MipsBuildPairF64 GPR32Opnd:$lo, GPR32Opnd:$hi))]>;
+           [(set RO:$dst, (MipsBuildPairF64 GPR32Opnd:$lo, GPR32Opnd:$hi))],
+           II_MTC1>;
 
 def BuildPairF64 : BuildPairF64Base<AFGR64Opnd>, FGR_32, HARDFLOAT;
 def BuildPairF64_64 : BuildPairF64Base<FGR64Opnd>, FGR_64, HARDFLOAT;
@@ -550,9 +563,12 @@ def BuildPairF64_64 : BuildPairF64Base<FGR64Opnd>, FGR_64, HARDFLOAT;
 // allocation.
 // if n is 0, lower part of src is extracted.
 // if n is 1, higher part of src is extracted.
+// This node has associated scheduling information as the pre RA scheduler
+// asserts otherwise.
 class ExtractElementF64Base<RegisterOperand RO> :
   PseudoSE<(outs GPR32Opnd:$dst), (ins RO:$src, i32imm:$n),
-           [(set GPR32Opnd:$dst, (MipsExtractElementF64 RO:$src, imm:$n))]>;
+           [(set GPR32Opnd:$dst, (MipsExtractElementF64 RO:$src, imm:$n))],
+           II_MFC1>;
 
 def ExtractElementF64 : ExtractElementF64Base<AFGR64Opnd>, FGR_32, HARDFLOAT;
 def ExtractElementF64_64 : ExtractElementF64Base<FGR64Opnd>, FGR_64, HARDFLOAT;
@@ -626,13 +642,15 @@ def : MipsPat<(f64 (fextend FGR32Opnd:$src)),
               (CVT_D64_S FGR32Opnd:$src)>, FGR_64;
 
 // Patterns for loads/stores with a reg+imm operand.
-let AddedComplexity = 40 in {
-  def : LoadRegImmPat<LWC1, f32, load>;
-  def : StoreRegImmPat<SWC1, f32>;
+let AdditionalPredicates = [NotInMicroMips] in {
+  let AddedComplexity = 40 in {
+    def : LoadRegImmPat<LWC1, f32, load>;
+    def : StoreRegImmPat<SWC1, f32>;
 
-  def : LoadRegImmPat<LDC164, f64, load>, FGR_64;
-  def : StoreRegImmPat<SDC164, f64>, FGR_64;
+    def : LoadRegImmPat<LDC164, f64, load>, FGR_64;
+    def : StoreRegImmPat<SDC164, f64>, FGR_64;
 
-  def : LoadRegImmPat<LDC1, f64, load>, FGR_32;
-  def : StoreRegImmPat<SDC1, f64>, FGR_32;
+    def : LoadRegImmPat<LDC1, f64, load>, FGR_32;
+    def : StoreRegImmPat<SDC1, f64>, FGR_32;
+  }
 }

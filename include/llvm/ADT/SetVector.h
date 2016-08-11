@@ -24,6 +24,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include <algorithm>
 #include <cassert>
+#include <utility>
 #include <vector>
 
 namespace llvm {
@@ -123,7 +124,7 @@ public:
   }
 
   /// \brief Insert a new element into the SetVector.
-  /// \returns true iff the element was inserted into the SetVector.
+  /// \returns true if the element was inserted into the SetVector.
   bool insert(const value_type &X) {
     bool result = set_.insert(X).second;
     if (result)
@@ -262,7 +263,8 @@ private:
     set_type &set_;
 
   public:
-    TestAndEraseFromSet(UnaryPredicate P, set_type &set_) : P(P), set_(set_) {}
+    TestAndEraseFromSet(UnaryPredicate P, set_type &set_)
+        : P(std::move(P)), set_(set_) {}
 
     template <typename ArgumentT>
     bool operator()(const ArgumentT &Arg) {

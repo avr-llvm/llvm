@@ -621,6 +621,11 @@ static Constant *stripAndComputeConstantOffsets(const DataLayout &DL, Value *&V,
         break;
       V = GA->getAliasee();
     } else {
+      if (auto CS = CallSite(V))
+        if (Value *RV = CS.getReturnedArgOperand()) {
+          V = RV;
+          continue;
+        }
       break;
     }
     assert(V->getType()->getScalarType()->isPointerTy() &&
@@ -1492,9 +1497,8 @@ static Value *simplifyUnsignedRangeCheck(ICmpInst *ZeroICmp,
   return nullptr;
 }
 
-/// Simplify (and (icmp ...) (icmp ...)) to true when we can tell that the range
-/// of possible values cannot be satisfied.
 static Value *SimplifyAndOfICmps(ICmpInst *Op0, ICmpInst *Op1) {
+  Type *ITy = Op0->getType();
   ICmpInst::Predicate Pred0, Pred1;
   ConstantInt *CI1, *CI2;
   Value *V;
@@ -1502,14 +1506,24 @@ static Value *SimplifyAndOfICmps(ICmpInst *Op0, ICmpInst *Op1) {
   if (Value *X = simplifyUnsignedRangeCheck(Op0, Op1, /*IsAnd=*/true))
     return X;
 
+  // Look for this pattern: (icmp V, C0) & (icmp V, C1)).
+  const APInt *C0, *C1;
+  if (match(Op0, m_ICmp(Pred0, m_Value(V), m_APInt(C0))) &&
+      match(Op1, m_ICmp(Pred1, m_Specific(V), m_APInt(C1)))) {
+    // Make a constant range that's the intersection of the two icmp ranges.
+    // If the intersection is empty, we know that the result is false.
+    auto Range0 = ConstantRange::makeAllowedICmpRegion(Pred0, *C0);
+    auto Range1 = ConstantRange::makeAllowedICmpRegion(Pred1, *C1);
+    if (Range0.intersectWith(Range1).isEmptySet())
+      return getFalse(ITy);
+  }
+
   if (!match(Op0, m_ICmp(Pred0, m_Add(m_Value(V), m_ConstantInt(CI1)),
                          m_ConstantInt(CI2))))
-   return nullptr;
+    return nullptr;
 
   if (!match(Op1, m_ICmp(Pred1, m_Specific(V), m_Specific(CI1))))
     return nullptr;
-
-  Type *ITy = Op0->getType();
 
   auto *AddInst = cast<BinaryOperator>(Op0->getOperand(0));
   bool isNSW = AddInst->hasNoSignedWrap();
@@ -1605,6 +1619,24 @@ static Value *SimplifyAndInst(Value *Op0, Value *Op1, const Query &Q,
         return V;
       if (Value *V = SimplifyAndOfICmps(ICIRHS, ICILHS))
         return V;
+    }
+  }
+
+  // The compares may be hidden behind casts. Look through those and try the
+  // same folds as above.
+  auto *Cast0 = dyn_cast<CastInst>(Op0);
+  auto *Cast1 = dyn_cast<CastInst>(Op1);
+  if (Cast0 && Cast1 && Cast0->getOpcode() == Cast1->getOpcode() &&
+      Cast0->getSrcTy() == Cast1->getSrcTy()) {
+    auto *Cmp0 = dyn_cast<ICmpInst>(Cast0->getOperand(0));
+    auto *Cmp1 = dyn_cast<ICmpInst>(Cast1->getOperand(0));
+    if (Cmp0 && Cmp1) {
+      Instruction::CastOps CastOpc = Cast0->getOpcode();
+      Type *ResultType = Cast0->getType();
+      if (auto *V = dyn_cast_or_null<Constant>(SimplifyAndOfICmps(Cmp0, Cmp1)))
+        return ConstantExpr::getCast(CastOpc, V, ResultType);
+      if (auto *V = dyn_cast_or_null<Constant>(SimplifyAndOfICmps(Cmp1, Cmp0)))
+        return ConstantExpr::getCast(CastOpc, V, ResultType);
     }
   }
 
@@ -1948,7 +1980,7 @@ computePointerICmp(const DataLayout &DL, const TargetLibraryInfo *TLI,
   RHS = RHS->stripPointerCasts();
 
   // A non-null pointer is not equal to a null pointer.
-  if (llvm::isKnownNonNull(LHS, TLI) && isa<ConstantPointerNull>(RHS) &&
+  if (llvm::isKnownNonNull(LHS) && isa<ConstantPointerNull>(RHS) &&
       (Pred == CmpInst::ICMP_EQ || Pred == CmpInst::ICMP_NE))
     return ConstantInt::get(GetCompareTy(LHS),
                             !CmpInst::isTrueWhenEqual(Pred));
@@ -2086,7 +2118,7 @@ computePointerICmp(const DataLayout &DL, const TargetLibraryInfo *TLI,
           return AI->getParent() && AI->getFunction() && AI->isStaticAlloca();
         if (const GlobalValue *GV = dyn_cast<GlobalValue>(V))
           return (GV->hasLocalLinkage() || GV->hasHiddenVisibility() ||
-                  GV->hasProtectedVisibility() || GV->hasUnnamedAddr()) &&
+                  GV->hasProtectedVisibility() || GV->hasGlobalUnnamedAddr()) &&
                  !GV->isThreadLocal();
         if (const Argument *A = dyn_cast<Argument>(V))
           return A->hasByValAttr();
@@ -2103,10 +2135,9 @@ computePointerICmp(const DataLayout &DL, const TargetLibraryInfo *TLI,
     // cannot be elided. We cannot fold malloc comparison to null. Also, the
     // dynamic allocation call could be either of the operands.
     Value *MI = nullptr;
-    if (isAllocLikeFn(LHS, TLI) && llvm::isKnownNonNullAt(RHS, CxtI, DT, TLI))
+    if (isAllocLikeFn(LHS, TLI) && llvm::isKnownNonNullAt(RHS, CxtI, DT))
       MI = LHS;
-    else if (isAllocLikeFn(RHS, TLI) &&
-             llvm::isKnownNonNullAt(LHS, CxtI, DT, TLI))
+    else if (isAllocLikeFn(RHS, TLI) && llvm::isKnownNonNullAt(LHS, CxtI, DT))
       MI = RHS;
     // FIXME: We should also fold the compare when the pointer escapes, but the
     // compare dominates the pointer escape
@@ -2300,7 +2331,7 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
     } else if (match(LHS, m_SDiv(m_Value(), m_ConstantInt(CI2)))) {
       APInt IntMin = APInt::getSignedMinValue(Width);
       APInt IntMax = APInt::getSignedMaxValue(Width);
-      APInt Val = CI2->getValue();
+      const APInt &Val = CI2->getValue();
       if (Val.isAllOnesValue()) {
         // 'sdiv x, -1' produces [INT_MIN + 1, INT_MAX]
         //    where CI2 != -1 and CI2 != 0 and CI2 != 1
@@ -3369,7 +3400,10 @@ static Value *SimplifySelectInst(Value *CondVal, Value *TrueVal,
     return TrueVal;
 
   if (const auto *ICI = dyn_cast<ICmpInst>(CondVal)) {
-    unsigned BitWidth = Q.DL.getTypeSizeInBits(TrueVal->getType());
+    // FIXME: This code is nearly duplicated in InstCombine. Using/refactoring
+    // decomposeBitTestICmp() might help.
+    unsigned BitWidth =
+        Q.DL.getTypeSizeInBits(TrueVal->getType()->getScalarType());
     ICmpInst::Predicate Pred = ICI->getPredicate();
     Value *CmpLHS = ICI->getOperand(0);
     Value *CmpRHS = ICI->getOperand(1);
@@ -3913,6 +3947,22 @@ static Value *SimplifyRelativeLoad(Constant *Ptr, Constant *Offset,
   return ConstantExpr::getBitCast(LoadedLHSPtr, Int8PtrTy);
 }
 
+static bool maskIsAllZeroOrUndef(Value *Mask) {
+  auto *ConstMask = dyn_cast<Constant>(Mask);
+  if (!ConstMask)
+    return false;
+  if (ConstMask->isNullValue() || isa<UndefValue>(ConstMask))
+    return true;
+  for (unsigned I = 0, E = ConstMask->getType()->getVectorNumElements(); I != E;
+       ++I) {
+    if (auto *MaskElt = ConstMask->getAggregateElement(I))
+      if (MaskElt->isNullValue() || isa<UndefValue>(MaskElt))
+        continue;
+    return false;
+  }
+  return true;
+}
+
 template <typename IterTy>
 static Value *SimplifyIntrinsic(Function *F, IterTy ArgBegin, IterTy ArgEnd,
                                 const Query &Q, unsigned MaxRecurse) {
@@ -3960,6 +4010,15 @@ static Value *SimplifyIntrinsic(Function *F, IterTy ArgBegin, IterTy ArgEnd,
                                   Q.DL);
   }
 
+  // Simplify calls to llvm.masked.load.*
+  if (IID == Intrinsic::masked_load) {
+    Value *MaskArg = ArgBegin[2];
+    Value *PassthruArg = ArgBegin[3];
+    // If the mask is all zeros or undef, the "passthru" argument is the result.
+    if (maskIsAllZeroOrUndef(MaskArg))
+      return PassthruArg;
+  }
+
   // Perform idempotent optimizations
   if (!IsIdempotent(IID))
     return nullptr;
@@ -3982,7 +4041,8 @@ static Value *SimplifyCall(Value *V, IterTy ArgBegin, IterTy ArgEnd,
   FunctionType *FTy = cast<FunctionType>(Ty);
 
   // call undef -> undef
-  if (isa<UndefValue>(V))
+  // call null -> undef
+  if (isa<UndefValue>(V) || isa<ConstantPointerNull>(V))
     return UndefValue::get(FTy->getReturnType());
 
   Function *F = dyn_cast<Function>(V);
@@ -4217,7 +4277,8 @@ static bool replaceAndRecursivelySimplifyImpl(Instruction *I, Value *SimpleV,
 
     // Gracefully handle edge cases where the instruction is not wired into any
     // parent block.
-    if (I->getParent())
+    if (I->getParent() && !I->isEHPad() && !isa<TerminatorInst>(I) &&
+        !I->mayHaveSideEffects())
       I->eraseFromParent();
   } else {
     Worklist.insert(I);
@@ -4245,7 +4306,8 @@ static bool replaceAndRecursivelySimplifyImpl(Instruction *I, Value *SimpleV,
 
     // Gracefully handle edge cases where the instruction is not wired into any
     // parent block.
-    if (I->getParent())
+    if (I->getParent() && !I->isEHPad() && !isa<TerminatorInst>(I) &&
+        !I->mayHaveSideEffects())
       I->eraseFromParent();
   }
   return Simplified;

@@ -71,6 +71,32 @@ class POOL16C_JALRC_FM_MM16R6<bits<5> op> {
   let Inst{4-0}   = op;
 }
 
+class POP35_BOVC_FM_MMR6<string instr_asm> : MipsR6Inst, MMR6Arch<instr_asm> {
+  bits<5> rt;
+  bits<5> rs;
+  bits<16> offset;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0b011101;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = rs;
+  let Inst{15-0} = offset;
+}
+
+class POP37_BNVC_FM_MMR6<string instr_asm> : MipsR6Inst, MMR6Arch<instr_asm> {
+  bits<5> rt;
+  bits<5> rs;
+  bits<16> offset;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0b011111;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = rs;
+  let Inst{15-0} = offset;
+}
+
 class POOL16C_JRCADDIUSP_FM_MM16R6<bits<5> op> {
   bits<5> imm;
 
@@ -506,6 +532,23 @@ class POOL32A_JALRC_FM_MMR6<string instr_asm, bits<10> funct>
   let Inst{20-16} = rs;
   let Inst{15-6} = funct;
   let Inst{5-0} = 0b111100;
+}
+
+class POOL32A_EXT_INS_FM_MMR6<string instr_asm, bits<6> funct>
+    : MMR6Arch<instr_asm>, MipsR6Inst {
+  bits<5> rt;
+  bits<5> rs;
+  bits<5> size;
+  bits<5> pos;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = rs;
+  let Inst{15-11} = size;
+  let Inst{10-6}  = pos;
+  let Inst{5-0}   = funct;
 }
 
 class POOL32A_ERET_FM_MMR6<string instr_asm, bits<10> funct>
@@ -1016,4 +1059,36 @@ class POOL32I_BRANCH_COP_1_2_FM_MMR6<string instr_asm, bits<5> funct>
   let Inst{25-21} = funct;
   let Inst{20-16} = rt;
   let Inst{15-0}  = offset;
+}
+
+class LDWC1_SDWC1_FM_MMR6<string instr_asm, bits<6> funct>
+    : MMR6Arch<instr_asm> {
+  bits<5> ft;
+  bits<21> addr;
+  bits<5> base = addr{20-16};
+  bits<16> offset = addr{15-0};
+
+  bits<32> Inst;
+
+  let Inst{31-26} = funct;
+  let Inst{25-21} = ft;
+  let Inst{20-16} = base;
+  let Inst{15-0}  = offset;
+}
+
+class POOL32B_LDWC2_SDWC2_FM_MMR6<string instr_asm, bits<4> funct>
+    : MMR6Arch<instr_asm>, MipsR6Inst {
+  bits<5> rt;
+  bits<21> addr;
+  bits<5> base = addr{20-16};
+  bits<11> offset = addr{10-0};
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0b001000;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = base;
+  let Inst{15-12} = funct;
+  let Inst{11}    = 0;
+  let Inst{10-0}  = offset;
 }

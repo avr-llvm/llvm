@@ -96,10 +96,15 @@ define <4 x i32> @combine_pshufd6(<4 x i32> %a) {
 ; SSE-NEXT:    pshufd {{.*#+}} xmm0 = xmm0[0,0,0,0]
 ; SSE-NEXT:    retq
 ;
-; AVX-LABEL: combine_pshufd6:
-; AVX:       # BB#0: # %entry
-; AVX-NEXT:    vpshufd {{.*#+}} xmm0 = xmm0[0,0,0,0]
-; AVX-NEXT:    retq
+; AVX1-LABEL: combine_pshufd6:
+; AVX1:       # BB#0: # %entry
+; AVX1-NEXT:    vpshufd {{.*#+}} xmm0 = xmm0[0,0,0,0]
+; AVX1-NEXT:    retq
+;
+; AVX2-LABEL: combine_pshufd6:
+; AVX2:       # BB#0: # %entry
+; AVX2-NEXT:    vbroadcastss %xmm0, %xmm0
+; AVX2-NEXT:    retq
 entry:
   %b = call <4 x i32> @llvm.x86.sse2.pshuf.d(<4 x i32> %a, i8 0)
   %c = call <4 x i32> @llvm.x86.sse2.pshuf.d(<4 x i32> %b, i8 8)
@@ -2435,7 +2440,7 @@ define <4 x float> @combine_undef_input_test9(<4 x float> %a) {
 ;
 ; AVX-LABEL: combine_undef_input_test9:
 ; AVX:       # BB#0:
-; AVX-NEXT:    vmovhlps {{.*#+}} xmm0 = xmm0[1,1]
+; AVX-NEXT:    vpermilpd {{.*#+}} xmm0 = xmm0[1,1]
 ; AVX-NEXT:    retq
   %1 = shufflevector <4 x float> %a, <4 x float> undef, <4 x i32> <i32 2, i32 3, i32 5, i32 5>
   %2 = shufflevector <4 x float> %1, <4 x float> %a, <4 x i32> <i32 6, i32 7, i32 0, i32 1>
@@ -2626,7 +2631,7 @@ define <4 x float> @combine_undef_input_test19(<4 x float> %a) {
 ;
 ; AVX-LABEL: combine_undef_input_test19:
 ; AVX:       # BB#0:
-; AVX-NEXT:    vmovhlps {{.*#+}} xmm0 = xmm0[1,1]
+; AVX-NEXT:    vpermilpd {{.*#+}} xmm0 = xmm0[1,1]
 ; AVX-NEXT:    retq
   %1 = shufflevector <4 x float> %a, <4 x float> undef, <4 x i32> <i32 2, i32 3, i32 5, i32 5>
   %2 = shufflevector <4 x float> %a, <4 x float> %1, <4 x i32> <i32 2, i32 3, i32 4, i32 5>

@@ -13,6 +13,7 @@
 #define LLVM_FUZZER_INTERNAL_H
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <climits>
@@ -24,6 +25,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "FuzzerExtFunctions.h"
 #include "FuzzerInterface.h"
 #include "FuzzerTracePC.h"
 
@@ -41,7 +43,7 @@
 namespace fuzzer {
 
 typedef int (*UserCallback)(const uint8_t *Data, size_t Size);
-int FuzzerDriver(int argc, char **argv, UserCallback Callback);
+int FuzzerDriver(int *argc, char ***argv, UserCallback Callback);
 
 using namespace std::chrono;
 typedef std::vector<uint8_t> Unit;
@@ -122,10 +124,10 @@ void ComputeSHA1(const uint8_t *Data, size_t Len, uint8_t *Out);
 // Returns true iff U has been changed.
 bool ToASCII(uint8_t *Data, size_t Size);
 bool IsASCII(const Unit &U);
+bool IsASCII(const uint8_t *Data, size_t Size);
 
 int NumberOfCpuCores();
 int GetPid();
-int SignalToMainThread();
 void SleepSeconds(int Seconds);
 
 class Random {
@@ -201,9 +203,44 @@ private:
   size_t Size = 0;
 };
 
+struct FuzzingOptions {
+  int Verbosity = 1;
+  size_t MaxLen = 0;
+  int UnitTimeoutSec = 300;
+  int TimeoutExitCode = 77;
+  int ErrorExitCode = 77;
+  int MaxTotalTimeSec = 0;
+  int RssLimitMb = 0;
+  bool DoCrossOver = true;
+  int MutateDepth = 5;
+  bool UseCounters = false;
+  bool UseIndirCalls = true;
+  bool UseTraces = false;
+  bool UseMemcmp = true;
+  bool UseMemmem = true;
+  bool UseFullCoverageSet = false;
+  bool Reload = true;
+  bool ShuffleAtStartUp = true;
+  bool PreferSmall = true;
+  size_t MaxNumberOfRuns = ULONG_MAX;
+  int ReportSlowUnits = 10;
+  bool OnlyASCII = false;
+  std::string OutputCorpus;
+  std::string ArtifactPrefix = "./";
+  std::string ExactArtifactPath;
+  bool SaveArtifacts = true;
+  bool PrintNEW = true; // Print a status line when new units are found;
+  bool OutputCSV = false;
+  bool PrintNewCovPcs = false;
+  bool PrintFinalStats = false;
+  bool DetectLeaks = true;
+  bool TruncateUnits = false;
+  bool PruneCorpus = true;
+};
+
 class MutationDispatcher {
 public:
-  MutationDispatcher(Random &Rand) : Rand(Rand) {}
+  MutationDispatcher(Random &Rand, const FuzzingOptions &Options);
   ~MutationDispatcher() {}
   /// Indicate that we are about to start a new sequence of mutations.
   void StartMutationSequence();
@@ -211,6 +248,10 @@ public:
   void PrintMutationSequence();
   /// Indicate that the current sequence of mutations was successfull.
   void RecordSuccessfulMutationSequence();
+  /// Mutates data by invoking user-provided mutator.
+  size_t Mutate_Custom(uint8_t *Data, size_t Size, size_t MaxSize);
+  /// Mutates data by invoking user-provided crossover.
+  size_t Mutate_CustomCrossOver(uint8_t *Data, size_t Size, size_t MaxSize);
   /// Mutates data by shuffling bytes.
   size_t Mutate_ShuffleBytes(uint8_t *Data, size_t Size, size_t MaxSize);
   /// Mutates data by erasing a byte.
@@ -240,9 +281,12 @@ public:
   /// CrossOver Data with some other element of the corpus.
   size_t Mutate_CrossOver(uint8_t *Data, size_t Size, size_t MaxSize);
 
-  /// Applies one of the above mutations.
+  /// Applies one of the configured mutations.
   /// Returns the new size of data which could be up to MaxSize.
   size_t Mutate(uint8_t *Data, size_t Size, size_t MaxSize);
+  /// Applies one of the default mutations. Provided as a service
+  /// to mutation authors.
+  size_t DefaultMutate(uint8_t *Data, size_t Size, size_t MaxSize);
 
   /// Creates a cross-over of two pieces of Data, returns its size.
   size_t CrossOver(const uint8_t *Data1, size_t Size1, const uint8_t *Data2,
@@ -250,7 +294,7 @@ public:
 
   void AddWordToManualDictionary(const Word &W);
 
-  void AddWordToAutoDictionary(const Word &W, size_t PositionHint);
+  void AddWordToAutoDictionary(DictionaryEntry DE);
   void ClearAutoDictionary();
   void PrintRecommendedDictionary();
 
@@ -267,8 +311,12 @@ private:
 
   size_t AddWordFromDictionary(Dictionary &D, uint8_t *Data, size_t Size,
                                size_t MaxSize);
+  size_t MutateImpl(uint8_t *Data, size_t Size, size_t MaxSize,
+                    const std::vector<Mutator> &Mutators);
 
   Random &Rand;
+  const FuzzingOptions Options;
+
   // Dictionary provided by the user via -dict=DICT_FILE.
   Dictionary ManualDictionary;
   // Temporary dictionary modified by the fuzzer itself,
@@ -282,42 +330,12 @@ private:
   const std::vector<Unit> *Corpus = nullptr;
   std::vector<uint8_t> MutateInPlaceHere;
 
-  static Mutator Mutators[];
+  std::vector<Mutator> Mutators;
+  std::vector<Mutator> DefaultMutators;
 };
 
 class Fuzzer {
 public:
-  struct FuzzingOptions {
-    int Verbosity = 1;
-    size_t MaxLen = 0;
-    int UnitTimeoutSec = 300;
-    int TimeoutExitCode = 77;
-    int ErrorExitCode = 77;
-    int MaxTotalTimeSec = 0;
-    int RssLimitMb = 0;
-    bool DoCrossOver = true;
-    int MutateDepth = 5;
-    bool UseCounters = false;
-    bool UseIndirCalls = true;
-    bool UseTraces = false;
-    bool UseMemcmp = true;
-    bool UseFullCoverageSet = false;
-    bool Reload = true;
-    bool ShuffleAtStartUp = true;
-    bool PreferSmall = true;
-    size_t MaxNumberOfRuns = ULONG_MAX;
-    int ReportSlowUnits = 10;
-    bool OnlyASCII = false;
-    std::string OutputCorpus;
-    std::string ArtifactPrefix = "./";
-    std::string ExactArtifactPath;
-    bool SaveArtifacts = true;
-    bool PrintNEW = true; // Print a status line when new units are found;
-    bool OutputCSV = false;
-    bool PrintNewCovPcs = false;
-    bool PrintFinalStats = false;
-    bool DetectLeaks = true;
-  };
 
   // Aggregates all available coverage measurements.
   struct Coverage {
@@ -354,6 +372,7 @@ public:
   }
   size_t ChooseUnitIdxToMutate();
   const Unit &ChooseUnitToMutate() { return Corpus[ChooseUnitIdxToMutate()]; };
+  void TruncateUnits(std::vector<Unit> *NewCorpus);
   void Loop();
   void Drill();
   void ShuffleAndMinimize();
@@ -396,6 +415,12 @@ public:
   void SetMaxLen(size_t MaxLen);
   void RssLimitCallback();
 
+  // Public for tests.
+  void ResetCoverage();
+
+  bool InFuzzingThread() const { return IsMyThread; }
+  size_t GetCurrentUnitInFuzzingThead(const uint8_t **Data) const;
+
 private:
   void AlarmCallback();
   void CrashCallback();
@@ -403,20 +428,19 @@ private:
   void MutateAndTestOne();
   void ReportNewCoverage(const Unit &U);
   bool RunOne(const Unit &U) { return RunOne(U.data(), U.size()); }
-  void RunOneAndUpdateCorpus(uint8_t *Data, size_t Size);
+  void RunOneAndUpdateCorpus(const uint8_t *Data, size_t Size);
   void WriteToOutputCorpus(const Unit &U);
   void WriteUnitToFileWithPrefix(const Unit &U, const char *Prefix);
   void PrintStats(const char *Where, const char *End = "\n");
   void PrintStatusForNewUnit(const Unit &U);
   void ShuffleCorpus(UnitVector *V);
-  void TryDetectingAMemoryLeak(uint8_t *Data, size_t Size);
-  void CheckForMemoryLeaks();
+  void TryDetectingAMemoryLeak(const uint8_t *Data, size_t Size,
+                               bool DuringInitialCorpusExecution);
 
   // Updates the probability distribution for the units in the corpus.
   // Must be called whenever the corpus or unit weights are changed.
   void UpdateCorpusDistribution();
 
-  void ResetCoverage();
   bool UpdateMaxCoverage();
 
   // Trace-based fuzzing: we run a unit with some kind of tracing
@@ -433,9 +457,9 @@ private:
   void DumpCurrentUnit(const char *Prefix);
   void DeathCallback();
 
+  void LazyAllocateCurrentUnitData();
   uint8_t *CurrentUnitData = nullptr;
-  size_t CurrentUnitSize = 0;
-  bool InOOMState = false;
+  std::atomic<size_t> CurrentUnitSize;
 
   size_t TotalNumberOfRuns = 0;
   size_t NumberOfNewUnitsAdded = 0;
@@ -445,7 +469,6 @@ private:
 
   std::vector<Unit> Corpus;
   std::unordered_set<std::string> UnitHashesAddedToCorpus;
-  std::vector<uint8_t> MutateInPlaceHere;
 
   std::piecewise_constant_distribution<double> CorpusDistribution;
   UserCallback CB;
@@ -458,7 +481,13 @@ private:
 
   // Maximum recorded coverage.
   Coverage MaxCoverage;
+
+  // Need to know our own thread.
+  static thread_local bool IsMyThread;
 };
+
+// Global interface to functions that may or may not be available.
+extern ExternalFunctions *EF;
 
 }; // namespace fuzzer
 

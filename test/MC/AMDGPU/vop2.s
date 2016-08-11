@@ -94,12 +94,23 @@ v_mul_i32_i24 v1, s2, 3
 // SICI: v_mul_i32_i24_e64 v1, 3, s3 ; encoding: [0x01,0x00,0x12,0xd2,0x83,0x06,0x00,0x00]
 v_mul_i32_i24 v1, 3, s3
 
+// SICI: v_add_i32_e32 v0, vcc, 0.5, v0 ; encoding: [0xf0,0x00,0x00,0x4a]
+// VI: v_add_i32_e32 v0, vcc, 0.5, v0 ; encoding: [0xf0,0x00,0x00,0x32]
+v_add_i32 v0, vcc, 0.5, v0
+
+// SICI: v_add_i32_e32 v0, vcc, 0x40480000, v0 ; encoding: [0xff,0x00,0x00,0x4a,0x00,0x00,0x48,0x40]
+// VI: v_add_i32_e32 v0, vcc, 0x40480000, v0 ; encoding: [0xff,0x00,0x00,0x32,0x00,0x00,0x48,0x40]
+v_add_i32 v0, vcc, 3.125, v0
+
 //===----------------------------------------------------------------------===//
 // Instructions
 //===----------------------------------------------------------------------===//
 
-// GCN: v_cndmask_b32_e32 v1, v2, v3 ; encoding: [0x02,0x07,0x02,0x00]
-v_cndmask_b32 v1, v2, v3
+// GCN: v_cndmask_b32_e32 v1, v2, v3, vcc ; encoding: [0x02,0x07,0x02,0x00]
+v_cndmask_b32 v1, v2, v3, vcc
+
+// GCN: v_cndmask_b32_e32 v1, v2, v3, vcc ; encoding: [0x02,0x07,0x02,0x00]
+v_cndmask_b32_e32 v1, v2, v3, vcc
 
 // SICI: v_readlane_b32 s1, v2, s3 ; encoding: [0x02,0x07,0x02,0x02]
 // VI:   v_readlane_b32 s1, v2, s3 ; encoding: [0x01,0x00,0x89,0xd2,0x02,0x07,0x00,0x00]

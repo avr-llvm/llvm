@@ -47,9 +47,9 @@ AVRInstrInfo::AVRInstrInfo()
     : AVRGenInstrInfo(AVR::ADJCALLSTACKDOWN, AVR::ADJCALLSTACKUP), RI() {}
 
 void AVRInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
-                               MachineBasicBlock::iterator MI, DebugLoc DL,
-                               unsigned DestReg, unsigned SrcReg,
-                               bool KillSrc) const {
+                               MachineBasicBlock::iterator MI,
+                               const DebugLoc &DL, unsigned DestReg,
+                               unsigned SrcReg, bool KillSrc) const {
   const auto &Subtarget = static_cast<const AVRSubtarget&>(MBB.getParent()->getSubtarget());
   const auto &TRI = *Subtarget.getRegisterInfo();
   unsigned Opc;
@@ -87,15 +87,15 @@ void AVRInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   }
 }
 
-unsigned AVRInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
+unsigned AVRInstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
                                            int &FrameIndex) const {
-  switch (MI->getOpcode()) {
+  switch (MI.getOpcode()) {
   case AVR::LDDRdPtrQ:
   case AVR::LDDWRdYQ: { //:FIXME: remove this once PR13375 gets fixed
-    if ((MI->getOperand(1).isFI()) && (MI->getOperand(2).isImm()) &&
-        (MI->getOperand(2).getImm() == 0)) {
-      FrameIndex = MI->getOperand(1).getIndex();
-      return MI->getOperand(0).getReg();
+    if (MI.getOperand(1).isFI() && MI.getOperand(2).isImm() &&
+        MI.getOperand(2).getImm() == 0) {
+      FrameIndex = MI.getOperand(1).getIndex();
+      return MI.getOperand(0).getReg();
     }
     break;
   }
@@ -106,15 +106,15 @@ unsigned AVRInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
   return 0;
 }
 
-unsigned AVRInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
+unsigned AVRInstrInfo::isStoreToStackSlot(const MachineInstr &MI,
                                           int &FrameIndex) const {
-  switch (MI->getOpcode()) {
+  switch (MI.getOpcode()) {
   case AVR::STDPtrQRr:
   case AVR::STDWPtrQRr: {
-    if ((MI->getOperand(0).isFI()) && (MI->getOperand(1).isImm()) &&
-        (MI->getOperand(1).getImm() == 0)) {
-      FrameIndex = MI->getOperand(0).getIndex();
-      return MI->getOperand(2).getReg();
+    if (MI.getOperand(0).isFI() && MI.getOperand(1).isImm() &&
+        MI.getOperand(1).getImm() == 0) {
+      FrameIndex = MI.getOperand(0).getIndex();
+      return MI.getOperand(2).getReg();
     }
     break;
   }
@@ -271,7 +271,7 @@ AVRCC::CondCodes AVRInstrInfo::getOppositeCondition(AVRCC::CondCodes CC) const {
   }
 }
 
-bool AVRInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
+bool AVRInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
                                  MachineBasicBlock *&TBB,
                                  MachineBasicBlock *&FBB,
                                  SmallVectorImpl<MachineOperand> &Cond,
@@ -410,7 +410,7 @@ unsigned AVRInstrInfo::InsertBranch(MachineBasicBlock &MBB,
                                     MachineBasicBlock *TBB,
                                     MachineBasicBlock *FBB,
                                     ArrayRef<MachineOperand> Cond,
-                                    DebugLoc DL) const {
+                                    const DebugLoc &DL) const {
   // Shouldn't be a fall through.
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
   assert((Cond.size() == 1 || Cond.size() == 0) &&

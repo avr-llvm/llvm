@@ -473,7 +473,7 @@ static void InitLibcallNames(const char **Names, const Triple &TT) {
   Names[RTLIB::ATOMIC_FETCH_NAND_8] = "__atomic_fetch_nand_8";
   Names[RTLIB::ATOMIC_FETCH_NAND_16] = "__atomic_fetch_nand_16";
 
-  if (TT.getEnvironment() == Triple::GNU) {
+  if (TT.isGNUEnvironment()) {
     Names[RTLIB::SINCOS_F32] = "sincosf";
     Names[RTLIB::SINCOS_F64] = "sincos";
     Names[RTLIB::SINCOS_F80] = "sincosl";
@@ -830,6 +830,8 @@ TargetLoweringBase::TargetLoweringBase(const TargetMachine &tm) : TM(tm) {
   // with the Target-specific changes necessary.
   MaxAtomicSizeInBitsSupported = 1024;
 
+  MinCmpXchgSizeInBits = 0;
+
   std::fill(std::begin(LibcallRoutineNames), std::end(LibcallRoutineNames), nullptr);
 
   InitLibcallNames(LibcallRoutineNames, TM.getTargetTriple());
@@ -898,7 +900,7 @@ void TargetLoweringBase::initActions() {
       setOperationAction(ISD::ZERO_EXTEND_VECTOR_INREG, VT, Expand);
     }
 
-    // For most targets @llvm.get.dynamic.area.offest just returns 0.
+    // For most targets @llvm.get.dynamic.area.offset just returns 0.
     setOperationAction(ISD::GET_DYNAMIC_AREA_OFFSET, VT, Expand);
   }
 
@@ -925,8 +927,6 @@ void TargetLoweringBase::initActions() {
     setOperationAction(ISD::FEXP ,      VT, Expand);
     setOperationAction(ISD::FEXP2,      VT, Expand);
     setOperationAction(ISD::FFLOOR,     VT, Expand);
-    setOperationAction(ISD::FMINNUM,    VT, Expand);
-    setOperationAction(ISD::FMAXNUM,    VT, Expand);
     setOperationAction(ISD::FNEARBYINT, VT, Expand);
     setOperationAction(ISD::FCEIL,      VT, Expand);
     setOperationAction(ISD::FRINT,      VT, Expand);
@@ -1172,9 +1172,10 @@ bool TargetLoweringBase::isLegalRC(const TargetRegisterClass *RC) const {
 
 /// Replace/modify any TargetFrameIndex operands with a targte-dependent
 /// sequence of memory operands that is recognized by PrologEpilogInserter.
-MachineBasicBlock*
-TargetLoweringBase::emitPatchPoint(MachineInstr *MI,
+MachineBasicBlock *
+TargetLoweringBase::emitPatchPoint(MachineInstr &InitialMI,
                                    MachineBasicBlock *MBB) const {
+  MachineInstr *MI = &InitialMI;
   MachineFunction &MF = *MI->getParent()->getParent();
   MachineFrameInfo &MFI = *MF.getFrameInfo();
 
@@ -1233,7 +1234,7 @@ TargetLoweringBase::emitPatchPoint(MachineInstr *MI,
     // Add a new memory operand for this FI.
     assert(MFI.getObjectOffset(FI) != -1);
 
-    unsigned Flags = MachineMemOperand::MOLoad;
+    auto Flags = MachineMemOperand::MOLoad;
     if (MI->getOpcode() == TargetOpcode::STATEPOINT) {
       Flags |= MachineMemOperand::MOStore;
       Flags |= MachineMemOperand::MOVolatile;
@@ -1833,5 +1834,9 @@ void TargetLoweringBase::insertSSPDeclarations(Module &M) const {
 // Currently only support "standard" __stack_chk_guard.
 // TODO: add LOAD_STACK_GUARD support.
 Value *TargetLoweringBase::getSDagStackGuard(const Module &M) const {
-  return M.getGlobalVariable("__stack_chk_guard");
+  return M.getGlobalVariable("__stack_chk_guard", true);
+}
+
+Value *TargetLoweringBase::getSSPStackGuardCheck(const Module &M) const {
+  return nullptr;
 }

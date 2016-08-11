@@ -102,8 +102,8 @@ public:
     }
   }
 
-  unsigned getGEPCost(Type *PointeeType, const Value *Ptr,
-                      ArrayRef<const Value *> Operands) {
+  int getGEPCost(Type *PointeeType, const Value *Ptr,
+                 ArrayRef<const Value *> Operands) {
     // In the basic model, we just assume that all-constant GEPs will be folded
     // into their uses via addressing modes.
     for (unsigned Idx = 0, Size = Operands.size(); Idx != Size; ++Idx)
@@ -244,6 +244,11 @@ public:
 
   bool isFPVectorizationPotentiallyUnsafe() { return false; }
 
+  bool allowsMisalignedMemoryAccesses(unsigned BitWidth,
+                                      unsigned AddressSpace,
+                                      unsigned Alignment,
+                                      bool *Fast) { return false; }
+
   TTI::PopcntSupportKind getPopcntSupport(unsigned IntTyWidthInBit) {
     return TTI::PSK_Software;
   }
@@ -251,6 +256,11 @@ public:
   bool haveFastSqrt(Type *Ty) { return false; }
 
   unsigned getFPOpCost(Type *Ty) { return TargetTransformInfo::TCC_Basic; }
+
+  int getIntImmCodeSizeCost(unsigned Opcode, unsigned Idx, const APInt &Imm,
+                            Type *Ty) {
+    return 0;
+  }
 
   unsigned getIntImmCost(const APInt &Imm, Type *Ty) { return TTI::TCC_Basic; }
 
@@ -267,6 +277,8 @@ public:
   unsigned getNumberOfRegisters(bool Vector) { return 8; }
 
   unsigned getRegisterBitWidth(bool Vector) { return 32; }
+
+  unsigned getLoadStoreVecRegBitWidth(unsigned AddrSpace) { return 128; }
 
   unsigned getCacheLineSize() { return 0; }
 
@@ -421,8 +433,8 @@ public:
 
   using BaseT::getGEPCost;
 
-  unsigned getGEPCost(Type *PointeeType, const Value *Ptr,
-                      ArrayRef<const Value *> Operands) {
+  int getGEPCost(Type *PointeeType, const Value *Ptr,
+                 ArrayRef<const Value *> Operands) {
     const GlobalValue *BaseGV = nullptr;
     if (Ptr != nullptr) {
       // TODO: will remove this when pointers have an opaque type.

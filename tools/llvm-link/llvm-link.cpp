@@ -36,6 +36,7 @@
 #include "llvm/Transforms/Utils/FunctionImportUtils.h"
 
 #include <memory>
+#include <utility>
 using namespace llvm;
 
 static cl::list<std::string>
@@ -146,7 +147,7 @@ public:
   ModuleLazyLoaderCache(std::function<std::unique_ptr<Module>(
                             const char *argv0, const std::string &FileName)>
                             createLazyModule)
-      : createLazyModule(createLazyModule) {}
+      : createLazyModule(std::move(createLazyModule)) {}
 
   /// Retrieve a Module from the cache or lazily load it on demand.
   Module &operator()(const char *argv0, const std::string &FileName);
@@ -298,7 +299,10 @@ static bool linkFiles(const char *argv0, LLVMContext &Context, Linker &L,
       return false;
     }
 
-    if (verifyModule(*M, &errs())) {
+    // Note that when ODR merging types cannot verify input files in here When
+    // doing that debug metadata in the src module might already be pointing to
+    // the destination.
+    if (DisableDITypeMap && verifyModule(*M, &errs())) {
       errs() << argv0 << ": " << File << ": error: input module is broken!\n";
       return false;
     }
@@ -334,7 +338,7 @@ static bool linkFiles(const char *argv0, LLVMContext &Context, Linker &L,
 
 int main(int argc, char **argv) {
   // Print a stack trace if we signal out.
-  sys::PrintStackTraceOnErrorSignal();
+  sys::PrintStackTraceOnErrorSignal(argv[0]);
   PrettyStackTraceProgram X(argc, argv);
 
   LLVMContext Context;

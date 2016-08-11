@@ -34,10 +34,7 @@ Quick start
 We use here the command-line, non-interactive CMake interface.
 
 #. `Download <http://www.cmake.org/cmake/resources/software.html>`_ and install
-   CMake. Version 2.8.8 is the minimum required, but if you're using the Ninja
-   backend, CMake v3.2 or newer is required to `get interactive output
-   <http://lists.llvm.org/pipermail/llvm-commits/Week-of-Mon-20141117/244797.html>`_
-   when running :doc:`Lit <CommandGuide/lit>`.
+   CMake. Version 3.4.3 is the minimum required.
 
 #. Open a shell. Your development tools must be reachable from this shell
    through the PATH environment variable.
@@ -339,6 +336,14 @@ LLVM-specific variables
   will not be used.  If the variable for an external project does not point
   to a valid path, then that project will not be built.
 
+**LLVM_EXTERNAL_PROJECTS**:STRING
+  Semicolon-separated list of additional external projects to build as part of
+  llvm. For each project LLVM_EXTERNAL_<NAME>_SOURCE_DIR have to be specified
+  with the path for the source code of the project. Example:
+  ``-DLLVM_EXTERNAL_PROJECTS="Foo;Bar"
+  -DLLVM_EXTERNAL_FOO_SOURCE_DIR=/src/foo
+  -DLLVM_EXTERNAL_BAR_SOURCE_DIR=/src/bar``.
+
 **LLVM_USE_OPROFILE**:BOOL
   Enable building OProfile JIT support. Defaults to OFF.
 
@@ -561,7 +566,7 @@ and uses them to build a simple application ``simple-tool``.
 
 .. code-block:: cmake
 
-  cmake_minimum_required(VERSION 2.8.8)
+  cmake_minimum_required(VERSION 3.4.3)
   project(SimpleProject)
 
   find_package(LLVM REQUIRED CONFIG)

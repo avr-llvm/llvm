@@ -14,7 +14,6 @@
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -42,6 +41,10 @@ TargetLowering::TargetLowering(const TargetMachine &tm)
 
 const char *TargetLowering::getTargetNodeName(unsigned Opcode) const {
   return nullptr;
+}
+
+bool TargetLowering::isPositionIndependent() const {
+  return getTargetMachine().isPositionIndependent();
 }
 
 /// Check whether a given call node is in tail position within its function. If
@@ -111,11 +114,9 @@ void TargetLowering::ArgListEntry::setAttributes(ImmutableCallSite *CS,
 /// Generate a libcall taking the given operands as arguments and returning a
 /// result of type RetVT.
 std::pair<SDValue, SDValue>
-TargetLowering::makeLibCall(SelectionDAG &DAG,
-                            RTLIB::Libcall LC, EVT RetVT,
-                            ArrayRef<SDValue> Ops,
-                            bool isSigned, SDLoc dl,
-                            bool doesNotReturn,
+TargetLowering::makeLibCall(SelectionDAG &DAG, RTLIB::Libcall LC, EVT RetVT,
+                            ArrayRef<SDValue> Ops, bool isSigned,
+                            const SDLoc &dl, bool doesNotReturn,
                             bool isReturnValueUsed) const {
   TargetLowering::ArgListTy Args;
   Args.reserve(Ops.size());
@@ -138,7 +139,7 @@ TargetLowering::makeLibCall(SelectionDAG &DAG,
   TargetLowering::CallLoweringInfo CLI(DAG);
   bool signExtend = shouldSignExtendTypeInLibCall(RetVT, isSigned);
   CLI.setDebugLoc(dl).setChain(DAG.getEntryNode())
-    .setCallee(getLibcallCallingConv(LC), RetTy, Callee, std::move(Args), 0)
+    .setCallee(getLibcallCallingConv(LC), RetTy, Callee, std::move(Args))
     .setNoReturn(doesNotReturn).setDiscardResult(!isReturnValueUsed)
     .setSExtResult(signExtend).setZExtResult(!signExtend);
   return LowerCallTo(CLI);
@@ -149,7 +150,7 @@ TargetLowering::makeLibCall(SelectionDAG &DAG,
 void TargetLowering::softenSetCCOperands(SelectionDAG &DAG, EVT VT,
                                          SDValue &NewLHS, SDValue &NewRHS,
                                          ISD::CondCode &CCCode,
-                                         SDLoc dl) const {
+                                         const SDLoc &dl) const {
   assert((VT == MVT::f32 || VT == MVT::f64 || VT == MVT::f128 || VT == MVT::ppcf128)
          && "Unsupported setcc type!");
 
@@ -279,7 +280,7 @@ void TargetLowering::softenSetCCOperands(SelectionDAG &DAG, EVT VT,
 /// returned value is a member of the MachineJumpTableInfo::JTEntryKind enum.
 unsigned TargetLowering::getJumpTableEncoding() const {
   // In non-pic modes, just use the address of a block.
-  if (getTargetMachine().getRelocationModel() != Reloc::PIC_)
+  if (!isPositionIndependent())
     return MachineJumpTableInfo::EK_BlockAddress;
 
   // In PIC mode, if the target supports a GPRel32 directive, use it.
@@ -313,17 +314,20 @@ TargetLowering::getPICJumpTableRelocBaseExpr(const MachineFunction *MF,
 
 bool
 TargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const {
-  // Assume that everything is safe in static mode.
-  if (getTargetMachine().getRelocationModel() == Reloc::Static)
-    return true;
+  const TargetMachine &TM = getTargetMachine();
+  const GlobalValue *GV = GA->getGlobal();
 
-  // In dynamic-no-pic mode, assume that known defined values are safe.
-  if (getTargetMachine().getRelocationModel() == Reloc::DynamicNoPIC &&
-      GA && GA->getGlobal()->isStrongDefinitionForLinker())
-    return true;
+  // If the address is not even local to this DSO we will have to load it from
+  // a got and then add the offset.
+  if (!TM.shouldAssumeDSOLocal(*GV->getParent(), GV))
+    return false;
 
-  // Otherwise assume nothing is safe.
-  return false;
+  // If the code is position independent we will have to add a base register.
+  if (isPositionIndependent())
+    return false;
+
+  // Otherwise we can do it.
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
@@ -370,11 +374,10 @@ bool TargetLowering::TargetLoweringOpt::ShrinkDemandedConstant(SDValue Op,
 /// Convert x+y to (VT)((SmallVT)x+(SmallVT)y) if the casts are free.
 /// This uses isZExtFree and ZERO_EXTEND for the widening cast, but it could be
 /// generalized for targets with other types of implicit widening casts.
-bool
-TargetLowering::TargetLoweringOpt::ShrinkDemandedOp(SDValue Op,
-                                                    unsigned BitWidth,
-                                                    const APInt &Demanded,
-                                                    SDLoc dl) {
+bool TargetLowering::TargetLoweringOpt::ShrinkDemandedOp(SDValue Op,
+                                                         unsigned BitWidth,
+                                                         const APInt &Demanded,
+                                                         const SDLoc &dl) {
   assert(Op.getNumOperands() == 2 &&
          "ShrinkDemandedOp only supports binary operators!");
   assert(Op.getNode()->getNumValues() == 1 &&
@@ -1231,6 +1234,16 @@ bool TargetLowering::isConstTrueVal(const SDNode *N) const {
   llvm_unreachable("Invalid boolean contents");
 }
 
+SDValue TargetLowering::getConstTrueVal(SelectionDAG &DAG, EVT VT,
+                                        const SDLoc &DL) const {
+  unsigned ElementWidth = VT.getScalarSizeInBits();
+  APInt TrueInt =
+      getBooleanContents(VT) == TargetLowering::ZeroOrOneBooleanContent
+          ? APInt(ElementWidth, 1)
+          : APInt::getAllOnesValue(ElementWidth);
+  return DAG.getConstant(TrueInt, DL, VT);
+}
+
 bool TargetLowering::isConstFalseVal(const SDNode *N) const {
   if (!N)
     return false;
@@ -1278,7 +1291,7 @@ bool TargetLowering::isExtendedTrueVal(const ConstantSDNode *N, EVT VT,
 SDValue TargetLowering::simplifySetCCWithAnd(EVT VT, SDValue N0, SDValue N1,
                                              ISD::CondCode Cond,
                                              DAGCombinerInfo &DCI,
-                                             SDLoc DL) const {
+                                             const SDLoc &DL) const {
   // Match these patterns in any of their permutations:
   // (X & Y) == Y
   // (X & Y) != Y
@@ -1336,10 +1349,10 @@ SDValue TargetLowering::simplifySetCCWithAnd(EVT VT, SDValue N0, SDValue N1,
 
 /// Try to simplify a setcc built with the specified operands and cc. If it is
 /// unable to simplify it, return a null SDValue.
-SDValue
-TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
-                              ISD::CondCode Cond, bool foldBooleans,
-                              DAGCombinerInfo &DCI, SDLoc dl) const {
+SDValue TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
+                                      ISD::CondCode Cond, bool foldBooleans,
+                                      DAGCombinerInfo &DCI,
+                                      const SDLoc &dl) const {
   SelectionDAG &DAG = DCI.DAG;
 
   // These setcc operations always fold.
@@ -1550,9 +1563,9 @@ TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
             Ptr = DAG.getNode(ISD::ADD, dl, PtrType, Lod->getBasePtr(),
                               DAG.getConstant(bestOffset, dl, PtrType));
           unsigned NewAlign = MinAlign(Lod->getAlignment(), bestOffset);
-          SDValue NewLoad = DAG.getLoad(newVT, dl, Lod->getChain(), Ptr,
-                                Lod->getPointerInfo().getWithOffset(bestOffset),
-                                        false, false, false, NewAlign);
+          SDValue NewLoad = DAG.getLoad(
+              newVT, dl, Lod->getChain(), Ptr,
+              Lod->getPointerInfo().getWithOffset(bestOffset), NewAlign);
           return DAG.getSetCC(dl, VT,
                               DAG.getNode(ISD::AND, dl, newVT, NewLoad,
                                       DAG.getConstant(bestMask.trunc(bestWidth),
@@ -2782,7 +2795,7 @@ void TargetLowering::ComputeConstraintToUse(AsmOperandInfo &OpInfo,
 /// \brief Given an exact SDIV by a constant, create a multiplication
 /// with the multiplicative inverse of the constant.
 static SDValue BuildExactSDIV(const TargetLowering &TLI, SDValue Op1, APInt d,
-                              SDLoc dl, SelectionDAG &DAG,
+                              const SDLoc &dl, SelectionDAG &DAG,
                               std::vector<SDNode *> &Created) {
   assert(d != 0 && "Division by zero!");
 
@@ -3163,12 +3176,11 @@ SDValue TargetLowering::scalarizeVectorLoad(LoadSDNode *LD,
   SmallVector<SDValue, 8> LoadChains;
 
   for (unsigned Idx = 0; Idx < NumElem; ++Idx) {
-    SDValue ScalarLoad = DAG.getExtLoad(
-      ExtType, SL, DstEltVT,
-      Chain, BasePTR, LD->getPointerInfo().getWithOffset(Idx * Stride),
-      SrcEltVT,
-      LD->isVolatile(), LD->isNonTemporal(), LD->isInvariant(),
-      MinAlign(LD->getAlignment(), Idx * Stride), LD->getAAInfo());
+    SDValue ScalarLoad =
+        DAG.getExtLoad(ExtType, SL, DstEltVT, Chain, BasePTR,
+                       LD->getPointerInfo().getWithOffset(Idx * Stride),
+                       SrcEltVT, MinAlign(LD->getAlignment(), Idx * Stride),
+                       LD->getMemOperand()->getFlags(), LD->getAAInfo());
 
     BasePTR = DAG.getNode(ISD::ADD, SL, PtrVT, BasePTR,
                           DAG.getConstant(Stride, SL, PtrVT));
@@ -3194,11 +3206,6 @@ SDValue TargetLowering::scalarizeVectorStore(StoreSDNode *ST,
   SDValue BasePtr = ST->getBasePtr();
   SDValue Value = ST->getValue();
   EVT StVT = ST->getMemoryVT();
-
-  unsigned Alignment = ST->getAlignment();
-  bool isVolatile = ST->isVolatile();
-  bool isNonTemporal = ST->isNonTemporal();
-  AAMDNodes AAInfo = ST->getAAInfo();
 
   // The type of the data we want to save
   EVT RegVT = Value.getValueType();
@@ -3226,10 +3233,9 @@ SDValue TargetLowering::scalarizeVectorStore(StoreSDNode *ST,
 
     // This scalar TruncStore may be illegal, but we legalize it later.
     SDValue Store = DAG.getTruncStore(
-      Chain, SL, Elt, Ptr,
-      ST->getPointerInfo().getWithOffset(Idx * Stride), MemSclVT,
-      isVolatile, isNonTemporal, MinAlign(Alignment, Idx * Stride),
-      AAInfo);
+        Chain, SL, Elt, Ptr, ST->getPointerInfo().getWithOffset(Idx * Stride),
+        MemSclVT, MinAlign(ST->getAlignment(), Idx * Stride),
+        ST->getMemOperand()->getFlags(), ST->getAAInfo());
 
     Stores.push_back(Store);
   }
@@ -3290,15 +3296,13 @@ TargetLowering::expandUnalignedLoad(LoadSDNode *LD, SelectionDAG &DAG) const {
     // Do all but one copies using the full register width.
     for (unsigned i = 1; i < NumRegs; i++) {
       // Load one integer register's worth from the original location.
-      SDValue Load = DAG.getLoad(RegVT, dl, Chain, Ptr,
-                                 LD->getPointerInfo().getWithOffset(Offset),
-                                 LD->isVolatile(), LD->isNonTemporal(),
-                                 LD->isInvariant(),
-                                 MinAlign(LD->getAlignment(), Offset),
-                                 LD->getAAInfo());
+      SDValue Load = DAG.getLoad(
+          RegVT, dl, Chain, Ptr, LD->getPointerInfo().getWithOffset(Offset),
+          MinAlign(LD->getAlignment(), Offset), LD->getMemOperand()->getFlags(),
+          LD->getAAInfo());
       // Follow the load with a store to the stack slot.  Remember the store.
       Stores.push_back(DAG.getStore(Load.getValue(1), dl, Load, StackPtr,
-                                    MachinePointerInfo(), false, false, 0));
+                                    MachinePointerInfo()));
       // Increment the pointers.
       Offset += RegBytes;
       Ptr = DAG.getNode(ISD::ADD, dl, PtrVT, Ptr, PtrIncrement);
@@ -3309,27 +3313,23 @@ TargetLowering::expandUnalignedLoad(LoadSDNode *LD, SelectionDAG &DAG) const {
     // The last copy may be partial.  Do an extending load.
     EVT MemVT = EVT::getIntegerVT(*DAG.getContext(),
                                   8 * (LoadedBytes - Offset));
-    SDValue Load = DAG.getExtLoad(ISD::EXTLOAD, dl, RegVT, Chain, Ptr,
-                                  LD->getPointerInfo().getWithOffset(Offset),
-                                  MemVT, LD->isVolatile(),
-                                  LD->isNonTemporal(),
-                                  LD->isInvariant(),
-                                  MinAlign(LD->getAlignment(), Offset),
-                                  LD->getAAInfo());
+    SDValue Load =
+        DAG.getExtLoad(ISD::EXTLOAD, dl, RegVT, Chain, Ptr,
+                       LD->getPointerInfo().getWithOffset(Offset), MemVT,
+                       MinAlign(LD->getAlignment(), Offset),
+                       LD->getMemOperand()->getFlags(), LD->getAAInfo());
     // Follow the load with a store to the stack slot.  Remember the store.
     // On big-endian machines this requires a truncating store to ensure
     // that the bits end up in the right place.
     Stores.push_back(DAG.getTruncStore(Load.getValue(1), dl, Load, StackPtr,
-                                       MachinePointerInfo(), MemVT,
-                                       false, false, 0));
+                                       MachinePointerInfo(), MemVT));
 
     // The order of the stores doesn't matter - say it with a TokenFactor.
     SDValue TF = DAG.getNode(ISD::TokenFactor, dl, MVT::Other, Stores);
 
     // Finally, perform the original load only redirected to the stack slot.
     Load = DAG.getExtLoad(LD->getExtensionType(), dl, VT, TF, StackBase,
-                          MachinePointerInfo(), LoadedVT, false,false, false,
-                          0);
+                          MachinePointerInfo(), LoadedVT);
 
     // Callers expect a MERGE_VALUES node.
     return std::make_pair(Load, TF);
@@ -3357,28 +3357,24 @@ TargetLowering::expandUnalignedLoad(LoadSDNode *LD, SelectionDAG &DAG) const {
   SDValue Lo, Hi;
   if (DAG.getDataLayout().isLittleEndian()) {
     Lo = DAG.getExtLoad(ISD::ZEXTLOAD, dl, VT, Chain, Ptr, LD->getPointerInfo(),
-                        NewLoadedVT, LD->isVolatile(),
-                        LD->isNonTemporal(), LD->isInvariant(), Alignment,
+                        NewLoadedVT, Alignment, LD->getMemOperand()->getFlags(),
                         LD->getAAInfo());
     Ptr = DAG.getNode(ISD::ADD, dl, Ptr.getValueType(), Ptr,
                       DAG.getConstant(IncrementSize, dl, Ptr.getValueType()));
     Hi = DAG.getExtLoad(HiExtType, dl, VT, Chain, Ptr,
                         LD->getPointerInfo().getWithOffset(IncrementSize),
-                        NewLoadedVT, LD->isVolatile(),
-                        LD->isNonTemporal(),LD->isInvariant(),
-                        MinAlign(Alignment, IncrementSize), LD->getAAInfo());
+                        NewLoadedVT, MinAlign(Alignment, IncrementSize),
+                        LD->getMemOperand()->getFlags(), LD->getAAInfo());
   } else {
     Hi = DAG.getExtLoad(HiExtType, dl, VT, Chain, Ptr, LD->getPointerInfo(),
-                        NewLoadedVT, LD->isVolatile(),
-                        LD->isNonTemporal(), LD->isInvariant(), Alignment,
+                        NewLoadedVT, Alignment, LD->getMemOperand()->getFlags(),
                         LD->getAAInfo());
     Ptr = DAG.getNode(ISD::ADD, dl, Ptr.getValueType(), Ptr,
                       DAG.getConstant(IncrementSize, dl, Ptr.getValueType()));
     Lo = DAG.getExtLoad(ISD::ZEXTLOAD, dl, VT, Chain, Ptr,
                         LD->getPointerInfo().getWithOffset(IncrementSize),
-                        NewLoadedVT, LD->isVolatile(),
-                        LD->isNonTemporal(), LD->isInvariant(),
-                        MinAlign(Alignment, IncrementSize), LD->getAAInfo());
+                        NewLoadedVT, MinAlign(Alignment, IncrementSize),
+                        LD->getMemOperand()->getFlags(), LD->getAAInfo());
   }
 
   // aggregate the two parts
@@ -3420,7 +3416,7 @@ SDValue TargetLowering::expandUnalignedStore(StoreSDNode *ST,
       // FIXME: Does not handle truncating floating point stores!
       SDValue Result = DAG.getNode(ISD::BITCAST, dl, intVT, Val);
       Result = DAG.getStore(Chain, dl, Result, Ptr, ST->getPointerInfo(),
-                           ST->isVolatile(), ST->isNonTemporal(), Alignment);
+                            Alignment, ST->getMemOperand()->getFlags());
       return Result;
     }
     // Do a (aligned) store to a stack slot, then copy from the stack slot
@@ -3439,9 +3435,8 @@ SDValue TargetLowering::expandUnalignedStore(StoreSDNode *ST,
     SDValue StackPtr = DAG.CreateStackTemporary(StoredVT, RegVT);
 
     // Perform the original store, only redirected to the stack slot.
-    SDValue Store = DAG.getTruncStore(Chain, dl,
-                                      Val, StackPtr, MachinePointerInfo(),
-                                      StoredVT, false, false, 0);
+    SDValue Store = DAG.getTruncStore(Chain, dl, Val, StackPtr,
+                                      MachinePointerInfo(), StoredVT);
 
     EVT StackPtrVT = StackPtr.getValueType();
 
@@ -3453,14 +3448,13 @@ SDValue TargetLowering::expandUnalignedStore(StoreSDNode *ST,
     // Do all but one copies using the full register width.
     for (unsigned i = 1; i < NumRegs; i++) {
       // Load one integer register's worth from the stack slot.
-      SDValue Load = DAG.getLoad(RegVT, dl, Store, StackPtr,
-                                 MachinePointerInfo(),
-                                 false, false, false, 0);
+      SDValue Load =
+          DAG.getLoad(RegVT, dl, Store, StackPtr, MachinePointerInfo());
       // Store it to the final location.  Remember the store.
       Stores.push_back(DAG.getStore(Load.getValue(1), dl, Load, Ptr,
-                                  ST->getPointerInfo().getWithOffset(Offset),
-                                    ST->isVolatile(), ST->isNonTemporal(),
-                                    MinAlign(ST->getAlignment(), Offset)));
+                                    ST->getPointerInfo().getWithOffset(Offset),
+                                    MinAlign(ST->getAlignment(), Offset),
+                                    ST->getMemOperand()->getFlags()));
       // Increment the pointers.
       Offset += RegBytes;
       StackPtr = DAG.getNode(ISD::ADD, dl, StackPtrVT,
@@ -3476,16 +3470,13 @@ SDValue TargetLowering::expandUnalignedStore(StoreSDNode *ST,
 
     // Load from the stack slot.
     SDValue Load = DAG.getExtLoad(ISD::EXTLOAD, dl, RegVT, Store, StackPtr,
-                                  MachinePointerInfo(),
-                                  MemVT, false, false, false, 0);
+                                  MachinePointerInfo(), MemVT);
 
-    Stores.push_back(DAG.getTruncStore(Load.getValue(1), dl, Load, Ptr,
-                                       ST->getPointerInfo()
-                                         .getWithOffset(Offset),
-                                       MemVT, ST->isVolatile(),
-                                       ST->isNonTemporal(),
-                                       MinAlign(ST->getAlignment(), Offset),
-                                       ST->getAAInfo()));
+    Stores.push_back(
+        DAG.getTruncStore(Load.getValue(1), dl, Load, Ptr,
+                          ST->getPointerInfo().getWithOffset(Offset), MemVT,
+                          MinAlign(ST->getAlignment(), Offset),
+                          ST->getMemOperand()->getFlags(), ST->getAAInfo()));
     // The order of the stores doesn't matter - say it with a TokenFactor.
     SDValue Result = DAG.getNode(ISD::TokenFactor, dl, MVT::Other, Stores);
     return Result;
@@ -3510,8 +3501,8 @@ SDValue TargetLowering::expandUnalignedStore(StoreSDNode *ST,
   SDValue Store1, Store2;
   Store1 = DAG.getTruncStore(Chain, dl,
                              DAG.getDataLayout().isLittleEndian() ? Lo : Hi,
-                             Ptr, ST->getPointerInfo(), NewStoredVT,
-                             ST->isVolatile(), ST->isNonTemporal(), Alignment);
+                             Ptr, ST->getPointerInfo(), NewStoredVT, Alignment,
+                             ST->getMemOperand()->getFlags());
 
   EVT PtrVT = Ptr.getValueType();
   Ptr = DAG.getNode(ISD::ADD, dl, PtrVT, Ptr,
@@ -3519,8 +3510,8 @@ SDValue TargetLowering::expandUnalignedStore(StoreSDNode *ST,
   Alignment = MinAlign(Alignment, IncrementSize);
   Store2 = DAG.getTruncStore(
       Chain, dl, DAG.getDataLayout().isLittleEndian() ? Hi : Lo, Ptr,
-      ST->getPointerInfo().getWithOffset(IncrementSize), NewStoredVT,
-      ST->isVolatile(), ST->isNonTemporal(), Alignment, ST->getAAInfo());
+      ST->getPointerInfo().getWithOffset(IncrementSize), NewStoredVT, Alignment,
+      ST->getMemOperand()->getFlags(), ST->getAAInfo());
 
   SDValue Result =
     DAG.getNode(ISD::TokenFactor, dl, MVT::Other, Store1, Store2);
@@ -3554,7 +3545,7 @@ SDValue TargetLowering::LowerToTLSEmulatedModel(const GlobalAddressSDNode *GA,
 
   TargetLowering::CallLoweringInfo CLI(DAG);
   CLI.setDebugLoc(dl).setChain(DAG.getEntryNode());
-  CLI.setCallee(CallingConv::C, VoidPtrType, EmuTlsGetAddr, std::move(Args), 0);
+  CLI.setCallee(CallingConv::C, VoidPtrType, EmuTlsGetAddr, std::move(Args));
   std::pair<SDValue, SDValue> CallResult = LowerCallTo(CLI);
 
   // TLSADDR will be codegen'ed as call. Inform MFI that function has calls.

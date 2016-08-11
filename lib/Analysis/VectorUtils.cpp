@@ -52,6 +52,7 @@ bool llvm::isTriviallyVectorizable(Intrinsic::ID ID) {
   case Intrinsic::nearbyint:
   case Intrinsic::round:
   case Intrinsic::bswap:
+  case Intrinsic::bitreverse:
   case Intrinsic::ctpop:
   case Intrinsic::pow:
   case Intrinsic::fma:
@@ -445,4 +446,45 @@ llvm::computeMinimumValueSizes(ArrayRef<BasicBlock *> Blocks, DemandedBits &DB,
   }
 
   return MinBWs;
+}
+
+/// \returns \p I after propagating metadata from \p VL.
+Instruction *llvm::propagateMetadata(Instruction *Inst, ArrayRef<Value *> VL) {
+  Instruction *I0 = cast<Instruction>(VL[0]);
+  SmallVector<std::pair<unsigned, MDNode *>, 4> Metadata;
+  I0->getAllMetadataOtherThanDebugLoc(Metadata);
+
+  for (auto Kind : { LLVMContext::MD_tbaa, LLVMContext::MD_alias_scope,
+                     LLVMContext::MD_noalias, LLVMContext::MD_fpmath,
+                     LLVMContext::MD_nontemporal }) {
+    MDNode *MD = I0->getMetadata(Kind);
+
+    for (int J = 1, E = VL.size(); MD && J != E; ++J) {
+      const Instruction *IJ = cast<Instruction>(VL[J]);
+      MDNode *IMD = IJ->getMetadata(Kind);
+      switch (Kind) {
+      case LLVMContext::MD_tbaa:
+        MD = MDNode::getMostGenericTBAA(MD, IMD);
+        break;
+      case LLVMContext::MD_alias_scope:
+        MD = MDNode::getMostGenericAliasScope(MD, IMD);
+        break;
+      case LLVMContext::MD_noalias:
+        MD = MDNode::intersect(MD, IMD);
+        break;
+      case LLVMContext::MD_fpmath:
+        MD = MDNode::getMostGenericFPMath(MD, IMD);
+        break;
+      case LLVMContext::MD_nontemporal:
+        MD = MDNode::intersect(MD, IMD);
+        break;
+      default:
+        llvm_unreachable("unhandled metadata");
+      }
+    }
+
+    Inst->setMetadata(Kind, MD);
+  }
+
+  return Inst;
 }

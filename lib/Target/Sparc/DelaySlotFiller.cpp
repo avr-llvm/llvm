@@ -38,14 +38,10 @@ static cl::opt<bool> DisableDelaySlotFiller(
 
 namespace {
   struct Filler : public MachineFunctionPass {
-    /// Target machine description which we query for reg. names, data
-    /// layout, etc.
-    ///
-    TargetMachine &TM;
     const SparcSubtarget *Subtarget;
 
     static char ID;
-    Filler(TargetMachine &tm) : MachineFunctionPass(ID), TM(tm) {}
+    Filler() : MachineFunctionPass(ID) {}
 
     const char *getPassName() const override {
       return "SPARC Delay Slot Filler";
@@ -103,7 +99,7 @@ namespace {
 /// slots in Sparc MachineFunctions
 ///
 FunctionPass *llvm::createSparcDelaySlotFillerPass(TargetMachine &tm) {
-  return new Filler(tm);
+  return new Filler;
 }
 
 
@@ -273,6 +269,22 @@ bool Filler::delayHasHazard(MachineBasicBlock::iterator candidate,
         return true;
     }
   }
+
+  unsigned Opcode = candidate->getOpcode();
+  // LD and LDD may have NOPs inserted afterwards in the case of some LEON
+  // processors, so we can't use the delay slot if this feature is switched-on.
+  if (Subtarget->insertNOPLoad()
+      &&
+      Opcode >=  SP::LDDArr && Opcode <= SP::LDrr)
+    return true;
+
+  // Same as above for FDIV and FSQRT on some LEON processors.
+  if (Subtarget->fixAllFDIVSQRT()
+      &&
+      Opcode >=  SP::FDIVD && Opcode <= SP::FSQRTD)
+    return true;
+
+
   return false;
 }
 

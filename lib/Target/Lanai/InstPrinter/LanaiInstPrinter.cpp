@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Lanai.h"
 #include "LanaiInstPrinter.h"
+#include "Lanai.h"
 #include "MCTargetDesc/LanaiMCExpr.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCExpr.h"
@@ -137,8 +137,9 @@ bool LanaiInstPrinter::printAlias(const MCInst *MI, raw_ostream &OS) {
 
 void LanaiInstPrinter::printInst(const MCInst *MI, raw_ostream &OS,
                                  StringRef Annotation,
-                                 const MCSubtargetInfo &STI) {
-  if (!printAlias(MI, OS) && !printAliasInstr(MI, OS)) printInstruction(MI, OS);
+                                 const MCSubtargetInfo & /*STI*/) {
+  if (!printAlias(MI, OS) && !printAliasInstr(MI, OS))
+    printInstruction(MI, OS);
   printAnnotation(OS, Annotation);
 }
 
@@ -210,9 +211,11 @@ static void printMemoryBaseRegister(raw_ostream &OS, const unsigned AluCode,
                                     const MCOperand &RegOp) {
   assert(RegOp.isReg() && "Register operand expected");
   OS << "[";
-  if (LPAC::isPreOp(AluCode)) OS << "*";
+  if (LPAC::isPreOp(AluCode))
+    OS << "*";
   OS << "%" << LanaiInstPrinter::getRegisterName(RegOp.getReg());
-  if (LPAC::isPostOp(AluCode)) OS << "*";
+  if (LPAC::isPostOp(AluCode))
+    OS << "*";
   OS << "]";
 }
 
@@ -230,7 +233,7 @@ static void printMemoryImmediateOffset(const MCAsmInfo &MAI,
 
 void LanaiInstPrinter::printMemRiOperand(const MCInst *MI, int OpNo,
                                          raw_ostream &OS,
-                                         const char *Modifier) {
+                                         const char * /*Modifier*/) {
   const MCOperand &RegOp = MI->getOperand(OpNo);
   const MCOperand &OffsetOp = MI->getOperand(OpNo + 1);
   const MCOperand &AluOp = MI->getOperand(OpNo + 2);
@@ -245,7 +248,7 @@ void LanaiInstPrinter::printMemRiOperand(const MCInst *MI, int OpNo,
 
 void LanaiInstPrinter::printMemRrOperand(const MCInst *MI, int OpNo,
                                          raw_ostream &OS,
-                                         const char *Modifier) {
+                                         const char * /*Modifier*/) {
   const MCOperand &RegOp = MI->getOperand(OpNo);
   const MCOperand &OffsetOp = MI->getOperand(OpNo + 1);
   const MCOperand &AluOp = MI->getOperand(OpNo + 2);
@@ -254,9 +257,11 @@ void LanaiInstPrinter::printMemRrOperand(const MCInst *MI, int OpNo,
 
   // [ Base OP Offset ]
   OS << "[";
-  if (LPAC::isPreOp(AluCode)) OS << "*";
+  if (LPAC::isPreOp(AluCode))
+    OS << "*";
   OS << "%" << getRegisterName(RegOp.getReg());
-  if (LPAC::isPostOp(AluCode)) OS << "*";
+  if (LPAC::isPostOp(AluCode))
+    OS << "*";
   OS << " " << LPAC::lanaiAluCodeToString(AluCode) << " ";
   OS << "%" << getRegisterName(OffsetOp.getReg());
   OS << "]";
@@ -264,7 +269,7 @@ void LanaiInstPrinter::printMemRrOperand(const MCInst *MI, int OpNo,
 
 void LanaiInstPrinter::printMemSplsOperand(const MCInst *MI, int OpNo,
                                            raw_ostream &OS,
-                                           const char *Modifier) {
+                                           const char * /*Modifier*/) {
   const MCOperand &RegOp = MI->getOperand(OpNo);
   const MCOperand &OffsetOp = MI->getOperand(OpNo + 1);
   const MCOperand &AluOp = MI->getOperand(OpNo + 2);
@@ -279,6 +284,22 @@ void LanaiInstPrinter::printMemSplsOperand(const MCInst *MI, int OpNo,
 
 void LanaiInstPrinter::printCCOperand(const MCInst *MI, int OpNo,
                                       raw_ostream &OS) {
-  const int CC = static_cast<const int>(MI->getOperand(OpNo).getImm());
-  OS << lanaiCondCodeToString(static_cast<LPCC::CondCode>(CC));
+  LPCC::CondCode CC =
+      static_cast<LPCC::CondCode>(MI->getOperand(OpNo).getImm());
+  // Handle the undefined value here for printing so we don't abort().
+  if (CC >= LPCC::UNKNOWN)
+    OS << "<und>";
+  else
+    OS << lanaiCondCodeToString(CC);
+}
+
+void LanaiInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo,
+                                             raw_ostream &OS) {
+  LPCC::CondCode CC =
+      static_cast<LPCC::CondCode>(MI->getOperand(OpNo).getImm());
+  // Handle the undefined value here for printing so we don't abort().
+  if (CC >= LPCC::UNKNOWN)
+    OS << "<und>";
+  else if (CC != LPCC::ICC_T)
+    OS << "." << lanaiCondCodeToString(CC);
 }

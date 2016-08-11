@@ -1,11 +1,11 @@
 ; RUN: llc -mtriple=mipsel-linux-gnu -march=mipsel -mattr=mips16 \
 ; RUN:     -relocation-model=pic -no-integrated-as < %s | \
-; RUN:     FileCheck %s -check-prefix=ALL -check-prefix=GAS
+; RUN:     FileCheck %s -check-prefixes=ALL,GAS
 
 ; The integrated assembler expands assembly macros before printing.
 ; RUN: llc -mtriple=mipsel-linux-gnu -march=mipsel -mattr=mips16 \
 ; RUN:     -relocation-model=pic < %s | \
-; RUN:     FileCheck %s -check-prefix=ALL -check-prefix=IAS
+; RUN:     FileCheck %s -check-prefixes=ALL,IAS
 
 @x = external global float
 
@@ -23,7 +23,7 @@ entry:
 ; ALL:       .set reorder
 ; ALL:       .reloc 0, R_MIPS_NONE, v_sf
 ; GAS:       la $25, $__fn_local_v_sf
-; IAS:       lui $25, %hi($$__fn_local_v_sf)
+; IAS:       lw $25, %got($$__fn_local_v_sf)($gp)
 ; IAS:       addiu $25, $25, %lo($$__fn_local_v_sf)
 ; ALL:       mfc1 $4, $f12
 ; ALL:       jr $25

@@ -22,12 +22,16 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Transforms/Scalar/LoopDistribute.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/BlockFrequencyInfo.h"
 #include "llvm/Analysis/LoopAccessAnalysis.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/LoopPassManager.h"
+#include "llvm/Analysis/OptimizationDiagnosticInfo.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/Pass.h"
@@ -184,7 +188,7 @@ public:
 
     // Delete the instructions backwards, as it has a reduced likelihood of
     // having to update as many def-use and use-def chains.
-    for (auto *Inst : make_range(Unused.rbegin(), Unused.rend())) {
+    for (auto *Inst : reverse(Unused)) {
       if (!Inst->use_empty())
         Inst->replaceAllUsesWith(UndefValue::get(Inst->getType()));
       Inst->eraseFromParent();
@@ -589,13 +593,13 @@ private:
 class LoopDistributeForLoop {
 public:
   LoopDistributeForLoop(Loop *L, Function *F, LoopInfo *LI, DominatorTree *DT,
-                        ScalarEvolution *SE)
-      : L(L), F(F), LI(LI), LAI(nullptr), DT(DT), SE(SE) {
+                        ScalarEvolution *SE, OptimizationRemarkEmitter *ORE)
+      : L(L), F(F), LI(LI), LAI(nullptr), DT(DT), SE(SE), ORE(ORE) {
     setForced();
   }
 
   /// \brief Try to distribute an inner-most loop.
-  bool processLoop(LoopAccessAnalysis *LAA) {
+  bool processLoop(std::function<const LoopAccessInfo &(Loop &)> &GetLAA) {
     assert(L->empty() && "Only process inner loops.");
 
     DEBUG(dbgs() << "\nLDist: In \"" << L->getHeader()->getParent()->getName()
@@ -608,7 +612,7 @@ public:
       return fail("multiple exit blocks");
 
     // LAA will check that we only have a single exiting block.
-    LAI = &LAA->getInfo(L, ValueToValueMap());
+    LAI = &GetLAA(*L);
 
     // Currently, we only distribute to isolate the part of the loop with
     // dependence cycles to enable partial vectorization.
@@ -693,7 +697,7 @@ public:
     }
 
     // Don't distribute the loop if we need too many SCEV run-time checks.
-    const SCEVUnionPredicate &Pred = LAI->PSE.getUnionPredicate();
+    const SCEVUnionPredicate &Pred = LAI->getPSE().getUnionPredicate();
     if (Pred.getComplexity() > (IsForced.getValueOr(false)
                                     ? PragmaDistributeSCEVCheckThreshold
                                     : DistributeSCEVCheckThreshold))
@@ -722,7 +726,7 @@ public:
       DEBUG(LAI->getRuntimePointerChecking()->printChecks(dbgs(), Checks));
       LoopVersioning LVer(*LAI, L, LI, DT, SE, false);
       LVer.setAliasChecks(std::move(Checks));
-      LVer.setSCEVChecks(LAI->PSE.getUnionPredicate());
+      LVer.setSCEVChecks(LAI->getPSE().getUnionPredicate());
       LVer.versionLoop(DefsUsedOutside);
       LVer.annotateLoopWithNoAlias();
     }
@@ -757,22 +761,23 @@ public:
     DEBUG(dbgs() << "Skipping; " << Message << "\n");
 
     // With Rpass-missed report that distribution failed.
-    emitOptimizationRemarkMissed(
-        Ctx, LDIST_NAME, *F, L->getStartLoc(),
+    ORE->emitOptimizationRemarkMissed(
+        LDIST_NAME, L,
         "loop not distributed: use -Rpass-analysis=loop-distribute for more "
         "info");
 
     // With Rpass-analysis report why.  This is on by default if distribution
     // was requested explicitly.
     emitOptimizationRemarkAnalysis(
-        Ctx, Forced ? DiagnosticInfo::AlwaysPrint : LDIST_NAME, *F,
-        L->getStartLoc(), Twine("loop not distributed: ") + Message);
+        Ctx, Forced ? DiagnosticInfoOptimizationRemarkAnalysis::AlwaysPrint
+                    : LDIST_NAME,
+        *F, L->getStartLoc(), Twine("loop not distributed: ") + Message);
 
     // Also issue a warning if distribution was requested explicitly but it
     // failed.
     if (Forced)
       Ctx.diagnose(DiagnosticInfoOptimizationFailure(
-          *F, L->getStartLoc(), "loop not disributed: failed "
+          *F, L->getStartLoc(), "loop not distributed: failed "
                                 "explicitly specified loop distribution"));
 
     return false;
@@ -846,6 +851,7 @@ private:
   const LoopAccessInfo *LAI;
   DominatorTree *DT;
   ScalarEvolution *SE;
+  OptimizationRemarkEmitter *ORE;
 
   /// \brief Indicates whether distribution is forced to be enabled/disabled for
   /// the loop.
@@ -856,19 +862,50 @@ private:
   Optional<bool> IsForced;
 };
 
+/// Shared implementation between new and old PMs.
+static bool runImpl(Function &F, LoopInfo *LI, DominatorTree *DT,
+                    ScalarEvolution *SE, OptimizationRemarkEmitter *ORE,
+                    std::function<const LoopAccessInfo &(Loop &)> &GetLAA,
+                    bool ProcessAllLoops) {
+  // Build up a worklist of inner-loops to vectorize. This is necessary as the
+  // act of distributing a loop creates new loops and can invalidate iterators
+  // across the loops.
+  SmallVector<Loop *, 8> Worklist;
+
+  for (Loop *TopLevelLoop : *LI)
+    for (Loop *L : depth_first(TopLevelLoop))
+      // We only handle inner-most loops.
+      if (L->empty())
+        Worklist.push_back(L);
+
+  // Now walk the identified inner loops.
+  bool Changed = false;
+  for (Loop *L : Worklist) {
+    LoopDistributeForLoop LDL(L, &F, LI, DT, SE, ORE);
+
+    // If distribution was forced for the specific loop to be
+    // enabled/disabled, follow that.  Otherwise use the global flag.
+    if (LDL.isForced().getValueOr(ProcessAllLoops))
+      Changed |= LDL.processLoop(GetLAA);
+  }
+
+  // Process each loop nest in the function.
+  return Changed;
+}
+
 /// \brief The pass class.
-class LoopDistribute : public FunctionPass {
+class LoopDistributeLegacy : public FunctionPass {
 public:
   /// \p ProcessAllLoopsByDefault specifies whether loop distribution should be
   /// performed by default.  Pass -enable-loop-distribute={0,1} overrides this
   /// default.  We use this to keep LoopDistribution off by default when invoked
   /// from the optimization pipeline but on when invoked explicitly from opt.
-  LoopDistribute(bool ProcessAllLoopsByDefault = true)
+  LoopDistributeLegacy(bool ProcessAllLoopsByDefault = true)
       : FunctionPass(ID), ProcessAllLoops(ProcessAllLoopsByDefault) {
     // The default is set by the caller.
     if (EnableLoopDistribute.getNumOccurrences() > 0)
       ProcessAllLoops = EnableLoopDistribute;
-    initializeLoopDistributePass(*PassRegistry::getPassRegistry());
+    initializeLoopDistributeLegacyPass(*PassRegistry::getPassRegistry());
   }
 
   bool runOnFunction(Function &F) override {
@@ -876,43 +913,24 @@ public:
       return false;
 
     auto *LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-    auto *LAA = &getAnalysis<LoopAccessAnalysis>();
+    auto *LAA = &getAnalysis<LoopAccessLegacyAnalysis>();
     auto *DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
     auto *SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
+    auto *ORE = &getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE();
+    std::function<const LoopAccessInfo &(Loop &)> GetLAA =
+        [&](Loop &L) -> const LoopAccessInfo & { return LAA->getInfo(&L); };
 
-    // Build up a worklist of inner-loops to vectorize. This is necessary as the
-    // act of distributing a loop creates new loops and can invalidate iterators
-    // across the loops.
-    SmallVector<Loop *, 8> Worklist;
-
-    for (Loop *TopLevelLoop : *LI)
-      for (Loop *L : depth_first(TopLevelLoop))
-        // We only handle inner-most loops.
-        if (L->empty())
-          Worklist.push_back(L);
-
-    // Now walk the identified inner loops.
-    bool Changed = false;
-    for (Loop *L : Worklist) {
-      LoopDistributeForLoop LDL(L, &F, LI, DT, SE);
-
-      // If distribution was forced for the specific loop to be
-      // enabled/disabled, follow that.  Otherwise use the global flag.
-      if (LDL.isForced().getValueOr(ProcessAllLoops))
-        Changed |= LDL.processLoop(LAA);
-    }
-
-    // Process each loop nest in the function.
-    return Changed;
+    return runImpl(F, LI, DT, SE, ORE, GetLAA, ProcessAllLoops);
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<ScalarEvolutionWrapperPass>();
     AU.addRequired<LoopInfoWrapperPass>();
     AU.addPreserved<LoopInfoWrapperPass>();
-    AU.addRequired<LoopAccessAnalysis>();
+    AU.addRequired<LoopAccessLegacyAnalysis>();
     AU.addRequired<DominatorTreeWrapperPass>();
     AU.addPreserved<DominatorTreeWrapperPass>();
+    AU.addRequired<OptimizationRemarkEmitterWrapperPass>();
   }
 
   static char ID;
@@ -924,18 +942,49 @@ private:
 };
 } // anonymous namespace
 
-char LoopDistribute::ID;
+PreservedAnalyses LoopDistributePass::run(Function &F,
+                                          FunctionAnalysisManager &AM) {
+  // FIXME: This does not currently match the behavior from the old PM.
+  // ProcessAllLoops with the old PM defaults to true when invoked from opt and
+  // false when invoked from the optimization pipeline.
+  bool ProcessAllLoops = false;
+  if (EnableLoopDistribute.getNumOccurrences() > 0)
+    ProcessAllLoops = EnableLoopDistribute;
+
+  auto &LI = AM.getResult<LoopAnalysis>(F);
+  auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
+  auto &SE = AM.getResult<ScalarEvolutionAnalysis>(F);
+  auto &ORE = AM.getResult<OptimizationRemarkEmitterAnalysis>(F);
+
+  auto &LAM = AM.getResult<LoopAnalysisManagerFunctionProxy>(F).getManager();
+  std::function<const LoopAccessInfo &(Loop &)> GetLAA =
+      [&](Loop &L) -> const LoopAccessInfo & {
+    return LAM.getResult<LoopAccessAnalysis>(L);
+  };
+
+  bool Changed = runImpl(F, &LI, &DT, &SE, &ORE, GetLAA, ProcessAllLoops);
+  if (!Changed)
+    return PreservedAnalyses::all();
+  PreservedAnalyses PA;
+  PA.preserve<LoopAnalysis>();
+  PA.preserve<DominatorTreeAnalysis>();
+  return PA;
+}
+
+char LoopDistributeLegacy::ID;
 static const char ldist_name[] = "Loop Distribition";
 
-INITIALIZE_PASS_BEGIN(LoopDistribute, LDIST_NAME, ldist_name, false, false)
+INITIALIZE_PASS_BEGIN(LoopDistributeLegacy, LDIST_NAME, ldist_name, false,
+                      false)
 INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(LoopAccessAnalysis)
+INITIALIZE_PASS_DEPENDENCY(LoopAccessLegacyAnalysis)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
-INITIALIZE_PASS_END(LoopDistribute, LDIST_NAME, ldist_name, false, false)
+INITIALIZE_PASS_DEPENDENCY(OptimizationRemarkEmitterWrapperPass)
+INITIALIZE_PASS_END(LoopDistributeLegacy, LDIST_NAME, ldist_name, false, false)
 
 namespace llvm {
 FunctionPass *createLoopDistributePass(bool ProcessAllLoopsByDefault) {
-  return new LoopDistribute(ProcessAllLoopsByDefault);
+  return new LoopDistributeLegacy(ProcessAllLoopsByDefault);
 }
 }

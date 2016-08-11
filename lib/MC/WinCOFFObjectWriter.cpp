@@ -109,7 +109,6 @@ public:
   relocations Relocations;
 
   COFFSection(StringRef name);
-  static size_t size();
 };
 
 class WinCOFFObjectWriter : public MCObjectWriter {
@@ -155,6 +154,8 @@ public:
   object_t *createCOFFEntity(StringRef Name, list_t &List);
 
   void defineSection(MCSectionCOFF const &Sec);
+
+  COFFSymbol *getLinkedSymbol(const MCSymbol &Symbol);
   void DefineSymbol(const MCSymbol &Symbol, MCAssembler &Assembler,
                     const MCAsmLayout &Layout);
 
@@ -221,8 +222,6 @@ COFFSection::COFFSection(StringRef name)
     : Name(name), MCSection(nullptr), Symbol(nullptr) {
   memset(&Header, 0, sizeof(Header));
 }
-
-size_t COFFSection::size() { return COFF::SectionSize; }
 
 //------------------------------------------------------------------------------
 // WinCOFFObjectWriter class implementation
@@ -353,33 +352,51 @@ static uint64_t getSymbolValue(const MCSymbol &Symbol,
   return Res;
 }
 
+COFFSymbol *WinCOFFObjectWriter::getLinkedSymbol(const MCSymbol &Symbol) {
+  if (!Symbol.isVariable())
+    return nullptr;
+
+  const MCSymbolRefExpr *SymRef =
+      dyn_cast<MCSymbolRefExpr>(Symbol.getVariableValue());
+  if (!SymRef)
+    return nullptr;
+
+  const MCSymbol &Aliasee = SymRef->getSymbol();
+  if (!Aliasee.isUndefined())
+    return nullptr;
+  return GetOrCreateCOFFSymbol(&Aliasee);
+}
+
 /// This function takes a symbol data object from the assembler
 /// and creates the associated COFF symbol staging object.
 void WinCOFFObjectWriter::DefineSymbol(const MCSymbol &Symbol,
                                        MCAssembler &Assembler,
                                        const MCAsmLayout &Layout) {
   COFFSymbol *coff_symbol = GetOrCreateCOFFSymbol(&Symbol);
+  const MCSymbol *Base = Layout.getBaseSymbol(Symbol);
+  COFFSection *Sec = nullptr;
+  if (Base && Base->getFragment()) {
+    Sec = SectionMap[Base->getFragment()->getParent()];
+    if (coff_symbol->Section && coff_symbol->Section != Sec)
+      report_fatal_error("conflicting sections for symbol");
+  }
 
+  COFFSymbol *Local = nullptr;
   if (cast<MCSymbolCOFF>(Symbol).isWeakExternal()) {
     coff_symbol->Data.StorageClass = COFF::IMAGE_SYM_CLASS_WEAK_EXTERNAL;
 
-    if (Symbol.isVariable()) {
-      const MCSymbolRefExpr *SymRef =
-          dyn_cast<MCSymbolRefExpr>(Symbol.getVariableValue());
-
-      if (!SymRef)
-        report_fatal_error("Weak externals may only alias symbols");
-
-      coff_symbol->Other = GetOrCreateCOFFSymbol(&SymRef->getSymbol());
-    } else {
+    COFFSymbol *WeakDefault = getLinkedSymbol(Symbol);
+    if (!WeakDefault) {
       std::string WeakName = (".weak." + Symbol.getName() + ".default").str();
-      COFFSymbol *WeakDefault = createSymbol(WeakName);
-      WeakDefault->Data.SectionNumber = COFF::IMAGE_SYM_ABSOLUTE;
-      WeakDefault->Data.StorageClass = COFF::IMAGE_SYM_CLASS_EXTERNAL;
-      WeakDefault->Data.Type = 0;
-      WeakDefault->Data.Value = 0;
-      coff_symbol->Other = WeakDefault;
+      WeakDefault = createSymbol(WeakName);
+      if (!Sec)
+        WeakDefault->Data.SectionNumber = COFF::IMAGE_SYM_ABSOLUTE;
+      else
+        WeakDefault->Section = Sec;
+      Local = WeakDefault;
     }
+
+    coff_symbol->Other = WeakDefault;
 
     // Setup the Weak External auxiliary symbol.
     coff_symbol->Aux.resize(1);
@@ -388,41 +405,32 @@ void WinCOFFObjectWriter::DefineSymbol(const MCSymbol &Symbol,
     coff_symbol->Aux[0].Aux.WeakExternal.TagIndex = 0;
     coff_symbol->Aux[0].Aux.WeakExternal.Characteristics =
         COFF::IMAGE_WEAK_EXTERN_SEARCH_LIBRARY;
-
-    coff_symbol->MC = &Symbol;
   } else {
-    const MCSymbol *Base = Layout.getBaseSymbol(Symbol);
-    coff_symbol->Data.Value = getSymbolValue(Symbol, Layout);
+    if (!Base)
+      coff_symbol->Data.SectionNumber = COFF::IMAGE_SYM_ABSOLUTE;
+    else
+      coff_symbol->Section = Sec;
+    Local = coff_symbol;
+  }
+
+  if (Local) {
+    Local->Data.Value = getSymbolValue(Symbol, Layout);
 
     const MCSymbolCOFF &SymbolCOFF = cast<MCSymbolCOFF>(Symbol);
-    coff_symbol->Data.Type = SymbolCOFF.getType();
-    coff_symbol->Data.StorageClass = SymbolCOFF.getClass();
+    Local->Data.Type = SymbolCOFF.getType();
+    Local->Data.StorageClass = SymbolCOFF.getClass();
 
     // If no storage class was specified in the streamer, define it here.
-    if (coff_symbol->Data.StorageClass == COFF::IMAGE_SYM_CLASS_NULL) {
+    if (Local->Data.StorageClass == COFF::IMAGE_SYM_CLASS_NULL) {
       bool IsExternal = Symbol.isExternal() ||
                         (!Symbol.getFragment() && !Symbol.isVariable());
 
-      coff_symbol->Data.StorageClass = IsExternal
-                                           ? COFF::IMAGE_SYM_CLASS_EXTERNAL
-                                           : COFF::IMAGE_SYM_CLASS_STATIC;
+      Local->Data.StorageClass = IsExternal ? COFF::IMAGE_SYM_CLASS_EXTERNAL
+                                            : COFF::IMAGE_SYM_CLASS_STATIC;
     }
-
-    if (!Base) {
-      coff_symbol->Data.SectionNumber = COFF::IMAGE_SYM_ABSOLUTE;
-    } else {
-      if (Base->getFragment()) {
-        COFFSection *Sec = SectionMap[Base->getFragment()->getParent()];
-
-        if (coff_symbol->Section && coff_symbol->Section != Sec)
-          report_fatal_error("conflicting sections for symbol");
-
-        coff_symbol->Section = Sec;
-      }
-    }
-
-    coff_symbol->MC = &Symbol;
   }
+
+  coff_symbol->MC = &Symbol;
 }
 
 // Maximum offsets for different string table entry encodings.
@@ -528,48 +536,47 @@ void WinCOFFObjectWriter::WriteSymbol(const COFFSymbol &S) {
 
 void WinCOFFObjectWriter::WriteAuxiliarySymbols(
     const COFFSymbol::AuxiliarySymbols &S) {
-  for (COFFSymbol::AuxiliarySymbols::const_iterator i = S.begin(), e = S.end();
-       i != e; ++i) {
-    switch (i->AuxType) {
+  for (const AuxSymbol &i : S) {
+    switch (i.AuxType) {
     case ATFunctionDefinition:
-      writeLE32(i->Aux.FunctionDefinition.TagIndex);
-      writeLE32(i->Aux.FunctionDefinition.TotalSize);
-      writeLE32(i->Aux.FunctionDefinition.PointerToLinenumber);
-      writeLE32(i->Aux.FunctionDefinition.PointerToNextFunction);
-      WriteZeros(sizeof(i->Aux.FunctionDefinition.unused));
+      writeLE32(i.Aux.FunctionDefinition.TagIndex);
+      writeLE32(i.Aux.FunctionDefinition.TotalSize);
+      writeLE32(i.Aux.FunctionDefinition.PointerToLinenumber);
+      writeLE32(i.Aux.FunctionDefinition.PointerToNextFunction);
+      WriteZeros(sizeof(i.Aux.FunctionDefinition.unused));
       if (UseBigObj)
         WriteZeros(COFF::Symbol32Size - COFF::Symbol16Size);
       break;
     case ATbfAndefSymbol:
-      WriteZeros(sizeof(i->Aux.bfAndefSymbol.unused1));
-      writeLE16(i->Aux.bfAndefSymbol.Linenumber);
-      WriteZeros(sizeof(i->Aux.bfAndefSymbol.unused2));
-      writeLE32(i->Aux.bfAndefSymbol.PointerToNextFunction);
-      WriteZeros(sizeof(i->Aux.bfAndefSymbol.unused3));
+      WriteZeros(sizeof(i.Aux.bfAndefSymbol.unused1));
+      writeLE16(i.Aux.bfAndefSymbol.Linenumber);
+      WriteZeros(sizeof(i.Aux.bfAndefSymbol.unused2));
+      writeLE32(i.Aux.bfAndefSymbol.PointerToNextFunction);
+      WriteZeros(sizeof(i.Aux.bfAndefSymbol.unused3));
       if (UseBigObj)
         WriteZeros(COFF::Symbol32Size - COFF::Symbol16Size);
       break;
     case ATWeakExternal:
-      writeLE32(i->Aux.WeakExternal.TagIndex);
-      writeLE32(i->Aux.WeakExternal.Characteristics);
-      WriteZeros(sizeof(i->Aux.WeakExternal.unused));
+      writeLE32(i.Aux.WeakExternal.TagIndex);
+      writeLE32(i.Aux.WeakExternal.Characteristics);
+      WriteZeros(sizeof(i.Aux.WeakExternal.unused));
       if (UseBigObj)
         WriteZeros(COFF::Symbol32Size - COFF::Symbol16Size);
       break;
     case ATFile:
       writeBytes(
-          StringRef(reinterpret_cast<const char *>(&i->Aux),
+          StringRef(reinterpret_cast<const char *>(&i.Aux),
                     UseBigObj ? COFF::Symbol32Size : COFF::Symbol16Size));
       break;
     case ATSectionDefinition:
-      writeLE32(i->Aux.SectionDefinition.Length);
-      writeLE16(i->Aux.SectionDefinition.NumberOfRelocations);
-      writeLE16(i->Aux.SectionDefinition.NumberOfLinenumbers);
-      writeLE32(i->Aux.SectionDefinition.CheckSum);
-      writeLE16(static_cast<int16_t>(i->Aux.SectionDefinition.Number));
-      write8(i->Aux.SectionDefinition.Selection);
-      WriteZeros(sizeof(i->Aux.SectionDefinition.unused));
-      writeLE16(static_cast<int16_t>(i->Aux.SectionDefinition.Number >> 16));
+      writeLE32(i.Aux.SectionDefinition.Length);
+      writeLE16(i.Aux.SectionDefinition.NumberOfRelocations);
+      writeLE16(i.Aux.SectionDefinition.NumberOfLinenumbers);
+      writeLE32(i.Aux.SectionDefinition.CheckSum);
+      writeLE16(static_cast<int16_t>(i.Aux.SectionDefinition.Number));
+      write8(i.Aux.SectionDefinition.Selection);
+      WriteZeros(sizeof(i.Aux.SectionDefinition.unused));
+      writeLE16(static_cast<int16_t>(i.Aux.SectionDefinition.Number >> 16));
       if (UseBigObj)
         WriteZeros(COFF::Symbol32Size - COFF::Symbol16Size);
       break;

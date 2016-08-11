@@ -304,7 +304,7 @@ MachineInstr *SSACCmpConv::findConvertibleCompare(MachineBasicBlock *MBB) {
     case AArch64::CBNZW:
     case AArch64::CBNZX:
       // These can be converted into a ccmp against #0.
-      return I;
+      return &*I;
     }
     ++NumCmpTermRejs;
     DEBUG(dbgs() << "Flags not used by terminator: " << *I);
@@ -335,7 +335,7 @@ MachineInstr *SSACCmpConv::findConvertibleCompare(MachineBasicBlock *MBB) {
     case AArch64::ADDSWrr:
     case AArch64::ADDSXrr:
       if (isDeadDef(I->getOperand(0).getReg()))
-        return I;
+        return &*I;
       DEBUG(dbgs() << "Can't convert compare with live destination: " << *I);
       ++NumLiveDstRejs;
       return nullptr;
@@ -343,7 +343,7 @@ MachineInstr *SSACCmpConv::findConvertibleCompare(MachineBasicBlock *MBB) {
     case AArch64::FCMPDrr:
     case AArch64::FCMPESrr:
     case AArch64::FCMPEDrr:
-      return I;
+      return &*I;
     }
 
     // Check for flag reads and clobbers.
@@ -493,7 +493,7 @@ bool SSACCmpConv::canConvert(MachineBasicBlock *MBB) {
   // The branch we're looking to eliminate must be analyzable.
   HeadCond.clear();
   MachineBasicBlock *TBB = nullptr, *FBB = nullptr;
-  if (TII->AnalyzeBranch(*Head, TBB, FBB, HeadCond)) {
+  if (TII->analyzeBranch(*Head, TBB, FBB, HeadCond)) {
     DEBUG(dbgs() << "Head branch not analyzable.\n");
     ++NumHeadBranchRejs;
     return false;
@@ -521,7 +521,7 @@ bool SSACCmpConv::canConvert(MachineBasicBlock *MBB) {
 
   CmpBBCond.clear();
   TBB = FBB = nullptr;
-  if (TII->AnalyzeBranch(*CmpBB, TBB, FBB, CmpBBCond)) {
+  if (TII->analyzeBranch(*CmpBB, TBB, FBB, CmpBBCond)) {
     DEBUG(dbgs() << "CmpBB branch not analyzable.\n");
     ++NumCmpBranchRejs;
     return false;

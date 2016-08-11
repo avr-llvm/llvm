@@ -13,7 +13,6 @@
 
 #include "AVRMCTargetDesc.h"
 
-#include "llvm/MC/MCCodeGenInfo.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -55,15 +54,6 @@ static MCSubtargetInfo *createAVRMCSubtargetInfo(const Triple &TT,
   return createAVRMCSubtargetInfoImpl(TT, CPU, FS);
 }
 
-static MCCodeGenInfo *createAVRMCCodeGenInfo(const Triple &TT, Reloc::Model RM,
-                                             CodeModel::Model CM,
-                                             CodeGenOpt::Level OL) {
-  MCCodeGenInfo *X = new MCCodeGenInfo();
-  X->initMCCodeGenInfo(RM, CM, OL);
-
-  return X;
-}
-
 static MCInstPrinter *createAVRMCInstPrinter(const Triple &T,
                                              unsigned SyntaxVariant,
                                              const MCAsmInfo &MAI,
@@ -97,9 +87,6 @@ static MCTargetStreamer *createMCAsmTargetStreamer(MCStreamer &S,
 extern "C" void LLVMInitializeAVRTargetMC() {
   // Register the MC asm info.
   RegisterMCAsmInfo<AVRMCAsmInfo> X(TheAVRTarget);
-
-  // Register the MC codegen info.
-  TargetRegistry::RegisterMCCodeGenInfo(TheAVRTarget, createAVRMCCodeGenInfo);
 
   // Register the MC instruction info.
   TargetRegistry::RegisterMCInstrInfo(TheAVRTarget, createAVRMCInstrInfo);

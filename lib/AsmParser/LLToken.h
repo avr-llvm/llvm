@@ -60,6 +60,7 @@ enum Kind {
   kw_hidden,
   kw_protected,
   kw_unnamed_addr,
+  kw_local_unnamed_addr,
   kw_externally_initialized,
   kw_extern_weak,
   kw_external,
@@ -204,6 +205,7 @@ enum Kind {
   kw_swifterror,
   kw_swiftself,
   kw_uwtable,
+  kw_writeonly,
   kw_zeroext,
 
   kw_type,
@@ -344,6 +346,7 @@ enum Kind {
   DwarfAttEncoding, // DW_ATE_foo
   DwarfVirtuality,  // DW_VIRTUALITY_foo
   DwarfLang,        // DW_LANG_foo
+  DwarfCC,          // DW_CC_foo
   EmissionKind,     // lineTablesOnly
   DwarfOp,          // DW_OP_foo
   DIFlag,           // DIFlagFoo

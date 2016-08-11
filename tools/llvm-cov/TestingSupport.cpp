@@ -8,11 +8,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Object/ObjectFile.h"
+#include "llvm/ProfileData/InstrProf.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/LEB128.h"
-#include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/PrettyStackTrace.h"
-#include "llvm/Support/Signals.h"
 #include "llvm/Support/raw_ostream.h"
 #include <functional>
 #include <system_error>
@@ -21,10 +19,6 @@ using namespace llvm;
 using namespace object;
 
 int convertForTestingMain(int argc, const char *argv[]) {
-  sys::PrintStackTraceOnErrorSignal();
-  PrettyStackTraceProgram X(argc, argv);
-  llvm_shutdown_obj Y; // Call llvm_shutdown() on exit.
-
   cl::opt<std::string> InputSourceFile(cl::Positional, cl::Required,
                                        cl::desc("<Source file>"));
 
@@ -58,9 +52,9 @@ int convertForTestingMain(int argc, const char *argv[]) {
     StringRef Name;
     if (Section.getName(Name))
       return 1;
-    if (Name == "__llvm_prf_names") {
+    if (Name == llvm::getInstrProfNameSectionName(false)) {
       ProfileNames = Section;
-    } else if (Name == "__llvm_covmap") {
+    } else if (Name == llvm::getInstrProfCoverageSectionName(false)) {
       CoverageMapping = Section;
     } else
       continue;

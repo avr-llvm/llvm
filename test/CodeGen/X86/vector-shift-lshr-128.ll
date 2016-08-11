@@ -280,6 +280,7 @@ define <8 x i16> @var_shift_v8i16(<8 x i16> %a, <8 x i16> %b) nounwind {
 ; AVX2-NEXT:    vpsrlvd %ymm1, %ymm0, %ymm0
 ; AVX2-NEXT:    vpshufb {{.*#+}} ymm0 = ymm0[0,1,4,5,8,9,12,13],zero,zero,zero,zero,zero,zero,zero,zero,ymm0[16,17,20,21,24,25,28,29],zero,zero,zero,zero,zero,zero,zero,zero
 ; AVX2-NEXT:    vpermq {{.*#+}} ymm0 = ymm0[0,2,2,3]
+; AVX2-NEXT:    # kill: %XMM0<def> %XMM0<kill> %YMM0<kill>
 ; AVX2-NEXT:    vzeroupper
 ; AVX2-NEXT:    retq
 ;
@@ -292,7 +293,10 @@ define <8 x i16> @var_shift_v8i16(<8 x i16> %a, <8 x i16> %b) nounwind {
 ;
 ; AVX512-LABEL: var_shift_v8i16:
 ; AVX512:       ## BB#0:
+; AVX512-NEXT:    ## kill: %XMM1<def> %XMM1<kill> %ZMM1<def>
+; AVX512-NEXT:    ## kill: %XMM0<def> %XMM0<kill> %ZMM0<def>
 ; AVX512-NEXT:    vpsrlvw %zmm1, %zmm0, %zmm0
+; AVX512-NEXT:    ## kill: %XMM0<def> %XMM0<kill> %ZMM0<kill>
 ; AVX512-NEXT:    retq
 ;
 ; X32-SSE-LABEL: var_shift_v8i16:
@@ -437,7 +441,7 @@ define <16 x i8> @var_shift_v16i8(<16 x i8> %a, <16 x i8> %b) nounwind {
 ; X32-SSE-NEXT:    movdqa %xmm3, %xmm4
 ; X32-SSE-NEXT:    pandn %xmm0, %xmm4
 ; X32-SSE-NEXT:    psrlw $4, %xmm0
-; X32-SSE-NEXT:    pand .LCPI3_0, %xmm0
+; X32-SSE-NEXT:    pand {{\.LCPI.*}}, %xmm0
 ; X32-SSE-NEXT:    pand %xmm3, %xmm0
 ; X32-SSE-NEXT:    por %xmm4, %xmm0
 ; X32-SSE-NEXT:    paddb %xmm1, %xmm1
@@ -446,7 +450,7 @@ define <16 x i8> @var_shift_v16i8(<16 x i8> %a, <16 x i8> %b) nounwind {
 ; X32-SSE-NEXT:    movdqa %xmm3, %xmm4
 ; X32-SSE-NEXT:    pandn %xmm0, %xmm4
 ; X32-SSE-NEXT:    psrlw $2, %xmm0
-; X32-SSE-NEXT:    pand .LCPI3_1, %xmm0
+; X32-SSE-NEXT:    pand {{\.LCPI.*}}, %xmm0
 ; X32-SSE-NEXT:    pand %xmm3, %xmm0
 ; X32-SSE-NEXT:    por %xmm4, %xmm0
 ; X32-SSE-NEXT:    paddb %xmm1, %xmm1
@@ -454,7 +458,7 @@ define <16 x i8> @var_shift_v16i8(<16 x i8> %a, <16 x i8> %b) nounwind {
 ; X32-SSE-NEXT:    movdqa %xmm2, %xmm1
 ; X32-SSE-NEXT:    pandn %xmm0, %xmm1
 ; X32-SSE-NEXT:    psrlw $1, %xmm0
-; X32-SSE-NEXT:    pand .LCPI3_2, %xmm0
+; X32-SSE-NEXT:    pand {{\.LCPI.*}}, %xmm0
 ; X32-SSE-NEXT:    pand %xmm2, %xmm0
 ; X32-SSE-NEXT:    por %xmm1, %xmm0
 ; X32-SSE-NEXT:    retl
@@ -735,7 +739,7 @@ define <16 x i8> @splatvar_shift_v16i8(<16 x i8> %a, <16 x i8> %b) nounwind {
 ; X32-SSE-NEXT:    movdqa %xmm3, %xmm4
 ; X32-SSE-NEXT:    pandn %xmm0, %xmm4
 ; X32-SSE-NEXT:    psrlw $4, %xmm0
-; X32-SSE-NEXT:    pand .LCPI7_0, %xmm0
+; X32-SSE-NEXT:    pand {{\.LCPI.*}}, %xmm0
 ; X32-SSE-NEXT:    pand %xmm3, %xmm0
 ; X32-SSE-NEXT:    por %xmm4, %xmm0
 ; X32-SSE-NEXT:    paddb %xmm2, %xmm2
@@ -744,7 +748,7 @@ define <16 x i8> @splatvar_shift_v16i8(<16 x i8> %a, <16 x i8> %b) nounwind {
 ; X32-SSE-NEXT:    movdqa %xmm3, %xmm4
 ; X32-SSE-NEXT:    pandn %xmm0, %xmm4
 ; X32-SSE-NEXT:    psrlw $2, %xmm0
-; X32-SSE-NEXT:    pand .LCPI7_1, %xmm0
+; X32-SSE-NEXT:    pand {{\.LCPI.*}}, %xmm0
 ; X32-SSE-NEXT:    pand %xmm3, %xmm0
 ; X32-SSE-NEXT:    por %xmm4, %xmm0
 ; X32-SSE-NEXT:    paddb %xmm2, %xmm2
@@ -752,7 +756,7 @@ define <16 x i8> @splatvar_shift_v16i8(<16 x i8> %a, <16 x i8> %b) nounwind {
 ; X32-SSE-NEXT:    movdqa %xmm1, %xmm2
 ; X32-SSE-NEXT:    pandn %xmm0, %xmm2
 ; X32-SSE-NEXT:    psrlw $1, %xmm0
-; X32-SSE-NEXT:    pand .LCPI7_2, %xmm0
+; X32-SSE-NEXT:    pand {{\.LCPI.*}}, %xmm0
 ; X32-SSE-NEXT:    pand %xmm1, %xmm0
 ; X32-SSE-NEXT:    por %xmm2, %xmm0
 ; X32-SSE-NEXT:    retl
@@ -952,6 +956,7 @@ define <8 x i16> @constant_shift_v8i16(<8 x i16> %a) nounwind {
 ; AVX2-NEXT:    vpsrlvd {{.*}}(%rip), %ymm0, %ymm0
 ; AVX2-NEXT:    vpshufb {{.*#+}} ymm0 = ymm0[0,1,4,5,8,9,12,13],zero,zero,zero,zero,zero,zero,zero,zero,ymm0[16,17,20,21,24,25,28,29],zero,zero,zero,zero,zero,zero,zero,zero
 ; AVX2-NEXT:    vpermq {{.*#+}} ymm0 = ymm0[0,2,2,3]
+; AVX2-NEXT:    # kill: %XMM0<def> %XMM0<kill> %YMM0<kill>
 ; AVX2-NEXT:    vzeroupper
 ; AVX2-NEXT:    retq
 ;
@@ -964,8 +969,10 @@ define <8 x i16> @constant_shift_v8i16(<8 x i16> %a) nounwind {
 ;
 ; AVX512-LABEL: constant_shift_v8i16:
 ; AVX512:       ## BB#0:
+; AVX512-NEXT:    ## kill: %XMM0<def> %XMM0<kill> %ZMM0<def>
 ; AVX512-NEXT:    vmovdqa {{.*#+}} xmm1 = [0,1,2,3,4,5,6,7]
 ; AVX512-NEXT:    vpsrlvw %zmm1, %zmm0, %zmm0
+; AVX512-NEXT:    ## kill: %XMM0<def> %XMM0<kill> %ZMM0<kill>
 ; AVX512-NEXT:    retq
 ;
 ; X32-SSE-LABEL: constant_shift_v8i16:
@@ -1094,7 +1101,7 @@ define <16 x i8> @constant_shift_v16i8(<16 x i8> %a) nounwind {
 ; X32-SSE-NEXT:    movdqa %xmm3, %xmm4
 ; X32-SSE-NEXT:    pandn %xmm0, %xmm4
 ; X32-SSE-NEXT:    psrlw $4, %xmm0
-; X32-SSE-NEXT:    pand .LCPI11_1, %xmm0
+; X32-SSE-NEXT:    pand {{\.LCPI.*}}, %xmm0
 ; X32-SSE-NEXT:    pand %xmm3, %xmm0
 ; X32-SSE-NEXT:    por %xmm4, %xmm0
 ; X32-SSE-NEXT:    paddb %xmm2, %xmm2
@@ -1103,7 +1110,7 @@ define <16 x i8> @constant_shift_v16i8(<16 x i8> %a) nounwind {
 ; X32-SSE-NEXT:    movdqa %xmm3, %xmm4
 ; X32-SSE-NEXT:    pandn %xmm0, %xmm4
 ; X32-SSE-NEXT:    psrlw $2, %xmm0
-; X32-SSE-NEXT:    pand .LCPI11_2, %xmm0
+; X32-SSE-NEXT:    pand {{\.LCPI.*}}, %xmm0
 ; X32-SSE-NEXT:    pand %xmm3, %xmm0
 ; X32-SSE-NEXT:    por %xmm4, %xmm0
 ; X32-SSE-NEXT:    paddb %xmm2, %xmm2
@@ -1111,7 +1118,7 @@ define <16 x i8> @constant_shift_v16i8(<16 x i8> %a) nounwind {
 ; X32-SSE-NEXT:    movdqa %xmm1, %xmm2
 ; X32-SSE-NEXT:    pandn %xmm0, %xmm2
 ; X32-SSE-NEXT:    psrlw $1, %xmm0
-; X32-SSE-NEXT:    pand .LCPI11_3, %xmm0
+; X32-SSE-NEXT:    pand {{\.LCPI.*}}, %xmm0
 ; X32-SSE-NEXT:    pand %xmm1, %xmm0
 ; X32-SSE-NEXT:    por %xmm2, %xmm0
 ; X32-SSE-NEXT:    retl
@@ -1239,7 +1246,7 @@ define <16 x i8> @splatconstant_shift_v16i8(<16 x i8> %a) nounwind {
 ; X32-SSE-LABEL: splatconstant_shift_v16i8:
 ; X32-SSE:       # BB#0:
 ; X32-SSE-NEXT:    psrlw $3, %xmm0
-; X32-SSE-NEXT:    pand .LCPI15_0, %xmm0
+; X32-SSE-NEXT:    pand {{\.LCPI.*}}, %xmm0
 ; X32-SSE-NEXT:    retl
   %shift = lshr <16 x i8> %a, <i8 3, i8 3, i8 3, i8 3, i8 3, i8 3, i8 3, i8 3, i8 3, i8 3, i8 3, i8 3, i8 3, i8 3, i8 3, i8 3>
   ret <16 x i8> %shift

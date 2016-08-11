@@ -45,6 +45,7 @@ LLVMContextImpl::LLVMContextImpl(LLVMContext &C)
   DiagnosticHandler = nullptr;
   DiagnosticContext = nullptr;
   RespectDiagnosticFilters = false;
+  DiagnosticHotnessRequested = false;
   YieldCallback = nullptr;
   YieldOpaqueHandle = nullptr;
   NamedStructTypesUniqueID = 0;
@@ -99,10 +100,9 @@ LLVMContextImpl::~LLVMContextImpl() {
   InlineAsms.freeConstants();
   DeleteContainerSeconds(IntConstants);
   DeleteContainerSeconds(FPConstants);
-  
-  for (StringMap<ConstantDataSequential*>::iterator I = CDSConstants.begin(),
-       E = CDSConstants.end(); I != E; ++I)
-    delete I->second;
+
+  for (auto &CDSConstant : CDSConstants)
+    delete CDSConstant.second;
   CDSConstants.clear();
 
   // Destroy attributes.

@@ -182,12 +182,17 @@ X86TargetMachine::getSubtargetImpl(const Function &F) const {
   Attribute CPUAttr = F.getFnAttribute("target-cpu");
   Attribute FSAttr = F.getFnAttribute("target-features");
 
-  std::string CPU = !CPUAttr.hasAttribute(Attribute::None)
-                        ? CPUAttr.getValueAsString().str()
-                        : TargetCPU;
-  std::string FS = !FSAttr.hasAttribute(Attribute::None)
-                       ? FSAttr.getValueAsString().str()
-                       : TargetFS;
+  StringRef CPU = !CPUAttr.hasAttribute(Attribute::None)
+                      ? CPUAttr.getValueAsString()
+                      : (StringRef)TargetCPU;
+  StringRef FS = !FSAttr.hasAttribute(Attribute::None)
+                     ? FSAttr.getValueAsString()
+                     : (StringRef)TargetFS;
+
+  SmallString<512> Key;
+  Key.reserve(CPU.size() + FS.size());
+  Key += CPU;
+  Key += FS;
 
   // FIXME: This is related to the code below to reset the target options,
   // we need to know whether or not the soft float flag is set on the
@@ -199,9 +204,11 @@ X86TargetMachine::getSubtargetImpl(const Function &F) const {
   // If the soft float attribute is set on the function turn on the soft float
   // subtarget feature.
   if (SoftFloat)
-    FS += FS.empty() ? "+soft-float" : ",+soft-float";
+    Key += FS.empty() ? "+soft-float" : ",+soft-float";
 
-  auto &I = SubtargetMap[CPU + FS];
+  FS = Key.substr(CPU.size());
+
+  auto &I = SubtargetMap[Key];
   if (!I) {
     // This needs to be done before we create a new subtarget since any
     // creation will depend on the TM and the code generation flags on the
@@ -278,7 +285,6 @@ bool X86PassConfig::addInstSelector() {
     addPass(createCleanupLocalDynamicTLSPass());
 
   addPass(createX86GlobalBaseRegPass());
-
   return false;
 }
 
@@ -298,10 +304,12 @@ bool X86PassConfig::addPreISel() {
 }
 
 void X86PassConfig::addPreRegAlloc() {
-  if (getOptLevel() != CodeGenOpt::None)
+  if (getOptLevel() != CodeGenOpt::None) {
+    addPass(createX86FixupSetCC());
     addPass(createX86OptimizeLEAs());
+    addPass(createX86CallFrameOptimization());
+  }
 
-  addPass(createX86CallFrameOptimization());
   addPass(createX86WinAllocaExpander());
 }
 

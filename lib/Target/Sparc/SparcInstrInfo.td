@@ -57,6 +57,10 @@ def HasLeonCASA : Predicate<"Subtarget->hasLeonCasa()">;
 // UMAC and SMAC instructions
 def HasUMAC_SMAC : Predicate<"Subtarget->hasUmacSmac()">;
 
+def HasNoFdivSqrtFix : Predicate<"!Subtarget->fixAllFDIVSQRT()">;
+def HasNoFmulsFix : Predicate<"!Subtarget->replaceFMULS()">;
+def HasNoFsmuldFix : Predicate<"!Subtarget->fixFSMULD()">;
+
 // UseDeprecatedInsts - This predicate is true when the target processor is a
 // V8, or when it is V9 but the V8 deprecated instructions are efficient enough
 // to use when appropriate.  In either of these cases, the instruction selector
@@ -1172,6 +1176,9 @@ def FABSS : F3_3u<2, 0b110100, 0b000001001,
 
 
 // Floating-point Square Root Instructions, p.145
+// FSQRTS generates an erratum on LEON processors, so by disabling this instruction
+// this will be promoted to use FSQRTD with doubles instead.
+let Predicates = [HasNoFdivSqrtFix] in 
 def FSQRTS : F3_3u<2, 0b110100, 0b000101001,
                   (outs FPRegs:$rd), (ins FPRegs:$rs2),
                   "fsqrts $rs2, $rd",
@@ -1225,6 +1232,9 @@ def FSUBQ  : F3_3<2, 0b110100, 0b001000111,
 
 
 // Floating-point Multiply and Divide Instructions, p. 147
+// FMULS generates an erratum on LEON processors, so by disabling this instruction
+// this will be promoted to use FMULD with doubles instead.
+let Predicates = [HasNoFmulsFix] in 
 def FMULS  : F3_3<2, 0b110100, 0b001001001,
                   (outs FPRegs:$rd), (ins FPRegs:$rs1, FPRegs:$rs2),
                   "fmuls $rs1, $rs2, $rd",
@@ -1241,6 +1251,7 @@ def FMULQ  : F3_3<2, 0b110100, 0b001001011,
                   [(set f128:$rd, (fmul f128:$rs1, f128:$rs2))]>,
                   Requires<[HasHardQuad]>;
 
+let Predicates = [HasNoFsmuldFix] in
 def FSMULD : F3_3<2, 0b110100, 0b001101001,
                   (outs DFPRegs:$rd), (ins FPRegs:$rs1, FPRegs:$rs2),
                   "fsmuld $rs1, $rs2, $rd",
@@ -1254,6 +1265,8 @@ def FDMULQ : F3_3<2, 0b110100, 0b001101110,
                                          (fextend f64:$rs2)))]>,
                   Requires<[HasHardQuad]>;
 
+// FDIVS generates an erratum on LEON processors, so by disabling this instruction
+// this will be promoted to use FDIVD with doubles instead.
 def FDIVS  : F3_3<2, 0b110100, 0b001001101,
                  (outs FPRegs:$rd), (ins FPRegs:$rs1, FPRegs:$rs2),
                  "fdivs $rs1, $rs2, $rd",
@@ -1505,7 +1518,7 @@ let Predicates = [HasV9], Constraints = "$swap = $rd", asi = 0b10000000 in
                                      IntRegs:$swap),
                  "cas [$rs1], $rs2, $rd",
                  [(set i32:$rd,
-                     (atomic_cmp_swap iPTR:$rs1, i32:$rs2, i32:$swap))]>;
+                     (atomic_cmp_swap_32 iPTR:$rs1, i32:$rs2, i32:$swap))]>;
 
 
 // CASA is supported as an instruction on some LEON3 and all LEON4 processors.
@@ -1516,7 +1529,7 @@ let Predicates = [HasLeonCASA], Constraints = "$swap = $rd", asi = 0b00001010 in
                                      IntRegs:$swap),
                  "casa [$rs1] 10, $rs2, $rd",
                  [(set i32:$rd,
-                     (atomic_cmp_swap iPTR:$rs1, i32:$rs2, i32:$swap))]>;
+                     (atomic_cmp_swap_32 iPTR:$rs1, i32:$rs2, i32:$swap))]>;
                  
 // CASA supported on some LEON3 and all LEON4 processors. Same pattern as
 // CASrr, above, but with a different ASI. This version is supported for
@@ -1645,13 +1658,21 @@ def : Pat<(store (i32 0), ADDRri:$dst), (STri ADDRri:$dst, (i32 G0))>;
 let Predicates = [HasNoV9] in
   def : Pat<(atomic_fence imm, imm), (STBAR)>;
 
-// atomic_load_32 addr -> load addr
-def : Pat<(i32 (atomic_load ADDRrr:$src)), (LDrr ADDRrr:$src)>;
-def : Pat<(i32 (atomic_load ADDRri:$src)), (LDri ADDRri:$src)>;
+// atomic_load addr -> load addr
+def : Pat<(i32 (atomic_load_8 ADDRrr:$src)), (LDUBrr ADDRrr:$src)>;
+def : Pat<(i32 (atomic_load_8 ADDRri:$src)), (LDUBri ADDRri:$src)>;
+def : Pat<(i32 (atomic_load_16 ADDRrr:$src)), (LDUHrr ADDRrr:$src)>;
+def : Pat<(i32 (atomic_load_16 ADDRri:$src)), (LDUHri ADDRri:$src)>;
+def : Pat<(i32 (atomic_load_32 ADDRrr:$src)), (LDrr ADDRrr:$src)>;
+def : Pat<(i32 (atomic_load_32 ADDRri:$src)), (LDri ADDRri:$src)>;
 
-// atomic_store_32 val, addr -> store val, addr
-def : Pat<(atomic_store ADDRrr:$dst, i32:$val), (STrr ADDRrr:$dst, $val)>;
-def : Pat<(atomic_store ADDRri:$dst, i32:$val), (STri ADDRri:$dst, $val)>;
+// atomic_store val, addr -> store val, addr
+def : Pat<(atomic_store_8 ADDRrr:$dst, i32:$val), (STBrr ADDRrr:$dst, $val)>;
+def : Pat<(atomic_store_8 ADDRri:$dst, i32:$val), (STBri ADDRri:$dst, $val)>;
+def : Pat<(atomic_store_16 ADDRrr:$dst, i32:$val), (STHrr ADDRrr:$dst, $val)>;
+def : Pat<(atomic_store_16 ADDRri:$dst, i32:$val), (STHri ADDRri:$dst, $val)>;
+def : Pat<(atomic_store_32 ADDRrr:$dst, i32:$val), (STrr ADDRrr:$dst, $val)>;
+def : Pat<(atomic_store_32 ADDRri:$dst, i32:$val), (STri ADDRri:$dst, $val)>;
 
 // extract_vector
 def : Pat<(extractelt (v2i32 IntPair:$Rn), 0),

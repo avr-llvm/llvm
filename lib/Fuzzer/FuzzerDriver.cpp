@@ -163,8 +163,9 @@ static bool ParseOneFlag(const char *Param) {
       }
     }
   }
-  PrintHelp();
-  exit(1);
+  Printf("\n\nWARNING: unrecognized flag '%s'; "
+         "use -help=1 to list all flags\n\n", Param);
+  return true;
 }
 
 // We don't use any library to minimize dependencies.
@@ -265,9 +266,13 @@ static bool AllInputsAreFiles() {
   return true;
 }
 
-static int FuzzerDriver(const std::vector<std::string> &Args,
-                        UserCallback Callback) {
+int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
   using namespace fuzzer;
+  assert(argc && argv && "Argument pointers cannot be nullptr");
+  EF = new ExternalFunctions();
+  if (EF->LLVMFuzzerInitialize)
+    EF->LLVMFuzzerInitialize(argc, argv);
+  const std::vector<std::string> Args(*argv, *argv + *argc);
   assert(!Args.empty());
   ProgName = new std::string(Args[0]);
   ParseFlags(Args);
@@ -292,7 +297,7 @@ static int FuzzerDriver(const std::vector<std::string> &Args,
 
   const size_t kMaxSaneLen = 1 << 20;
   const size_t kMinDefaultLen = 64;
-  Fuzzer::FuzzingOptions Options;
+  FuzzingOptions Options;
   Options.Verbosity = Flags.verbosity;
   Options.MaxLen = Flags.max_len;
   Options.UnitTimeoutSec = Flags.timeout;
@@ -304,6 +309,7 @@ static int FuzzerDriver(const std::vector<std::string> &Args,
   Options.UseIndirCalls = Flags.use_indir_calls;
   Options.UseTraces = Flags.use_traces;
   Options.UseMemcmp = Flags.use_memcmp;
+  Options.UseMemmem = Flags.use_memmem;
   Options.ShuffleAtStartUp = Flags.shuffle;
   Options.PreferSmall = Flags.prefer_small;
   Options.Reload = Flags.reload;
@@ -330,6 +336,8 @@ static int FuzzerDriver(const std::vector<std::string> &Args,
   Options.SaveArtifacts = !DoPlainRun;
   Options.PrintNewCovPcs = Flags.print_new_cov_pcs;
   Options.PrintFinalStats = Flags.print_final_stats;
+  Options.TruncateUnits = Flags.truncate_units;
+  Options.PruneCorpus = Flags.prune_corpus;
 
   unsigned Seed = Flags.seed;
   // Initialize Seed.
@@ -340,7 +348,7 @@ static int FuzzerDriver(const std::vector<std::string> &Args,
     Printf("INFO: Seed: %u\n", Seed);
 
   Random Rand(Seed);
-  MutationDispatcher MD(Rand);
+  MutationDispatcher MD(Rand, Options);
   Fuzzer F(Callback, MD, Options);
 
   for (auto &U: Dictionary)
@@ -367,12 +375,12 @@ static int FuzzerDriver(const std::vector<std::string> &Args,
            Inputs->size(), Runs);
     for (auto &Path : *Inputs) {
       auto StartTime = system_clock::now();
-      Printf("%s ... ", Path.c_str());
+      Printf("Running: %s\n", Path.c_str());
       for (int Iter = 0; Iter < Runs; Iter++)
         RunOneTest(&F, Path.c_str());
       auto StopTime = system_clock::now();
       auto MS = duration_cast<milliseconds>(StopTime - StartTime).count();
-      Printf("%zd ms\n", (long)MS);
+      Printf("Executed %s in %zd ms\n", Path.c_str(), (long)MS);
     }
     F.PrintFinalStats();
     exit(0);
@@ -416,9 +424,7 @@ static int FuzzerDriver(const std::vector<std::string> &Args,
   exit(0);  // Don't let F destroy itself.
 }
 
-int FuzzerDriver(int argc, char **argv, UserCallback Callback) {
-  std::vector<std::string> Args(argv, argv + argc);
-  return FuzzerDriver(Args, Callback);
-}
+// Storage for global ExternalFunctions object.
+ExternalFunctions *EF = nullptr;
 
 }  // namespace fuzzer

@@ -502,7 +502,7 @@ static bool isOperandUnresolved(Metadata *Op) {
 void MDNode::countUnresolvedOperands() {
   assert(NumUnresolved == 0 && "Expected unresolved ops to be uncounted");
   assert(isUniqued() && "Expected this to be uniqued");
-  NumUnresolved = std::count_if(op_begin(), op_end(), isOperandUnresolved);
+  NumUnresolved = count_if(operands(), isOperandUnresolved);
 }
 
 void MDNode::makeUniqued() {
@@ -675,8 +675,8 @@ void MDNode::handleChangedOperand(void *Ref, Metadata *New) {
   Metadata *Old = getOperand(Op);
   setOperand(Op, New);
 
-  // Drop uniquing for self-reference cycles.
-  if (New == this) {
+  // Drop uniquing for self-reference cycles and deleted constants.
+  if (New == this || (!New && Old && isa<ConstantAsMetadata>(Old))) {
     if (!isResolved())
       resolve();
     storeDistinctInContext();
@@ -1125,6 +1125,43 @@ void MDAttachmentMap::getAll(
     array_pod_sort(Result.begin(), Result.end());
 }
 
+void MDGlobalAttachmentMap::insert(unsigned ID, MDNode &MD) {
+  Attachments.push_back({ID, TrackingMDNodeRef(&MD)});
+}
+
+void MDGlobalAttachmentMap::get(unsigned ID,
+                                SmallVectorImpl<MDNode *> &Result) {
+  for (auto A : Attachments)
+    if (A.MDKind == ID)
+      Result.push_back(A.Node);
+}
+
+void MDGlobalAttachmentMap::erase(unsigned ID) {
+  auto Follower = Attachments.begin();
+  for (auto Leader = Attachments.begin(), E = Attachments.end(); Leader != E;
+       ++Leader) {
+    if (Leader->MDKind != ID) {
+      if (Follower != Leader)
+        *Follower = std::move(*Leader);
+      ++Follower;
+    }
+  }
+  Attachments.resize(Follower - Attachments.begin());
+}
+
+void MDGlobalAttachmentMap::getAll(
+    SmallVectorImpl<std::pair<unsigned, MDNode *>> &Result) const {
+  for (auto &A : Attachments)
+    Result.emplace_back(A.MDKind, A.Node);
+
+  // Sort the resulting array so it is stable with respect to metadata IDs. We
+  // need to preserve the original insertion order though.
+  std::stable_sort(
+      Result.begin(), Result.end(),
+      [](const std::pair<unsigned, MDNode *> &A,
+         const std::pair<unsigned, MDNode *> &B) { return A.first < B.first; });
+}
+
 void Instruction::setMetadata(StringRef Kind, MDNode *Node) {
   if (!Node && !hasMetadata())
     return;
@@ -1275,86 +1312,138 @@ bool Instruction::extractProfMetadata(uint64_t &TrueVal, uint64_t &FalseVal) {
   return true;
 }
 
+bool Instruction::extractProfTotalWeight(uint64_t &TotalVal) {
+  assert((getOpcode() == Instruction::Br ||
+          getOpcode() == Instruction::Select ||
+          getOpcode() == Instruction::Call ||
+          getOpcode() == Instruction::Invoke) &&
+         "Looking for branch weights on something besides branch");
+
+  TotalVal = 0;
+  auto *ProfileData = getMetadata(LLVMContext::MD_prof);
+  if (!ProfileData)
+    return false;
+
+  auto *ProfDataName = dyn_cast<MDString>(ProfileData->getOperand(0));
+  if (!ProfDataName || !ProfDataName->getString().equals("branch_weights"))
+    return false;
+
+  TotalVal = 0;
+  for (unsigned i = 1; i < ProfileData->getNumOperands(); i++) {
+    auto *V = mdconst::dyn_extract<ConstantInt>(ProfileData->getOperand(i));
+    if (!V)
+      return false;
+    TotalVal += V->getValue().getZExtValue();
+  }
+  return true;
+}
+
 void Instruction::clearMetadataHashEntries() {
   assert(hasMetadataHashEntry() && "Caller should check");
   getContext().pImpl->InstructionMetadata.erase(this);
   setHasMetadataHashEntry(false);
 }
 
-MDNode *Function::getMetadata(unsigned KindID) const {
-  if (!hasMetadata())
-    return nullptr;
-  return getContext().pImpl->FunctionMetadata[this].lookup(KindID);
+void GlobalObject::getMetadata(unsigned KindID,
+                               SmallVectorImpl<MDNode *> &MDs) const {
+  if (hasMetadata())
+    getContext().pImpl->GlobalObjectMetadata[this].get(KindID, MDs);
 }
 
-MDNode *Function::getMetadata(StringRef Kind) const {
-  if (!hasMetadata())
-    return nullptr;
-  return getMetadata(getContext().getMDKindID(Kind));
+void GlobalObject::getMetadata(StringRef Kind,
+                               SmallVectorImpl<MDNode *> &MDs) const {
+  if (hasMetadata())
+    getMetadata(getContext().getMDKindID(Kind), MDs);
 }
 
-void Function::setMetadata(unsigned KindID, MDNode *MD) {
-  if (MD) {
-    if (!hasMetadata())
-      setHasMetadataHashEntry(true);
+void GlobalObject::addMetadata(unsigned KindID, MDNode &MD) {
+  if (!hasMetadata())
+    setHasMetadataHashEntry(true);
 
-    getContext().pImpl->FunctionMetadata[this].set(KindID, *MD);
-    return;
-  }
+  getContext().pImpl->GlobalObjectMetadata[this].insert(KindID, MD);
+}
 
+void GlobalObject::addMetadata(StringRef Kind, MDNode &MD) {
+  addMetadata(getContext().getMDKindID(Kind), MD);
+}
+
+void GlobalObject::eraseMetadata(unsigned KindID) {
   // Nothing to unset.
   if (!hasMetadata())
     return;
 
-  auto &Store = getContext().pImpl->FunctionMetadata[this];
+  auto &Store = getContext().pImpl->GlobalObjectMetadata[this];
   Store.erase(KindID);
   if (Store.empty())
     clearMetadata();
 }
 
-void Function::setMetadata(StringRef Kind, MDNode *MD) {
-  if (!MD && !hasMetadata())
-    return;
-  setMetadata(getContext().getMDKindID(Kind), MD);
-}
-
-void Function::getAllMetadata(
+void GlobalObject::getAllMetadata(
     SmallVectorImpl<std::pair<unsigned, MDNode *>> &MDs) const {
   MDs.clear();
 
   if (!hasMetadata())
     return;
 
-  getContext().pImpl->FunctionMetadata[this].getAll(MDs);
+  getContext().pImpl->GlobalObjectMetadata[this].getAll(MDs);
 }
 
-void Function::dropUnknownMetadata(ArrayRef<unsigned> KnownIDs) {
+void GlobalObject::clearMetadata() {
   if (!hasMetadata())
     return;
-  if (KnownIDs.empty()) {
-    clearMetadata();
-    return;
-  }
-
-  SmallSet<unsigned, 5> KnownSet;
-  KnownSet.insert(KnownIDs.begin(), KnownIDs.end());
-
-  auto &Store = getContext().pImpl->FunctionMetadata[this];
-  assert(!Store.empty());
-
-  Store.remove_if([&KnownSet](const std::pair<unsigned, TrackingMDNodeRef> &I) {
-    return !KnownSet.count(I.first);
-  });
-
-  if (Store.empty())
-    clearMetadata();
-}
-
-void Function::clearMetadata() {
-  if (!hasMetadata())
-    return;
-  getContext().pImpl->FunctionMetadata.erase(this);
+  getContext().pImpl->GlobalObjectMetadata.erase(this);
   setHasMetadataHashEntry(false);
+}
+
+void GlobalObject::setMetadata(unsigned KindID, MDNode *N) {
+  eraseMetadata(KindID);
+  if (N)
+    addMetadata(KindID, *N);
+}
+
+void GlobalObject::setMetadata(StringRef Kind, MDNode *N) {
+  setMetadata(getContext().getMDKindID(Kind), N);
+}
+
+MDNode *GlobalObject::getMetadata(unsigned KindID) const {
+  SmallVector<MDNode *, 1> MDs;
+  getMetadata(KindID, MDs);
+  assert(MDs.size() <= 1 && "Expected at most one metadata attachment");
+  if (MDs.empty())
+    return nullptr;
+  return MDs[0];
+}
+
+MDNode *GlobalObject::getMetadata(StringRef Kind) const {
+  return getMetadata(getContext().getMDKindID(Kind));
+}
+
+void GlobalObject::copyMetadata(const GlobalObject *Other, unsigned Offset) {
+  SmallVector<std::pair<unsigned, MDNode *>, 8> MDs;
+  Other->getAllMetadata(MDs);
+  for (auto &MD : MDs) {
+    // We need to adjust the type metadata offset.
+    if (Offset != 0 && MD.first == LLVMContext::MD_type) {
+      auto *OffsetConst = cast<ConstantInt>(
+          cast<ConstantAsMetadata>(MD.second->getOperand(0))->getValue());
+      Metadata *TypeId = MD.second->getOperand(1);
+      auto *NewOffsetMD = ConstantAsMetadata::get(ConstantInt::get(
+          OffsetConst->getType(), OffsetConst->getValue() + Offset));
+      addMetadata(LLVMContext::MD_type,
+                  *MDNode::get(getContext(), {NewOffsetMD, TypeId}));
+      continue;
+    }
+    addMetadata(MD.first, *MD.second);
+  }
+}
+
+void GlobalObject::addTypeMetadata(unsigned Offset, Metadata *TypeID) {
+  addMetadata(
+      LLVMContext::MD_type,
+      *MDTuple::get(getContext(),
+                    {llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
+                         Type::getInt64Ty(getContext()), Offset)),
+                     TypeID}));
 }
 
 void Function::setSubprogram(DISubprogram *SP) {

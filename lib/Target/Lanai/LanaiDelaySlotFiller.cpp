@@ -83,7 +83,7 @@ char Filler::ID = 0;
 // createLanaiDelaySlotFillerPass - Returns a pass that fills in delay
 // slots in Lanai MachineFunctions
 FunctionPass *
-llvm::createLanaiDelaySlotFillerPass(const LanaiTargetMachine &tm) {
+llvm::createLanaiDelaySlotFillerPass(const LanaiTargetMachine & /*tm*/) {
   return new Filler();
 }
 
@@ -249,7 +249,8 @@ void Filler::insertDefsUses(MachineBasicBlock::instr_iterator MI,
   // be inserted in the delay slot of a call/return as these instructions are
   // expanded to multiple instructions with SP modified before the branch that
   // has the delay slot.
-  if (MI->isCall() || MI->isReturn()) RegDefs.insert(Lanai::SP);
+  if (MI->isCall() || MI->isReturn())
+    RegDefs.insert(Lanai::SP);
 }
 
 // Returns true if the Reg or its alias is in the RegSet.

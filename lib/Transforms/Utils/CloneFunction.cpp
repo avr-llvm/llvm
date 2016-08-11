@@ -14,6 +14,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/InstructionSimplify.h"
@@ -122,11 +123,11 @@ void llvm::CloneFunctionInto(Function *NewFunc, const Function *OldFunc,
   SmallVector<std::pair<unsigned, MDNode *>, 1> MDs;
   OldFunc->getAllMetadata(MDs);
   for (auto MD : MDs)
-    NewFunc->setMetadata(
+    NewFunc->addMetadata(
         MD.first,
-        MapMetadata(MD.second, VMap,
-                    ModuleLevelChanges ? RF_None : RF_NoModuleLevelChanges,
-                    TypeMapper, Materializer));
+        *MapMetadata(MD.second, VMap,
+                     ModuleLevelChanges ? RF_None : RF_NoModuleLevelChanges,
+                     TypeMapper, Materializer));
 
   // Loop over all of the basic blocks in the function, cloning them as
   // appropriate.  Note that we save BE this way in order to handle cloning of
@@ -296,9 +297,11 @@ void PruningFunctionCloner::CloneBlock(const BasicBlock *BB,
         if (Value *MappedV = VMap.lookup(V))
           V = MappedV;
 
-        VMap[&*II] = V;
-        delete NewInst;
-        continue;
+        if (!NewInst->mayHaveSideEffects()) {
+          VMap[&*II] = V;
+          delete NewInst;
+          continue;
+        }
       }
     }
 
@@ -517,10 +520,9 @@ void llvm::CloneAndPruneIntoFromInst(Function *NewFunc, const Function *OldFunc,
       // entries.
       BasicBlock::iterator I = NewBB->begin();
       for (; (PN = dyn_cast<PHINode>(I)); ++I) {
-        for (std::map<BasicBlock*, unsigned>::iterator PCI =PredCount.begin(),
-             E = PredCount.end(); PCI != E; ++PCI) {
-          BasicBlock *Pred     = PCI->first;
-          for (unsigned NumToRemove = PCI->second; NumToRemove; --NumToRemove)
+        for (const auto &PCI : PredCount) {
+          BasicBlock *Pred = PCI.first;
+          for (unsigned NumToRemove = PCI.second; NumToRemove; --NumToRemove)
             PN->removeIncomingValue(Pred, false);
         }
       }
@@ -551,9 +553,39 @@ void llvm::CloneAndPruneIntoFromInst(Function *NewFunc, const Function *OldFunc,
   // two PHINodes, the iteration over the old PHIs remains valid, and the
   // mapping will just map us to the new node (which may not even be a PHI
   // node).
+  const DataLayout &DL = NewFunc->getParent()->getDataLayout();
+  SmallSetVector<const Value *, 8> Worklist;
   for (unsigned Idx = 0, Size = PHIToResolve.size(); Idx != Size; ++Idx)
-    if (PHINode *PN = dyn_cast<PHINode>(VMap[PHIToResolve[Idx]]))
-      recursivelySimplifyInstruction(PN);
+    if (isa<PHINode>(VMap[PHIToResolve[Idx]]))
+      Worklist.insert(PHIToResolve[Idx]);
+
+  // Note that we must test the size on each iteration, the worklist can grow.
+  for (unsigned Idx = 0; Idx != Worklist.size(); ++Idx) {
+    const Value *OrigV = Worklist[Idx];
+    auto *I = dyn_cast_or_null<Instruction>(VMap.lookup(OrigV));
+    if (!I)
+      continue;
+
+    // See if this instruction simplifies.
+    Value *SimpleV = SimplifyInstruction(I, DL);
+    if (!SimpleV)
+      continue;
+
+    // Stash away all the uses of the old instruction so we can check them for
+    // recursive simplifications after a RAUW. This is cheaper than checking all
+    // uses of To on the recursive step in most cases.
+    for (const User *U : OrigV->users())
+      Worklist.insert(cast<Instruction>(U));
+
+    // Replace the instruction with its simplified value.
+    I->replaceAllUsesWith(SimpleV);
+
+    // If the original instruction had no side effects, remove it.
+    if (isInstructionTriviallyDead(I))
+      I->eraseFromParent();
+    else
+      VMap[OrigV] = I;
+  }
 
   // Now that the inlined function body has been fully constructed, go through
   // and zap unconditional fall-through branches. This happens all the time when
@@ -688,11 +720,17 @@ Loop *llvm::cloneLoopWithPreheader(BasicBlock *Before, BasicBlock *LoopDomBB,
     // Update LoopInfo.
     NewLoop->addBasicBlockToLoop(NewBB, *LI);
 
-    // Update DominatorTree.
-    BasicBlock *IDomBB = DT->getNode(BB)->getIDom()->getBlock();
-    DT->addNewBlock(NewBB, cast<BasicBlock>(VMap[IDomBB]));
+    // Add DominatorTree node. After seeing all blocks, update to correct IDom.
+    DT->addNewBlock(NewBB, NewPH);
 
     Blocks.push_back(NewBB);
+  }
+
+  for (BasicBlock *BB : OrigLoop->getBlocks()) {
+    // Update DominatorTree.
+    BasicBlock *IDomBB = DT->getNode(BB)->getIDom()->getBlock();
+    DT->changeImmediateDominator(cast<BasicBlock>(VMap[BB]),
+                                 cast<BasicBlock>(VMap[IDomBB]));
   }
 
   // Move them physically from the end of the block list.

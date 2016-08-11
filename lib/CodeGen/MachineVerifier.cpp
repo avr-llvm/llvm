@@ -219,7 +219,6 @@ namespace {
     void report_context(const VNInfo &VNI) const;
     void report_context(SlotIndex Pos) const;
     void report_context_liverange(const LiveRange &LR) const;
-    void report_context_regunit(unsigned RegUnit) const;
     void report_context_lanemask(LaneBitmask LaneMask) const;
     void report_context_vreg(unsigned VReg) const;
     void report_context_vreg_regunit(unsigned VRegOrRegUnit) const;
@@ -495,10 +494,6 @@ void MachineVerifier::report_context_liverange(const LiveRange &LR) const {
   errs() << "- liverange:   " << LR << '\n';
 }
 
-void MachineVerifier::report_context_regunit(unsigned RegUnit) const {
-  errs() << "- regunit:     " << PrintRegUnit(RegUnit, TRI) << '\n';
-}
-
 void MachineVerifier::report_context_vreg(unsigned VReg) const {
   errs() << "- v. register: " << PrintReg(VReg, TRI) << '\n';
 }
@@ -627,8 +622,8 @@ MachineVerifier::visitMachineBasicBlockBefore(const MachineBasicBlock *MBB) {
   // Call AnalyzeBranch. If it succeeds, there several more conditions to check.
   MachineBasicBlock *TBB = nullptr, *FBB = nullptr;
   SmallVector<MachineOperand, 4> Cond;
-  if (!TII->AnalyzeBranch(*const_cast<MachineBasicBlock *>(MBB),
-                          TBB, FBB, Cond)) {
+  if (!TII->analyzeBranch(*const_cast<MachineBasicBlock *>(MBB), TBB, FBB,
+                          Cond)) {
     // Ok, AnalyzeBranch thinks it knows what's going on with this block. Let's
     // check whether its answers match up with reality.
     if (!TBB && !FBB) {
@@ -815,8 +810,9 @@ void MachineVerifier::verifyInlineAsm(const MachineInstr *MI) {
   if (!MI->getOperand(1).isImm())
     report("Asm flags must be an immediate", MI);
   // Allowed flags are Extra_HasSideEffects = 1, Extra_IsAlignStack = 2,
-  // Extra_AsmDialect = 4, Extra_MayLoad = 8, and Extra_MayStore = 16.
-  if (!isUInt<5>(MI->getOperand(1).getImm()))
+  // Extra_AsmDialect = 4, Extra_MayLoad = 8, and Extra_MayStore = 16,
+  // and Extra_IsConvergent = 32.
+  if (!isUInt<6>(MI->getOperand(1).getImm()))
     report("Unknown asm flags", &MI->getOperand(1), 1);
 
   static_assert(InlineAsm::MIOp_FirstOperand == 2, "Asm format changed");
@@ -884,7 +880,7 @@ void MachineVerifier::visitMachineInstrBefore(const MachineInstr *MI) {
   }
 
   StringRef ErrorInfo;
-  if (!TII->verifyInstruction(MI, ErrorInfo))
+  if (!TII->verifyInstruction(*MI, ErrorInfo))
     report(ErrorInfo.data(), MI);
 }
 
@@ -1844,8 +1840,9 @@ void MachineVerifier::verifyLiveRangeSegment(const LiveRange &LR,
       SlotIndex PEnd = LiveInts->getMBBEndIdx(*PI);
       const VNInfo *PVNI = LR.getVNInfoBefore(PEnd);
 
-      // All predecessors must have a live-out value.
-      if (!PVNI) {
+      // All predecessors must have a live-out value if this is not a
+      // subregister liverange.
+      if (!PVNI && LaneMask == 0) {
         report("Register not marked live out of predecessor", *PI);
         report_context(LR, Reg, LaneMask);
         report_context(*VNI);

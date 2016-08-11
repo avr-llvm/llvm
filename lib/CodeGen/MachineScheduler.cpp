@@ -406,7 +406,7 @@ static bool isSchedBoundary(MachineBasicBlock::iterator MI,
                             MachineBasicBlock *MBB,
                             MachineFunction *MF,
                             const TargetInstrInfo *TII) {
-  return MI->isCall() || TII->isSchedulingBoundary(MI, MBB, *MF);
+  return MI->isCall() || TII->isSchedulingBoundary(*MI, MBB, *MF);
 }
 
 /// Main driver for both MachineScheduler and PostMachineScheduler.
@@ -444,7 +444,6 @@ void MachineSchedulerBase::scheduleRegions(ScheduleDAGInstrs &Scheduler,
     //
     // MBB::size() uses instr_iterator to count. Here we need a bundle to count
     // as a single instruction.
-    unsigned RemainingInstrs = std::distance(MBB->begin(), MBB->end());
     for(MachineBasicBlock::iterator RegionEnd = MBB->end();
         RegionEnd != MBB->begin(); RegionEnd = Scheduler.begin()) {
 
@@ -452,15 +451,13 @@ void MachineSchedulerBase::scheduleRegions(ScheduleDAGInstrs &Scheduler,
       if (RegionEnd != MBB->end() ||
           isSchedBoundary(&*std::prev(RegionEnd), &*MBB, MF, TII)) {
         --RegionEnd;
-        // Count the boundary instruction.
-        --RemainingInstrs;
       }
 
       // The next region starts above the previous region. Look backward in the
       // instruction stream until we find the nearest boundary.
       unsigned NumRegionInstrs = 0;
       MachineBasicBlock::iterator I = RegionEnd;
-      for(;I != MBB->begin(); --I, --RemainingInstrs) {
+      for (;I != MBB->begin(); --I) {
         if (isSchedBoundary(&*std::prev(I), &*MBB, MF, TII))
           break;
         if (!I->isDebugValue())
@@ -483,8 +480,7 @@ void MachineSchedulerBase::scheduleRegions(ScheduleDAGInstrs &Scheduler,
             << "\n  From: " << *I << "    To: ";
             if (RegionEnd != MBB->end()) dbgs() << *RegionEnd;
             else dbgs() << "End";
-            dbgs() << " RegionInstrs: " << NumRegionInstrs
-            << " Remaining: " << RemainingInstrs << "\n");
+            dbgs() << " RegionInstrs: " << NumRegionInstrs << '\n');
       if (DumpCriticalPathLength) {
         errs() << MF->getName();
         errs() << ":BB# " << MBB->getNumber();
@@ -502,7 +498,6 @@ void MachineSchedulerBase::scheduleRegions(ScheduleDAGInstrs &Scheduler,
       // scheduler for the top of it's scheduled region.
       RegionEnd = Scheduler.begin();
     }
-    assert(RemainingInstrs == 0 && "Instruction count mismatch!");
     Scheduler.finishBlock();
     // FIXME: Ideally, no further passes should rely on kill flags. However,
     // thumb2 size reduction is currently an exception, so the PostMIScheduler
@@ -887,16 +882,8 @@ void ScheduleDAGMILive::enterRegion(MachineBasicBlock *bb,
   ShouldTrackPressure = SchedImpl->shouldTrackPressure();
   ShouldTrackLaneMasks = SchedImpl->shouldTrackLaneMasks();
 
-  if (ShouldTrackLaneMasks) {
-    if (!ShouldTrackPressure)
-      report_fatal_error("ShouldTrackLaneMasks requires ShouldTrackPressure");
-    // Dead subregister defs have no users and therefore no dependencies,
-    // moving them around may cause liveintervals to degrade into multiple
-    // components. Change independent components to have their own vreg to avoid
-    // this.
-    if (!DisconnectedComponentsRenamed)
-      LIS->renameDisconnectedComponents();
-  }
+  assert((!ShouldTrackLaneMasks || ShouldTrackPressure) &&
+         "ShouldTrackLaneMasks requires ShouldTrackPressure");
 }
 
 // Setup the register pressure trackers for the top scheduled top and bottom
@@ -1415,7 +1402,7 @@ void BaseMemOpClusterMutation::clusterNeighboringMemOps(
     SUnit *SU = MemOps[Idx];
     unsigned BaseReg;
     int64_t Offset;
-    if (TII->getMemOpBaseRegImmOfs(SU->getInstr(), BaseReg, Offset, TRI))
+    if (TII->getMemOpBaseRegImmOfs(*SU->getInstr(), BaseReg, Offset, TRI))
       MemOpRecords.push_back(MemOpInfo(SU, BaseReg, Offset));
   }
   if (MemOpRecords.size() < 2)
@@ -1431,8 +1418,9 @@ void BaseMemOpClusterMutation::clusterNeighboringMemOps(
 
     SUnit *SUa = MemOpRecords[Idx].SU;
     SUnit *SUb = MemOpRecords[Idx+1].SU;
-    if (TII->shouldClusterMemOps(SUa->getInstr(), SUb->getInstr(), ClusterLength)
-        && DAG->addEdge(SUb, SDep(SUa, SDep::Cluster))) {
+    if (TII->shouldClusterMemOps(*SUa->getInstr(), *SUb->getInstr(),
+                                 ClusterLength) &&
+        DAG->addEdge(SUb, SDep(SUa, SDep::Cluster))) {
       DEBUG(dbgs() << "Cluster ld/st SU(" << SUa->NodeNum << ") - SU("
             << SUb->NodeNum << ")\n");
       // Copy successor edges from SUa to SUb. Interleaving computation
@@ -1542,7 +1530,7 @@ void MacroFusion::apply(ScheduleDAGInstrs *DAGInstrs) {
     if (!HasDataDep(TRI, *Branch, *Pred))
       continue;
 
-    if (!TII.shouldScheduleAdjacent(Pred, Branch))
+    if (!TII.shouldScheduleAdjacent(*Pred, *Branch))
       continue;
 
     // Create a single weak edge from SU to ExitSU. The only effect is to cause
@@ -2231,7 +2219,6 @@ void SchedBoundary::releasePending() {
     Pending.remove(Pending.begin()+i);
     --i; --e;
   }
-  DEBUG(if (!Pending.empty()) Pending.dump());
   CheckPending = false;
 }
 
@@ -2271,6 +2258,10 @@ SUnit *SchedBoundary::pickOnlyChoice() {
     bumpCycle(CurrCycle + 1);
     releasePending();
   }
+
+  DEBUG(Pending.dump());
+  DEBUG(Available.dump());
+
   if (Available.size() == 1)
     return *Available.begin();
   return nullptr;
@@ -2401,7 +2392,8 @@ const char *GenericSchedulerBase::getReasonStr(
   GenericSchedulerBase::CandReason Reason) {
   switch (Reason) {
   case NoCand:         return "NOCAND    ";
-  case PhysRegCopy:    return "PREG-COPY";
+  case Only1:          return "ONLY1     ";
+  case PhysRegCopy:    return "PREG-COPY ";
   case RegExcess:      return "REG-EXCESS";
   case RegCritical:    return "REG-CRIT  ";
   case Stall:          return "STALL     ";
@@ -2487,7 +2479,6 @@ static bool tryLess(int TryVal, int CandVal,
       Cand.Reason = Reason;
     return true;
   }
-  Cand.setRepeat(Reason);
   return false;
 }
 
@@ -2504,7 +2495,6 @@ static bool tryGreater(int TryVal, int CandVal,
       Cand.Reason = Reason;
     return true;
   }
-  Cand.setRepeat(Reason);
   return false;
 }
 
@@ -2533,10 +2523,13 @@ static bool tryLatency(GenericSchedulerBase::SchedCandidate &TryCand,
   return false;
 }
 
-static void tracePick(const GenericSchedulerBase::SchedCandidate &Cand,
-                      bool IsTop) {
+static void tracePick(GenericSchedulerBase::CandReason Reason, bool IsTop) {
   DEBUG(dbgs() << "Pick " << (IsTop ? "Top " : "Bot ")
-        << GenericSchedulerBase::getReasonStr(Cand.Reason) << '\n');
+        << GenericSchedulerBase::getReasonStr(Reason) << '\n');
+}
+
+static void tracePick(const GenericSchedulerBase::SchedCandidate &Cand) {
+  tracePick(Cand.Reason, Cand.AtTop);
 }
 
 void GenericScheduler::initialize(ScheduleDAGMI *dag) {
@@ -2565,6 +2558,8 @@ void GenericScheduler::initialize(ScheduleDAGMI *dag) {
         DAG->MF.getSubtarget().getInstrInfo()->CreateTargetMIHazardRecognizer(
             Itin, DAG);
   }
+  TopCand.SU = nullptr;
+  BotCand.SU = nullptr;
 }
 
 /// Initialize the per-region scheduling policy.
@@ -2592,8 +2587,7 @@ void GenericScheduler::initPolicy(MachineBasicBlock::iterator Begin,
   RegionPolicy.OnlyBottomUp = true;
 
   // Allow the subtarget to override default policy.
-  MF.getSubtarget().overrideSchedPolicy(RegionPolicy, Begin, End,
-                                        NumRegionInstrs);
+  MF.getSubtarget().overrideSchedPolicy(RegionPolicy, NumRegionInstrs);
 
   // After subtarget overrides, apply command line options.
   if (!EnableRegPressure)
@@ -2687,18 +2681,24 @@ static bool tryPressure(const PressureChange &TryP,
                         GenericSchedulerBase::CandReason Reason,
                         const TargetRegisterInfo *TRI,
                         const MachineFunction &MF) {
-  unsigned TryPSet = TryP.getPSetOrMax();
-  unsigned CandPSet = CandP.getPSetOrMax();
-  // If both candidates affect the same set, go with the smallest increase.
-  if (TryPSet == CandPSet) {
-    return tryLess(TryP.getUnitInc(), CandP.getUnitInc(), TryCand, Cand,
-                   Reason);
-  }
   // If one candidate decreases and the other increases, go with it.
   // Invalid candidates have UnitInc==0.
   if (tryGreater(TryP.getUnitInc() < 0, CandP.getUnitInc() < 0, TryCand, Cand,
                  Reason)) {
     return true;
+  }
+  // Do not compare the magnitude of pressure changes between top and bottom
+  // boundary.
+  if (Cand.AtTop != TryCand.AtTop)
+    return false;
+
+  // If both candidates affect the same set in the same boundary, go with the
+  // smallest increase.
+  unsigned TryPSet = TryP.getPSetOrMax();
+  unsigned CandPSet = CandP.getPSetOrMax();
+  if (TryPSet == CandPSet) {
+    return tryLess(TryP.getUnitInc(), CandP.getUnitInc(), TryCand, Cand,
+                   Reason);
   }
 
   int TryRank = TryP.isValid() ? TRI->getRegPressureSetScore(MF, TryPSet) :
@@ -2750,6 +2750,7 @@ void GenericScheduler::initCandidate(SchedCandidate &Cand, SUnit *SU,
                                      const RegPressureTracker &RPTracker,
                                      RegPressureTracker &TempTracker) {
   Cand.SU = SU;
+  Cand.AtTop = AtTop;
   if (DAG->isTrackingPressure()) {
     if (AtTop) {
       TempTracker.getMaxDownwardPressureDelta(
@@ -2789,18 +2790,19 @@ void GenericScheduler::initCandidate(SchedCandidate &Cand, SUnit *SU,
 ///
 /// \param Cand provides the policy and current best candidate.
 /// \param TryCand refers to the next SUnit candidate, otherwise uninitialized.
-/// \param Zone describes the scheduled zone that we are extending.
+/// \param Zone describes the scheduled zone that we are extending, or nullptr
+//              if Cand is from a different zone than TryCand.
 void GenericScheduler::tryCandidate(SchedCandidate &Cand,
                                     SchedCandidate &TryCand,
-                                    SchedBoundary &Zone) {
+                                    SchedBoundary *Zone) {
   // Initialize the candidate if needed.
   if (!Cand.isValid()) {
     TryCand.Reason = NodeOrder;
     return;
   }
 
-  if (tryGreater(biasPhysRegCopy(TryCand.SU, Zone.isTop()),
-                 biasPhysRegCopy(Cand.SU, Zone.isTop()),
+  if (tryGreater(biasPhysRegCopy(TryCand.SU, TryCand.AtTop),
+                 biasPhysRegCopy(Cand.SU, Cand.AtTop),
                  TryCand, Cand, PhysRegCopy))
     return;
 
@@ -2818,17 +2820,26 @@ void GenericScheduler::tryCandidate(SchedCandidate &Cand,
                                                DAG->MF))
     return;
 
-  // For loops that are acyclic path limited, aggressively schedule for latency.
-  // This can result in very long dependence chains scheduled in sequence, so
-  // once every cycle (when CurrMOps == 0), switch to normal heuristics.
-  if (Rem.IsAcyclicLatencyLimited && !Zone.getCurrMOps()
-      && tryLatency(TryCand, Cand, Zone))
-    return;
+  // We only compare a subset of features when comparing nodes between
+  // Top and Bottom boundary. Some properties are simply incomparable, in many
+  // other instances we should only override the other boundary if something
+  // is a clear good pick on one boundary. Skip heuristics that are more
+  // "tie-breaking" in nature.
+  bool SameBoundary = Zone != nullptr;
+  if (SameBoundary) {
+    // For loops that are acyclic path limited, aggressively schedule for
+    // latency.  This can result in very long dependence chains scheduled in
+    // sequence, so once every cycle (when CurrMOps == 0), switch to normal
+    // heuristics.
+    if (Rem.IsAcyclicLatencyLimited && !Zone->getCurrMOps() &&
+        tryLatency(TryCand, Cand, *Zone))
+      return;
 
-  // Prioritize instructions that read unbuffered resources by stall cycles.
-  if (tryLess(Zone.getLatencyStallCycles(TryCand.SU),
-              Zone.getLatencyStallCycles(Cand.SU), TryCand, Cand, Stall))
-    return;
+    // Prioritize instructions that read unbuffered resources by stall cycles.
+    if (tryLess(Zone->getLatencyStallCycles(TryCand.SU),
+                Zone->getLatencyStallCycles(Cand.SU), TryCand, Cand, Stall))
+      return;
+  }
 
   // Keep clustered nodes together to encourage downstream peephole
   // optimizations which may reduce resource requirements.
@@ -2836,18 +2847,23 @@ void GenericScheduler::tryCandidate(SchedCandidate &Cand,
   // This is a best effort to set things up for a post-RA pass. Optimizations
   // like generating loads of multiple registers should ideally be done within
   // the scheduler pass by combining the loads during DAG postprocessing.
-  const SUnit *NextClusterSU =
-    Zone.isTop() ? DAG->getNextClusterSucc() : DAG->getNextClusterPred();
-  if (tryGreater(TryCand.SU == NextClusterSU, Cand.SU == NextClusterSU,
+  const SUnit *CandNextClusterSU =
+    Cand.AtTop ? DAG->getNextClusterSucc() : DAG->getNextClusterPred();
+  const SUnit *TryCandNextClusterSU =
+    TryCand.AtTop ? DAG->getNextClusterSucc() : DAG->getNextClusterPred();
+  if (tryGreater(TryCand.SU == TryCandNextClusterSU,
+                 Cand.SU == CandNextClusterSU,
                  TryCand, Cand, Cluster))
     return;
 
-  // Weak edges are for clustering and other constraints.
-  if (tryLess(getWeakLeft(TryCand.SU, Zone.isTop()),
-              getWeakLeft(Cand.SU, Zone.isTop()),
-              TryCand, Cand, Weak)) {
-    return;
+  if (SameBoundary) {
+    // Weak edges are for clustering and other constraints.
+    if (tryLess(getWeakLeft(TryCand.SU, TryCand.AtTop),
+                getWeakLeft(Cand.SU, Cand.AtTop),
+                TryCand, Cand, Weak))
+      return;
   }
+
   // Avoid increasing the max pressure of the entire region.
   if (DAG->isTrackingPressure() && tryPressure(TryCand.RPDelta.CurrentMax,
                                                Cand.RPDelta.CurrentMax,
@@ -2855,34 +2871,35 @@ void GenericScheduler::tryCandidate(SchedCandidate &Cand,
                                                DAG->MF))
     return;
 
-  // Avoid critical resource consumption and balance the schedule.
-  TryCand.initResourceDelta(DAG, SchedModel);
-  if (tryLess(TryCand.ResDelta.CritResources, Cand.ResDelta.CritResources,
-              TryCand, Cand, ResourceReduce))
-    return;
-  if (tryGreater(TryCand.ResDelta.DemandedResources,
-                 Cand.ResDelta.DemandedResources,
-                 TryCand, Cand, ResourceDemand))
-    return;
+  if (SameBoundary) {
+    // Avoid critical resource consumption and balance the schedule.
+    TryCand.initResourceDelta(DAG, SchedModel);
+    if (tryLess(TryCand.ResDelta.CritResources, Cand.ResDelta.CritResources,
+                TryCand, Cand, ResourceReduce))
+      return;
+    if (tryGreater(TryCand.ResDelta.DemandedResources,
+                   Cand.ResDelta.DemandedResources,
+                   TryCand, Cand, ResourceDemand))
+      return;
 
-  // Avoid serializing long latency dependence chains.
-  // For acyclic path limited loops, latency was already checked above.
-  if (!RegionPolicy.DisableLatencyHeuristic && Cand.Policy.ReduceLatency &&
-      !Rem.IsAcyclicLatencyLimited && tryLatency(TryCand, Cand, Zone)) {
-    return;
-  }
+    // Avoid serializing long latency dependence chains.
+    // For acyclic path limited loops, latency was already checked above.
+    if (!RegionPolicy.DisableLatencyHeuristic && TryCand.Policy.ReduceLatency &&
+        !Rem.IsAcyclicLatencyLimited && tryLatency(TryCand, Cand, *Zone))
+      return;
 
-  // Prefer immediate defs/users of the last scheduled instruction. This is a
-  // local pressure avoidance strategy that also makes the machine code
-  // readable.
-  if (tryGreater(Zone.isNextSU(TryCand.SU), Zone.isNextSU(Cand.SU),
-                 TryCand, Cand, NextDefUse))
-    return;
+    // Prefer immediate defs/users of the last scheduled instruction. This is a
+    // local pressure avoidance strategy that also makes the machine code
+    // readable.
+    if (tryGreater(Zone->isNextSU(TryCand.SU), Zone->isNextSU(Cand.SU),
+                   TryCand, Cand, NextDefUse))
+      return;
 
-  // Fall through to original instruction order.
-  if ((Zone.isTop() && TryCand.SU->NodeNum < Cand.SU->NodeNum)
-      || (!Zone.isTop() && TryCand.SU->NodeNum > Cand.SU->NodeNum)) {
-    TryCand.Reason = NodeOrder;
+    // Fall through to original instruction order.
+    if ((Zone->isTop() && TryCand.SU->NodeNum < Cand.SU->NodeNum)
+        || (!Zone->isTop() && TryCand.SU->NodeNum > Cand.SU->NodeNum)) {
+      TryCand.Reason = NodeOrder;
+    }
   }
 }
 
@@ -2892,20 +2909,20 @@ void GenericScheduler::tryCandidate(SchedCandidate &Cand,
 /// DAG building. To adjust for the current scheduling location we need to
 /// maintain the number of vreg uses remaining to be top-scheduled.
 void GenericScheduler::pickNodeFromQueue(SchedBoundary &Zone,
+                                         const CandPolicy &ZonePolicy,
                                          const RegPressureTracker &RPTracker,
                                          SchedCandidate &Cand) {
-  ReadyQueue &Q = Zone.Available;
-
-  DEBUG(Q.dump());
-
   // getMaxPressureDelta temporarily modifies the tracker.
   RegPressureTracker &TempTracker = const_cast<RegPressureTracker&>(RPTracker);
 
+  ReadyQueue &Q = Zone.Available;
   for (ReadyQueue::iterator I = Q.begin(), E = Q.end(); I != E; ++I) {
 
-    SchedCandidate TryCand(Cand.Policy);
+    SchedCandidate TryCand(ZonePolicy);
     initCandidate(TryCand, *I, Zone.isTop(), RPTracker, TempTracker);
-    tryCandidate(Cand, TryCand, Zone);
+    // Pass SchedBoundary only when comparing nodes from the same boundary.
+    SchedBoundary *ZoneArg = Cand.AtTop == TryCand.AtTop ? &Zone : nullptr;
+    tryCandidate(Cand, TryCand, ZoneArg);
     if (TryCand.Reason != NoCand) {
       // Initialize resource delta if needed in case future heuristics query it.
       if (TryCand.ResDelta == SchedResourceDelta())
@@ -2922,56 +2939,77 @@ SUnit *GenericScheduler::pickNodeBidirectional(bool &IsTopNode) {
   // efficient, but also provides the best heuristics for CriticalPSets.
   if (SUnit *SU = Bot.pickOnlyChoice()) {
     IsTopNode = false;
-    DEBUG(dbgs() << "Pick Bot ONLY1\n");
+    tracePick(Only1, false);
     return SU;
   }
   if (SUnit *SU = Top.pickOnlyChoice()) {
     IsTopNode = true;
-    DEBUG(dbgs() << "Pick Top ONLY1\n");
+    tracePick(Only1, true);
     return SU;
   }
-  CandPolicy NoPolicy;
-  SchedCandidate BotCand(NoPolicy);
-  SchedCandidate TopCand(NoPolicy);
   // Set the bottom-up policy based on the state of the current bottom zone and
   // the instructions outside the zone, including the top zone.
-  setPolicy(BotCand.Policy, /*IsPostRA=*/false, Bot, &Top);
+  CandPolicy BotPolicy;
+  setPolicy(BotPolicy, /*IsPostRA=*/false, Bot, &Top);
   // Set the top-down policy based on the state of the current top zone and
   // the instructions outside the zone, including the bottom zone.
-  setPolicy(TopCand.Policy, /*IsPostRA=*/false, Top, &Bot);
+  CandPolicy TopPolicy;
+  setPolicy(TopPolicy, /*IsPostRA=*/false, Top, &Bot);
 
-  // Prefer bottom scheduling when heuristics are silent.
-  pickNodeFromQueue(Bot, DAG->getBotRPTracker(), BotCand);
-  assert(BotCand.Reason != NoCand && "failed to find the first candidate");
-
-  // If either Q has a single candidate that provides the least increase in
-  // Excess pressure, we can immediately schedule from that Q.
-  //
-  // RegionCriticalPSets summarizes the pressure within the scheduled region and
-  // affects picking from either Q. If scheduling in one direction must
-  // increase pressure for one of the excess PSets, then schedule in that
-  // direction first to provide more freedom in the other direction.
-  if ((BotCand.Reason == RegExcess && !BotCand.isRepeat(RegExcess))
-      || (BotCand.Reason == RegCritical && !BotCand.isRepeat(RegCritical)))
-  {
-    IsTopNode = false;
-    tracePick(BotCand, IsTopNode);
-    return BotCand.SU;
+  // See if BotCand is still valid (because we previously scheduled from Top).
+  DEBUG(dbgs() << "Picking from Bot:\n");
+  if (!BotCand.isValid() || BotCand.SU->isScheduled ||
+      BotCand.Policy != BotPolicy) {
+    BotCand.reset(CandPolicy());
+    pickNodeFromQueue(Bot, BotPolicy, DAG->getBotRPTracker(), BotCand);
+    assert(BotCand.Reason != NoCand && "failed to find the first candidate");
+  } else {
+    DEBUG(traceCandidate(BotCand));
+#ifndef NDEBUG
+    if (VerifyScheduling) {
+      SchedCandidate TCand;
+      TCand.reset(CandPolicy());
+      pickNodeFromQueue(Bot, BotPolicy, DAG->getBotRPTracker(), TCand);
+      assert(TCand.SU == BotCand.SU &&
+             "Last pick result should correspond to re-picking right now");
+    }
+#endif
   }
+
   // Check if the top Q has a better candidate.
-  pickNodeFromQueue(Top, DAG->getTopRPTracker(), TopCand);
-  assert(TopCand.Reason != NoCand && "failed to find the first candidate");
-
-  // Choose the queue with the most important (lowest enum) reason.
-  if (TopCand.Reason < BotCand.Reason) {
-    IsTopNode = true;
-    tracePick(TopCand, IsTopNode);
-    return TopCand.SU;
+  DEBUG(dbgs() << "Picking from Top:\n");
+  if (!TopCand.isValid() || TopCand.SU->isScheduled ||
+      TopCand.Policy != TopPolicy) {
+    TopCand.reset(CandPolicy());
+    pickNodeFromQueue(Top, TopPolicy, DAG->getTopRPTracker(), TopCand);
+    assert(TopCand.Reason != NoCand && "failed to find the first candidate");
+  } else {
+    DEBUG(traceCandidate(TopCand));
+#ifndef NDEBUG
+    if (VerifyScheduling) {
+      SchedCandidate TCand;
+      TCand.reset(CandPolicy());
+      pickNodeFromQueue(Top, TopPolicy, DAG->getTopRPTracker(), TCand);
+      assert(TCand.SU == TopCand.SU &&
+           "Last pick result should correspond to re-picking right now");
+    }
+#endif
   }
-  // Otherwise prefer the bottom candidate, in node order if all else failed.
-  IsTopNode = false;
-  tracePick(BotCand, IsTopNode);
-  return BotCand.SU;
+
+  // Pick best from BotCand and TopCand.
+  assert(BotCand.isValid());
+  assert(TopCand.isValid());
+  SchedCandidate Cand = BotCand;
+  TopCand.Reason = NoCand;
+  tryCandidate(Cand, TopCand, nullptr);
+  if (TopCand.Reason != NoCand) {
+    Cand.setBest(TopCand);
+    DEBUG(traceCandidate(Cand));
+  }
+
+  IsTopNode = Cand.AtTop;
+  tracePick(Cand);
+  return Cand.SU;
 }
 
 /// Pick the best node to balance the schedule. Implements MachineSchedStrategy.
@@ -2987,10 +3025,10 @@ SUnit *GenericScheduler::pickNode(bool &IsTopNode) {
       SU = Top.pickOnlyChoice();
       if (!SU) {
         CandPolicy NoPolicy;
-        SchedCandidate TopCand(NoPolicy);
-        pickNodeFromQueue(Top, DAG->getTopRPTracker(), TopCand);
+        TopCand.reset(NoPolicy);
+        pickNodeFromQueue(Top, NoPolicy, DAG->getTopRPTracker(), TopCand);
         assert(TopCand.Reason != NoCand && "failed to find a candidate");
-        tracePick(TopCand, true);
+        tracePick(TopCand);
         SU = TopCand.SU;
       }
       IsTopNode = true;
@@ -2998,10 +3036,10 @@ SUnit *GenericScheduler::pickNode(bool &IsTopNode) {
       SU = Bot.pickOnlyChoice();
       if (!SU) {
         CandPolicy NoPolicy;
-        SchedCandidate BotCand(NoPolicy);
-        pickNodeFromQueue(Bot, DAG->getBotRPTracker(), BotCand);
+        BotCand.reset(NoPolicy);
+        pickNodeFromQueue(Bot, NoPolicy, DAG->getBotRPTracker(), BotCand);
         assert(BotCand.Reason != NoCand && "failed to find a candidate");
-        tracePick(BotCand, false);
+        tracePick(BotCand);
         SU = BotCand.SU;
       }
       IsTopNode = false;
@@ -3168,12 +3206,10 @@ void PostGenericScheduler::tryCandidate(SchedCandidate &Cand,
 
 void PostGenericScheduler::pickNodeFromQueue(SchedCandidate &Cand) {
   ReadyQueue &Q = Top.Available;
-
-  DEBUG(Q.dump());
-
   for (ReadyQueue::iterator I = Q.begin(), E = Q.end(); I != E; ++I) {
     SchedCandidate TryCand(Cand.Policy);
     TryCand.SU = *I;
+    TryCand.AtTop = true;
     TryCand.initResourceDelta(DAG, SchedModel);
     tryCandidate(Cand, TryCand);
     if (TryCand.Reason != NoCand) {
@@ -3192,7 +3228,9 @@ SUnit *PostGenericScheduler::pickNode(bool &IsTopNode) {
   SUnit *SU;
   do {
     SU = Top.pickOnlyChoice();
-    if (!SU) {
+    if (SU) {
+      tracePick(Only1, true);
+    } else {
       CandPolicy NoPolicy;
       SchedCandidate TopCand(NoPolicy);
       // Set the top-down policy based on the state of the current top zone and
@@ -3200,7 +3238,7 @@ SUnit *PostGenericScheduler::pickNode(bool &IsTopNode) {
       setPolicy(TopCand.Policy, /*IsPostRA=*/true, Top, nullptr);
       pickNodeFromQueue(TopCand);
       assert(TopCand.Reason != NoCand && "failed to find a candidate");
-      tracePick(TopCand, true);
+      tracePick(TopCand);
       SU = TopCand.SU;
     }
   } while (SU->isScheduled);

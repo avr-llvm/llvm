@@ -126,10 +126,6 @@ def X86MemBarrier : SDNode<"X86ISD::MEMBARRIER", SDT_X86MEMBARRIER,
                             [SDNPHasChain,SDNPSideEffect]>;
 def X86MFence : SDNode<"X86ISD::MFENCE", SDT_X86MEMBARRIER,
                         [SDNPHasChain]>;
-def X86SFence : SDNode<"X86ISD::SFENCE", SDT_X86MEMBARRIER,
-                        [SDNPHasChain]>;
-def X86LFence : SDNode<"X86ISD::LFENCE", SDT_X86MEMBARRIER,
-                        [SDNPHasChain]>;
 
 
 def X86bsf     : SDNode<"X86ISD::BSF",      SDTUnaryArithWithFlags>;
@@ -232,6 +228,9 @@ def X86eh_sjlj_setjmp  : SDNode<"X86ISD::EH_SJLJ_SETJMP",
 def X86eh_sjlj_longjmp : SDNode<"X86ISD::EH_SJLJ_LONGJMP",
                                 SDTypeProfile<0, 1, [SDTCisPtrTy<0>]>,
                                 [SDNPHasChain, SDNPSideEffect]>;
+def X86eh_sjlj_setup_dispatch : SDNode<"X86ISD::EH_SJLJ_SETUP_DISPATCH",
+                                       SDTypeProfile<0, 0, []>,
+                                       [SDNPHasChain, SDNPSideEffect]>;
 
 def X86tcret : SDNode<"X86ISD::TC_RETURN", SDT_X86TCRET,
                         [SDNPHasChain,  SDNPOptInGlue, SDNPVariadic]>;
@@ -330,7 +329,7 @@ def X86AbsMemAsmOperand : AsmOperandClass {
 class X86MemOperand<string printMethod,
           AsmOperandClass parserMatchClass = X86MemAsmOperand> : Operand<iPTR> {
   let PrintMethod = printMethod;
-  let MIOperandInfo = (ops ptr_rc, i8imm, ptr_rc_nosp, i32imm, i8imm);
+  let MIOperandInfo = (ops ptr_rc, i8imm, ptr_rc_nosp, i32imm, SEGMENT_REG);
   let ParserMatchClass = parserMatchClass;
   let OperandType = "OPERAND_MEMORY";
 }
@@ -339,7 +338,7 @@ class X86MemOperand<string printMethod,
 class X86VMemOperand<RegisterClass RC, string printMethod,
                      AsmOperandClass parserMatchClass>
     : X86MemOperand<printMethod, parserMatchClass> {
-  let MIOperandInfo = (ops ptr_rc, i8imm, RC, i32imm, i8imm);
+  let MIOperandInfo = (ops ptr_rc, i8imm, RC, i32imm, SEGMENT_REG);
 }
 
 def anymem : X86MemOperand<"printanymem">;
@@ -387,7 +386,8 @@ def ptr_rc_norex_nosp : PointerLikeRegClass<3>;
 
 def i8mem_NOREX : Operand<iPTR> {
   let PrintMethod = "printi8mem";
-  let MIOperandInfo = (ops ptr_rc_norex, i8imm, ptr_rc_norex_nosp, i32imm, i8imm);
+  let MIOperandInfo = (ops ptr_rc_norex, i8imm, ptr_rc_norex_nosp, i32imm,
+                       SEGMENT_REG);
   let ParserMatchClass = X86Mem8AsmOperand;
   let OperandType = "OPERAND_MEMORY";
 }
@@ -402,7 +402,7 @@ def ptr_rc_tailcall : PointerLikeRegClass<4>;
 def i32mem_TC : Operand<i32> {
   let PrintMethod = "printi32mem";
   let MIOperandInfo = (ops ptr_rc_tailcall, i8imm, ptr_rc_tailcall,
-                       i32imm, i8imm);
+                       i32imm, SEGMENT_REG);
   let ParserMatchClass = X86Mem32AsmOperand;
   let OperandType = "OPERAND_MEMORY";
 }
@@ -413,7 +413,7 @@ def i32mem_TC : Operand<i32> {
 def i64mem_TC : Operand<i64> {
   let PrintMethod = "printi64mem";
   let MIOperandInfo = (ops ptr_rc_tailcall, i8imm,
-                       ptr_rc_tailcall, i32imm, i8imm);
+                       ptr_rc_tailcall, i32imm, SEGMENT_REG);
   let ParserMatchClass = X86Mem64AsmOperand;
   let OperandType = "OPERAND_MEMORY";
 }
@@ -533,7 +533,7 @@ let RenderMethod = "addMemOffsOperands" in {
 
 class X86SrcIdxOperand<string printMethod, AsmOperandClass parserMatchClass>
     : X86MemOperand<printMethod, parserMatchClass> {
-  let MIOperandInfo = (ops ptr_rc, i8imm);
+  let MIOperandInfo = (ops ptr_rc, SEGMENT_REG);
 }
 
 class X86DstIdxOperand<string printMethod, AsmOperandClass parserMatchClass>
@@ -553,7 +553,7 @@ def dstidx64 : X86DstIdxOperand<"printDstIdx64", X86DstIdx64Operand>;
 class X86MemOffsOperand<Operand immOperand, string printMethod,
                         AsmOperandClass parserMatchClass>
     : X86MemOperand<printMethod, parserMatchClass> {
-  let MIOperandInfo = (ops immOperand, i8imm);
+  let MIOperandInfo = (ops immOperand, SEGMENT_REG);
 }
 
 def offset16_8  : X86MemOffsOperand<i16imm, "printMemOffs8",
@@ -720,14 +720,14 @@ def i64i32imm_pcrel : Operand<i64> {
 
 def lea64_32mem : Operand<i32> {
   let PrintMethod = "printanymem";
-  let MIOperandInfo = (ops GR64, i8imm, GR64_NOSP, i32imm, i8imm);
+  let MIOperandInfo = (ops GR64, i8imm, GR64_NOSP, i32imm, SEGMENT_REG);
   let ParserMatchClass = X86MemAsmOperand;
 }
 
 // Memory operands that use 64-bit pointers in both ILP32 and LP64.
 def lea64mem : Operand<i64> {
   let PrintMethod = "printanymem";
-  let MIOperandInfo = (ops GR64, i8imm, GR64_NOSP, i32imm, i8imm);
+  let MIOperandInfo = (ops GR64, i8imm, GR64_NOSP, i32imm, SEGMENT_REG);
   let ParserMatchClass = X86MemAsmOperand;
 }
 
@@ -880,8 +880,7 @@ def FarData      : Predicate<"TM.getCodeModel() != CodeModel::Small &&"
                              "TM.getCodeModel() != CodeModel::Kernel">;
 def NearData     : Predicate<"TM.getCodeModel() == CodeModel::Small ||"
                              "TM.getCodeModel() == CodeModel::Kernel">;
-def IsStatic     : Predicate<"TM.getRelocationModel() == Reloc::Static">;
-def IsNotPIC     : Predicate<"TM.getRelocationModel() != Reloc::PIC_">;
+def IsNotPIC     : Predicate<"!TM.isPositionIndependent()">;
 def OptForSize   : Predicate<"OptForSize">;
 def OptForMinSize : Predicate<"OptForMinSize">;
 def OptForSpeed  : Predicate<"!OptForSize">;
@@ -1085,6 +1084,10 @@ def LEAVE64  : I<0xC9, RawFrm,
 //===----------------------------------------------------------------------===//
 //  Miscellaneous Instructions.
 //
+
+let isBarrier = 1, hasSideEffects = 1, usesCustomInserter = 1 in
+  def Int_eh_sjlj_setup_dispatch
+    : PseudoI<(outs), (ins), [(X86eh_sjlj_setup_dispatch)]>;
 
 let Defs = [ESP], Uses = [ESP], hasSideEffects=0 in {
 let mayLoad = 1, SchedRW = [WriteLoad] in {
@@ -1297,28 +1300,28 @@ def BSR64rm  : RI<0xBD, MRMSrcMem, (outs GR64:$dst), (ins i64mem:$src),
 let SchedRW = [WriteMicrocoded] in {
 // These uses the DF flag in the EFLAGS register to inc or dec EDI and ESI
 let Defs = [EDI,ESI], Uses = [EDI,ESI,EFLAGS] in {
-def MOVSB : I<0xA4, RawFrmDstSrc, (outs dstidx8:$dst), (ins srcidx8:$src),
+def MOVSB : I<0xA4, RawFrmDstSrc, (outs), (ins dstidx8:$dst, srcidx8:$src),
               "movsb\t{$src, $dst|$dst, $src}", [], IIC_MOVS>;
-def MOVSW : I<0xA5, RawFrmDstSrc, (outs dstidx16:$dst), (ins srcidx16:$src),
+def MOVSW : I<0xA5, RawFrmDstSrc, (outs), (ins dstidx16:$dst, srcidx16:$src),
               "movsw\t{$src, $dst|$dst, $src}", [], IIC_MOVS>, OpSize16;
-def MOVSL : I<0xA5, RawFrmDstSrc, (outs dstidx32:$dst), (ins srcidx32:$src),
+def MOVSL : I<0xA5, RawFrmDstSrc, (outs), (ins dstidx32:$dst, srcidx32:$src),
               "movs{l|d}\t{$src, $dst|$dst, $src}", [], IIC_MOVS>, OpSize32;
-def MOVSQ : RI<0xA5, RawFrmDstSrc, (outs dstidx64:$dst), (ins srcidx64:$src),
+def MOVSQ : RI<0xA5, RawFrmDstSrc, (outs), (ins dstidx64:$dst, srcidx64:$src),
                "movsq\t{$src, $dst|$dst, $src}", [], IIC_MOVS>;
 }
 
 // These uses the DF flag in the EFLAGS register to inc or dec EDI and ESI
 let Defs = [EDI], Uses = [AL,EDI,EFLAGS] in
-def STOSB : I<0xAA, RawFrmDst, (outs dstidx8:$dst), (ins),
+def STOSB : I<0xAA, RawFrmDst, (outs), (ins dstidx8:$dst),
               "stosb\t{%al, $dst|$dst, al}", [], IIC_STOS>;
 let Defs = [EDI], Uses = [AX,EDI,EFLAGS] in
-def STOSW : I<0xAB, RawFrmDst, (outs dstidx16:$dst), (ins),
+def STOSW : I<0xAB, RawFrmDst, (outs), (ins dstidx16:$dst),
               "stosw\t{%ax, $dst|$dst, ax}", [], IIC_STOS>, OpSize16;
 let Defs = [EDI], Uses = [EAX,EDI,EFLAGS] in
-def STOSL : I<0xAB, RawFrmDst, (outs dstidx32:$dst), (ins),
+def STOSL : I<0xAB, RawFrmDst, (outs), (ins dstidx32:$dst),
               "stos{l|d}\t{%eax, $dst|$dst, eax}", [], IIC_STOS>, OpSize32;
 let Defs = [RDI], Uses = [RAX,RDI,EFLAGS] in
-def STOSQ : RI<0xAB, RawFrmDst, (outs dstidx64:$dst), (ins),
+def STOSQ : RI<0xAB, RawFrmDst, (outs), (ins dstidx64:$dst),
                "stosq\t{%rax, $dst|$dst, rax}", [], IIC_STOS>;
 
 // These uses the DF flag in the EFLAGS register to inc or dec EDI and ESI
@@ -1495,17 +1498,17 @@ def MOV64ao64 : RIi64<0xA1, RawFrmMemOffs, (outs), (ins offset64_64:$src),
 
 let mayStore = 1 in {
 let Uses = [AL] in
-def MOV8o64a : RIi64_NOREX<0xA2, RawFrmMemOffs, (outs offset64_8:$dst), (ins),
+def MOV8o64a : RIi64_NOREX<0xA2, RawFrmMemOffs, (outs), (ins offset64_8:$dst),
                      "movabs{b}\t{%al, $dst|$dst, al}", []>, AdSize64;
 let Uses = [AX] in
-def MOV16o64a : RIi64_NOREX<0xA3, RawFrmMemOffs, (outs offset64_16:$dst), (ins),
+def MOV16o64a : RIi64_NOREX<0xA3, RawFrmMemOffs, (outs), (ins offset64_16:$dst),
                      "movabs{w}\t{%ax, $dst|$dst, ax}", []>, OpSize16, AdSize64;
 let Uses = [EAX] in
-def MOV32o64a : RIi64_NOREX<0xA3, RawFrmMemOffs, (outs offset64_32:$dst), (ins),
+def MOV32o64a : RIi64_NOREX<0xA3, RawFrmMemOffs, (outs), (ins offset64_32:$dst),
                      "movabs{l}\t{%eax, $dst|$dst, eax}", []>, OpSize32,
                      AdSize64;
 let Uses = [RAX] in
-def MOV64o64a : RIi64<0xA3, RawFrmMemOffs, (outs offset64_64:$dst), (ins),
+def MOV64o64a : RIi64<0xA3, RawFrmMemOffs, (outs), (ins offset64_64:$dst),
                      "movabs{q}\t{%rax, $dst|$dst, rax}", []>, AdSize64;
 }
 } // hasSideEffects = 0
@@ -2511,7 +2514,7 @@ let Predicates = [HasTBM] in {
 //
 
 def CLFLUSHOPT : I<0xAE, MRM7m, (outs), (ins i8mem:$src),
-                   "clflushopt\t$src", []>, PD;
+                   "clflushopt\t$src", [(int_x86_clflushopt addr:$src)]>, PD;
 def CLWB       : I<0xAE, MRM6m, (outs), (ins i8mem:$src), "clwb\t$src", []>, PD;
 def PCOMMIT    : I<0xAE, MRM_F8, (outs), (ins), "pcommit", []>, PD;
 

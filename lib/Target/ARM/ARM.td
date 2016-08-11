@@ -96,11 +96,90 @@ def FeatureCrypto : SubtargetFeature<"crypto", "HasCrypto", "true",
                           [FeatureNEON]>;
 def FeatureCRC : SubtargetFeature<"crc", "HasCRC", "true",
                           "Enable support for CRC instructions">;
+// Not to be confused with FeatureHasRetAddrStack (return address stack)
+def FeatureRAS : SubtargetFeature<"ras", "HasRAS", "true",
+                "Enable Reliability, Availability and Serviceability extensions">;
+
 
 // Cyclone has preferred instructions for zeroing VFP registers, which can
 // execute in 0 cycles.
 def FeatureZCZeroing : SubtargetFeature<"zcz", "HasZeroCycleZeroing", "true",
                                         "Has zero-cycle zeroing instructions">;
+
+// Whether or not it may be profitable to unpredicate certain instructions
+// during if conversion.
+def FeatureProfUnpredicate : SubtargetFeature<"prof-unpr",
+                                              "IsProfitableToUnpredicate",
+                                              "true",
+                                              "Is profitable to unpredicate">;
+
+// Some targets (e.g. Swift) have microcoded VGETLNi32.
+def FeatureSlowVGETLNi32 : SubtargetFeature<"slow-vgetlni32",
+                                            "HasSlowVGETLNi32", "true",
+                                            "Has slow VGETLNi32 - prefer VMOV">;
+
+// Some targets (e.g. Swift) have microcoded VDUP32.
+def FeatureSlowVDUP32 : SubtargetFeature<"slow-vdup32", "HasSlowVDUP32", "true",
+                                         "Has slow VDUP32 - prefer VMOV">;
+
+// Some targets (e.g. Cortex-A9) prefer VMOVSR to VMOVDRR even when using NEON
+// for scalar FP, as this allows more effective execution domain optimization.
+def FeaturePreferVMOVSR : SubtargetFeature<"prefer-vmovsr", "PreferVMOVSR",
+                                           "true", "Prefer VMOVSR">;
+
+// Swift has ISHST barriers compatible with Atomic Release semantics but weaker
+// than ISH
+def FeaturePrefISHSTBarrier : SubtargetFeature<"prefer-ishst", "PreferISHST",
+                                           "true", "Prefer ISHST barriers">;
+
+// Some targets (e.g. Cortex-A9) have muxed AGU and NEON/FPU.
+def FeatureMuxedUnits : SubtargetFeature<"muxed-units", "HasMuxedUnits", "true",
+                                         "Has muxed AGU and NEON/FPU">;
+
+// On some targets, a VLDM/VSTM starting with an odd register number needs more
+// microops than single VLDRS.
+def FeatureSlowOddRegister : SubtargetFeature<"slow-odd-reg", "SlowOddRegister",
+                     "true", "VLDM/VSTM starting with an odd register is slow">;
+
+// Some targets have a renaming dependency when loading into D subregisters.
+def FeatureSlowLoadDSubreg : SubtargetFeature<"slow-load-D-subreg",
+                                              "SlowLoadDSubregister", "true",
+                                              "Loading into D subregs is slow">;
+// Some targets (e.g. Cortex-A15) never want VMOVS to be widened to VMOVD.
+def FeatureDontWidenVMOVS : SubtargetFeature<"dont-widen-vmovs",
+                                             "DontWidenVMOVS", "true",
+                                             "Don't widen VMOVS to VMOVD">;
+
+// Whether or not it is profitable to expand VFP/NEON MLA/MLS instructions.
+def FeatureExpandMLx : SubtargetFeature<"expand-fp-mlx", "ExpandMLx", "true",
+                                        "Expand VFP/NEON MLA/MLS instructions">;
+
+// Some targets have special RAW hazards for VFP/NEON VMLA/VMLS.
+def FeatureHasVMLxHazards : SubtargetFeature<"vmlx-hazards", "HasVMLxHazards",
+                                             "true", "Has VMLx hazards">;
+
+// Some targets (e.g. Cortex-A9) want to convert VMOVRS, VMOVSR and VMOVS from
+// VFP to NEON, as an execution domain optimization.
+def FeatureNEONForFPMovs : SubtargetFeature<"neon-fpmovs", "UseNEONForFPMovs",
+                              "true", "Convert VMOVSR, VMOVRS, VMOVS to NEON">;
+
+// Some processors benefit from using NEON instructions for scalar
+// single-precision FP operations. This affects instruction selection and should
+// only be enabled if the handling of denormals is not important.
+def FeatureNEONForFP : SubtargetFeature<"neonfp", "UseNEONForSinglePrecisionFP",
+                                        "true",
+                                        "Use NEON for single precision FP">;
+
+// On some processors, VLDn instructions that access unaligned data take one
+// extra cycle. Take that into account when computing operand latencies.
+def FeatureCheckVLDnAlign : SubtargetFeature<"vldn-align", "CheckVLDnAlign",
+                                             "true",
+                                             "Check for VLDn unaligned access">;
+
+// Some processors have a nonpipelined VFP coprocessor.
+def FeatureNonpipelinedVFP : SubtargetFeature<"nonpipelined-vfp",
+                                              "NonpipelinedVFP", "true",
+                                          "VFP instructions are not pipelined">;
 
 // Some processors have FP multiply-accumulate instructions that don't
 // play nicely with other VFP / NEON instructions, and it's generally better
@@ -112,12 +191,6 @@ def FeatureHasSlowFPVMLx : SubtargetFeature<"slowfpvmlx", "SlowFPVMLx", "true",
 def FeatureVMLxForwarding : SubtargetFeature<"vmlx-forwarding",
                                        "HasVMLxForwarding", "true",
                                        "Has multiplier accumulator forwarding">;
-
-// Some processors benefit from using NEON instructions for scalar
-// single-precision FP operations.
-def FeatureNEONForFP : SubtargetFeature<"neonfp", "UseNEONForSinglePrecisionFP",
-                                        "true",
-                                        "Use NEON for single precision FP">;
 
 // Disable 32-bit to 16-bit narrowing for experimentation.
 def FeaturePref32BitThumb : SubtargetFeature<"32bit", "Pref32BitThumb", "true",
@@ -137,7 +210,7 @@ def FeatureAvoidMOVsShOp : SubtargetFeature<"avoid-movs-shop",
 
 // Some processors perform return stack prediction. CodeGen should avoid issue
 // "normal" call instructions to callees which do not return.
-def FeatureHasRAS : SubtargetFeature<"ras", "HasRAS", "true",
+def FeatureHasRetAddrStack : SubtargetFeature<"ret-addr-stack", "HasRetAddrStack", "true",
                                      "Has return address stack">;
 
 /// DSP extension.
@@ -262,6 +335,8 @@ def ProcA57     : SubtargetFeature<"a57", "ARMProcFamily", "CortexA57",
                                    "Cortex-A57 ARM processors", []>;
 def ProcA72     : SubtargetFeature<"a72", "ARMProcFamily", "CortexA72",
                                    "Cortex-A72 ARM processors", []>;
+def ProcA73     : SubtargetFeature<"a73", "ARMProcFamily", "CortexA73",
+                                   "Cortex-A73 ARM processors", []>;
 
 def ProcKrait   : SubtargetFeature<"krait", "ARMProcFamily", "Krait",
                                    "Qualcomm ARM processors", []>;
@@ -392,7 +467,8 @@ def ARMv82a   : Architecture<"armv8.2-a", "ARMv82a",  [HasV8_2aOps,
                                                        FeatureMP,
                                                        FeatureVirtualization,
                                                        FeatureCrypto,
-                                                       FeatureCRC]>;
+                                                       FeatureCRC,
+                                                       FeatureRAS]>;
 
 def ARMv8mBaseline : Architecture<"armv8-m.base", "ARMv8mBaseline",
                                                       [HasV8MBaselineOps,
@@ -489,7 +565,7 @@ def : Processor<"arm1156t2f-s",     ARMV6Itineraries,   [ARMv6t2,
 
 // FIXME: A5 has currently the same Schedule model as A8
 def : ProcessorModel<"cortex-a5",   CortexA8Model,      [ARMv7a, ProcA5,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureTrustZone,
                                                          FeatureSlowFPBrcc,
                                                          FeatureHasSlowFPVMLx,
@@ -499,9 +575,10 @@ def : ProcessorModel<"cortex-a5",   CortexA8Model,      [ARMv7a, ProcA5,
                                                          FeatureVFP4]>;
 
 def : ProcessorModel<"cortex-a7",   CortexA8Model,      [ARMv7a, ProcA7,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureTrustZone,
                                                          FeatureSlowFPBrcc,
+                                                         FeatureHasVMLxHazards,
                                                          FeatureHasSlowFPVMLx,
                                                          FeatureVMLxForwarding,
                                                          FeatureT2XtPk,
@@ -512,25 +589,33 @@ def : ProcessorModel<"cortex-a7",   CortexA8Model,      [ARMv7a, ProcA7,
                                                          FeatureVirtualization]>;
 
 def : ProcessorModel<"cortex-a8",   CortexA8Model,      [ARMv7a, ProcA8,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
+                                                         FeatureNonpipelinedVFP,
                                                          FeatureTrustZone,
                                                          FeatureSlowFPBrcc,
+                                                         FeatureHasVMLxHazards,
                                                          FeatureHasSlowFPVMLx,
                                                          FeatureVMLxForwarding,
                                                          FeatureT2XtPk]>;
 
 def : ProcessorModel<"cortex-a9",   CortexA9Model,      [ARMv7a, ProcA9,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureTrustZone,
+                                                         FeatureHasVMLxHazards,
                                                          FeatureVMLxForwarding,
                                                          FeatureT2XtPk,
                                                          FeatureFP16,
                                                          FeatureAvoidPartialCPSR,
+                                                         FeatureExpandMLx,
+                                                         FeaturePreferVMOVSR,
+                                                         FeatureMuxedUnits,
+                                                         FeatureNEONForFPMovs,
+                                                         FeatureCheckVLDnAlign,
                                                          FeatureMP]>;
 
 // FIXME: A12 has currently the same Schedule model as A9
 def : ProcessorModel<"cortex-a12",  CortexA9Model,      [ARMv7a, ProcA12,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureTrustZone,
                                                          FeatureVMLxForwarding,
                                                          FeatureT2XtPk,
@@ -543,11 +628,14 @@ def : ProcessorModel<"cortex-a12",  CortexA9Model,      [ARMv7a, ProcA12,
 
 // FIXME: A15 has currently the same Schedule model as A9.
 def : ProcessorModel<"cortex-a15",  CortexA9Model,      [ARMv7a, ProcA15,
-                                                         FeatureHasRAS,
+                                                         FeatureDontWidenVMOVS,
+                                                         FeatureHasRetAddrStack,
+                                                         FeatureMuxedUnits,
                                                          FeatureTrustZone,
                                                          FeatureT2XtPk,
                                                          FeatureVFP4,
                                                          FeatureMP,
+                                                         FeatureCheckVLDnAlign,
                                                          FeatureHWDiv,
                                                          FeatureHWDivARM,
                                                          FeatureAvoidPartialCPSR,
@@ -555,7 +643,7 @@ def : ProcessorModel<"cortex-a15",  CortexA9Model,      [ARMv7a, ProcA15,
 
 // FIXME: A17 has currently the same Schedule model as A9
 def : ProcessorModel<"cortex-a17",  CortexA9Model,      [ARMv7a, ProcA17,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureTrustZone,
                                                          FeatureMP,
                                                          FeatureVMLxForwarding,
@@ -570,7 +658,9 @@ def : ProcessorModel<"cortex-a17",  CortexA9Model,      [ARMv7a, ProcA17,
 // FIXME: krait has currently the same features as A9 plus VFP4 and hardware
 //        division features.
 def : ProcessorModel<"krait",       CortexA9Model,      [ARMv7a, ProcKrait,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
+                                                         FeatureMuxedUnits,
+                                                         FeatureCheckVLDnAlign,
                                                          FeatureVMLxForwarding,
                                                          FeatureT2XtPk,
                                                          FeatureFP16,
@@ -580,7 +670,7 @@ def : ProcessorModel<"krait",       CortexA9Model,      [ARMv7a, ProcKrait,
                                                          FeatureHWDivARM]>;
 
 def : ProcessorModel<"swift",       SwiftModel,         [ARMv7a, ProcSwift,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureNEONForFP,
                                                          FeatureT2XtPk,
                                                          FeatureVFP4,
@@ -589,17 +679,24 @@ def : ProcessorModel<"swift",       SwiftModel,         [ARMv7a, ProcSwift,
                                                          FeatureHWDivARM,
                                                          FeatureAvoidPartialCPSR,
                                                          FeatureAvoidMOVsShOp,
-                                                         FeatureHasSlowFPVMLx]>;
+                                                         FeatureHasSlowFPVMLx,
+                                                         FeatureHasVMLxHazards,
+                                                         FeatureProfUnpredicate,
+                                                         FeaturePrefISHSTBarrier,
+                                                         FeatureSlowOddRegister,
+                                                         FeatureSlowLoadDSubreg,
+                                                         FeatureSlowVGETLNi32,
+                                                         FeatureSlowVDUP32]>;
 
 // FIXME: R4 has currently the same ProcessorModel as A8.
 def : ProcessorModel<"cortex-r4",   CortexA8Model,      [ARMv7r, ProcR4,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureAvoidPartialCPSR,
                                                          FeatureT2XtPk]>;
 
 // FIXME: R4F has currently the same ProcessorModel as A8.
 def : ProcessorModel<"cortex-r4f",  CortexA8Model,      [ARMv7r, ProcR4,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureSlowFPBrcc,
                                                          FeatureHasSlowFPVMLx,
                                                          FeatureVFP3,
@@ -609,7 +706,7 @@ def : ProcessorModel<"cortex-r4f",  CortexA8Model,      [ARMv7r, ProcR4,
 
 // FIXME: R5 has currently the same ProcessorModel as A8.
 def : ProcessorModel<"cortex-r5",   CortexA8Model,      [ARMv7r, ProcR5,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureVFP3,
                                                          FeatureD16,
                                                          FeatureSlowFPBrcc,
@@ -620,7 +717,7 @@ def : ProcessorModel<"cortex-r5",   CortexA8Model,      [ARMv7r, ProcR5,
 
 // FIXME: R7 has currently the same ProcessorModel as A8 and is modelled as R5.
 def : ProcessorModel<"cortex-r7",   CortexA8Model,      [ARMv7r, ProcR7,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureVFP3,
                                                          FeatureD16,
                                                          FeatureFP16,
@@ -632,7 +729,7 @@ def : ProcessorModel<"cortex-r7",   CortexA8Model,      [ARMv7r, ProcR7,
                                                          FeatureT2XtPk]>;
 
 def : ProcessorModel<"cortex-r8",   CortexA8Model,      [ARMv7r,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureVFP3,
                                                          FeatureD16,
                                                          FeatureFP16,
@@ -690,9 +787,16 @@ def : ProcNoItin<"cortex-a72",                          [ARMv8a, ProcA72,
                                                          FeatureCrypto,
                                                          FeatureCRC]>;
 
+def : ProcNoItin<"cortex-a73",                          [ARMv8a, ProcA73,
+                                                         FeatureHWDiv,
+                                                         FeatureHWDivARM,
+                                                         FeatureT2XtPk,
+                                                         FeatureCrypto,
+                                                         FeatureCRC]>;
+
 // Cyclone is very similar to swift
 def : ProcessorModel<"cyclone",     SwiftModel,         [ARMv8a, ProcSwift,
-                                                         FeatureHasRAS,
+                                                         FeatureHasRetAddrStack,
                                                          FeatureNEONForFP,
                                                          FeatureT2XtPk,
                                                          FeatureVFP4,

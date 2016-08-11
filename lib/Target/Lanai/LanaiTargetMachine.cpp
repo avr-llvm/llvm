@@ -18,8 +18,8 @@
 #include "LanaiTargetTransformInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/Passes.h"
-#include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
+#include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Target/TargetOptions.h"
@@ -28,7 +28,6 @@ using namespace llvm;
 
 namespace llvm {
 void initializeLanaiMemAluCombinerPass(PassRegistry &);
-void initializeLanaiSetflagAluCombinerPass(PassRegistry &);
 } // namespace llvm
 
 extern "C" void LLVMInitializeLanaiTarget() {
@@ -36,7 +35,7 @@ extern "C" void LLVMInitializeLanaiTarget() {
   RegisterTargetMachine<LanaiTargetMachine> registered_target(TheLanaiTarget);
 }
 
-static std::string computeDataLayout(const Triple &TT) {
+static std::string computeDataLayout() {
   // Data layout (keep in sync with clang/lib/Basic/Targets.cpp)
   return "E"        // Big endian
          "-m:e"     // ELF name manging
@@ -47,18 +46,21 @@ static std::string computeDataLayout(const Triple &TT) {
          "-S64";    // 64 bit natural stack alignment
 }
 
-LanaiTargetMachine::LanaiTargetMachine(const Target &TheTarget,
-                                       const Triple &TargetTriple,
+static Reloc::Model getEffectiveRelocModel(Optional<Reloc::Model> RM) {
+  if (!RM.hasValue())
+    return Reloc::PIC_;
+  return *RM;
+}
+
+LanaiTargetMachine::LanaiTargetMachine(const Target &T, const Triple &TT,
                                        StringRef Cpu, StringRef FeatureString,
                                        const TargetOptions &Options,
-                                       Reloc::Model RelocationModel,
+                                       Optional<Reloc::Model> RM,
                                        CodeModel::Model CodeModel,
                                        CodeGenOpt::Level OptLevel)
-    : LLVMTargetMachine(TheTarget, computeDataLayout(TargetTriple),
-                        TargetTriple, Cpu, FeatureString, Options,
-                        RelocationModel, CodeModel, OptLevel),
-      Subtarget(TargetTriple, Cpu, FeatureString, *this, Options,
-                RelocationModel, CodeModel, OptLevel),
+    : LLVMTargetMachine(T, computeDataLayout(), TT, Cpu, FeatureString, Options,
+                        getEffectiveRelocModel(RM), CodeModel, OptLevel),
+      Subtarget(TT, Cpu, FeatureString, *this, Options, CodeModel, OptLevel),
       TLOF(new LanaiTargetObjectFile()) {
   initAsmInfo();
 }
@@ -107,5 +109,4 @@ void LanaiPassConfig::addPreEmitPass() {
 // scheduling pass.
 void LanaiPassConfig::addPreSched2() {
   addPass(createLanaiMemAluCombinerPass());
-  addPass(createLanaiSetflagAluCombinerPass());
 }

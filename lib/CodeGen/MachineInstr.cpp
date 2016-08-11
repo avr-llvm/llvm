@@ -497,13 +497,12 @@ MachinePointerInfo MachinePointerInfo::getStack(MachineFunction &MF,
   return MachinePointerInfo(MF.getPSVManager().getStack(), Offset);
 }
 
-MachineMemOperand::MachineMemOperand(MachinePointerInfo ptrinfo, unsigned f,
+MachineMemOperand::MachineMemOperand(MachinePointerInfo ptrinfo, Flags f,
                                      uint64_t s, unsigned int a,
                                      const AAMDNodes &AAInfo,
                                      const MDNode *Ranges)
-  : PtrInfo(ptrinfo), Size(s),
-    Flags((f & ((1 << MOMaxBits) - 1)) | ((Log2_32(a) + 1) << MOMaxBits)),
-    AAInfo(AAInfo), Ranges(Ranges) {
+    : PtrInfo(ptrinfo), Size(s), FlagVals(f), BaseAlignLog2(Log2_32(a) + 1),
+      AAInfo(AAInfo), Ranges(Ranges) {
   assert((PtrInfo.V.isNull() || PtrInfo.V.is<const PseudoSourceValue*>() ||
           isa<PointerType>(PtrInfo.V.get<const Value*>()->getType())) &&
          "invalid pointer value");
@@ -517,7 +516,8 @@ void MachineMemOperand::Profile(FoldingSetNodeID &ID) const {
   ID.AddInteger(getOffset());
   ID.AddInteger(Size);
   ID.AddPointer(getOpaqueValue());
-  ID.AddInteger(Flags);
+  ID.AddInteger(getFlags());
+  ID.AddInteger(getBaseAlignment());
 }
 
 void MachineMemOperand::refineAlignment(const MachineMemOperand *MMO) {
@@ -528,8 +528,7 @@ void MachineMemOperand::refineAlignment(const MachineMemOperand *MMO) {
 
   if (MMO->getBaseAlignment() >= getBaseAlignment()) {
     // Update the alignment value.
-    Flags = (Flags & ((1 << MOMaxBits) - 1)) |
-      ((Log2_32(MMO->getBaseAlignment()) + 1) << MOMaxBits);
+    BaseAlignLog2 = Log2_32(MMO->getBaseAlignment()) + 1;
     // Also update the base and offset, because the new alignment may
     // not be applicable with the old ones.
     PtrInfo = MMO->PtrInfo;
@@ -1202,7 +1201,10 @@ MachineInstr::getRegClassConstraint(unsigned OpIdx,
 
   unsigned Flag = getOperand(FlagIdx).getImm();
   unsigned RCID;
-  if (InlineAsm::hasRegClassConstraint(Flag, RCID))
+  if ((InlineAsm::getKind(Flag) == InlineAsm::Kind_RegUse ||
+       InlineAsm::getKind(Flag) == InlineAsm::Kind_RegDef ||
+       InlineAsm::getKind(Flag) == InlineAsm::Kind_RegDefEarlyClobber) &&
+      InlineAsm::hasRegClassConstraint(Flag, RCID))
     return TRI->getRegClass(RCID);
 
   // Assume that all registers in a memory operand are pointers.
@@ -1556,12 +1558,10 @@ bool MachineInstr::hasOrderedMemoryRef() const {
   if (memoperands_empty())
     return true;
 
-  // Check the memory reference information for ordered references.
-  for (mmo_iterator I = memoperands_begin(), E = memoperands_end(); I != E; ++I)
-    if (!(*I)->isUnordered())
-      return true;
-
-  return false;
+  // Check if any of our memory operands are ordered.
+  return any_of(memoperands(), [](const MachineMemOperand *MMO) {
+    return !MMO->isUnordered();
+  });
 }
 
 /// isInvariantLoad - Return true if this instruction is loading from a
@@ -1581,23 +1581,21 @@ bool MachineInstr::isInvariantLoad(AliasAnalysis *AA) const {
 
   const MachineFrameInfo *MFI = getParent()->getParent()->getFrameInfo();
 
-  for (mmo_iterator I = memoperands_begin(),
-       E = memoperands_end(); I != E; ++I) {
-    if ((*I)->isVolatile()) return false;
-    if ((*I)->isStore()) return false;
-    if ((*I)->isInvariant()) return true;
-
+  for (MachineMemOperand *MMO : memoperands()) {
+    if (MMO->isVolatile()) return false;
+    if (MMO->isStore()) return false;
+    if (MMO->isInvariant()) continue;
 
     // A load from a constant PseudoSourceValue is invariant.
-    if (const PseudoSourceValue *PSV = (*I)->getPseudoValue())
+    if (const PseudoSourceValue *PSV = MMO->getPseudoValue())
       if (PSV->isConstant(MFI))
         continue;
 
-    if (const Value *V = (*I)->getValue()) {
+    if (const Value *V = MMO->getValue()) {
       // If we have an AliasAnalysis, ask it whether the memory is constant.
       if (AA &&
           AA->pointsToConstantMemory(
-              MemoryLocation(V, (*I)->getSize(), (*I)->getAAInfo())))
+              MemoryLocation(V, MMO->getSize(), MMO->getAAInfo())))
         continue;
     }
 
@@ -1754,6 +1752,8 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
       OS << " [mayload]";
     if (ExtraInfo & InlineAsm::Extra_MayStore)
       OS << " [maystore]";
+    if (ExtraInfo & InlineAsm::Extra_IsConvergent)
+      OS << " [isconvergent]";
     if (ExtraInfo & InlineAsm::Extra_IsAlignStack)
       OS << " [alignstack]";
     if (getInlineAsmDialect() == InlineAsm::AD_ATT)
@@ -1829,11 +1829,39 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
       }
 
       unsigned RCID = 0;
-      if (InlineAsm::hasRegClassConstraint(Flag, RCID)) {
+      if (!InlineAsm::isImmKind(Flag) && !InlineAsm::isMemKind(Flag) &&
+          InlineAsm::hasRegClassConstraint(Flag, RCID)) {
         if (TRI) {
           OS << ':' << TRI->getRegClassName(TRI->getRegClass(RCID));
         } else
           OS << ":RC" << RCID;
+      }
+
+      if (InlineAsm::isMemKind(Flag)) {
+        unsigned MCID = InlineAsm::getMemoryConstraintID(Flag);
+        switch (MCID) {
+        case InlineAsm::Constraint_es: OS << ":es"; break;
+        case InlineAsm::Constraint_i:  OS << ":i"; break;
+        case InlineAsm::Constraint_m:  OS << ":m"; break;
+        case InlineAsm::Constraint_o:  OS << ":o"; break;
+        case InlineAsm::Constraint_v:  OS << ":v"; break;
+        case InlineAsm::Constraint_Q:  OS << ":Q"; break;
+        case InlineAsm::Constraint_R:  OS << ":R"; break;
+        case InlineAsm::Constraint_S:  OS << ":S"; break;
+        case InlineAsm::Constraint_T:  OS << ":T"; break;
+        case InlineAsm::Constraint_Um: OS << ":Um"; break;
+        case InlineAsm::Constraint_Un: OS << ":Un"; break;
+        case InlineAsm::Constraint_Uq: OS << ":Uq"; break;
+        case InlineAsm::Constraint_Us: OS << ":Us"; break;
+        case InlineAsm::Constraint_Ut: OS << ":Ut"; break;
+        case InlineAsm::Constraint_Uv: OS << ":Uv"; break;
+        case InlineAsm::Constraint_Uy: OS << ":Uy"; break;
+        case InlineAsm::Constraint_X:  OS << ":X"; break;
+        case InlineAsm::Constraint_Z:  OS << ":Z"; break;
+        case InlineAsm::Constraint_ZC: OS << ":ZC"; break;
+        case InlineAsm::Constraint_Zy: OS << ":Zy"; break;
+        default: OS << ":?"; break;
+        }
       }
 
       unsigned TiedTo = 0;
@@ -2168,7 +2196,7 @@ void MachineInstr::emitError(StringRef Msg) const {
   report_fatal_error(Msg);
 }
 
-MachineInstrBuilder llvm::BuildMI(MachineFunction &MF, DebugLoc DL,
+MachineInstrBuilder llvm::BuildMI(MachineFunction &MF, const DebugLoc &DL,
                                   const MCInstrDesc &MCID, bool IsIndirect,
                                   unsigned Reg, unsigned Offset,
                                   const MDNode *Variable, const MDNode *Expr) {
@@ -2193,10 +2221,11 @@ MachineInstrBuilder llvm::BuildMI(MachineFunction &MF, DebugLoc DL,
 }
 
 MachineInstrBuilder llvm::BuildMI(MachineBasicBlock &BB,
-                                  MachineBasicBlock::iterator I, DebugLoc DL,
-                                  const MCInstrDesc &MCID, bool IsIndirect,
-                                  unsigned Reg, unsigned Offset,
-                                  const MDNode *Variable, const MDNode *Expr) {
+                                  MachineBasicBlock::iterator I,
+                                  const DebugLoc &DL, const MCInstrDesc &MCID,
+                                  bool IsIndirect, unsigned Reg,
+                                  unsigned Offset, const MDNode *Variable,
+                                  const MDNode *Expr) {
   assert(isa<DILocalVariable>(Variable) && "not a variable");
   assert(cast<DIExpression>(Expr)->isValid() && "not an expression");
   MachineFunction &MF = *BB.getParent();

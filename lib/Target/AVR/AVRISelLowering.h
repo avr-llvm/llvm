@@ -97,7 +97,7 @@ public:
                          EVT VT) const override;
 
   MachineBasicBlock *
-  EmitInstrWithCustomInserter(MachineInstr *MI,
+  EmitInstrWithCustomInserter(MachineInstr &MI,
                               MachineBasicBlock *MBB) const override;
 
   ConstraintType getConstraintType(StringRef Constraint) const override;
@@ -138,24 +138,24 @@ private:
 
   SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
-                      const SmallVectorImpl<SDValue> &OutVals, SDLoc dl,
+                      const SmallVectorImpl<SDValue> &OutVals, const SDLoc &dl,
                       SelectionDAG &DAG) const override;
   SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv,
                                bool isVarArg,
                                const SmallVectorImpl<ISD::InputArg> &Ins,
-                               SDLoc dl, SelectionDAG &DAG,
+                               const SDLoc &dl, SelectionDAG &DAG,
                                SmallVectorImpl<SDValue> &InVals) const override;
   SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
   SDValue LowerCallResult(SDValue Chain, SDValue InFlag,
                           CallingConv::ID CallConv, bool isVarArg,
-                          const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc dl,
-                          SelectionDAG &DAG,
+                          const SmallVectorImpl<ISD::InputArg> &Ins,
+                          const SDLoc &dl, SelectionDAG &DAG,
                           SmallVectorImpl<SDValue> &InVals) const;
 
 private:
-  MachineBasicBlock *insertShift(MachineInstr *MI, MachineBasicBlock *BB) const;
-  MachineBasicBlock *insertMul(MachineInstr *MI, MachineBasicBlock *BB) const;
+  MachineBasicBlock *insertShift(MachineInstr &MI, MachineBasicBlock *BB) const;
+  MachineBasicBlock *insertMul(MachineInstr &MI, MachineBasicBlock *BB) const;
 };
 
 } // end namespace llvm

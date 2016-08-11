@@ -72,8 +72,8 @@ namespace llvm {
                                        unsigned Depth = 0) const override;
 
     MachineBasicBlock *
-      EmitInstrWithCustomInserter(MachineInstr *MI,
-                                  MachineBasicBlock *MBB) const override;
+    EmitInstrWithCustomInserter(MachineInstr &MI,
+                                MachineBasicBlock *MBB) const override;
 
     const char *getTargetNodeName(unsigned Opcode) const override;
 
@@ -85,6 +85,14 @@ namespace llvm {
                                       std::string &Constraint,
                                       std::vector<SDValue> &Ops,
                                       SelectionDAG &DAG) const override;
+
+    unsigned
+    getInlineAsmMemConstraint(StringRef ConstraintCode) const override {
+      if (ConstraintCode == "o")
+        return InlineAsm::Constraint_o;
+      return TargetLowering::getInlineAsmMemConstraint(ConstraintCode);
+    }
+
     std::pair<unsigned, const TargetRegisterClass *>
     getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
                                  StringRef Constraint, MVT VT) const override;
@@ -93,6 +101,9 @@ namespace llvm {
     MVT getScalarShiftAmountTy(const DataLayout &, EVT) const override {
       return MVT::i32;
     }
+
+    unsigned getRegisterByName(const char* RegName, EVT VT,
+                               SelectionDAG &DAG) const override;
 
     /// If a physical register, this returns the register that receives the
     /// exception address on entry to an EH pad.
@@ -117,23 +128,19 @@ namespace llvm {
                            EVT VT) const override;
 
     SDValue
-      LowerFormalArguments(SDValue Chain,
-                           CallingConv::ID CallConv,
-                           bool isVarArg,
-                           const SmallVectorImpl<ISD::InputArg> &Ins,
-                           SDLoc dl, SelectionDAG &DAG,
-                           SmallVectorImpl<SDValue> &InVals) const override;
-    SDValue LowerFormalArguments_32(SDValue Chain,
-                                    CallingConv::ID CallConv,
+    LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
+                         const SmallVectorImpl<ISD::InputArg> &Ins,
+                         const SDLoc &dl, SelectionDAG &DAG,
+                         SmallVectorImpl<SDValue> &InVals) const override;
+    SDValue LowerFormalArguments_32(SDValue Chain, CallingConv::ID CallConv,
                                     bool isVarArg,
                                     const SmallVectorImpl<ISD::InputArg> &Ins,
-                                    SDLoc dl, SelectionDAG &DAG,
+                                    const SDLoc &dl, SelectionDAG &DAG,
                                     SmallVectorImpl<SDValue> &InVals) const;
-    SDValue LowerFormalArguments_64(SDValue Chain,
-                                    CallingConv::ID CallConv,
+    SDValue LowerFormalArguments_64(SDValue Chain, CallingConv::ID CallConv,
                                     bool isVarArg,
                                     const SmallVectorImpl<ISD::InputArg> &Ins,
-                                    SDLoc dl, SelectionDAG &DAG,
+                                    const SDLoc &dl, SelectionDAG &DAG,
                                     SmallVectorImpl<SDValue> &InVals) const;
 
     SDValue
@@ -144,22 +151,20 @@ namespace llvm {
     SDValue LowerCall_64(TargetLowering::CallLoweringInfo &CLI,
                          SmallVectorImpl<SDValue> &InVals) const;
 
-    SDValue
-      LowerReturn(SDValue Chain,
-                  CallingConv::ID CallConv, bool isVarArg,
-                  const SmallVectorImpl<ISD::OutputArg> &Outs,
-                  const SmallVectorImpl<SDValue> &OutVals,
-                  SDLoc dl, SelectionDAG &DAG) const override;
-    SDValue LowerReturn_32(SDValue Chain,
-                           CallingConv::ID CallConv, bool IsVarArg,
+    SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
+                        const SmallVectorImpl<ISD::OutputArg> &Outs,
+                        const SmallVectorImpl<SDValue> &OutVals,
+                        const SDLoc &dl, SelectionDAG &DAG) const override;
+    SDValue LowerReturn_32(SDValue Chain, CallingConv::ID CallConv,
+                           bool IsVarArg,
                            const SmallVectorImpl<ISD::OutputArg> &Outs,
                            const SmallVectorImpl<SDValue> &OutVals,
-                           SDLoc DL, SelectionDAG &DAG) const;
-    SDValue LowerReturn_64(SDValue Chain,
-                           CallingConv::ID CallConv, bool IsVarArg,
+                           const SDLoc &DL, SelectionDAG &DAG) const;
+    SDValue LowerReturn_64(SDValue Chain, CallingConv::ID CallConv,
+                           bool IsVarArg,
                            const SmallVectorImpl<ISD::OutputArg> &Outs,
                            const SmallVectorImpl<SDValue> &OutVals,
-                           SDLoc DL, SelectionDAG &DAG) const;
+                           const SDLoc &DL, SelectionDAG &DAG) const;
 
     SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const;
@@ -177,16 +182,13 @@ namespace llvm {
                          SelectionDAG &DAG) const;
     SDValue makeAddress(SDValue Op, SelectionDAG &DAG) const;
 
-    SDValue LowerF128_LibCallArg(SDValue Chain, ArgListTy &Args,
-                                 SDValue Arg, SDLoc DL,
-                                 SelectionDAG &DAG) const;
+    SDValue LowerF128_LibCallArg(SDValue Chain, ArgListTy &Args, SDValue Arg,
+                                 const SDLoc &DL, SelectionDAG &DAG) const;
     SDValue LowerF128Op(SDValue Op, SelectionDAG &DAG,
                         const char *LibFuncName,
                         unsigned numArgs) const;
-    SDValue LowerF128Compare(SDValue LHS, SDValue RHS,
-                             unsigned &SPCC,
-                             SDLoc DL,
-                             SelectionDAG &DAG) const;
+    SDValue LowerF128Compare(SDValue LHS, SDValue RHS, unsigned &SPCC,
+                             const SDLoc &DL, SelectionDAG &DAG) const;
 
     SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
 
@@ -209,15 +211,11 @@ namespace llvm {
                             SmallVectorImpl<SDValue>& Results,
                             SelectionDAG &DAG) const override;
 
-    MachineBasicBlock *expandSelectCC(MachineInstr *MI, MachineBasicBlock *BB,
+    MachineBasicBlock *expandSelectCC(MachineInstr &MI, MachineBasicBlock *BB,
                                       unsigned BROpcode) const;
-    MachineBasicBlock *expandAtomicRMW(MachineInstr *MI,
-                                       MachineBasicBlock *BB,
-                                       unsigned Opcode,
-                                       unsigned CondCode = 0) const;
-    MachineBasicBlock *emitEHSjLjSetJmp(MachineInstr *MI,
+    MachineBasicBlock *emitEHSjLjSetJmp(MachineInstr &MI,
                                         MachineBasicBlock *MBB) const;
-    MachineBasicBlock *emitEHSjLjLongJmp(MachineInstr *MI,
+    MachineBasicBlock *emitEHSjLjLongJmp(MachineInstr &MI,
                                          MachineBasicBlock *MBB) const;
   };
 } // end namespace llvm

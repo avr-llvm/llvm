@@ -31,10 +31,6 @@ STATISTIC(NumInstructionsShrunk,
 STATISTIC(NumLiteralConstantsFolded,
           "Number of literal constants folded into 32-bit instructions.");
 
-namespace llvm {
-  void initializeSIShrinkInstructionsPass(PassRegistry&);
-}
-
 using namespace llvm;
 
 namespace {
@@ -61,10 +57,8 @@ public:
 
 } // End anonymous namespace.
 
-INITIALIZE_PASS_BEGIN(SIShrinkInstructions, DEBUG_TYPE,
-                      "SI Lower il Copies", false, false)
-INITIALIZE_PASS_END(SIShrinkInstructions, DEBUG_TYPE,
-                    "SI Lower il Copies", false, false)
+INITIALIZE_PASS(SIShrinkInstructions, DEBUG_TYPE,
+                "SI Shrink Instructions", false, false)
 
 char SIShrinkInstructions::ID = 0;
 
@@ -178,24 +172,22 @@ static void foldImmediates(MachineInstr &MI, const SIInstrInfo *TII,
   }
 
   // We have failed to fold src0, so commute the instruction and try again.
-  if (TryToCommute && MI.isCommutable() && TII->commuteInstruction(&MI))
+  if (TryToCommute && MI.isCommutable() && TII->commuteInstruction(MI))
     foldImmediates(MI, TII, MRI, false);
 
 }
 
 // Copy MachineOperand with all flags except setting it as implicit.
-static MachineOperand copyRegOperandAsImplicit(const MachineOperand &Orig) {
-  assert(!Orig.isImplicit());
-  return MachineOperand::CreateReg(Orig.getReg(),
-                                   Orig.isDef(),
-                                   true,
-                                   Orig.isKill(),
-                                   Orig.isDead(),
-                                   Orig.isUndef(),
-                                   Orig.isEarlyClobber(),
-                                   Orig.getSubReg(),
-                                   Orig.isDebug(),
-                                   Orig.isInternalRead());
+static void copyFlagsToImplicitVCC(MachineInstr &MI,
+                                   const MachineOperand &Orig) {
+
+  for (MachineOperand &Use : MI.implicit_operands()) {
+    if (Use.getReg() == AMDGPU::VCC) {
+      Use.setIsUndef(Orig.isUndef());
+      Use.setIsKill(Orig.isKill());
+      return;
+    }
+  }
 }
 
 static bool isKImmOperand(const SIInstrInfo *TII, const MachineOperand &Src) {
@@ -207,9 +199,10 @@ bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
     return false;
 
   MachineRegisterInfo &MRI = MF.getRegInfo();
-  const SIInstrInfo *TII =
-      static_cast<const SIInstrInfo *>(MF.getSubtarget().getInstrInfo());
+  const SISubtarget &ST = MF.getSubtarget<SISubtarget>();
+  const SIInstrInfo *TII = ST.getInstrInfo();
   const SIRegisterInfo &TRI = TII->getRegisterInfo();
+
   std::vector<unsigned> I1Defs;
 
   for (MachineFunction::iterator BI = MF.begin(), BE = MF.end();
@@ -319,7 +312,7 @@ bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
       if (!canShrink(MI, TII, TRI, MRI)) {
         // Try commuting the instruction and see if that enables us to shrink
         // it.
-        if (!MI.isCommutable() || !TII->commuteInstruction(&MI) ||
+        if (!MI.isCommutable() || !TII->commuteInstruction(MI) ||
             !canShrink(MI, TII, TRI, MRI))
           continue;
       }
@@ -398,10 +391,9 @@ bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
           Inst32.addOperand(*Src2);
         } else {
           // In the case of V_CNDMASK_B32_e32, the explicit operand src2 is
-          // replaced with an implicit read of vcc.
-          assert(Src2->getReg() == AMDGPU::VCC &&
-                 "Unexpected missing register operand");
-          Inst32.addOperand(copyRegOperandAsImplicit(*Src2));
+          // replaced with an implicit read of vcc. This was already added
+          // during the initial BuildMI, so find it to preserve the flags.
+          copyFlagsToImplicitVCC(*Inst32, *Src2);
         }
       }
 

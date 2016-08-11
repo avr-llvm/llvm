@@ -325,22 +325,154 @@ static Value *simplifyX86immShift(const IntrinsicInst &II,
   return Builder.CreateAShr(Vec, ShiftVec);
 }
 
-static Value *simplifyX86extend(const IntrinsicInst &II,
-                                InstCombiner::BuilderTy &Builder,
-                                bool SignExtend) {
-  VectorType *SrcTy = cast<VectorType>(II.getArgOperand(0)->getType());
-  VectorType *DstTy = cast<VectorType>(II.getType());
-  unsigned NumDstElts = DstTy->getNumElements();
+// Attempt to simplify AVX2 per-element shift intrinsics to a generic IR shift.
+// Unlike the generic IR shifts, the intrinsics have defined behaviour for out
+// of range shift amounts (logical - set to zero, arithmetic - splat sign bit).
+static Value *simplifyX86varShift(const IntrinsicInst &II,
+                                  InstCombiner::BuilderTy &Builder) {
+  bool LogicalShift = false;
+  bool ShiftLeft = false;
 
-  // Extract a subvector of the first NumDstElts lanes and sign/zero extend.
-  SmallVector<int, 8> ShuffleMask;
-  for (int i = 0; i != (int)NumDstElts; ++i)
-    ShuffleMask.push_back(i);
+  switch (II.getIntrinsicID()) {
+  default:
+    return nullptr;
+  case Intrinsic::x86_avx2_psrav_d:
+  case Intrinsic::x86_avx2_psrav_d_256:
+    LogicalShift = false;
+    ShiftLeft = false;
+    break;
+  case Intrinsic::x86_avx2_psrlv_d:
+  case Intrinsic::x86_avx2_psrlv_d_256:
+  case Intrinsic::x86_avx2_psrlv_q:
+  case Intrinsic::x86_avx2_psrlv_q_256:
+    LogicalShift = true;
+    ShiftLeft = false;
+    break;
+  case Intrinsic::x86_avx2_psllv_d:
+  case Intrinsic::x86_avx2_psllv_d_256:
+  case Intrinsic::x86_avx2_psllv_q:
+  case Intrinsic::x86_avx2_psllv_q_256:
+    LogicalShift = true;
+    ShiftLeft = true;
+    break;
+  }
+  assert((LogicalShift || !ShiftLeft) && "Only logical shifts can shift left");
 
-  Value *SV = Builder.CreateShuffleVector(II.getArgOperand(0),
-                                          UndefValue::get(SrcTy), ShuffleMask);
-  return SignExtend ? Builder.CreateSExt(SV, DstTy)
-                    : Builder.CreateZExt(SV, DstTy);
+  // Simplify if all shift amounts are constant/undef.
+  auto *CShift = dyn_cast<Constant>(II.getArgOperand(1));
+  if (!CShift)
+    return nullptr;
+
+  auto Vec = II.getArgOperand(0);
+  auto VT = cast<VectorType>(II.getType());
+  auto SVT = VT->getVectorElementType();
+  int NumElts = VT->getNumElements();
+  int BitWidth = SVT->getIntegerBitWidth();
+
+  // Collect each element's shift amount.
+  // We also collect special cases: UNDEF = -1, OUT-OF-RANGE = BitWidth.
+  bool AnyOutOfRange = false;
+  SmallVector<int, 8> ShiftAmts;
+  for (int I = 0; I < NumElts; ++I) {
+    auto *CElt = CShift->getAggregateElement(I);
+    if (CElt && isa<UndefValue>(CElt)) {
+      ShiftAmts.push_back(-1);
+      continue;
+    }
+
+    auto *COp = dyn_cast_or_null<ConstantInt>(CElt);
+    if (!COp)
+      return nullptr;
+
+    // Handle out of range shifts.
+    // If LogicalShift - set to BitWidth (special case).
+    // If ArithmeticShift - set to (BitWidth - 1) (sign splat).
+    APInt ShiftVal = COp->getValue();
+    if (ShiftVal.uge(BitWidth)) {
+      AnyOutOfRange = LogicalShift;
+      ShiftAmts.push_back(LogicalShift ? BitWidth : BitWidth - 1);
+      continue;
+    }
+
+    ShiftAmts.push_back((int)ShiftVal.getZExtValue());
+  }
+
+  // If all elements out of range or UNDEF, return vector of zeros/undefs.
+  // ArithmeticShift should only hit this if they are all UNDEF.
+  auto OutOfRange = [&](int Idx) { return (Idx < 0) || (BitWidth <= Idx); };
+  if (llvm::all_of(ShiftAmts, OutOfRange)) {
+    SmallVector<Constant *, 8> ConstantVec;
+    for (int Idx : ShiftAmts) {
+      if (Idx < 0) {
+        ConstantVec.push_back(UndefValue::get(SVT));
+      } else {
+        assert(LogicalShift && "Logical shift expected");
+        ConstantVec.push_back(ConstantInt::getNullValue(SVT));
+      }
+    }
+    return ConstantVector::get(ConstantVec);
+  }
+
+  // We can't handle only some out of range values with generic logical shifts.
+  if (AnyOutOfRange)
+    return nullptr;
+
+  // Build the shift amount constant vector.
+  SmallVector<Constant *, 8> ShiftVecAmts;
+  for (int Idx : ShiftAmts) {
+    if (Idx < 0)
+      ShiftVecAmts.push_back(UndefValue::get(SVT));
+    else
+      ShiftVecAmts.push_back(ConstantInt::get(SVT, Idx));
+  }
+  auto ShiftVec = ConstantVector::get(ShiftVecAmts);
+
+  if (ShiftLeft)
+    return Builder.CreateShl(Vec, ShiftVec);
+
+  if (LogicalShift)
+    return Builder.CreateLShr(Vec, ShiftVec);
+
+  return Builder.CreateAShr(Vec, ShiftVec);
+}
+
+static Value *simplifyX86movmsk(const IntrinsicInst &II,
+                                InstCombiner::BuilderTy &Builder) {
+  Value *Arg = II.getArgOperand(0);
+  Type *ResTy = II.getType();
+  Type *ArgTy = Arg->getType();
+
+  // movmsk(undef) -> zero as we must ensure the upper bits are zero.
+  if (isa<UndefValue>(Arg))
+    return Constant::getNullValue(ResTy);
+
+  // We can't easily peek through x86_mmx types.
+  if (!ArgTy->isVectorTy())
+    return nullptr;
+
+  auto *C = dyn_cast<Constant>(Arg);
+  if (!C)
+    return nullptr;
+
+  // Extract signbits of the vector input and pack into integer result.
+  APInt Result(ResTy->getPrimitiveSizeInBits(), 0);
+  for (unsigned I = 0, E = ArgTy->getVectorNumElements(); I != E; ++I) {
+    auto *COp = C->getAggregateElement(I);
+    if (!COp)
+      return nullptr;
+    if (isa<UndefValue>(COp))
+      continue;
+
+    auto *CInt = dyn_cast<ConstantInt>(COp);
+    auto *CFp = dyn_cast<ConstantFP>(COp);
+    if (!CInt && !CFp)
+      return nullptr;
+
+    if ((CInt && CInt->isNegative()) || (CFp && CFp->isNegative()))
+      Result.setBit(I);
+  }
+
+  return Constant::getIntegerValue(ResTy, Result);
 }
 
 static Value *simplifyX86insertps(const IntrinsicInst &II,
@@ -370,7 +502,7 @@ static Value *simplifyX86insertps(const IntrinsicInst &II,
     return ZeroVector;
 
   // Initialize by passing all of the first source bits through.
-  int ShuffleMask[4] = { 0, 1, 2, 3 };
+  uint32_t ShuffleMask[4] = { 0, 1, 2, 3 };
 
   // We may replace the second operand with the zero vector.
   Value *V1 = II.getArgOperand(1);
@@ -758,7 +890,7 @@ static Value *simplifyX86vperm2(const IntrinsicInst &II,
   // If 0 or 1 zero mask bits are set, this is a simple shuffle.
   unsigned NumElts = VecTy->getNumElements();
   unsigned HalfSize = NumElts / 2;
-  SmallVector<int, 8> ShuffleMask(NumElts);
+  SmallVector<uint32_t, 8> ShuffleMask(NumElts);
 
   // The high bit of the selection field chooses the 1st or 2nd operand.
   bool LowInputSelect = Imm & 0x02;
@@ -906,18 +1038,27 @@ static Value *simplifyMinnumMaxnum(const IntrinsicInst &II) {
   return nullptr;
 }
 
+static bool maskIsAllOneOrUndef(Value *Mask) {
+  auto *ConstMask = dyn_cast<Constant>(Mask);
+  if (!ConstMask)
+    return false;
+  if (ConstMask->isAllOnesValue() || isa<UndefValue>(ConstMask))
+    return true;
+  for (unsigned I = 0, E = ConstMask->getType()->getVectorNumElements(); I != E;
+       ++I) {
+    if (auto *MaskElt = ConstMask->getAggregateElement(I))
+      if (MaskElt->isAllOnesValue() || isa<UndefValue>(MaskElt))
+        continue;
+    return false;
+  }
+  return true;
+}
+
 static Value *simplifyMaskedLoad(const IntrinsicInst &II,
                                  InstCombiner::BuilderTy &Builder) {
-  auto *ConstMask = dyn_cast<Constant>(II.getArgOperand(2));
-  if (!ConstMask)
-    return nullptr;
-
-  // If the mask is all zeros, the "passthru" argument is the result.
-  if (ConstMask->isNullValue())
-    return II.getArgOperand(3);
-
-  // If the mask is all ones, this is a plain vector load of the 1st argument.
-  if (ConstMask->isAllOnesValue()) {
+  // If the mask is all ones or undefs, this is a plain vector load of the 1st
+  // argument.
+  if (maskIsAllOneOrUndef(II.getArgOperand(2))) {
     Value *LoadPtr = II.getArgOperand(0);
     unsigned Alignment = cast<ConstantInt>(II.getArgOperand(1))->getZExtValue();
     return Builder.CreateAlignedLoad(LoadPtr, Alignment, "unmaskedload");
@@ -1415,19 +1556,6 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     }
     break;
 
-  case Intrinsic::x86_sse_storeu_ps:
-  case Intrinsic::x86_sse2_storeu_pd:
-  case Intrinsic::x86_sse2_storeu_dq:
-    // Turn X86 storeu -> store if the pointer is known aligned.
-    if (getOrEnforceKnownAlignment(II->getArgOperand(0), 16, DL, II, AC, DT) >=
-        16) {
-      Type *OpPtrTy =
-        PointerType::getUnqual(II->getArgOperand(1)->getType());
-      Value *Ptr = Builder->CreateBitCast(II->getArgOperand(0), OpPtrTy);
-      return new StoreInst(II->getArgOperand(1), Ptr);
-    }
-    break;
-
   case Intrinsic::x86_vcvtph2ps_128:
   case Intrinsic::x86_vcvtph2ps_256: {
     auto Arg = II->getArgOperand(0);
@@ -1449,7 +1577,7 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     if (isa<ConstantDataVector>(Arg)) {
       auto VectorHalfAsShorts = Arg;
       if (RetWidth < ArgWidth) {
-        SmallVector<int, 8> SubVecMask;
+        SmallVector<uint32_t, 8> SubVecMask;
         for (unsigned i = 0; i != RetWidth; ++i)
           SubVecMask.push_back((int)i);
         VectorHalfAsShorts = Builder->CreateShuffleVector(
@@ -1488,6 +1616,18 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
       II->setArgOperand(0, V);
       return II;
     }
+    break;
+  }
+
+  case Intrinsic::x86_mmx_pmovmskb:
+  case Intrinsic::x86_sse_movmsk_ps:
+  case Intrinsic::x86_sse2_movmsk_pd:
+  case Intrinsic::x86_sse2_pmovmskb_128:
+  case Intrinsic::x86_avx_movmsk_pd_256:
+  case Intrinsic::x86_avx_movmsk_ps_256:
+  case Intrinsic::x86_avx2_pmovmskb: {
+    if (Value *V = simplifyX86movmsk(*II, *Builder))
+      return replaceInstUsesWith(*II, V);
     break;
   }
 
@@ -1636,29 +1776,17 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     break;
   }
 
-  case Intrinsic::x86_avx2_pmovsxbd:
-  case Intrinsic::x86_avx2_pmovsxbq:
-  case Intrinsic::x86_avx2_pmovsxbw:
-  case Intrinsic::x86_avx2_pmovsxdq:
-  case Intrinsic::x86_avx2_pmovsxwd:
-  case Intrinsic::x86_avx2_pmovsxwq:
-    if (Value *V = simplifyX86extend(*II, *Builder, true))
-      return replaceInstUsesWith(*II, V);
-    break;
-
-  case Intrinsic::x86_sse41_pmovzxbd:
-  case Intrinsic::x86_sse41_pmovzxbq:
-  case Intrinsic::x86_sse41_pmovzxbw:
-  case Intrinsic::x86_sse41_pmovzxdq:
-  case Intrinsic::x86_sse41_pmovzxwd:
-  case Intrinsic::x86_sse41_pmovzxwq:
-  case Intrinsic::x86_avx2_pmovzxbd:
-  case Intrinsic::x86_avx2_pmovzxbq:
-  case Intrinsic::x86_avx2_pmovzxbw:
-  case Intrinsic::x86_avx2_pmovzxdq:
-  case Intrinsic::x86_avx2_pmovzxwd:
-  case Intrinsic::x86_avx2_pmovzxwq:
-    if (Value *V = simplifyX86extend(*II, *Builder, false))
+  case Intrinsic::x86_avx2_psllv_d:
+  case Intrinsic::x86_avx2_psllv_d_256:
+  case Intrinsic::x86_avx2_psllv_q:
+  case Intrinsic::x86_avx2_psllv_q_256:
+  case Intrinsic::x86_avx2_psrav_d:
+  case Intrinsic::x86_avx2_psrav_d_256:
+  case Intrinsic::x86_avx2_psrlv_d:
+  case Intrinsic::x86_avx2_psrlv_d_256:
+  case Intrinsic::x86_avx2_psrlv_q:
+  case Intrinsic::x86_avx2_psrlv_q_256:
+    if (Value *V = simplifyX86varShift(*II, *Builder))
       return replaceInstUsesWith(*II, V);
     break;
 
@@ -1747,7 +1875,7 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
 
     // Attempt to simplify to a constant, shuffle vector or INSERTQI call.
     if (CI11) {
-      APInt V11 = CI11->getValue();
+      const APInt &V11 = CI11->getValue();
       APInt Len = V11.zextOrTrunc(6);
       APInt Idx = V11.lshr(8).zextOrTrunc(6);
       if (Value *V = simplifyX86insertq(*II, Op0, Op1, Len, Idx, *Builder))
@@ -2201,7 +2329,7 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
         return replaceInstUsesWith(*II, ConstantPointerNull::get(PT));
 
       // isKnownNonNull -> nonnull attribute
-      if (isKnownNonNullAt(DerivedPtr, II, DT, TLI))
+      if (isKnownNonNullAt(DerivedPtr, II, DT))
         II->addAttribute(AttributeSet::ReturnIndex, Attribute::NonNull);
     }
 
@@ -2364,7 +2492,7 @@ Instruction *InstCombiner::visitCallSite(CallSite CS) {
   for (Value *V : CS.args()) {
     if (V->getType()->isPointerTy() &&
         !CS.paramHasAttr(ArgNo + 1, Attribute::NonNull) &&
-        isKnownNonNullAt(V, CS.getInstruction(), DT, TLI))
+        isKnownNonNullAt(V, CS.getInstruction(), DT))
       Indices.push_back(ArgNo + 1);
     ArgNo++;
   }
@@ -2388,7 +2516,8 @@ Instruction *InstCombiner::visitCallSite(CallSite CS) {
 
   if (Function *CalleeF = dyn_cast<Function>(Callee)) {
     // Remove the convergent attr on calls when the callee is not convergent.
-    if (CS.isConvergent() && !CalleeF->isConvergent()) {
+    if (CS.isConvergent() && !CalleeF->isConvergent() &&
+        !CalleeF->isIntrinsic()) {
       DEBUG(dbgs() << "Removing convergent attr from instr "
                    << CS.getInstruction() << "\n");
       CS.setNotConvergent();

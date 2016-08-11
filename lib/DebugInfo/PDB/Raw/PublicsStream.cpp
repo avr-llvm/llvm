@@ -25,11 +25,14 @@
 #include "llvm/DebugInfo/PDB/Raw/PublicsStream.h"
 
 #include "llvm/DebugInfo/CodeView/CodeView.h"
+#include "llvm/DebugInfo/CodeView/StreamReader.h"
 #include "llvm/DebugInfo/CodeView/TypeRecord.h"
+#include "llvm/DebugInfo/PDB/Raw/IndexedStreamData.h"
 #include "llvm/DebugInfo/PDB/Raw/MappedBlockStream.h"
+#include "llvm/DebugInfo/PDB/Raw/PDBFile.h"
 #include "llvm/DebugInfo/PDB/Raw/RawConstants.h"
 #include "llvm/DebugInfo/PDB/Raw/RawError.h"
-#include "llvm/DebugInfo/PDB/Raw/StreamReader.h"
+#include "llvm/DebugInfo/PDB/Raw/SymbolStream.h"
 
 #include "llvm/ADT/BitVector.h"
 #include "llvm/Support/Endian.h"
@@ -56,8 +59,7 @@ struct PublicsStream::HeaderInfo {
   ulittle32_t NumSections;
 };
 
-
-// This is GSIHashHdr struct defined in
+// This is GSIHashHdr.
 struct PublicsStream::GSIHashHeader {
   enum : unsigned {
     HdrSignature = ~0U,
@@ -69,22 +71,9 @@ struct PublicsStream::GSIHashHeader {
   ulittle32_t NumBuckets;
 };
 
-struct PublicsStream::HRFile {
-  ulittle32_t Off;
-  ulittle32_t CRef;
-};
-
-// This struct is defined as "SO" in langapi/include/pdb.h.
-namespace {
-struct SectionOffset {
-  ulittle32_t Off;
-  ulittle16_t Isect;
-  char Padding[2];
-};
-}
-
-PublicsStream::PublicsStream(PDBFile &File, uint32_t StreamNum)
-    : StreamNum(StreamNum), Stream(StreamNum, File) {}
+PublicsStream::PublicsStream(PDBFile &File,
+                             std::unique_ptr<MappedBlockStream> Stream)
+    : Pdb(File), Stream(std::move(Stream)) {}
 
 PublicsStream::~PublicsStream() {}
 
@@ -97,7 +86,7 @@ uint32_t PublicsStream::getAddrMap() const { return Header->AddrMap; }
 // we skip over the hash table which we believe contains information about
 // public symbols.
 Error PublicsStream::reload() {
-  StreamReader Reader(Stream);
+  codeview::StreamReader Reader(*Stream);
 
   // Check stream size.
   if (Reader.bytesRemaining() < sizeof(HeaderInfo) + sizeof(GSIHashHeader))
@@ -105,30 +94,31 @@ Error PublicsStream::reload() {
                                 "Publics Stream does not contain a header.");
 
   // Read PSGSIHDR and GSIHashHdr structs.
-  Header.reset(new HeaderInfo());
-  if (Reader.readObject(Header.get()))
-    return make_error<RawError>(raw_error_code::corrupt_file,
-                                "Publics Stream does not contain a header.");
-  HashHdr.reset(new GSIHashHeader());
-  if (Reader.readObject(HashHdr.get()))
+  if (Reader.readObject(Header))
     return make_error<RawError>(raw_error_code::corrupt_file,
                                 "Publics Stream does not contain a header.");
 
-  // An array of HRFile follows. Read them.
-  if (HashHdr->HrSize % sizeof(HRFile))
+  if (Reader.readObject(HashHdr))
+    return make_error<RawError>(raw_error_code::corrupt_file,
+                                "Publics Stream does not contain a header.");
+
+  // An array of HashRecord follows. Read them.
+  if (HashHdr->HrSize % sizeof(PSHashRecord))
     return make_error<RawError>(raw_error_code::corrupt_file,
                                 "Invalid HR array size.");
-  std::vector<HRFile> HRs(HashHdr->HrSize / sizeof(HRFile));
-  if (auto EC = Reader.readArray<HRFile>(HRs))
-    return make_error<RawError>(raw_error_code::corrupt_file,
-                                "Could not read an HR array");
+  uint32_t NumHashRecords = HashHdr->HrSize / sizeof(PSHashRecord);
+  if (auto EC = Reader.readArray(HashRecords, NumHashRecords))
+    return joinErrors(std::move(EC),
+                      make_error<RawError>(raw_error_code::corrupt_file,
+                                           "Could not read an HR array"));
 
   // A bitmap of a fixed length follows.
   size_t BitmapSizeInBits = alignTo(IPHR_HASH + 1, 32);
-  std::vector<uint8_t> Bitmap(BitmapSizeInBits / 8);
-  if (auto EC = Reader.readArray<uint8_t>(Bitmap))
-    return make_error<RawError>(raw_error_code::corrupt_file,
-                                "Could not read a bitmap.");
+  uint32_t NumBitmapEntries = BitmapSizeInBits / 8;
+  if (auto EC = Reader.readBytes(Bitmap, NumBitmapEntries))
+    return joinErrors(std::move(EC),
+                      make_error<RawError>(raw_error_code::corrupt_file,
+                                           "Could not read a bitmap."));
   for (uint8_t B : Bitmap)
     NumBuckets += countPopulation(B);
 
@@ -138,43 +128,46 @@ Error PublicsStream::reload() {
   // corrupted streams.
 
   // Hash buckets follow.
-  std::vector<ulittle32_t> TempHashBuckets(NumBuckets);
-  if (auto EC = Reader.readArray<ulittle32_t>(TempHashBuckets))
-    return make_error<RawError>(raw_error_code::corrupt_file,
-                                "Hash buckets corrupted.");
-  HashBuckets.resize(NumBuckets);
-  std::copy(TempHashBuckets.begin(), TempHashBuckets.end(),
-            HashBuckets.begin());
+  if (auto EC = Reader.readArray(HashBuckets, NumBuckets))
+    return joinErrors(std::move(EC),
+                      make_error<RawError>(raw_error_code::corrupt_file,
+                                           "Hash buckets corrupted."));
 
   // Something called "address map" follows.
-  std::vector<ulittle32_t> TempAddressMap(Header->AddrMap / sizeof(uint32_t));
-  if (auto EC = Reader.readArray<ulittle32_t>(TempAddressMap))
-    return make_error<RawError>(raw_error_code::corrupt_file,
-                                "Could not read an address map.");
-  AddressMap.resize(Header->AddrMap / sizeof(uint32_t));
-  std::copy(TempAddressMap.begin(), TempAddressMap.end(), AddressMap.begin());
+  uint32_t NumAddressMapEntries = Header->AddrMap / sizeof(uint32_t);
+  if (auto EC = Reader.readArray(AddressMap, NumAddressMapEntries))
+    return joinErrors(std::move(EC),
+                      make_error<RawError>(raw_error_code::corrupt_file,
+                                           "Could not read an address map."));
 
   // Something called "thunk map" follows.
-  std::vector<ulittle32_t> TempThunkMap(Header->NumThunks);
-  ThunkMap.resize(Header->NumThunks);
-  if (auto EC = Reader.readArray<ulittle32_t>(TempThunkMap))
-    return make_error<RawError>(raw_error_code::corrupt_file,
-                                "Could not read a thunk map.");
-  ThunkMap.resize(Header->NumThunks);
-  std::copy(TempThunkMap.begin(), TempThunkMap.end(), ThunkMap.begin());
+  if (auto EC = Reader.readArray(ThunkMap, Header->NumThunks))
+    return joinErrors(std::move(EC),
+                      make_error<RawError>(raw_error_code::corrupt_file,
+                                           "Could not read a thunk map."));
 
   // Something called "section map" follows.
-  std::vector<SectionOffset> Offsets(Header->NumSections);
-  if (auto EC = Reader.readArray<SectionOffset>(Offsets))
-    return make_error<RawError>(raw_error_code::corrupt_file,
-                                "Could not read a section map.");
-  for (auto &SO : Offsets) {
-    SectionOffsets.push_back(SO.Off);
-    SectionOffsets.push_back(SO.Isect);
-  }
+  if (auto EC = Reader.readArray(SectionOffsets, Header->NumSections))
+    return joinErrors(std::move(EC),
+                      make_error<RawError>(raw_error_code::corrupt_file,
+                                           "Could not read a section map."));
 
   if (Reader.bytesRemaining() > 0)
     return make_error<RawError>(raw_error_code::corrupt_file,
                                 "Corrupted publics stream.");
   return Error::success();
 }
+
+iterator_range<codeview::CVSymbolArray::Iterator>
+PublicsStream::getSymbols(bool *HadError) const {
+  auto SymbolS = Pdb.getPDBSymbolStream();
+  if (SymbolS.takeError()) {
+    codeview::CVSymbolArray::Iterator Iter;
+    return llvm::make_range(Iter, Iter);
+  }
+  SymbolStream &SS = SymbolS.get();
+
+  return SS.getSymbols(HadError);
+}
+
+Error PublicsStream::commit() { return Error::success(); }

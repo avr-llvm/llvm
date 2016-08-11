@@ -115,13 +115,19 @@ bool UnrolledInstAnalyzer::visitLoad(LoadInst &I) {
   // We might have a vector load from an array. FIXME: for now we just bail
   // out in this case, but we should be able to resolve and simplify such
   // loads.
-  if(!CDS->isElementTypeCompatible(I.getType()))
+  if (CDS->getElementType() != I.getType())
     return false;
 
-  int ElemSize = CDS->getElementType()->getPrimitiveSizeInBits() / 8U;
-  assert(SimplifiedAddrOp->getValue().getActiveBits() < 64 &&
-         "Unexpectedly large index value.");
-  int64_t Index = SimplifiedAddrOp->getSExtValue() / ElemSize;
+  unsigned ElemSize = CDS->getElementType()->getPrimitiveSizeInBits() / 8U;
+  if (SimplifiedAddrOp->getValue().getActiveBits() > 64)
+    return false;
+  int64_t SimplifiedAddrOpV = SimplifiedAddrOp->getSExtValue();
+  if (SimplifiedAddrOpV < 0) {
+    // FIXME: For now we conservatively ignore out of bound accesses, but
+    // we're allowed to perform the optimization in this case.
+    return false;
+  }
+  uint64_t Index = static_cast<uint64_t>(SimplifiedAddrOpV) / ElemSize;
   if (Index >= CDS->getNumElements()) {
     // FIXME: For now we conservatively ignore out of bound accesses, but
     // we're allowed to perform the optimization in this case.
@@ -141,12 +147,19 @@ bool UnrolledInstAnalyzer::visitCastInst(CastInst &I) {
   Constant *COp = dyn_cast<Constant>(I.getOperand(0));
   if (!COp)
     COp = SimplifiedValues.lookup(I.getOperand(0));
-  if (COp)
+
+  // If we know a simplified value for this operand and cast is valid, save the
+  // result to SimplifiedValues.
+  // The cast can be invalid, because SimplifiedValues contains results of SCEV
+  // analysis, which operates on integers (and, e.g., might convert i8* null to
+  // i32 0).
+  if (COp && CastInst::castIsValid(I.getOpcode(), COp, I.getType())) {
     if (Constant *C =
             ConstantExpr::getCast(I.getOpcode(), COp, I.getType())) {
       SimplifiedValues[&I] = C;
       return true;
     }
+  }
 
   return Base::visitCastInst(I);
 }
@@ -180,9 +193,11 @@ bool UnrolledInstAnalyzer::visitCmpInst(CmpInst &I) {
 
   if (Constant *CLHS = dyn_cast<Constant>(LHS)) {
     if (Constant *CRHS = dyn_cast<Constant>(RHS)) {
-      if (Constant *C = ConstantExpr::getCompare(I.getPredicate(), CLHS, CRHS)) {
-        SimplifiedValues[&I] = C;
-        return true;
+      if (CLHS->getType() == CRHS->getType()) {
+        if (Constant *C = ConstantExpr::getCompare(I.getPredicate(), CLHS, CRHS)) {
+          SimplifiedValues[&I] = C;
+          return true;
+        }
       }
     }
   }

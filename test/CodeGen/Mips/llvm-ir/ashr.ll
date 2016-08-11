@@ -1,46 +1,33 @@
 ; RUN: llc < %s -march=mips -mcpu=mips2 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP32 \
-; RUN:    -check-prefix=M2
+; RUN:    -check-prefixes=ALL,GP32,M2
 ; RUN: llc < %s -march=mips -mcpu=mips32 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP32 \
-; RUN:    -check-prefix=32R1-R5
+; RUN:    -check-prefixes=ALL,GP32,32R1-R5
 ; RUN: llc < %s -march=mips -mcpu=mips32r2 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP32 \
-; RUN:    -check-prefix=32R1-R5
+; RUN:    -check-prefixes=ALL,GP32,32R1-R5
 ; RUN: llc < %s -march=mips -mcpu=mips32r3 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP32 \
-; RUN:    -check-prefix=32R1-R5
+; RUN:    -check-prefixes=ALL,GP32,32R1-R5
 ; RUN: llc < %s -march=mips -mcpu=mips32r5 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP32 \
-; RUN:    -check-prefix=32R1-R5
+; RUN:    -check-prefixes=ALL,GP32,32R1-R5
 ; RUN: llc < %s -march=mips -mcpu=mips32r6 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP32 \
-; RUN:    -check-prefix=32R6
+; RUN:    -check-prefixes=ALL,GP32,32R6
 ; RUN: llc < %s -march=mips64 -mcpu=mips3 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP64 \
-; RUN:    -check-prefix=M3
+; RUN:    -check-prefixes=ALL,GP64,M3
 ; RUN: llc < %s -march=mips64 -mcpu=mips4 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP64 \
-; RUN:    -check-prefix=GP64-NOT-R6
+; RUN:    -check-prefixes=ALL,GP64,GP64-NOT-R6
 ; RUN: llc < %s -march=mips64 -mcpu=mips64 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP64 \
-; RUN:    -check-prefix=GP64-NOT-R6
+; RUN:    -check-prefixes=ALL,GP64,GP64-NOT-R6
 ; RUN: llc < %s -march=mips64 -mcpu=mips64r2 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP64 \
-; RUN:    -check-prefix=GP64-NOT-R6
+; RUN:    -check-prefixes=ALL,GP64,GP64-NOT-R6
 ; RUN: llc < %s -march=mips64 -mcpu=mips64r3 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP64 \
-; RUN:    -check-prefix=GP64-NOT-R6
+; RUN:    -check-prefixes=ALL,GP64,GP64-NOT-R6
 ; RUN: llc < %s -march=mips64 -mcpu=mips64r5 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP64 \
-; RUN:    -check-prefix=GP64-NOT-R6
+; RUN:    -check-prefixes=ALL,GP64,GP64-NOT-R6
 ; RUN: llc < %s -march=mips64 -mcpu=mips64r6 -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=GP64 \
-; RUN:    -check-prefix=64R6
+; RUN:    -check-prefixes=ALL,GP64,64R6
 ; RUN: llc < %s -march=mips -mcpu=mips32r3 -mattr=+micromips -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=MM -check-prefix=MMR3
+; RUN:    -check-prefixes=ALL,MM,MMR3
 ; RUN: llc < %s -march=mips -mcpu=mips32r6 -mattr=+micromips -relocation-model=pic | FileCheck %s \
-; RUN:    -check-prefix=ALL -check-prefix=MM -check-prefix=MMR6
+; RUN:    -check-prefixes=ALL,MM,MMR6
 
 define signext i1 @ashr_i1(i1 signext %a, i1 signext %b) {
 entry:
@@ -159,9 +146,9 @@ entry:
   ; MMR6:       selnez    $[[T4:[0-9]+]], $[[T3]], $[[T1]]
   ; MMR6:       or        $[[T5:[0-9]+]], $[[T4]], $[[T2]]
   ; MMR6:       srlv      $[[T6:[0-9]+]], $5, $7
-  ; MMR6:       not       $[[T7:[0-9]+]], $7
-  ; MMR6:       sll16     $[[T8:[0-9]+]], $4, 1
-  ; MMR6:       sllv      $[[T9:[0-9]+]], $[[T8]], $[[T7]]
+  ; MMR6:       sll16     $[[T7:[0-9]+]], $4, 1
+  ; MMR6:       not16     $[[T8:[0-9]+]], $7
+  ; MMR6:       sllv      $[[T9:[0-9]+]], $[[T7]], $[[T8]]
   ; MMR6:       or16      $[[T10:[0-9]+]], $[[T6]]
   ; MMR6:       seleqz    $[[T11:[0-9]+]], $[[T10]], $[[T1]]
   ; MMR6:       selnez    $[[T12:[0-9]+]], $[[T0]], $[[T1]]
@@ -180,18 +167,18 @@ entry:
   ; M3:             sll       $[[T0:[0-9]+]], $7, 0
   ; M3:             dsrav     $[[T1:[0-9]+]], $4, $7
   ; M3:             andi      $[[T2:[0-9]+]], $[[T0]], 64
-  ; M3:             bnez      $[[T3:[0-9]+]], $[[BB0:BB[0-9_]+]]
+  ; M3:             bnez      $[[T3:[0-9]+]], [[BB0:.LBB[0-9_]+]]
   ; M3:             move      $3, $[[T1]]
   ; M3:             dsrlv     $[[T4:[0-9]+]], $5, $7
   ; M3:             dsll      $[[T5:[0-9]+]], $4, 1
   ; M3:             not       $[[T6:[0-9]+]], $[[T0]]
   ; M3:             dsllv     $[[T7:[0-9]+]], $[[T5]], $[[T6]]
   ; M3:             or        $3, $[[T7]], $[[T4]]
-  ; M3:             $[[BB0]]:
-  ; M3:             beqz      $[[T3]], $[[BB1:BB[0-9_]+]]
+  ; M3:             [[BB0]]:
+  ; M3:             beqz      $[[T3]], [[BB1:.LBB[0-9_]+]]
   ; M3:             nop
   ; M3:             dsra      $2, $4, 63
-  ; M3:             $[[BB1]]:
+  ; M3:             [[BB1]]:
   ; M3:             jr        $ra
   ; M3:             nop
 

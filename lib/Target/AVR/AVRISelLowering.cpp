@@ -368,7 +368,7 @@ SDValue AVRTargetLowering::LowerDivRem(SDValue Op, SelectionDAG &DAG) const {
   TargetLowering::CallLoweringInfo CLI(DAG);
   CLI.setDebugLoc(dl)
       .setChain(InChain)
-      .setCallee(getLibcallCallingConv(LC), RetTy, Callee, std::move(Args), 0)
+      .setCallee(getLibcallCallingConv(LC), RetTy, Callee, std::move(Args))
       .setInRegister()
       .setSExtResult(isSigned)
       .setZExtResult(!isSigned);
@@ -659,7 +659,7 @@ SDValue AVRTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   SDValue FI = DAG.getFrameIndex(AFI->getVarArgsFrameIndex(), getPointerTy(DL));
 
   return DAG.getStore(Op.getOperand(0), dl, FI, Op.getOperand(1),
-                      MachinePointerInfo(SV), false, false, 0);
+                      MachinePointerInfo(SV), 0);
 }
 
 SDValue AVRTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
@@ -1023,7 +1023,7 @@ static void analyzeArguments(TargetLowering::CallLoweringInfo *CLI,
 
 SDValue AVRTargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
-    const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc dl, SelectionDAG &DAG,
+    const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &dl, SelectionDAG &DAG,
     SmallVectorImpl<SDValue> &InVals) const {
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
@@ -1097,7 +1097,7 @@ SDValue AVRTargetLowering::LowerFormalArguments(
       SDValue FIN = DAG.getFrameIndex(FI, getPointerTy(DL));
       InVals.push_back(DAG.getLoad(LocVT, dl, Chain, FIN,
                                    MachinePointerInfo::getFixedStack(MF, FI),
-                                   false, false, false, 0));
+                                   0));
     }
   }
 
@@ -1228,7 +1228,7 @@ SDValue AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       Chain =
           DAG.getStore(Chain, DL, Arg, PtrOff,
                        MachinePointerInfo::getStack(MF, VA.getLocMemOffset()),
-                       false, false, 0);
+                       0);
     }
   }
 
@@ -1287,7 +1287,7 @@ SDValue AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 ///
 SDValue AVRTargetLowering::LowerCallResult(
     SDValue Chain, SDValue InFlag, CallingConv::ID CallConv, bool isVarArg,
-    const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc dl, SelectionDAG &DAG,
+    const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &dl, SelectionDAG &DAG,
     SmallVectorImpl<SDValue> &InVals) const {
 
   // Assign locations to each value returned by this call.
@@ -1347,7 +1347,7 @@ AVRTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                                bool isVarArg,
                                const SmallVectorImpl<ISD::OutputArg> &Outs,
                                const SmallVectorImpl<SDValue> &OutVals,
-                               SDLoc dl, SelectionDAG &DAG) const {
+                               const SDLoc &dl, SelectionDAG &DAG) const {
   // CCValAssign - represent the assignment of the return value to locations.
   SmallVector<CCValAssign, 16> RVLocs;
 
@@ -1409,7 +1409,7 @@ AVRTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
 //  Custom Inserters
 //===----------------------------------------------------------------------===//
 
-MachineBasicBlock *AVRTargetLowering::insertShift(MachineInstr *MI,
+MachineBasicBlock *AVRTargetLowering::insertShift(MachineInstr &MI,
                                                   MachineBasicBlock *BB) const {
   unsigned Opc;
   const TargetRegisterClass *RC;
@@ -1417,9 +1417,9 @@ MachineBasicBlock *AVRTargetLowering::insertShift(MachineInstr *MI,
   MachineRegisterInfo &RI = F->getRegInfo();
   const AVRTargetMachine &TM = (const AVRTargetMachine &)getTargetMachine();
   const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
-  DebugLoc dl = MI->getDebugLoc();
+  DebugLoc dl = MI.getDebugLoc();
 
-  switch (MI->getOpcode()) {
+  switch (MI.getOpcode()) {
   default:
     llvm_unreachable("Invalid shift opcode!");
   case AVR::Lsl8:
@@ -1475,9 +1475,9 @@ MachineBasicBlock *AVRTargetLowering::insertShift(MachineInstr *MI,
   unsigned ShiftAmtReg2 = RI.createVirtualRegister(&AVR::LD8RegClass);
   unsigned ShiftReg = RI.createVirtualRegister(RC);
   unsigned ShiftReg2 = RI.createVirtualRegister(RC);
-  unsigned ShiftAmtSrcReg = MI->getOperand(2).getReg();
-  unsigned SrcReg = MI->getOperand(1).getReg();
-  unsigned DstReg = MI->getOperand(0).getReg();
+  unsigned ShiftAmtSrcReg = MI.getOperand(2).getReg();
+  unsigned SrcReg = MI.getOperand(1).getReg();
+  unsigned DstReg = MI.getOperand(0).getReg();
 
   // BB:
   // cp 0, N
@@ -1514,7 +1514,7 @@ MachineBasicBlock *AVRTargetLowering::insertShift(MachineInstr *MI,
       .addReg(ShiftReg2)
       .addMBB(LoopBB);
 
-  MI->eraseFromParent(); // The pseudo instruction is gone now.
+  MI.eraseFromParent(); // The pseudo instruction is gone now.
   return RemBB;
 }
 
@@ -1530,7 +1530,7 @@ inline bool isCopyMulResult(MachineBasicBlock::iterator const &I) {
 // The mul instructions wreak havock on our zero_reg R1. We need to clear it
 // after the result has been evacuated. This is probably not the best way to do
 // it, but it works for now.
-MachineBasicBlock *AVRTargetLowering::insertMul(MachineInstr *MI,
+MachineBasicBlock *AVRTargetLowering::insertMul(MachineInstr &MI,
                                                 MachineBasicBlock *BB) const {
   const AVRTargetMachine &TM = (const AVRTargetMachine &)getTargetMachine();
   const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
@@ -1540,16 +1540,16 @@ MachineBasicBlock *AVRTargetLowering::insertMul(MachineInstr *MI,
     ++I;
   if (isCopyMulResult(I))
     ++I;
-  BuildMI(*BB, I, MI->getDebugLoc(), TII.get(AVR::EORRdRr), AVR::R1)
+  BuildMI(*BB, I, MI.getDebugLoc(), TII.get(AVR::EORRdRr), AVR::R1)
       .addReg(AVR::R1)
       .addReg(AVR::R1);
   return BB;
 }
 
 MachineBasicBlock *
-AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
+AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
                                                MachineBasicBlock *MBB) const {
-  int Opc = MI->getOpcode();
+  int Opc = MI.getOpcode();
 
   // Pseudo shift instructions with a non constant shift amount are expanded
   // into a loop.
@@ -1569,11 +1569,11 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   assert((Opc == AVR::Select16 || Opc == AVR::Select8) &&
          "Unexpected instr type to insert");
 
-  const AVRInstrInfo &TII = (const AVRInstrInfo &)*MI->getParent()
+  const AVRInstrInfo &TII = (const AVRInstrInfo &)*MI.getParent()
                                 ->getParent()
                                 ->getSubtarget()
                                 .getInstrInfo();
-  DebugLoc dl = MI->getDebugLoc();
+  DebugLoc dl = MI.getDebugLoc();
 
   // To "insert" a SELECT instruction, we insert the diamond
   // control-flow pattern. The incoming instruction knows the
@@ -1598,7 +1598,7 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
                   std::next(MachineBasicBlock::iterator(MI)), MBB->end());
   trueMBB->transferSuccessorsAndUpdatePHIs(MBB);
 
-  AVRCC::CondCodes CC = (AVRCC::CondCodes)MI->getOperand(3).getImm();
+  AVRCC::CondCodes CC = (AVRCC::CondCodes)MI.getOperand(3).getImm();
   BuildMI(MBB, dl, TII.getBrCond(CC)).addMBB(trueMBB);
   BuildMI(MBB, dl, TII.get(AVR::RJMPk)).addMBB(falseMBB);
   MBB->addSuccessor(falseMBB);
@@ -1609,13 +1609,13 @@ AVRTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   falseMBB->addSuccessor(trueMBB);
 
   // Set up the Phi node to determine where we came from
-  BuildMI(*trueMBB, trueMBB->begin(), dl, TII.get(AVR::PHI), MI->getOperand(0).getReg())
-    .addReg(MI->getOperand(1).getReg())
+  BuildMI(*trueMBB, trueMBB->begin(), dl, TII.get(AVR::PHI), MI.getOperand(0).getReg())
+    .addReg(MI.getOperand(1).getReg())
     .addMBB(MBB)
-    .addReg(MI->getOperand(2).getReg())
+    .addReg(MI.getOperand(2).getReg())
     .addMBB(falseMBB) ;
 
-  MI->eraseFromParent(); // The pseudo instruction is gone now.
+  MI.eraseFromParent(); // The pseudo instruction is gone now.
   return trueMBB;
 }
 

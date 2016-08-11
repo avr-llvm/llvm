@@ -17,6 +17,7 @@
 #include <functional>
 #include <map>
 #include <unordered_set>
+#include <utility>
 
 namespace llvm {
 class LLVMContext;
@@ -45,7 +46,7 @@ public:
   FunctionImporter(
       const ModuleSummaryIndex &Index,
       std::function<std::unique_ptr<Module>(StringRef Identifier)> ModuleLoader)
-      : Index(Index), ModuleLoader(ModuleLoader) {}
+      : Index(Index), ModuleLoader(std::move(ModuleLoader)) {}
 
   /// Import functions in Module \p M based on the supplied import list.
   /// \p ForceImportReferencedDiscardableSymbols will set the ModuleLinker in
@@ -107,6 +108,16 @@ void gatherImportedSummariesForModule(
 std::error_code
 EmitImportsFiles(StringRef ModulePath, StringRef OutputFilename,
                  const StringMap<FunctionImporter::ImportMapTy> &ImportLists);
+
+/// Resolve WeakForLinker values in \p TheModule based on the information
+/// recorded in the summaries during global summary-based analysis.
+void thinLTOResolveWeakForLinkerModule(Module &TheModule,
+                                       const GVSummaryMapTy &DefinedGlobals);
+
+/// Internalize \p TheModule based on the information recorded in the summaries
+/// during global summary-based analysis.
+void thinLTOInternalizeModule(Module &TheModule,
+                              const GVSummaryMapTy &DefinedGlobals);
 }
 
 #endif // LLVM_FUNCTIONIMPORT_H

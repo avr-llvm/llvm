@@ -134,6 +134,10 @@ LLVMContext::LLVMContext() : pImpl(new LLVMContextImpl(*this)) {
   assert(LoopID == MD_loop && "llvm.loop kind id drifted");
   (void)LoopID;
 
+  unsigned TypeID = getMDKindID("type");
+  assert(TypeID == MD_type && "type kind id drifted");
+  (void)TypeID;
+
   auto *DeoptEntry = pImpl->getOrInsertBundleTag("deopt");
   assert(DeoptEntry->second == LLVMContext::OB_deopt &&
          "deopt operand bundle id drifted!");
@@ -190,6 +194,13 @@ void LLVMContext::setDiagnosticHandler(DiagnosticHandlerTy DiagnosticHandler,
   pImpl->DiagnosticHandler = DiagnosticHandler;
   pImpl->DiagnosticContext = DiagnosticContext;
   pImpl->RespectDiagnosticFilters = RespectFilters;
+}
+
+void LLVMContext::setDiagnosticHotnessRequested(bool Requested) {
+  pImpl->DiagnosticHotnessRequested = Requested;
+}
+bool LLVMContext::getDiagnosticHotnessRequested() const {
+  return pImpl->DiagnosticHotnessRequested;
 }
 
 LLVMContext::DiagnosticHandlerTy LLVMContext::getDiagnosticHandler() const {

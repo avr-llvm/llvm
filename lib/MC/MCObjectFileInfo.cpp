@@ -45,7 +45,7 @@ static bool useCompactUnwind(const Triple &T) {
   return false;
 }
 
-void MCObjectFileInfo::initMachOMCObjectFileInfo(Triple T) {
+void MCObjectFileInfo::initMachOMCObjectFileInfo(const Triple &T) {
   // MachO
   SupportsWeakOmittedEHFrame = false;
 
@@ -283,7 +283,7 @@ void MCObjectFileInfo::initMachOMCObjectFileInfo(Triple T) {
   TLSExtraDataSection = TLSTLVSection;
 }
 
-void MCObjectFileInfo::initELFMCObjectFileInfo(Triple T) {
+void MCObjectFileInfo::initELFMCObjectFileInfo(const Triple &T) {
   switch (T.getArch()) {
   case Triple::mips:
   case Triple::mipsel:
@@ -589,13 +589,16 @@ void MCObjectFileInfo::initELFMCObjectFileInfo(Triple T) {
       Ctx->getELFSection(".eh_frame", EHSectionType, EHSectionFlags);
 }
 
-void MCObjectFileInfo::initCOFFMCObjectFileInfo(Triple T) {
+void MCObjectFileInfo::initCOFFMCObjectFileInfo(const Triple &T) {
   EHFrameSection = Ctx->getCOFFSection(
       ".eh_frame", COFF::IMAGE_SCN_CNT_INITIALIZED_DATA |
                        COFF::IMAGE_SCN_MEM_READ | COFF::IMAGE_SCN_MEM_WRITE,
       SectionKind::getData());
 
-  bool IsWoA = T.getArch() == Triple::arm || T.getArch() == Triple::thumb;
+  // Set the `IMAGE_SCN_MEM_16BIT` flag when compiling for thumb mode.  This is
+  // used to indicate to the linker that the text segment contains thumb instructions
+  // and to set the ISA selection bit for calls accordingly.
+  const bool IsThumb = T.getArch() == Triple::thumb;
 
   CommDirectiveSupportsAlignment = true;
 
@@ -606,7 +609,7 @@ void MCObjectFileInfo::initCOFFMCObjectFileInfo(Triple T) {
       SectionKind::getBSS());
   TextSection = Ctx->getCOFFSection(
       ".text",
-      (IsWoA ? COFF::IMAGE_SCN_MEM_16BIT : (COFF::SectionCharacteristics)0) |
+      (IsThumb ? COFF::IMAGE_SCN_MEM_16BIT : (COFF::SectionCharacteristics)0) |
           COFF::IMAGE_SCN_CNT_CODE | COFF::IMAGE_SCN_MEM_EXECUTE |
           COFF::IMAGE_SCN_MEM_READ,
       SectionKind::getText());

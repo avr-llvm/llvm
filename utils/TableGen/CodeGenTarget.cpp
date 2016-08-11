@@ -39,7 +39,7 @@ MVT::SimpleValueType llvm::getValueType(Record *Rec) {
   return (MVT::SimpleValueType)Rec->getValueAsInt("Value");
 }
 
-std::string llvm::getName(MVT::SimpleValueType T) {
+StringRef llvm::getName(MVT::SimpleValueType T) {
   switch (T) {
   case MVT::Other:   return "UNKNOWN";
   case MVT::iPTR:    return "TLI.getPointerTy()";
@@ -48,7 +48,7 @@ std::string llvm::getName(MVT::SimpleValueType T) {
   }
 }
 
-std::string llvm::getEnumName(MVT::SimpleValueType T) {
+StringRef llvm::getEnumName(MVT::SimpleValueType T) {
   switch (T) {
   case MVT::Other:    return "MVT::Other";
   case MVT::i1:       return "MVT::i1";
@@ -426,23 +426,29 @@ ComplexPattern::ComplexPattern(Record *R) {
 // CodeGenIntrinsic Implementation
 //===----------------------------------------------------------------------===//
 
-std::vector<CodeGenIntrinsic> llvm::LoadIntrinsics(const RecordKeeper &RC,
-                                                   bool TargetOnly) {
-  std::vector<Record*> I = RC.getAllDerivedDefinitions("Intrinsic");
+CodeGenIntrinsicTable::CodeGenIntrinsicTable(const RecordKeeper &RC,
+                                             bool TargetOnly) {
+  std::vector<Record*> Defs = RC.getAllDerivedDefinitions("Intrinsic");
 
-  std::vector<CodeGenIntrinsic> Result;
-  Result.reserve(I.size());
+  Intrinsics.reserve(Defs.size());
 
-  for (unsigned i = 0, e = I.size(); i != e; ++i) {
-    bool isTarget = I[i]->getValueAsBit("isTarget");
+  for (unsigned I = 0, e = Defs.size(); I != e; ++I) {
+    bool isTarget = Defs[I]->getValueAsBit("isTarget");
     if (isTarget == TargetOnly)
-      Result.push_back(CodeGenIntrinsic(I[i]));
+      Intrinsics.push_back(CodeGenIntrinsic(Defs[I]));
   }
-  std::sort(Result.begin(), Result.end(),
-            [](const CodeGenIntrinsic& LHS, const CodeGenIntrinsic& RHS) {
-              return LHS.Name < RHS.Name;
+  std::sort(Intrinsics.begin(), Intrinsics.end(),
+            [](const CodeGenIntrinsic &LHS, const CodeGenIntrinsic &RHS) {
+              return std::tie(LHS.TargetPrefix, LHS.Name) <
+                     std::tie(RHS.TargetPrefix, RHS.Name);
             });
-  return Result;
+  Targets.push_back({"", 0, 0});
+  for (size_t I = 0, E = Intrinsics.size(); I < E; ++I)
+    if (Intrinsics[I].TargetPrefix != Targets.back().Name) {
+      Targets.back().Count = I - Targets.back().Offset;
+      Targets.push_back({Intrinsics[I].TargetPrefix, I, 0});
+    }
+  Targets.back().Count = Intrinsics.size() - Targets.back().Offset;
 }
 
 CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
@@ -592,9 +598,15 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
     else if (Property->isSubClassOf("NoCapture")) {
       unsigned ArgNo = Property->getValueAsInt("ArgNo");
       ArgumentAttributes.push_back(std::make_pair(ArgNo, NoCapture));
+    } else if (Property->isSubClassOf("Returned")) {
+      unsigned ArgNo = Property->getValueAsInt("ArgNo");
+      ArgumentAttributes.push_back(std::make_pair(ArgNo, Returned));
     } else if (Property->isSubClassOf("ReadOnly")) {
       unsigned ArgNo = Property->getValueAsInt("ArgNo");
       ArgumentAttributes.push_back(std::make_pair(ArgNo, ReadOnly));
+    } else if (Property->isSubClassOf("WriteOnly")) {
+      unsigned ArgNo = Property->getValueAsInt("ArgNo");
+      ArgumentAttributes.push_back(std::make_pair(ArgNo, WriteOnly));
     } else if (Property->isSubClassOf("ReadNone")) {
       unsigned ArgNo = Property->getValueAsInt("ArgNo");
       ArgumentAttributes.push_back(std::make_pair(ArgNo, ReadNone));

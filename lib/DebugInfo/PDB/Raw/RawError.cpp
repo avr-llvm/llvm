@@ -6,6 +6,9 @@ using namespace llvm;
 using namespace llvm::pdb;
 
 namespace {
+// FIXME: This class is only here to support the transition to llvm::Error. It
+// will be removed once this transition is complete. Clients should prefer to
+// deal with the Error value directly, rather than converting to error_code.
 class RawErrorCategory : public std::error_category {
 public:
   const char *name() const LLVM_NOEXCEPT override { return "llvm.pdb.raw"; }
@@ -21,6 +24,16 @@ public:
     case raw_error_code::insufficient_buffer:
       return "The buffer is not large enough to read the requested number of "
              "bytes.";
+    case raw_error_code::no_stream:
+      return "The specified stream could not be loaded.";
+    case raw_error_code::index_out_of_bounds:
+      return "The specified item does not exist in the array.";
+    case raw_error_code::invalid_block_address:
+      return "The specified block address is not valid.";
+    case raw_error_code::not_writable:
+      return "The PDB does not support writing.";
+    case raw_error_code::invalid_tpi_hash:
+      return "The Type record has an invalid hash value.";
     }
     llvm_unreachable("Unrecognized raw_error_code");
   }

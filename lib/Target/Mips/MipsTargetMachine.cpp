@@ -57,7 +57,10 @@ static std::string computeDataLayout(const Triple &TT, StringRef CPU,
   else
     Ret += "E";
 
-  Ret += "-m:m";
+  if (ABI.IsO32())
+    Ret += "-m:m";
+  else
+    Ret += "-m:e";
 
   // Pointers are 32 bit on some ABIs.
   if (!ABI.IsN64())
@@ -229,8 +232,8 @@ void MipsPassConfig::addIRPasses() {
 // the ISelDag to gen Mips code.
 bool MipsPassConfig::addInstSelector() {
   addPass(createMipsModuleISelDagPass(getMipsTargetMachine()));
-  addPass(createMips16ISelDag(getMipsTargetMachine()));
-  addPass(createMipsSEISelDag(getMipsTargetMachine()));
+  addPass(createMips16ISelDag(getMipsTargetMachine(), getOptLevel()));
+  addPass(createMipsSEISelDag(getMipsTargetMachine(), getOptLevel()));
   return false;
 }
 
@@ -270,5 +273,5 @@ void MipsPassConfig::addPreEmitPass() {
   addPass(createMipsDelaySlotFillerPass(TM));
   addPass(createMipsHazardSchedule());
   addPass(createMipsLongBranchPass(TM));
-  addPass(createMipsConstantIslandPass(TM));
+  addPass(createMipsConstantIslandPass());
 }

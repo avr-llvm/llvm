@@ -21,6 +21,7 @@
 #include "llvm/MC/MCObjectStreamer.h"
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/COFF.h"
+#include "llvm/Support/EndianStream.h"
 
 using namespace llvm;
 using namespace llvm::codeview;
@@ -118,6 +119,11 @@ void CodeViewContext::emitStringTable(MCObjectStreamer &OS) {
 }
 
 void CodeViewContext::emitFileChecksums(MCObjectStreamer &OS) {
+  // Do nothing if there are no file checksums. Microsoft's linker rejects empty
+  // CodeView substreams.
+  if (Filenames.empty())
+    return;
+
   MCContext &Ctx = OS.getContext();
   MCSymbol *FileBegin = Ctx.createTempSymbol("filechecksums_begin", false),
            *FileEnd = Ctx.createTempSymbol("filechecksums_end", false);
@@ -296,7 +302,7 @@ void CodeViewContext::encodeInlineLineTable(MCAsmLayout &Layout,
   StartLoc.setFileNum(Frag.StartFileId);
   StartLoc.setLine(Frag.StartLineNum);
   const MCCVLineEntry *LastLoc = &StartLoc;
-  bool WithinFunction = true;
+  bool HaveOpenRange = false;
 
   SmallVectorImpl<char> &Buffer = Frag.getContents();
   Buffer.clear(); // Clear old contents if we went through relaxation.
@@ -304,16 +310,22 @@ void CodeViewContext::encodeInlineLineTable(MCAsmLayout &Layout,
     if (!InlinedFuncIds.count(Loc.getFunctionId())) {
       // We've hit a cv_loc not attributed to this inline call site. Use this
       // label to end the PC range.
-      if (WithinFunction) {
+      if (HaveOpenRange) {
         unsigned Length =
             computeLabelDiff(Layout, LastLoc->getLabel(), Loc.getLabel());
         compressAnnotation(BinaryAnnotationsOpCode::ChangeCodeLength, Buffer);
         compressAnnotation(Length, Buffer);
       }
-      WithinFunction = false;
+      HaveOpenRange = false;
       continue;
     }
-    WithinFunction = true;
+
+    // If we've already opened the function and we're at an indirectly inlined
+    // location, continue until the next directly inlined location.
+    bool DirectlyInlined = Loc.getFunctionId() == Frag.SiteFuncId;
+    if (!DirectlyInlined && HaveOpenRange)
+      continue;
+    HaveOpenRange = true;
 
     if (Loc.getFileNum() != LastLoc->getFileNum()) {
       // File ids are 1 based, and each file checksum table entry is 8 bytes
@@ -352,7 +364,7 @@ void CodeViewContext::encodeInlineLineTable(MCAsmLayout &Layout,
     LastLoc = &Loc;
   }
 
-  assert(WithinFunction);
+  assert(HaveOpenRange);
 
   unsigned EndSymLength =
       computeLabelDiff(Layout, LastLoc->getLabel(), Frag.getFnEndSym());

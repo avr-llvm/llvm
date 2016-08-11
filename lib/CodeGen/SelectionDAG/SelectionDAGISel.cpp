@@ -21,7 +21,6 @@
 #include "llvm/Analysis/CFG.h"
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/FastISel.h"
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
 #include "llvm/CodeGen/GCMetadata.h"
@@ -331,7 +330,7 @@ namespace llvm {
 // are modified, the method should insert pairs of <OldSucc, NewSucc> into the
 // DenseMap.
 MachineBasicBlock *
-TargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
+TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
                                             MachineBasicBlock *MBB) const {
 #ifndef NDEBUG
   dbgs() << "If a target marks an instruction with "
@@ -341,9 +340,9 @@ TargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   llvm_unreachable(nullptr);
 }
 
-void TargetLowering::AdjustInstrPostInstrSelection(MachineInstr *MI,
+void TargetLowering::AdjustInstrPostInstrSelection(MachineInstr &MI,
                                                    SDNode *Node) const {
-  assert(!MI->hasPostISelHook() &&
+  assert(!MI.hasPostISelHook() &&
          "If a target marks an instruction with 'hasPostISelHook', "
          "it must implement TargetLowering::AdjustInstrPostInstrSelection!");
 }
@@ -444,7 +443,7 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
   TM.resetTargetOptions(Fn);
   // Reset OptLevel to None for optnone functions.
   CodeGenOpt::Level NewOptLevel = OptLevel;
-  if (Fn.hasFnAttribute(Attribute::OptimizeNone))
+  if (OptLevel != CodeGenOpt::None && skipFunction(Fn))
     NewOptLevel = CodeGenOpt::None;
   OptLevelChanger OLC(*this, NewOptLevel);
 
@@ -1346,7 +1345,7 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
         // where they are, so we can be sure to emit subsequent instructions
         // after them.
         if (FuncInfo->InsertPt != FuncInfo->MBB->begin())
-          FastIS->setLastLocalValue(std::prev(FuncInfo->InsertPt));
+          FastIS->setLastLocalValue(&*std::prev(FuncInfo->InsertPt));
         else
           FastIS->setLastLocalValue(nullptr);
       }
@@ -1463,8 +1462,12 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
         LowerArguments(Fn);
       }
     }
-    if (getAnalysis<StackProtector>().shouldEmitSDCheck(*LLVMBB))
-      SDB->SPDescriptor.initialize(LLVMBB, FuncInfo->MBBMap[LLVMBB]);
+    if (getAnalysis<StackProtector>().shouldEmitSDCheck(*LLVMBB)) {
+      bool FunctionBasedInstrumentation =
+          TLI->getSSPStackGuardCheck(*Fn.getParent());
+      SDB->SPDescriptor.initialize(LLVMBB, FuncInfo->MBBMap[LLVMBB],
+                                   FunctionBasedInstrumentation);
+    }
 
     if (Begin != BI)
       ++NumDAGBlocks;
@@ -1496,15 +1499,15 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
 /// terminator instructors so we can satisfy ABI constraints. A partial
 /// terminator sequence is an improper subset of a terminator sequence (i.e. it
 /// may be the whole terminator sequence).
-static bool MIIsInTerminatorSequence(const MachineInstr *MI) {
+static bool MIIsInTerminatorSequence(const MachineInstr &MI) {
   // If we do not have a copy or an implicit def, we return true if and only if
   // MI is a debug value.
-  if (!MI->isCopy() && !MI->isImplicitDef())
+  if (!MI.isCopy() && !MI.isImplicitDef())
     // Sometimes DBG_VALUE MI sneak in between the copies from the vregs to the
     // physical registers if there is debug info associated with the terminator
     // of our mbb. We want to include said debug info in our terminator
     // sequence, so we return true in that case.
-    return MI->isDebugValue();
+    return MI.isDebugValue();
 
   // We have left the terminator sequence if we are not doing one of the
   // following:
@@ -1514,18 +1517,18 @@ static bool MIIsInTerminatorSequence(const MachineInstr *MI) {
   // 3. Defining a register via an implicit def.
 
   // OPI should always be a register definition...
-  MachineInstr::const_mop_iterator OPI = MI->operands_begin();
+  MachineInstr::const_mop_iterator OPI = MI.operands_begin();
   if (!OPI->isReg() || !OPI->isDef())
     return false;
 
   // Defining any register via an implicit def is always ok.
-  if (MI->isImplicitDef())
+  if (MI.isImplicitDef())
     return true;
 
   // Grab the copy source...
   MachineInstr::const_mop_iterator OPI2 = OPI;
   ++OPI2;
-  assert(OPI2 != MI->operands_end()
+  assert(OPI2 != MI.operands_end()
          && "Should have a copy implying we should have 2 arguments.");
 
   // Make sure that the copy dest is not a vreg when the copy source is a
@@ -1552,7 +1555,7 @@ static bool MIIsInTerminatorSequence(const MachineInstr *MI) {
 /// terminator, but additionally the copies that move the vregs into the
 /// physical registers.
 static MachineBasicBlock::iterator
-FindSplitPointForStackProtector(MachineBasicBlock *BB, DebugLoc DL) {
+FindSplitPointForStackProtector(MachineBasicBlock *BB) {
   MachineBasicBlock::iterator SplitPoint = BB->getFirstTerminator();
   //
   if (SplitPoint == BB->begin())
@@ -1562,7 +1565,7 @@ FindSplitPointForStackProtector(MachineBasicBlock *BB, DebugLoc DL) {
   MachineBasicBlock::iterator Previous = SplitPoint;
   --Previous;
 
-  while (MIIsInTerminatorSequence(Previous)) {
+  while (MIIsInTerminatorSequence(*Previous)) {
     SplitPoint = Previous;
     if (Previous == Start)
       break;
@@ -1593,7 +1596,23 @@ SelectionDAGISel::FinishBasicBlock() {
   }
 
   // Handle stack protector.
-  if (SDB->SPDescriptor.shouldEmitStackProtector()) {
+  if (SDB->SPDescriptor.shouldEmitFunctionBasedCheckStackProtector()) {
+    // The target provides a guard check function. There is no need to
+    // generate error handling code or to split current basic block.
+    MachineBasicBlock *ParentMBB = SDB->SPDescriptor.getParentMBB();
+
+    // Add load and check to the basicblock.
+    FuncInfo->MBB = ParentMBB;
+    FuncInfo->InsertPt =
+        FindSplitPointForStackProtector(ParentMBB);
+    SDB->visitSPDescriptorParent(SDB->SPDescriptor, ParentMBB);
+    CurDAG->setRoot(SDB->getRoot());
+    SDB->clear();
+    CodeGenAndEmitDAG();
+
+    // Clear the Per-BB State.
+    SDB->SPDescriptor.resetPerBBState();
+  } else if (SDB->SPDescriptor.shouldEmitStackProtector()) {
     MachineBasicBlock *ParentMBB = SDB->SPDescriptor.getParentMBB();
     MachineBasicBlock *SuccessMBB = SDB->SPDescriptor.getSuccessMBB();
 
@@ -1604,7 +1623,7 @@ SelectionDAGISel::FinishBasicBlock() {
     // register allocation issues caused by us splitting the parent mbb. The
     // register allocator will clean up said virtual copies later on.
     MachineBasicBlock::iterator SplitPoint =
-      FindSplitPointForStackProtector(ParentMBB, SDB->getCurDebugLoc());
+        FindSplitPointForStackProtector(ParentMBB);
 
     // Splice the terminator of ParentMBB into SuccessMBB.
     SuccessMBB->splice(SuccessMBB->end(), ParentMBB,
@@ -1893,8 +1912,8 @@ bool SelectionDAGISel::CheckOrMask(SDValue LHS, ConstantSDNode *RHS,
 
 /// SelectInlineAsmMemoryOperands - Calls to this are automatically generated
 /// by tblgen.  Others should not call it.
-void SelectionDAGISel::
-SelectInlineAsmMemoryOperands(std::vector<SDValue> &Ops, SDLoc DL) {
+void SelectionDAGISel::SelectInlineAsmMemoryOperands(std::vector<SDValue> &Ops,
+                                                     const SDLoc &DL) {
   std::vector<SDValue> InOps;
   std::swap(InOps, Ops);
 
@@ -1931,15 +1950,15 @@ SelectInlineAsmMemoryOperands(std::vector<SDValue> &Ops, SDLoc DL) {
 
       // Otherwise, this is a memory operand.  Ask the target to select it.
       std::vector<SDValue> SelOps;
-      if (SelectInlineAsmMemoryOperand(InOps[i+1],
-                                       InlineAsm::getMemoryConstraintID(Flags),
-                                       SelOps))
+      unsigned ConstraintID = InlineAsm::getMemoryConstraintID(Flags);
+      if (SelectInlineAsmMemoryOperand(InOps[i+1], ConstraintID, SelOps))
         report_fatal_error("Could not match memory address.  Inline asm"
                            " failure!");
 
       // Add this to the output node.
       unsigned NewFlags =
         InlineAsm::getFlagWord(InlineAsm::Kind_Mem, SelOps.size());
+      NewFlags = InlineAsm::getFlagWordForMem(NewFlags, ConstraintID);
       Ops.push_back(CurDAG->getTargetConstant(NewFlags, DL, MVT::i32));
       Ops.insert(Ops.end(), SelOps.begin(), SelOps.end());
       i += 2;
@@ -2163,10 +2182,8 @@ void SelectionDAGISel::UpdateChains(
     // Replace all the chain results with the final chain we ended up with.
     for (unsigned i = 0, e = ChainNodesMatched.size(); i != e; ++i) {
       SDNode *ChainNode = ChainNodesMatched[i];
-
-      // If this node was already deleted, don't look at it.
-      if (ChainNode->getOpcode() == ISD::DELETED_NODE)
-        continue;
+      assert(ChainNode->getOpcode() != ISD::DELETED_NODE &&
+             "Deleted node left in chain");
 
       // Don't replace the results of the root node if we're doing a
       // MorphNodeTo.
@@ -2437,8 +2454,10 @@ MorphNode(SDNode *Node, unsigned TargetOpc, SDVTList VTList,
 
   // Otherwise, no replacement happened because the node already exists. Replace
   // Uses of the old node with the new one.
-  if (Res != Node)
+  if (Res != Node) {
     CurDAG->ReplaceAllUsesWith(Node, Res);
+    CurDAG->RemoveDeadNode(Node);
+  }
 
   return Res;
 }
@@ -3363,13 +3382,17 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
                                                              nullptr));
         }
 
-      } else if (NodeToMatch->getOpcode() != ISD::DELETED_NODE) {
-        Res = MorphNode(NodeToMatch, TargetOpc, VTList, Ops, EmitNodeInfo);
       } else {
-        // NodeToMatch was eliminated by CSE when the target changed the DAG.
-        // We will visit the equivalent node later.
-        DEBUG(dbgs() << "Node was eliminated by CSE\n");
-        return;
+        assert(NodeToMatch->getOpcode() != ISD::DELETED_NODE &&
+               "NodeToMatch was removed partway through selection");
+        SelectionDAG::DAGNodeDeletedListener NDL(*CurDAG, [&](SDNode *N,
+                                                              SDNode *E) {
+          auto &Chain = ChainNodesMatched;
+          assert((!E || llvm::find(Chain, N) == Chain.end()) &&
+                 "Chain node replaced during MorphNode");
+          Chain.erase(std::remove(Chain.begin(), Chain.end(), N), Chain.end());
+        });
+        Res = MorphNode(NodeToMatch, TargetOpc, VTList, Ops, EmitNodeInfo);
       }
 
       // If the node had chain/glue results, update our notion of the current
@@ -3436,11 +3459,7 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
       // If this was a MorphNodeTo then we're completely done!
       if (IsMorphNodeTo) {
         // Update chain uses.
-        UpdateChains(NodeToMatch, InputChain, ChainNodesMatched, true);
-        if (Res != NodeToMatch) {
-          ReplaceUses(NodeToMatch, Res);
-          CurDAG->RemoveDeadNode(NodeToMatch);
-        }
+        UpdateChains(Res, InputChain, ChainNodesMatched, true);
         return;
       }
       continue;

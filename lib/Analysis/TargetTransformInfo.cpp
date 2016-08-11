@@ -17,6 +17,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <utility>
 
 using namespace llvm;
 
@@ -68,6 +69,11 @@ int TargetTransformInfo::getCallCost(const Function *F,
 
 unsigned TargetTransformInfo::getInliningThresholdMultiplier() const {
   return TTIImpl->getInliningThresholdMultiplier();
+}
+
+int TargetTransformInfo::getGEPCost(Type *PointeeType, const Value *Ptr,
+                                    ArrayRef<const Value *> Operands) const {
+  return TTIImpl->getGEPCost(PointeeType, Ptr, Operands);
 }
 
 int TargetTransformInfo::getIntrinsicCost(
@@ -180,6 +186,14 @@ bool TargetTransformInfo::isFPVectorizationPotentiallyUnsafe() const {
   return TTIImpl->isFPVectorizationPotentiallyUnsafe();
 }
 
+bool TargetTransformInfo::allowsMisalignedMemoryAccesses(unsigned BitWidth,
+                                                         unsigned AddressSpace,
+                                                         unsigned Alignment,
+                                                         bool *Fast) const {
+  return TTIImpl->allowsMisalignedMemoryAccesses(BitWidth, AddressSpace,
+                                                 Alignment, Fast);
+}
+
 TargetTransformInfo::PopcntSupportKind
 TargetTransformInfo::getPopcntSupport(unsigned IntTyWidthInBit) const {
   return TTIImpl->getPopcntSupport(IntTyWidthInBit);
@@ -191,6 +205,14 @@ bool TargetTransformInfo::haveFastSqrt(Type *Ty) const {
 
 int TargetTransformInfo::getFPOpCost(Type *Ty) const {
   int Cost = TTIImpl->getFPOpCost(Ty);
+  assert(Cost >= 0 && "TTI should not produce negative costs!");
+  return Cost;
+}
+
+int TargetTransformInfo::getIntImmCodeSizeCost(unsigned Opcode, unsigned Idx,
+                                               const APInt &Imm,
+                                               Type *Ty) const {
+  int Cost = TTIImpl->getIntImmCodeSizeCost(Opcode, Idx, Imm, Ty);
   assert(Cost >= 0 && "TTI should not produce negative costs!");
   return Cost;
 }
@@ -221,6 +243,10 @@ unsigned TargetTransformInfo::getNumberOfRegisters(bool Vector) const {
 
 unsigned TargetTransformInfo::getRegisterBitWidth(bool Vector) const {
   return TTIImpl->getRegisterBitWidth(Vector);
+}
+
+unsigned TargetTransformInfo::getLoadStoreVecRegBitWidth(unsigned AS) const {
+  return TTIImpl->getLoadStoreVecRegBitWidth(AS);
 }
 
 unsigned TargetTransformInfo::getCacheLineSize() const {
@@ -397,9 +423,10 @@ TargetIRAnalysis::TargetIRAnalysis() : TTICallback(&getDefaultTTI) {}
 
 TargetIRAnalysis::TargetIRAnalysis(
     std::function<Result(const Function &)> TTICallback)
-    : TTICallback(TTICallback) {}
+    : TTICallback(std::move(TTICallback)) {}
 
-TargetIRAnalysis::Result TargetIRAnalysis::run(const Function &F) {
+TargetIRAnalysis::Result TargetIRAnalysis::run(const Function &F,
+                                               AnalysisManager<Function> &) {
   return TTICallback(F);
 }
 
@@ -430,7 +457,8 @@ TargetTransformInfoWrapperPass::TargetTransformInfoWrapperPass(
 }
 
 TargetTransformInfo &TargetTransformInfoWrapperPass::getTTI(const Function &F) {
-  TTI = TIRA.run(F);
+  AnalysisManager<Function> DummyFAM;
+  TTI = TIRA.run(F, DummyFAM);
   return *TTI;
 }
 

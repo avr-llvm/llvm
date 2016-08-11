@@ -83,7 +83,7 @@ private:
                       SDValue &AluOp);
 
   // getI32Imm - Return a target constant with the specified value, of type i32.
-  inline SDValue getI32Imm(unsigned Imm, SDLoc DL) {
+  inline SDValue getI32Imm(unsigned Imm, const SDLoc &DL) {
     return CurDAG->getTargetConstant(Imm, DL, MVT::i32);
   }
 
@@ -201,7 +201,7 @@ bool LanaiDAGToDAGISel::selectAddrRiSpls(SDValue Addr, SDValue &Base,
 
 bool LanaiDAGToDAGISel::selectAddrRi(SDValue Addr, SDValue &Base,
                                      SDValue &Offset, SDValue &AluOp) {
-  return selectAddrRiSpls(Addr, Base, Offset, AluOp, /*RImode=*/true);
+  return selectAddrRiSpls(Addr, Base, Offset, AluOp, /*RiMode=*/true);
 }
 
 bool LanaiDAGToDAGISel::selectAddrSpls(SDValue Addr, SDValue &Base,

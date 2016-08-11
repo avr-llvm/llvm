@@ -10,11 +10,14 @@
 #ifndef LLVM_DEBUGINFO_PDB_RAW_PDBTPISTREAM_H
 #define LLVM_DEBUGINFO_PDB_RAW_PDBTPISTREAM_H
 
-#include "llvm/DebugInfo/CodeView/TypeStream.h"
+#include "llvm/DebugInfo/CodeView/StreamArray.h"
+#include "llvm/DebugInfo/CodeView/StreamRef.h"
+#include "llvm/DebugInfo/CodeView/TypeRecord.h"
 #include "llvm/DebugInfo/PDB/PDBTypes.h"
-#include "llvm/DebugInfo/PDB/Raw/ByteStream.h"
 #include "llvm/DebugInfo/PDB/Raw/MappedBlockStream.h"
 #include "llvm/DebugInfo/PDB/Raw/RawConstants.h"
+#include "llvm/DebugInfo/PDB/Raw/RawTypes.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include "llvm/Support/Error.h"
 
@@ -22,13 +25,11 @@ namespace llvm {
 namespace pdb {
 class PDBFile;
 
-typedef uint32_t (*HashFunctionType)(uint8_t *, uint32_t);
-
 class TpiStream {
   struct HeaderInfo;
 
 public:
-  TpiStream(PDBFile &File);
+  TpiStream(const PDBFile &File, std::unique_ptr<MappedBlockStream> Stream);
   ~TpiStream();
   Error reload();
 
@@ -37,20 +38,33 @@ public:
   uint32_t TypeIndexBegin() const;
   uint32_t TypeIndexEnd() const;
   uint32_t NumTypeRecords() const;
+  uint16_t getTypeHashStreamIndex() const;
+  uint16_t getTypeHashStreamAuxIndex() const;
 
-  iterator_range<codeview::TypeIterator> types(bool *HadError) const;
+  uint32_t getHashKeySize() const;
+  uint32_t NumHashBuckets() const;
+  codeview::FixedStreamArray<support::ulittle32_t> getHashValues() const;
+  codeview::FixedStreamArray<TypeIndexOffset> getTypeIndexOffsets() const;
+  codeview::FixedStreamArray<TypeIndexOffset> getHashAdjustments() const;
+
+  iterator_range<codeview::CVTypeArray::Iterator> types(bool *HadError) const;
+
+  Error commit();
 
 private:
-  PDBFile &Pdb;
-  MappedBlockStream Stream;
-  HashFunctionType HashFunction;
+  Error verifyHashValues();
 
-  ByteStream RecordsBuffer;
-  ByteStream TypeIndexOffsetBuffer;
-  ByteStream HashValuesBuffer;
-  ByteStream HashAdjBuffer;
+  const PDBFile &Pdb;
+  std::unique_ptr<MappedBlockStream> Stream;
 
-  std::unique_ptr<HeaderInfo> Header;
+  codeview::CVTypeArray TypeRecords;
+
+  std::unique_ptr<MappedBlockStream> HashStream;
+  codeview::FixedStreamArray<support::ulittle32_t> HashValues;
+  codeview::FixedStreamArray<TypeIndexOffset> TypeIndexOffsets;
+  codeview::FixedStreamArray<TypeIndexOffset> HashAdjustments;
+
+  const HeaderInfo *Header;
 };
 }
 }

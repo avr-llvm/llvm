@@ -51,7 +51,7 @@ Value *GlobalValue::handleOperandChangeImpl(Value *From, Value *To) {
 /// create a GlobalValue) from the GlobalValue Src to this one.
 void GlobalValue::copyAttributesFrom(const GlobalValue *Src) {
   setVisibility(Src->getVisibility());
-  setUnnamedAddr(Src->hasUnnamedAddr());
+  setUnnamedAddr(Src->getUnnamedAddr());
   setDLLStorageClass(Src->getDLLStorageClass());
 }
 
@@ -81,13 +81,13 @@ void GlobalObject::setAlignment(unsigned Align) {
 
 unsigned GlobalObject::getGlobalObjectSubClassData() const {
   unsigned ValueData = getGlobalValueSubClassData();
-  return ValueData >> AlignmentBits;
+  return ValueData >> GlobalObjectBits;
 }
 
 void GlobalObject::setGlobalObjectSubClassData(unsigned Val) {
   unsigned OldData = getGlobalValueSubClassData();
-  setGlobalValueSubClassData((OldData & AlignmentMask) |
-                             (Val << AlignmentBits));
+  setGlobalValueSubClassData((OldData & GlobalObjectMask) |
+                             (Val << GlobalObjectBits));
   assert(getGlobalObjectSubClassData() == Val && "representation error");
 }
 
@@ -300,6 +300,10 @@ void GlobalVariable::copyAttributesFrom(const GlobalValue *Src) {
   }
 }
 
+void GlobalVariable::dropAllReferences() {
+  User::dropAllReferences();
+  clearMetadata();
+}
 
 //===----------------------------------------------------------------------===//
 // GlobalIndirectSymbol Implementation

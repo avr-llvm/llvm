@@ -535,24 +535,22 @@ SDValue VectorLegalizer::ExpandLoad(SDValue Op) {
       unsigned LoadBytes = WideBytes;
 
       if (RemainingBytes >= LoadBytes) {
-        ScalarLoad = DAG.getLoad(WideVT, dl, Chain, BasePTR,
-                                 LD->getPointerInfo().getWithOffset(Offset),
-                                 LD->isVolatile(), LD->isNonTemporal(),
-                                 LD->isInvariant(),
-                                 MinAlign(LD->getAlignment(), Offset),
-                                 LD->getAAInfo());
+        ScalarLoad =
+            DAG.getLoad(WideVT, dl, Chain, BasePTR,
+                        LD->getPointerInfo().getWithOffset(Offset),
+                        MinAlign(LD->getAlignment(), Offset),
+                        LD->getMemOperand()->getFlags(), LD->getAAInfo());
       } else {
         EVT LoadVT = WideVT;
         while (RemainingBytes < LoadBytes) {
           LoadBytes >>= 1; // Reduce the load size by half.
           LoadVT = EVT::getIntegerVT(*DAG.getContext(), LoadBytes << 3);
         }
-        ScalarLoad = DAG.getExtLoad(ISD::EXTLOAD, dl, WideVT, Chain, BasePTR,
-                                    LD->getPointerInfo().getWithOffset(Offset),
-                                    LoadVT, LD->isVolatile(),
-                                    LD->isNonTemporal(), LD->isInvariant(),
-                                    MinAlign(LD->getAlignment(), Offset),
-                                    LD->getAAInfo());
+        ScalarLoad =
+            DAG.getExtLoad(ISD::EXTLOAD, dl, WideVT, Chain, BasePTR,
+                           LD->getPointerInfo().getWithOffset(Offset), LoadVT,
+                           MinAlign(LD->getAlignment(), Offset),
+                           LD->getMemOperand()->getFlags(), LD->getAAInfo());
       }
 
       RemainingBytes -= LoadBytes;
@@ -659,13 +657,10 @@ SDValue VectorLegalizer::ExpandStore(SDValue Op) {
                          MemSclVT.getIntegerVT(Ctx, NextPowerOf2(ScalarSize)),
                          StVT.getVectorNumElements());
 
-    SDValue NewVectorStore
-      = DAG.getTruncStore(ST->getChain(), SDLoc(Op), ST->getValue(),
-                          ST->getBasePtr(),
-                          ST->getPointerInfo(), NewMemVT,
-                          ST->isVolatile(), ST->isNonTemporal(),
-                          ST->getAlignment(),
-                          ST->getAAInfo());
+    SDValue NewVectorStore = DAG.getTruncStore(
+        ST->getChain(), SDLoc(Op), ST->getValue(), ST->getBasePtr(),
+        ST->getPointerInfo(), NewMemVT, ST->getAlignment(),
+        ST->getMemOperand()->getFlags(), ST->getAAInfo());
     ST = cast<StoreSDNode>(NewVectorStore.getNode());
   }
 
@@ -881,8 +876,7 @@ SDValue VectorLegalizer::ExpandBSWAP(SDValue Op) {
 
   SDLoc DL(Op);
   Op = DAG.getNode(ISD::BITCAST, DL, ByteVT, Op.getOperand(0));
-  Op = DAG.getVectorShuffle(ByteVT, DL, Op, DAG.getUNDEF(ByteVT),
-                            ShuffleMask.data());
+  Op = DAG.getVectorShuffle(ByteVT, DL, Op, DAG.getUNDEF(ByteVT), ShuffleMask);
   return DAG.getNode(ISD::BITCAST, DL, VT, Op);
 }
 
@@ -911,7 +905,7 @@ SDValue VectorLegalizer::ExpandBITREVERSE(SDValue Op) {
       SDLoc DL(Op);
       Op = DAG.getNode(ISD::BITCAST, DL, ByteVT, Op.getOperand(0));
       Op = DAG.getVectorShuffle(ByteVT, DL, Op, DAG.getUNDEF(ByteVT),
-                                BSWAPMask.data());
+                                BSWAPMask);
       Op = DAG.getNode(ISD::BITREVERSE, DL, ByteVT, Op);
       return DAG.getNode(ISD::BITCAST, DL, VT, Op);
     }

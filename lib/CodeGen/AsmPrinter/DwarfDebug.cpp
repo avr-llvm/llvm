@@ -138,7 +138,8 @@ void DebugLocDwarfExpression::EmitUnsigned(uint64_t Value) {
   BS.EmitULEB128(Value, Twine(Value));
 }
 
-bool DebugLocDwarfExpression::isFrameRegister(unsigned MachineReg) {
+bool DebugLocDwarfExpression::isFrameRegister(const TargetRegisterInfo &TRI,
+                                              unsigned MachineReg) {
   // This information is not available while emitting .debug_loc entries.
   return false;
 }
@@ -233,6 +234,8 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
   else
     HasDwarfAccelTables = DwarfAccelTables == Enable;
 
+  HasAppleExtensionAttributes = tuneForLLDB();
+
   // Handle split DWARF. Off by default for now.
   if (SplitDwarf == Default)
     HasSplitDwarf = false;
@@ -268,11 +271,6 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
   UseDWARF2Bitfields = (DwarfVersion < 4) || tuneForGDB();
 
   Asm->OutStreamer->getContext().setDwarfVersion(DwarfVersion);
-
-  {
-    NamedRegionTimer T(DbgTimerName, DWARFGroupName, TimePassesIsEnabled);
-    beginModule();
-  }
 }
 
 // Define out of line so we don't have to include DwarfUnit.h in DwarfDebug.h.
@@ -423,16 +421,18 @@ DwarfDebug::constructDwarfCompileUnit(const DICompileUnit *DIUnit) {
     addGnuPubAttributes(NewCU, Die);
   }
 
-  if (DIUnit->isOptimized())
-    NewCU.addFlag(Die, dwarf::DW_AT_APPLE_optimized);
+  if (useAppleExtensionAttributes()) {
+    if (DIUnit->isOptimized())
+      NewCU.addFlag(Die, dwarf::DW_AT_APPLE_optimized);
 
-  StringRef Flags = DIUnit->getFlags();
-  if (!Flags.empty())
-    NewCU.addString(Die, dwarf::DW_AT_APPLE_flags, Flags);
+    StringRef Flags = DIUnit->getFlags();
+    if (!Flags.empty())
+      NewCU.addString(Die, dwarf::DW_AT_APPLE_flags, Flags);
 
-  if (unsigned RVer = DIUnit->getRuntimeVersion())
-    NewCU.addUInt(Die, dwarf::DW_AT_APPLE_major_runtime_vers,
-                  dwarf::DW_FORM_data1, RVer);
+    if (unsigned RVer = DIUnit->getRuntimeVersion())
+      NewCU.addUInt(Die, dwarf::DW_AT_APPLE_major_runtime_vers,
+                    dwarf::DW_FORM_data1, RVer);
+  }
 
   if (useSplitDwarf())
     NewCU.initSection(Asm->getObjFileLowering().getDwarfInfoDWOSection());
@@ -464,17 +464,14 @@ void DwarfDebug::constructAndAddImportedEntityDIE(DwarfCompileUnit &TheCU,
 // global DIEs and emit initial debug info sections. This is invoked by
 // the target AsmPrinter.
 void DwarfDebug::beginModule() {
+  NamedRegionTimer T(DbgTimerName, DWARFGroupName, TimePassesIsEnabled);
   if (DisableDebugInfoPrinting)
     return;
 
   const Module *M = MMI->getModule();
 
-  unsigned NumDebugCUs = 0;
-  for (DICompileUnit *CUNode : M->debug_compile_units()) {
-    (void)CUNode;
-    ++NumDebugCUs;
-  }
-
+  unsigned NumDebugCUs = std::distance(M->debug_compile_units_begin(),
+                                       M->debug_compile_units_end());
   // Tell MMI whether we have debug info.
   MMI->setDebugInfoAvailability(NumDebugCUs > 0);
   SingleCU = NumDebugCUs == 1;
@@ -1001,7 +998,7 @@ void DwarfDebug::beginInstruction(const MachineInstr *MI) {
 
   // Check if source location changes, but ignore DBG_VALUE locations.
   if (!MI->isDebugValue()) {
-    DebugLoc DL = MI->getDebugLoc();
+    const DebugLoc &DL = MI->getDebugLoc();
     if (DL != PrevInstLoc) {
       if (DL) {
         unsigned Flags = 0;
@@ -1400,8 +1397,7 @@ static void emitDebugLocValue(const AsmPrinter &AP, const DIBasicType *BT,
                               ByteStreamer &Streamer,
                               const DebugLocEntry::Value &Value,
                               unsigned PieceOffsetInBits) {
-  DebugLocDwarfExpression DwarfExpr(*AP.MF->getSubtarget().getRegisterInfo(),
-                                    AP.getDwarfDebug()->getDwarfVersion(),
+  DebugLocDwarfExpression DwarfExpr(AP.getDwarfDebug()->getDwarfVersion(),
                                     Streamer);
   // Regular entry.
   if (Value.isInt()) {
@@ -1418,12 +1414,13 @@ static void emitDebugLocValue(const AsmPrinter &AP, const DIBasicType *BT,
       AP.EmitDwarfRegOp(Streamer, Loc);
     else {
       // Complex address entry.
+      const TargetRegisterInfo &TRI = *AP.MF->getSubtarget().getRegisterInfo();
       if (Loc.getOffset()) {
-        DwarfExpr.AddMachineRegIndirect(Loc.getReg(), Loc.getOffset());
+        DwarfExpr.AddMachineRegIndirect(TRI, Loc.getReg(), Loc.getOffset());
         DwarfExpr.AddExpression(Expr->expr_op_begin(), Expr->expr_op_end(),
                                 PieceOffsetInBits);
       } else
-        DwarfExpr.AddMachineRegExpression(Expr, Loc.getReg(),
+        DwarfExpr.AddMachineRegExpression(TRI, Expr, Loc.getReg(),
                                           PieceOffsetInBits);
     }
   } else if (Value.isConstantFP()) {
@@ -1454,8 +1451,7 @@ void DebugLocEntry::finalize(const AsmPrinter &AP,
       assert(Offset <= PieceOffset && "overlapping or duplicate pieces");
       if (Offset < PieceOffset) {
         // The DWARF spec seriously mandates pieces with no locations for gaps.
-        DebugLocDwarfExpression Expr(*AP.MF->getSubtarget().getRegisterInfo(),
-                                     AP.getDwarfDebug()->getDwarfVersion(),
+        DebugLocDwarfExpression Expr(AP.getDwarfDebug()->getDwarfVersion(),
                                      Streamer);
         Expr.AddOpPiece(PieceOffset-Offset, 0);
         Offset += PieceOffset-Offset;
@@ -1666,7 +1662,7 @@ void DwarfDebug::emitDebugARanges() {
     Asm->OutStreamer->AddComment("Segment Size (in bytes)");
     Asm->EmitInt8(0);
 
-    Asm->OutStreamer->EmitFill(Padding, 0xff);
+    Asm->OutStreamer->emitFill(Padding, 0xff);
 
     for (const ArangeSpan &Span : List) {
       Asm->EmitLabelReference(Span.Start, PtrSize);

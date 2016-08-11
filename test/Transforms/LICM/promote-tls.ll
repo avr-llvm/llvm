@@ -1,4 +1,5 @@
 ; RUN: opt -tbaa -basicaa -licm -S < %s | FileCheck %s
+; RUN: opt -aa-pipeline=type-based-aa,basic-aa -passes='require<aa>,require<targetir>,require<scalar-evolution>,loop(licm)' -S %s | FileCheck %s
 
 ; If we can prove a local is thread local, we can insert stores during
 ; promotion which wouldn't be legal otherwise.
@@ -25,7 +26,7 @@ for.header:
   %i.02 = phi i32 [ 0, %for.body.lr.ph ], [ %inc, %for.body ]
   %old = load i32, i32* %addr, align 4
   ; deliberate impossible to analyze branch
-  %guard = load volatile i8*, i8** @p
+  %guard = load atomic i8*, i8** @p monotonic, align 8
   %exitcmp = icmp eq i8* %guard, null
   br i1 %exitcmp, label %for.body, label %early-exit
 

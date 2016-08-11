@@ -51,7 +51,8 @@ public:
 #include "AVRGenDAGISel.inc"
 
 private:
-  SDNode *SelectImpl(SDNode *N) override;
+  void Select(SDNode *N) override;
+  SDNode *SelectImpl(SDNode *N);
 
   template <unsigned NodeType> SDNode *select(SDNode *N);
   SDNode *selectMultiplication(SDNode *N);
@@ -503,6 +504,29 @@ SDNode *AVRDAGToDAGISel::selectMultiplication(llvm::SDNode *N) {
   // :TODO: Clear R1. This is currently done using a custom inserter.
 
   return nullptr;
+}
+
+void AVRDAGToDAGISel::Select(SDNode *N) {
+  SDNode *New = SelectImpl(N);
+  // TODO: Checking DELETED_NODE here is undefined behaviour, which will be
+  // fixed by migrating backends to implement the void Select interface
+  // instead or returning a node.
+  if (New == N || N->getOpcode() == ISD::DELETED_NODE)
+    // If we ask to replace the node with itself or if we deleted the original
+    // node, just move on to the next one. This case will go away once
+    // everyone migrates to stop implementing SelectImpl.
+    return;
+  if (New) {
+    // Replace the node with the returned node. Originally, Select would
+    // always return a node and the caller would replace it, but this doesn't
+    // work for more complicated selection schemes.
+    ReplaceUses(N, New);
+    CurDAG->RemoveDeadNode(N);
+  } else if (N->use_empty())
+    // Clean up dangling nodes if the target didn't bother. These are
+    // basically bugs in the targets, but we were lenient in the past and did
+    // this for them.
+    CurDAG->RemoveDeadNode(N);
 }
 
 SDNode *AVRDAGToDAGISel::SelectImpl(SDNode *N) {

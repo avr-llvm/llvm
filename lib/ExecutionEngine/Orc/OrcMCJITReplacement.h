@@ -121,7 +121,7 @@ class OrcMCJITReplacement : public ExecutionEngine {
 
     RuntimeDyld::SymbolInfo
     findSymbolInLogicalDylib(const std::string &Name) override {
-      return M.ClientResolver->findSymbolInLogicalDylib(Name);
+      return M.ClientResolver->findSymbol(Name);
     }
 
   private:
@@ -245,11 +245,11 @@ private:
 
   RuntimeDyld::SymbolInfo findMangledSymbol(StringRef Name) {
     if (auto Sym = LazyEmitLayer.findSymbol(Name, false))
-      return RuntimeDyld::SymbolInfo(Sym.getAddress(), Sym.getFlags());
+      return Sym.toRuntimeDyldSymbol();
     if (auto Sym = ClientResolver->findSymbol(Name))
-      return RuntimeDyld::SymbolInfo(Sym.getAddress(), Sym.getFlags());
+      return Sym;
     if (auto Sym = scanArchives(Name))
-      return RuntimeDyld::SymbolInfo(Sym.getAddress(), Sym.getFlags());
+      return Sym.toRuntimeDyldSymbol();
 
     return nullptr;
   }
@@ -258,13 +258,14 @@ private:
     for (object::OwningBinary<object::Archive> &OB : Archives) {
       object::Archive *A = OB.getBinary();
       // Look for our symbols in each Archive
-      object::Archive::child_iterator ChildIt = A->findSym(Name);
-      if (std::error_code EC = ChildIt->getError())
-        report_fatal_error(EC.message());
-      if (ChildIt != A->child_end()) {
+      auto OptionalChildOrErr = A->findSym(Name);
+      if (!OptionalChildOrErr)
+        report_fatal_error(OptionalChildOrErr.takeError());
+      auto &OptionalChild = *OptionalChildOrErr;
+      if (OptionalChild) {
         // FIXME: Support nested archives?
         Expected<std::unique_ptr<object::Binary>> ChildBinOrErr =
-            (*ChildIt)->getAsBinary();
+            OptionalChild->getAsBinary();
         if (!ChildBinOrErr) {
           // TODO: Actually report errors helpfully.
           consumeError(ChildBinOrErr.takeError());

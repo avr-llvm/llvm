@@ -1,8 +1,6 @@
-; RUN: llc -mtriple=amdgcn--amdhsa -mcpu=fiji -mattr=+amdgpu-debugger-reserve-trap-regs -verify-machineinstrs < %s | FileCheck %s
-
+; RUN: llc -O0 -mtriple=amdgcn--amdhsa -mcpu=fiji -mattr=+amdgpu-debugger-reserve-regs -verify-machineinstrs < %s | FileCheck %s
 ; CHECK: reserved_vgpr_first = {{[0-9]+}}
 ; CHECK-NEXT: reserved_vgpr_count = 4
-
 ; CHECK: ReservedVGPRFirst: {{[0-9]+}}
 ; CHECK-NEXT: ReservedVGPRCount: 4
 
@@ -27,7 +25,7 @@ entry:
 ; Function Attrs: nounwind readnone
 declare void @llvm.dbg.declare(metadata, metadata, metadata) #1
 
-attributes #0 = { nounwind "disable-tail-calls"="false" "less-precise-fpmad"="false" "no-frame-pointer-elim"="true" "no-frame-pointer-elim-non-leaf" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "stack-protector-buffer-size"="8" "target-cpu"="fiji" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #0 = { nounwind }
 attributes #1 = { nounwind readnone }
 
 !llvm.dbg.cu = !{!0}

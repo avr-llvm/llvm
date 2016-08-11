@@ -32,11 +32,12 @@ class LanaiTargetMachine : public LLVMTargetMachine {
 public:
   LanaiTargetMachine(const Target &TheTarget, const Triple &TargetTriple,
                      StringRef Cpu, StringRef FeatureString,
-                     const TargetOptions &Options, Reloc::Model RelocationModel,
+                     const TargetOptions &Options,
+                     Optional<Reloc::Model> RelocationModel,
                      CodeModel::Model CodeModel, CodeGenOpt::Level OptLevel);
 
   const LanaiSubtarget *
-  getSubtargetImpl(const llvm::Function &Fn) const override {
+  getSubtargetImpl(const llvm::Function & /*Fn*/) const override {
     return &Subtarget;
   }
 

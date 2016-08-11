@@ -44,34 +44,32 @@ class LLVM_LIBRARY_VISIBILITY InsertPointAnalysis {
 private:
   const LiveIntervals &LIS;
 
-  /// Current LiveInterval for which to insert split or spill.
-  const LiveInterval *CurLI;
-
   /// Last legal insert point in each basic block in the current function.
   /// The first entry is the first terminator, the second entry is the
   /// last valid point to insert a split or spill for a variable that is
   /// live into a landing pad successor.
   SmallVector<std::pair<SlotIndex, SlotIndex>, 8> LastInsertPoint;
 
-  SlotIndex computeLastInsertPoint(const MachineBasicBlock &MBB);
+  SlotIndex computeLastInsertPoint(const LiveInterval &CurLI,
+                                   const MachineBasicBlock &MBB);
 
 public:
   InsertPointAnalysis(const LiveIntervals &lis, unsigned BBNum);
 
-  void setInterval(const LiveInterval *LI) { CurLI = LI; }
-
-  /// Return the base index of the last valid insert point in \pMBB.
-  SlotIndex getLastInsertPoint(const MachineBasicBlock &MBB) {
+  /// Return the base index of the last valid insert point for \pCurLI in \pMBB.
+  SlotIndex getLastInsertPoint(const LiveInterval &CurLI,
+                               const MachineBasicBlock &MBB) {
     unsigned Num = MBB.getNumber();
     // Inline the common simple case.
     if (LastInsertPoint[Num].first.isValid() &&
         !LastInsertPoint[Num].second.isValid())
       return LastInsertPoint[Num].first;
-    return computeLastInsertPoint(MBB);
+    return computeLastInsertPoint(CurLI, MBB);
   }
 
-  /// Returns the last insert point as an iterator.
-  MachineBasicBlock::iterator getLastInsertPointIter(MachineBasicBlock &);
+  /// Returns the last insert point as an iterator for \pCurLI in \pMBB.
+  MachineBasicBlock::iterator getLastInsertPointIter(const LiveInterval &CurLI,
+                                                     MachineBasicBlock &MBB);
 };
 
 /// SplitAnalysis - Analyze a LiveInterval, looking for live range splitting
@@ -215,11 +213,11 @@ public:
   bool shouldSplitSingleBlock(const BlockInfo &BI, bool SingleInstrs) const;
 
   SlotIndex getLastSplitPoint(unsigned Num) {
-    return IPA.getLastInsertPoint(*MF.getBlockNumbered(Num));
+    return IPA.getLastInsertPoint(*CurLI, *MF.getBlockNumbered(Num));
   }
 
   MachineBasicBlock::iterator getLastSplitPointIter(MachineBasicBlock *BB) {
-    return IPA.getLastInsertPointIter(*BB);
+    return IPA.getLastInsertPointIter(*CurLI, *BB);
   }
 };
 
@@ -237,6 +235,7 @@ public:
 ///
 class LLVM_LIBRARY_VISIBILITY SplitEditor {
   SplitAnalysis &SA;
+  AliasAnalysis &AA;
   LiveIntervals &LIS;
   VirtRegMap &VRM;
   MachineRegisterInfo &MRI;
@@ -382,8 +381,9 @@ private:
 public:
   /// Create a new SplitEditor for editing the LiveInterval analyzed by SA.
   /// Newly created intervals will be appended to newIntervals.
-  SplitEditor(SplitAnalysis &SA, LiveIntervals&, VirtRegMap&,
-              MachineDominatorTree&, MachineBlockFrequencyInfo &);
+  SplitEditor(SplitAnalysis &SA, AliasAnalysis &AA, LiveIntervals&,
+              VirtRegMap&, MachineDominatorTree&,
+              MachineBlockFrequencyInfo &);
 
   /// reset - Prepare for a new split.
   void reset(LiveRangeEdit&, ComplementSpillMode = SM_Partition);
