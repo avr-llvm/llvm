@@ -1,4 +1,3 @@
-dist: trusty
 language: cpp
 script: cmake
 
@@ -10,10 +9,16 @@ addons:
     packages:
       - gcc-5
       - g++-5
-      - cmake
+
+before_install:
+  - wget --no-check-certificate https://cmake.org/files/v3.6/cmake-3.6.1-Linux-x86_64.tar.gz
+  - tar -zxf cmake-3.6.1-Linux-x86_64.tar.gz
 
 install:
-  - export CC="gcc-5" CXX="g++-5"
+  - export CC="gcc-5" CXX="g++-5" PATH="${PWD}/cmake-3.6.1-Linux-x86_64/bin:${PATH}"
+  - ${CC} --version
+  - ${CXX} --version
+  - cmake --version
 
 script:
   - git clone https://github.com/avr-llvm/clang.git tools/clang
