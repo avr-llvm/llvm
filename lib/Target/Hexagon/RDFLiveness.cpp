@@ -36,6 +36,7 @@
 using namespace llvm;
 using namespace rdf;
 
+namespace llvm {
 namespace rdf {
   template<>
   raw_ostream &operator<< (raw_ostream &OS, const Print<Liveness::RefMap> &P) {
@@ -52,7 +53,8 @@ namespace rdf {
     OS << " }";
     return OS;
   }
-}
+} // namespace rdf
+} // namespace llvm
 
 // The order in the returned sequence is the order of reaching defs in the
 // upward traversal: the first def is the closest to the given reference RefA,
@@ -687,7 +689,11 @@ void Liveness::resetKills(MachineBasicBlock *B) {
 
     MI->clearKillInfo();
     for (auto &Op : MI->operands()) {
-      if (!Op.isReg() || !Op.isDef())
+      // An implicit def of a super-register may not necessarily start a
+      // live range of it, since an implicit use could be used to keep parts
+      // of it live. Instead of analyzing the implicit operands, ignore
+      // implicit defs.
+      if (!Op.isReg() || !Op.isDef() || Op.isImplicit())
         continue;
       unsigned R = Op.getReg();
       if (!TargetRegisterInfo::isPhysicalRegister(R))

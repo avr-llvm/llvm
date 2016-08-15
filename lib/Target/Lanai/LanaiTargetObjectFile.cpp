@@ -72,7 +72,7 @@ bool LanaiTargetObjectFile::isGlobalInSmallSection(const GlobalValue *GV,
 // section. This method does all the work, except for checking the section
 // kind.
 bool LanaiTargetObjectFile::isGlobalInSmallSectionImpl(
-    const GlobalValue *GV, const TargetMachine &TM) const {
+    const GlobalValue *GV, const TargetMachine & /*TM*/) const {
   // Only global variables, not functions.
   const GlobalVariable *GVA = dyn_cast<GlobalVariable>(GV);
   if (!GVA)
@@ -106,8 +106,8 @@ LanaiTargetObjectFile::SelectSectionForGlobal(const GlobalValue *GV,
 }
 
 /// Return true if this constant should be placed into small data section.
-bool LanaiTargetObjectFile::isConstantInSmallSection(
-    const DataLayout &DL, const Constant *CN) const {
+bool LanaiTargetObjectFile::isConstantInSmallSection(const DataLayout &DL,
+                                                     const Constant *CN) const {
   return isInSmallSection(DL.getTypeAllocSize(CN->getType()));
 }
 

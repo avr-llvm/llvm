@@ -14,6 +14,7 @@
 #include "llvm/ObjectYAML/MachOYAML.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Format.h"
+#include "llvm/Support/MachO.h"
 
 #include <string.h> // For memcpy, memset and strnlen.
 
@@ -79,8 +80,9 @@ void MappingTraits<MachOYAML::FileHeader>::mapping(
   IO.mapRequired("ncmds", FileHdr.ncmds);
   IO.mapRequired("sizeofcmds", FileHdr.sizeofcmds);
   IO.mapRequired("flags", FileHdr.flags);
-  IO.mapOptional("reserved", FileHdr.reserved,
-                 static_cast<llvm::yaml::Hex32>(0xDEADBEEFu));
+  if (FileHdr.magic == MachO::MH_MAGIC_64 ||
+      FileHdr.magic == MachO::MH_CIGAM_64)
+    IO.mapRequired("reserved", FileHdr.reserved);
 }
 
 void MappingTraits<MachOYAML::Object>::mapping(IO &IO,
@@ -89,11 +91,93 @@ void MappingTraits<MachOYAML::Object>::mapping(IO &IO,
   // For Fat files there will be a different tag so they can be differentiated.
   if (!IO.getContext()) {
     IO.setContext(&Object);
-    IO.mapTag("!mach-o", true);
   }
+  IO.mapTag("!mach-o", true);
   IO.mapRequired("FileHeader", Object.Header);
   IO.mapOptional("LoadCommands", Object.LoadCommands);
-  IO.setContext(nullptr);
+  IO.mapOptional("LinkEditData", Object.LinkEdit);
+
+  if (IO.getContext() == &Object)
+    IO.setContext(nullptr);
+}
+
+void MappingTraits<MachOYAML::FatHeader>::mapping(
+    IO &IO, MachOYAML::FatHeader &FatHeader) {
+  IO.mapRequired("magic", FatHeader.magic);
+  IO.mapRequired("nfat_arch", FatHeader.nfat_arch);
+}
+
+void MappingTraits<MachOYAML::FatArch>::mapping(IO &IO,
+                                                MachOYAML::FatArch &FatArch) {
+  IO.mapRequired("cputype", FatArch.cputype);
+  IO.mapRequired("cpusubtype", FatArch.cpusubtype);
+  IO.mapRequired("offset", FatArch.offset);
+  IO.mapRequired("size", FatArch.size);
+  IO.mapRequired("align", FatArch.align);
+  IO.mapOptional("reserved", FatArch.reserved,
+                 static_cast<llvm::yaml::Hex32>(0));
+}
+
+void MappingTraits<MachOYAML::UniversalBinary>::mapping(
+    IO &IO, MachOYAML::UniversalBinary &UniversalBinary) {
+  if (!IO.getContext()) {
+    IO.setContext(&UniversalBinary);
+    IO.mapTag("!fat-mach-o", true);
+  }
+  IO.mapRequired("FatHeader", UniversalBinary.Header);
+  IO.mapRequired("FatArchs", UniversalBinary.FatArchs);
+  IO.mapRequired("Slices", UniversalBinary.Slices);
+
+  if (IO.getContext() == &UniversalBinary)
+    IO.setContext(nullptr);
+}
+
+void MappingTraits<MachOYAML::LinkEditData>::mapping(
+    IO &IO, MachOYAML::LinkEditData &LinkEditData) {
+  IO.mapOptional("RebaseOpcodes", LinkEditData.RebaseOpcodes);
+  IO.mapOptional("BindOpcodes", LinkEditData.BindOpcodes);
+  IO.mapOptional("WeakBindOpcodes", LinkEditData.WeakBindOpcodes);
+  IO.mapOptional("LazyBindOpcodes", LinkEditData.LazyBindOpcodes);
+  IO.mapOptional("ExportTrie", LinkEditData.ExportTrie);
+  IO.mapOptional("NameList", LinkEditData.NameList);
+  IO.mapOptional("StringTable", LinkEditData.StringTable);
+}
+
+void MappingTraits<MachOYAML::RebaseOpcode>::mapping(
+    IO &IO, MachOYAML::RebaseOpcode &RebaseOpcode) {
+  IO.mapRequired("Opcode", RebaseOpcode.Opcode);
+  IO.mapRequired("Imm", RebaseOpcode.Imm);
+  IO.mapOptional("ExtraData", RebaseOpcode.ExtraData);
+}
+
+void MappingTraits<MachOYAML::BindOpcode>::mapping(
+    IO &IO, MachOYAML::BindOpcode &BindOpcode) {
+  IO.mapRequired("Opcode", BindOpcode.Opcode);
+  IO.mapRequired("Imm", BindOpcode.Imm);
+  IO.mapOptional("ULEBExtraData", BindOpcode.ULEBExtraData);
+  IO.mapOptional("SLEBExtraData", BindOpcode.SLEBExtraData);
+  IO.mapOptional("Symbol", BindOpcode.Symbol);
+}
+
+void MappingTraits<MachOYAML::ExportEntry>::mapping(
+    IO &IO, MachOYAML::ExportEntry &ExportEntry) {
+  IO.mapRequired("TerminalSize", ExportEntry.TerminalSize);
+  IO.mapOptional("NodeOffset", ExportEntry.NodeOffset);
+  IO.mapOptional("Name", ExportEntry.Name);
+  IO.mapOptional("Flags", ExportEntry.Flags);
+  IO.mapOptional("Address", ExportEntry.Address);
+  IO.mapOptional("Other", ExportEntry.Other);
+  IO.mapOptional("ImportName", ExportEntry.ImportName);
+  IO.mapOptional("Children", ExportEntry.Children);
+}
+
+void MappingTraits<MachOYAML::NListEntry>::mapping(
+    IO &IO, MachOYAML::NListEntry &NListEntry) {
+  IO.mapRequired("n_strx", NListEntry.n_strx);
+  IO.mapRequired("n_type", NListEntry.n_type);
+  IO.mapRequired("n_sect", NListEntry.n_sect);
+  IO.mapRequired("n_desc", NListEntry.n_desc);
+  IO.mapRequired("n_value", NListEntry.n_value);
 }
 
 template <typename StructType>
@@ -118,6 +202,12 @@ void mapLoadCommandData<MachO::dylib_command>(
 }
 
 template <>
+void mapLoadCommandData<MachO::rpath_command>(
+    IO &IO, MachOYAML::LoadCommand &LoadCommand) {
+  IO.mapOptional("PayloadString", LoadCommand.PayloadString);
+}
+
+template <>
 void mapLoadCommandData<MachO::dylinker_command>(
     IO &IO, MachOYAML::LoadCommand &LoadCommand) {
   IO.mapOptional("PayloadString", LoadCommand.PayloadString);
@@ -125,8 +215,10 @@ void mapLoadCommandData<MachO::dylinker_command>(
 
 void MappingTraits<MachOYAML::LoadCommand>::mapping(
     IO &IO, MachOYAML::LoadCommand &LoadCommand) {
-  IO.mapRequired(
-      "cmd", (MachO::LoadCommandType &)LoadCommand.Data.load_command_data.cmd);
+  MachO::LoadCommandType TempCmd = static_cast<MachO::LoadCommandType>(
+      LoadCommand.Data.load_command_data.cmd);
+  IO.mapRequired("cmd", TempCmd);
+  LoadCommand.Data.load_command_data.cmd = TempCmd;
   IO.mapRequired("cmdsize", LoadCommand.Data.load_command_data.cmdsize);
 
 #define HANDLE_LOAD_COMMAND(LCName, LCValue, LCStruct)                         \
@@ -439,7 +531,6 @@ void MappingTraits<MachO::twolevel_hints_command>::mapping(
 void MappingTraits<MachO::uuid_command>::mapping(
     IO &IO, MachO::uuid_command &LoadCommand) {
 
-  IO.mapRequired("cmdsize", LoadCommand.cmdsize);
   IO.mapRequired("uuid", LoadCommand.uuid);
 }
 

@@ -349,9 +349,12 @@ static int printLineInfoForInput(bool LoadObjects, bool UseDebugObj) {
           consumeError(Name.takeError());
           continue;
         }
-        ErrorOr<uint64_t> AddrOrErr = Sym.getAddress();
-        if (!AddrOrErr)
+        Expected<uint64_t> AddrOrErr = Sym.getAddress();
+        if (!AddrOrErr) {
+          // TODO: Actually report errors helpfully.
+          consumeError(AddrOrErr.takeError());
           continue;
+        }
         uint64_t Addr = *AddrOrErr;
 
         uint64_t Size = P.second;
@@ -726,7 +729,7 @@ static int linkAndVerify() {
 }
 
 int main(int argc, char **argv) {
-  sys::PrintStackTraceOnErrorSignal();
+  sys::PrintStackTraceOnErrorSignal(argv[0]);
   PrettyStackTraceProgram X(argc, argv);
 
   ProgramName = argv[0];

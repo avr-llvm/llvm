@@ -22,10 +22,9 @@ using namespace llvm::PatternMatch;
 
 #define DEBUG_TYPE "instcombine"
 
-/// ShrinkDemandedConstant - Check to see if the specified operand of the
-/// specified instruction is a constant integer.  If so, check to see if there
-/// are any bits set in the constant that are not demanded.  If so, shrink the
-/// constant and return true.
+/// Check to see if the specified operand of the specified instruction is a
+/// constant integer. If so, check to see if there are any bits set in the
+/// constant that are not demanded. If so, shrink the constant and return true.
 static bool ShrinkDemandedConstant(Instruction *I, unsigned OpNo,
                                    APInt Demanded) {
   assert(I && "No instruction?");
@@ -49,9 +48,8 @@ static bool ShrinkDemandedConstant(Instruction *I, unsigned OpNo,
 
 
 
-/// SimplifyDemandedInstructionBits - Inst is an integer instruction that
-/// SimplifyDemandedBits knows about.  See if the instruction has any
-/// properties that allow us to simplify its operands.
+/// Inst is an integer instruction that SimplifyDemandedBits knows about. See if
+/// the instruction has any properties that allow us to simplify its operands.
 bool InstCombiner::SimplifyDemandedInstructionBits(Instruction &Inst) {
   unsigned BitWidth = Inst.getType()->getScalarSizeInBits();
   APInt KnownZero(BitWidth, 0), KnownOne(BitWidth, 0);
@@ -65,10 +63,10 @@ bool InstCombiner::SimplifyDemandedInstructionBits(Instruction &Inst) {
   return true;
 }
 
-/// SimplifyDemandedBits - This form of SimplifyDemandedBits simplifies the
-/// specified instruction operand if possible, updating it in place.  It returns
-/// true if it made any change and false otherwise.
-bool InstCombiner::SimplifyDemandedBits(Use &U, APInt DemandedMask,
+/// This form of SimplifyDemandedBits simplifies the specified instruction
+/// operand if possible, updating it in place. It returns true if it made any
+/// change and false otherwise.
+bool InstCombiner::SimplifyDemandedBits(Use &U, const APInt &DemandedMask,
                                         APInt &KnownZero, APInt &KnownOne,
                                         unsigned Depth) {
   auto *UserI = dyn_cast<Instruction>(U.getUser());
@@ -80,21 +78,22 @@ bool InstCombiner::SimplifyDemandedBits(Use &U, APInt DemandedMask,
 }
 
 
-/// SimplifyDemandedUseBits - This function attempts to replace V with a simpler
-/// value based on the demanded bits.  When this function is called, it is known
-/// that only the bits set in DemandedMask of the result of V are ever used
-/// downstream. Consequently, depending on the mask and V, it may be possible
-/// to replace V with a constant or one of its operands. In such cases, this
-/// function does the replacement and returns true. In all other cases, it
-/// returns false after analyzing the expression and setting KnownOne and known
-/// to be one in the expression.  KnownZero contains all the bits that are known
-/// to be zero in the expression. These are provided to potentially allow the
-/// caller (which might recursively be SimplifyDemandedBits itself) to simplify
-/// the expression. KnownOne and KnownZero always follow the invariant that
-/// KnownOne & KnownZero == 0. That is, a bit can't be both 1 and 0. Note that
-/// the bits in KnownOne and KnownZero may only be accurate for those bits set
-/// in DemandedMask. Note also that the bitwidth of V, DemandedMask, KnownZero
-/// and KnownOne must all be the same.
+/// This function attempts to replace V with a simpler value based on the
+/// demanded bits. When this function is called, it is known that only the bits
+/// set in DemandedMask of the result of V are ever used downstream.
+/// Consequently, depending on the mask and V, it may be possible to replace V
+/// with a constant or one of its operands. In such cases, this function does
+/// the replacement and returns true. In all other cases, it returns false after
+/// analyzing the expression and setting KnownOne and known to be one in the
+/// expression. KnownZero contains all the bits that are known to be zero in the
+/// expression. These are provided to potentially allow the caller (which might
+/// recursively be SimplifyDemandedBits itself) to simplify the expression.
+/// KnownOne and KnownZero always follow the invariant that:
+///   KnownOne & KnownZero == 0.
+/// That is, a bit can't be both 1 and 0. Note that the bits in KnownOne and
+/// KnownZero may only be accurate for those bits set in DemandedMask. Note also
+/// that the bitwidth of V, DemandedMask, KnownZero and KnownOne must all be the
+/// same.
 ///
 /// This returns null if it did not change anything and it permits no
 /// simplification.  This returns V itself if it did some simplification of V's
@@ -768,6 +767,7 @@ Value *InstCombiner::SimplifyDemandedUseBits(Value *V, APInt DemandedMask,
         // TODO: Could compute known zero/one bits based on the input.
         break;
       }
+      case Intrinsic::x86_mmx_pmovmskb:
       case Intrinsic::x86_sse_movmsk_ps:
       case Intrinsic::x86_sse2_movmsk_pd:
       case Intrinsic::x86_sse2_pmovmskb_128:
@@ -776,9 +776,14 @@ Value *InstCombiner::SimplifyDemandedUseBits(Value *V, APInt DemandedMask,
       case Intrinsic::x86_avx2_pmovmskb: {
         // MOVMSK copies the vector elements' sign bits to the low bits
         // and zeros the high bits.
-        auto Arg = II->getArgOperand(0);
-        auto ArgType = cast<VectorType>(Arg->getType());
-        unsigned ArgWidth = ArgType->getNumElements();
+        unsigned ArgWidth;
+        if (II->getIntrinsicID() == Intrinsic::x86_mmx_pmovmskb) {
+          ArgWidth = 8; // Arg is x86_mmx, but treated as <8 x i8>.
+        } else {
+          auto Arg = II->getArgOperand(0);
+          auto ArgType = cast<VectorType>(Arg->getType());
+          ArgWidth = ArgType->getNumElements();
+        }
 
         // If we don't need any of low bits then return zero,
         // we know that DemandedMask is non-zero already.
@@ -824,7 +829,10 @@ Value *InstCombiner::SimplifyDemandedUseBits(Value *V, APInt DemandedMask,
 /// As with SimplifyDemandedUseBits, it returns NULL if the simplification was
 /// not successful.
 Value *InstCombiner::SimplifyShrShlDemandedBits(Instruction *Shr,
-  Instruction *Shl, APInt DemandedMask, APInt &KnownZero, APInt &KnownOne) {
+                                                Instruction *Shl,
+                                                const APInt &DemandedMask,
+                                                APInt &KnownZero,
+                                                APInt &KnownOne) {
 
   const APInt &ShlOp1 = cast<ConstantInt>(Shl->getOperand(1))->getValue();
   const APInt &ShrOp1 = cast<ConstantInt>(Shr->getOperand(1))->getValue();
@@ -887,10 +895,10 @@ Value *InstCombiner::SimplifyShrShlDemandedBits(Instruction *Shr,
   return nullptr;
 }
 
-/// SimplifyDemandedVectorElts - The specified value produces a vector with
-/// any number of elements. DemandedElts contains the set of elements that are
-/// actually used by the caller.  This method analyzes which elements of the
-/// operand are undef and returns that information in UndefElts.
+/// The specified value produces a vector with any number of elements.
+/// DemandedElts contains the set of elements that are actually used by the
+/// caller. This method analyzes which elements of the operand are undef and
+/// returns that information in UndefElts.
 ///
 /// If the information about demanded elements can be used to simplify the
 /// operation, the operation is simplified, then the resultant value is

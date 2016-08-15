@@ -54,14 +54,15 @@ insertNoop(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI) const
   BuildMI(MBB, MI, DL, get(Mips::NOP));
 }
 
-MachineMemOperand *MipsInstrInfo::GetMemOperand(MachineBasicBlock &MBB, int FI,
-                                                unsigned Flag) const {
+MachineMemOperand *
+MipsInstrInfo::GetMemOperand(MachineBasicBlock &MBB, int FI,
+                             MachineMemOperand::Flags Flags) const {
   MachineFunction &MF = *MBB.getParent();
   MachineFrameInfo &MFI = *MF.getFrameInfo();
   unsigned Align = MFI.getObjectAlignment(FI);
 
   return MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FI),
-                                 Flag, MFI.getObjectSize(FI), Align);
+                                 Flags, MFI.getObjectSize(FI), Align);
 }
 
 //===----------------------------------------------------------------------===//
@@ -83,20 +84,20 @@ void MipsInstrInfo::AnalyzeCondBr(const MachineInstr *Inst, unsigned Opc,
     Cond.push_back(Inst->getOperand(i));
 }
 
-bool MipsInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
+bool MipsInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
                                   MachineBasicBlock *&TBB,
                                   MachineBasicBlock *&FBB,
                                   SmallVectorImpl<MachineOperand> &Cond,
                                   bool AllowModify) const {
   SmallVector<MachineInstr*, 2> BranchInstrs;
-  BranchType BT = AnalyzeBranch(MBB, TBB, FBB, Cond, AllowModify, BranchInstrs);
+  BranchType BT = analyzeBranch(MBB, TBB, FBB, Cond, AllowModify, BranchInstrs);
 
   return (BT == BT_None) || (BT == BT_Indirect);
 }
 
-void
-MipsInstrInfo::BuildCondBr(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
-                           DebugLoc DL, ArrayRef<MachineOperand> Cond) const {
+void MipsInstrInfo::BuildCondBr(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                                const DebugLoc &DL,
+                                ArrayRef<MachineOperand> Cond) const {
   unsigned Opc = Cond[0].getImm();
   const MCInstrDesc &MCID = get(Opc);
   MachineInstrBuilder MIB = BuildMI(&MBB, DL, MCID);
@@ -112,9 +113,11 @@ MipsInstrInfo::BuildCondBr(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
   MIB.addMBB(TBB);
 }
 
-unsigned MipsInstrInfo::InsertBranch(
-    MachineBasicBlock &MBB, MachineBasicBlock *TBB, MachineBasicBlock *FBB,
-    ArrayRef<MachineOperand> Cond, DebugLoc DL) const {
+unsigned MipsInstrInfo::InsertBranch(MachineBasicBlock &MBB,
+                                     MachineBasicBlock *TBB,
+                                     MachineBasicBlock *FBB,
+                                     ArrayRef<MachineOperand> Cond,
+                                     const DebugLoc &DL) const {
   // Shouldn't be a fall through.
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
 
@@ -174,7 +177,7 @@ bool MipsInstrInfo::ReverseBranchCondition(
   return false;
 }
 
-MipsInstrInfo::BranchType MipsInstrInfo::AnalyzeBranch(
+MipsInstrInfo::BranchType MipsInstrInfo::analyzeBranch(
     MachineBasicBlock &MBB, MachineBasicBlock *&TBB, MachineBasicBlock *&FBB,
     SmallVectorImpl<MachineOperand> &Cond, bool AllowModify,
     SmallVectorImpl<MachineInstr *> &BranchInstrs) const {
@@ -301,13 +304,15 @@ unsigned MipsInstrInfo::getEquivalentCompactForm(
     case Mips::BEQ:
       if (canUseShortMicroMipsCTI)
         return Mips::BEQZC_MM;
-      else
-        return Mips::BEQC;
+      else if (I->getOperand(0).getReg() == I->getOperand(1).getReg())
+        return 0;
+      return Mips::BEQC;
     case Mips::BNE:
       if (canUseShortMicroMipsCTI)
         return Mips::BNEZC_MM;
-      else
-        return Mips::BNEC;
+      else if (I->getOperand(0).getReg() == I->getOperand(1).getReg())
+        return 0;
+      return Mips::BNEC;
     case Mips::BGE:
       if (I->getOperand(0).getReg() == I->getOperand(1).getReg())
         return 0;
@@ -373,19 +378,19 @@ bool MipsInstrInfo::HasForbiddenSlot(const MachineInstr &MI) const {
 }
 
 /// Return the number of bytes of code the specified instruction may be.
-unsigned MipsInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
-  switch (MI->getOpcode()) {
+unsigned MipsInstrInfo::GetInstSizeInBytes(const MachineInstr &MI) const {
+  switch (MI.getOpcode()) {
   default:
-    return MI->getDesc().getSize();
+    return MI.getDesc().getSize();
   case  TargetOpcode::INLINEASM: {       // Inline Asm: Variable size.
-    const MachineFunction *MF = MI->getParent()->getParent();
-    const char *AsmStr = MI->getOperand(0).getSymbolName();
+    const MachineFunction *MF = MI.getParent()->getParent();
+    const char *AsmStr = MI.getOperand(0).getSymbolName();
     return getInlineAsmLength(AsmStr, *MF->getTarget().getMCAsmInfo());
   }
   case Mips::CONSTPOOL_ENTRY:
     // If this machine instr is a constant pool entry, its size is recorded as
     // operand #2.
-    return MI->getOperand(2).getImm();
+    return MI.getOperand(2).getImm();
   }
 }
 

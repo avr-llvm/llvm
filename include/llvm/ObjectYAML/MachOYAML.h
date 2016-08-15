@@ -57,10 +57,76 @@ struct LoadCommand {
   uint64_t ZeroPadBytes;
 };
 
+struct NListEntry {
+  uint32_t n_strx;
+  uint8_t n_type;
+  uint8_t n_sect;
+  uint16_t n_desc;
+  uint64_t n_value;
+};
+struct RebaseOpcode {
+  MachO::RebaseOpcode Opcode;
+  uint8_t Imm;
+  std::vector<yaml::Hex64> ExtraData;
+};
+
+struct BindOpcode {
+  MachO::BindOpcode Opcode;
+  uint8_t Imm;
+  std::vector<yaml::Hex64> ULEBExtraData;
+  std::vector<int64_t> SLEBExtraData;
+  StringRef Symbol;
+};
+
+struct ExportEntry {
+  ExportEntry()
+      : TerminalSize(0), NodeOffset(0), Name(), Flags(0), Address(0), Other(0),
+        ImportName(), Children() {}
+  uint64_t TerminalSize;
+  uint64_t NodeOffset;
+  std::string Name;
+  llvm::yaml::Hex64 Flags;
+  llvm::yaml::Hex64 Address;
+  llvm::yaml::Hex64 Other;
+  std::string ImportName;
+  std::vector<MachOYAML::ExportEntry> Children;
+};
+
+struct LinkEditData {
+  std::vector<MachOYAML::RebaseOpcode> RebaseOpcodes;
+  std::vector<MachOYAML::BindOpcode> BindOpcodes;
+  std::vector<MachOYAML::BindOpcode> WeakBindOpcodes;
+  std::vector<MachOYAML::BindOpcode> LazyBindOpcodes;
+  MachOYAML::ExportEntry ExportTrie;
+  std::vector<NListEntry> NameList;
+  std::vector<StringRef> StringTable;
+};
+
 struct Object {
   FileHeader Header;
   std::vector<LoadCommand> LoadCommands;
   std::vector<Section> Sections;
+  LinkEditData LinkEdit;
+};
+
+struct FatHeader {
+  llvm::yaml::Hex32 magic;
+  uint32_t nfat_arch;
+};
+
+struct FatArch {
+  llvm::yaml::Hex32 cputype;
+  llvm::yaml::Hex32 cpusubtype;
+  llvm::yaml::Hex64 offset;
+  uint64_t size;
+  uint32_t align;
+  llvm::yaml::Hex32 reserved;
+};
+
+struct UniversalBinary {
+  FatHeader Header;
+  std::vector<FatArch> FatArchs;
+  std::vector<Object> Slices;
 };
 
 } // namespace llvm::MachOYAML
@@ -69,6 +135,15 @@ struct Object {
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::MachOYAML::LoadCommand)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::MachOYAML::Section)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::yaml::Hex8)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::yaml::Hex64)
+LLVM_YAML_IS_SEQUENCE_VECTOR(int64_t)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::MachOYAML::RebaseOpcode)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::MachOYAML::BindOpcode)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::MachOYAML::ExportEntry)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::MachOYAML::NListEntry)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::StringRef)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::MachOYAML::Object)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::MachOYAML::FatArch)
 
 namespace llvm {
 namespace yaml {
@@ -81,12 +156,44 @@ template <> struct MappingTraits<MachOYAML::Object> {
   static void mapping(IO &IO, MachOYAML::Object &Object);
 };
 
+template <> struct MappingTraits<MachOYAML::FatHeader> {
+  static void mapping(IO &IO, MachOYAML::FatHeader &FatHeader);
+};
+
+template <> struct MappingTraits<MachOYAML::FatArch> {
+  static void mapping(IO &IO, MachOYAML::FatArch &FatArch);
+};
+
+template <> struct MappingTraits<MachOYAML::UniversalBinary> {
+  static void mapping(IO &IO, MachOYAML::UniversalBinary &UniversalBinary);
+};
+
 template <> struct MappingTraits<MachOYAML::LoadCommand> {
   static void mapping(IO &IO, MachOYAML::LoadCommand &LoadCommand);
 };
 
+template <> struct MappingTraits<MachOYAML::LinkEditData> {
+  static void mapping(IO &IO, MachOYAML::LinkEditData &LinkEditData);
+};
+
+template <> struct MappingTraits<MachOYAML::RebaseOpcode> {
+  static void mapping(IO &IO, MachOYAML::RebaseOpcode &RebaseOpcode);
+};
+
+template <> struct MappingTraits<MachOYAML::BindOpcode> {
+  static void mapping(IO &IO, MachOYAML::BindOpcode &BindOpcode);
+};
+
+template <> struct MappingTraits<MachOYAML::ExportEntry> {
+  static void mapping(IO &IO, MachOYAML::ExportEntry &ExportEntry);
+};
+
 template <> struct MappingTraits<MachOYAML::Section> {
   static void mapping(IO &IO, MachOYAML::Section &Section);
+};
+
+template <> struct MappingTraits<MachOYAML::NListEntry> {
+  static void mapping(IO &IO, MachOYAML::NListEntry &NListEntry);
 };
 
 #define HANDLE_LOAD_COMMAND(LCName, LCValue, LCStruct)                         \
@@ -95,6 +202,43 @@ template <> struct MappingTraits<MachOYAML::Section> {
 template <> struct ScalarEnumerationTraits<MachO::LoadCommandType> {
   static void enumeration(IO &io, MachO::LoadCommandType &value) {
 #include "llvm/Support/MachO.def"
+    io.enumFallback<Hex32>(value);
+  }
+};
+
+#define ENUM_CASE(Enum) io.enumCase(value, #Enum, MachO::Enum);
+
+template <> struct ScalarEnumerationTraits<MachO::RebaseOpcode> {
+  static void enumeration(IO &io, MachO::RebaseOpcode &value) {
+    ENUM_CASE(REBASE_OPCODE_DONE)
+    ENUM_CASE(REBASE_OPCODE_SET_TYPE_IMM)
+    ENUM_CASE(REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB)
+    ENUM_CASE(REBASE_OPCODE_ADD_ADDR_ULEB)
+    ENUM_CASE(REBASE_OPCODE_ADD_ADDR_IMM_SCALED)
+    ENUM_CASE(REBASE_OPCODE_DO_REBASE_IMM_TIMES)
+    ENUM_CASE(REBASE_OPCODE_DO_REBASE_ULEB_TIMES)
+    ENUM_CASE(REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB)
+    ENUM_CASE(REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB)
+    io.enumFallback<Hex8>(value);
+  }
+};
+
+template <> struct ScalarEnumerationTraits<MachO::BindOpcode> {
+  static void enumeration(IO &io, MachO::BindOpcode &value) {
+    ENUM_CASE(BIND_OPCODE_DONE)
+    ENUM_CASE(BIND_OPCODE_SET_DYLIB_ORDINAL_IMM)
+    ENUM_CASE(BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB)
+    ENUM_CASE(BIND_OPCODE_SET_DYLIB_SPECIAL_IMM)
+    ENUM_CASE(BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM)
+    ENUM_CASE(BIND_OPCODE_SET_TYPE_IMM)
+    ENUM_CASE(BIND_OPCODE_SET_ADDEND_SLEB)
+    ENUM_CASE(BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB)
+    ENUM_CASE(BIND_OPCODE_ADD_ADDR_ULEB)
+    ENUM_CASE(BIND_OPCODE_DO_BIND)
+    ENUM_CASE(BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB)
+    ENUM_CASE(BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED)
+    ENUM_CASE(BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB)
+    io.enumFallback<Hex8>(value);
   }
 };
 

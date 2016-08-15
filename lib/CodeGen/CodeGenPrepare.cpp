@@ -1780,7 +1780,7 @@ bool CodeGenPrepare::optimizeCallInst(CallInst *CI, bool& ModifiedDT) {
       // forbidden.
       GlobalVariable *GV;
       if ((GV = dyn_cast<GlobalVariable>(Val)) && GV->canIncreaseAlignment() &&
-          GV->getAlignment() < PrefAlign &&
+          GV->getPointerAlignment(*DL) < PrefAlign &&
           DL->getTypeAllocSize(GV->getValueType()) >=
               MinSize + Offset2)
         GV->setAlignment(PrefAlign);
@@ -5305,7 +5305,7 @@ static bool makeBitReverse(Instruction &I, const DataLayout &DL,
     return false;
 
   SmallVector<Instruction*, 4> Insts;
-  if (!recognizeBitReverseOrBSwapIdiom(&I, false, true, Insts))
+  if (!recognizeBSwapOrBitReverseIdiom(&I, false, true, Insts))
     return false;
   Instruction *LastInst = Insts.back();
   I.replaceAllUsesWith(LastInst);

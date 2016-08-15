@@ -155,7 +155,7 @@ unsigned HexagonGenPredicate::getPredForm(unsigned Opc) {
   // The opcode corresponding to 0 is TargetOpcode::PHI. We can use 0 here
   // to denote "none", but we need to make sure that none of the valid opcodes
   // that we return will ever be 0.
-  assert(PHI == 0 && "Use different value for <none>");
+  static_assert(PHI == 0, "Use different value for <none>");
   return 0;
 }
 
@@ -447,13 +447,12 @@ bool HexagonGenPredicate::eliminatePredCopies(MachineFunction &MF) {
   // the convertible instruction is converted, its predicate result will be
   // copied back into the original gpr.
 
-  for (MachineFunction::iterator A = MF.begin(), Z = MF.end(); A != Z; ++A) {
-    MachineBasicBlock &B = *A;
-    for (MachineBasicBlock::iterator I = B.begin(), E = B.end(); I != E; ++I) {
-      if (I->getOpcode() != TargetOpcode::COPY)
+  for (MachineBasicBlock &MBB : MF) {
+    for (MachineInstr &MI : MBB) {
+      if (MI.getOpcode() != TargetOpcode::COPY)
         continue;
-      Register DR = I->getOperand(0);
-      Register SR = I->getOperand(1);
+      Register DR = MI.getOperand(0);
+      Register SR = MI.getOperand(1);
       if (!TargetRegisterInfo::isVirtualRegister(DR.R))
         continue;
       if (!TargetRegisterInfo::isVirtualRegister(SR.R))
@@ -464,7 +463,7 @@ bool HexagonGenPredicate::eliminatePredCopies(MachineFunction &MF) {
         continue;
       assert(!DR.S && !SR.S && "Unexpected subregister");
       MRI->replaceRegWith(DR.R, SR.R);
-      Erase.insert(I);
+      Erase.insert(&MI);
       Changed = true;
     }
   }

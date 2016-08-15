@@ -17,16 +17,19 @@
 #include "CompilandDumper.h"
 #include "ExternalSymbolDumper.h"
 #include "FunctionDumper.h"
+#include "LLVMOutputStyle.h"
 #include "LinePrinter.h"
+#include "OutputStyle.h"
 #include "TypeDumper.h"
 #include "VariableDumper.h"
+#include "YAMLOutputStyle.h"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Config/config.h"
-#include "llvm/DebugInfo/CodeView/TypeDumper.h"
+#include "llvm/DebugInfo/CodeView/ByteStream.h"
 #include "llvm/DebugInfo/PDB/GenericError.h"
 #include "llvm/DebugInfo/PDB/IPDBEnumChildren.h"
 #include "llvm/DebugInfo/PDB/IPDBRawSymbol.h"
@@ -38,19 +41,18 @@
 #include "llvm/DebugInfo/PDB/PDBSymbolFunc.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolThunk.h"
 #include "llvm/DebugInfo/PDB/Raw/DbiStream.h"
+#include "llvm/DebugInfo/PDB/Raw/DbiStreamBuilder.h"
 #include "llvm/DebugInfo/PDB/Raw/InfoStream.h"
-#include "llvm/DebugInfo/PDB/Raw/MappedBlockStream.h"
-#include "llvm/DebugInfo/PDB/Raw/ModInfo.h"
-#include "llvm/DebugInfo/PDB/Raw/ModStream.h"
-#include "llvm/DebugInfo/PDB/Raw/NameHashTable.h"
+#include "llvm/DebugInfo/PDB/Raw/InfoStreamBuilder.h"
 #include "llvm/DebugInfo/PDB/Raw/PDBFile.h"
-#include "llvm/DebugInfo/PDB/Raw/PublicsStream.h"
+#include "llvm/DebugInfo/PDB/Raw/PDBFileBuilder.h"
+#include "llvm/DebugInfo/PDB/Raw/RawConstants.h"
 #include "llvm/DebugInfo/PDB/Raw/RawError.h"
 #include "llvm/DebugInfo/PDB/Raw/RawSession.h"
-#include "llvm/DebugInfo/PDB/Raw/StreamReader.h"
-#include "llvm/DebugInfo/PDB/Raw/TpiStream.h"
+#include "llvm/Support/COM.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ConvertUTF.h"
+#include "llvm/Support/FileOutputBuffer.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -61,419 +63,357 @@
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/raw_ostream.h"
 
-#if defined(HAVE_DIA_SDK)
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
-#endif
-
 using namespace llvm;
+using namespace llvm::codeview;
 using namespace llvm::pdb;
+
+namespace {
+// A simple adapter that acts like a ByteStream but holds ownership over
+// and underlying FileOutputBuffer.
+class FileBufferByteStream : public ByteStream<true> {
+public:
+  FileBufferByteStream(std::unique_ptr<FileOutputBuffer> Buffer)
+      : ByteStream(MutableArrayRef<uint8_t>(Buffer->getBufferStart(),
+                                            Buffer->getBufferEnd())),
+        FileBuffer(std::move(Buffer)) {}
+
+  Error commit() const override {
+    if (FileBuffer->commit())
+      return llvm::make_error<RawError>(raw_error_code::not_writable);
+    return Error::success();
+  }
+
+private:
+  std::unique_ptr<FileOutputBuffer> FileBuffer;
+};
+}
 
 namespace opts {
 
-enum class PDB_DumpType { ByType, ByObjFile, Both };
-
-cl::list<std::string> InputFilenames(cl::Positional,
-                                     cl::desc("<input PDB files>"),
-                                     cl::OneOrMore);
+cl::SubCommand RawSubcommand("raw", "Dump raw structure of the PDB file");
+cl::SubCommand
+    PrettySubcommand("pretty",
+                     "Dump semantic information about types and symbols");
+cl::SubCommand
+    YamlToPdbSubcommand("yaml2pdb",
+                        "Generate a PDB file from a YAML description");
+cl::SubCommand
+    PdbToYamlSubcommand("pdb2yaml",
+                        "Generate a detailed YAML description of a PDB File");
 
 cl::OptionCategory TypeCategory("Symbol Type Options");
 cl::OptionCategory FilterCategory("Filtering Options");
 cl::OptionCategory OtherOptions("Other Options");
-cl::OptionCategory NativeOtions("Native Options");
+
+namespace pretty {
+cl::list<std::string> InputFilenames(cl::Positional,
+                                     cl::desc("<input PDB files>"),
+                                     cl::OneOrMore, cl::sub(PrettySubcommand));
 
 cl::opt<bool> Compilands("compilands", cl::desc("Display compilands"),
-                         cl::cat(TypeCategory));
+                         cl::cat(TypeCategory), cl::sub(PrettySubcommand));
 cl::opt<bool> Symbols("symbols", cl::desc("Display symbols for each compiland"),
-                      cl::cat(TypeCategory));
+                      cl::cat(TypeCategory), cl::sub(PrettySubcommand));
 cl::opt<bool> Globals("globals", cl::desc("Dump global symbols"),
-                      cl::cat(TypeCategory));
+                      cl::cat(TypeCategory), cl::sub(PrettySubcommand));
 cl::opt<bool> Externals("externals", cl::desc("Dump external symbols"),
-                        cl::cat(TypeCategory));
-cl::opt<bool> Types("types", cl::desc("Display types"), cl::cat(TypeCategory));
-cl::opt<bool> Lines("lines", cl::desc("Line tables"), cl::cat(TypeCategory));
+                        cl::cat(TypeCategory), cl::sub(PrettySubcommand));
+cl::opt<bool> Types("types", cl::desc("Display types"), cl::cat(TypeCategory),
+                    cl::sub(PrettySubcommand));
+cl::opt<bool> Lines("lines", cl::desc("Line tables"), cl::cat(TypeCategory),
+                    cl::sub(PrettySubcommand));
 cl::opt<bool>
     All("all", cl::desc("Implies all other options in 'Symbol Types' category"),
-        cl::cat(TypeCategory));
+        cl::cat(TypeCategory), cl::sub(PrettySubcommand));
 
 cl::opt<uint64_t> LoadAddress(
     "load-address",
     cl::desc("Assume the module is loaded at the specified address"),
-    cl::cat(OtherOptions));
-
-cl::opt<bool> DumpHeaders("dump-headers", cl::desc("dump PDB headers"),
-                          cl::cat(NativeOtions));
-cl::opt<bool> DumpStreamSizes("dump-stream-sizes",
-                              cl::desc("dump PDB stream sizes"),
-                              cl::cat(NativeOtions));
-cl::opt<bool> DumpStreamBlocks("dump-stream-blocks",
-                               cl::desc("dump PDB stream blocks"),
-                               cl::cat(NativeOtions));
-cl::opt<bool> DumpTpiRecords("dump-tpi-records",
-                             cl::desc("dump CodeView type records"),
-                             cl::cat(NativeOtions));
-cl::opt<bool>
-    DumpTpiRecordBytes("dump-tpi-record-bytes",
-                       cl::desc("dump CodeView type record raw bytes"),
-                       cl::cat(NativeOtions));
-cl::opt<std::string> DumpStreamData("dump-stream", cl::desc("dump stream data"),
-                                    cl::cat(NativeOtions));
-cl::opt<bool> DumpModuleSyms("dump-module-syms",
-                             cl::desc("dump module symbols"),
-                             cl::cat(NativeOtions));
-cl::opt<bool> DumpPublics("dump-publics",
-                          cl::desc("dump Publics stream data"),
-                          cl::cat(NativeOtions));
-
-cl::list<std::string>
-    ExcludeTypes("exclude-types",
-                 cl::desc("Exclude types by regular expression"),
-                 cl::ZeroOrMore, cl::cat(FilterCategory));
-cl::list<std::string>
-    ExcludeSymbols("exclude-symbols",
-                   cl::desc("Exclude symbols by regular expression"),
-                   cl::ZeroOrMore, cl::cat(FilterCategory));
-cl::list<std::string>
-    ExcludeCompilands("exclude-compilands",
-                      cl::desc("Exclude compilands by regular expression"),
-                      cl::ZeroOrMore, cl::cat(FilterCategory));
+    cl::cat(OtherOptions), cl::sub(PrettySubcommand));
+cl::list<std::string> ExcludeTypes(
+    "exclude-types", cl::desc("Exclude types by regular expression"),
+    cl::ZeroOrMore, cl::cat(FilterCategory), cl::sub(PrettySubcommand));
+cl::list<std::string> ExcludeSymbols(
+    "exclude-symbols", cl::desc("Exclude symbols by regular expression"),
+    cl::ZeroOrMore, cl::cat(FilterCategory), cl::sub(PrettySubcommand));
+cl::list<std::string> ExcludeCompilands(
+    "exclude-compilands", cl::desc("Exclude compilands by regular expression"),
+    cl::ZeroOrMore, cl::cat(FilterCategory), cl::sub(PrettySubcommand));
 
 cl::list<std::string> IncludeTypes(
     "include-types",
     cl::desc("Include only types which match a regular expression"),
-    cl::ZeroOrMore, cl::cat(FilterCategory));
+    cl::ZeroOrMore, cl::cat(FilterCategory), cl::sub(PrettySubcommand));
 cl::list<std::string> IncludeSymbols(
     "include-symbols",
     cl::desc("Include only symbols which match a regular expression"),
-    cl::ZeroOrMore, cl::cat(FilterCategory));
+    cl::ZeroOrMore, cl::cat(FilterCategory), cl::sub(PrettySubcommand));
 cl::list<std::string> IncludeCompilands(
     "include-compilands",
     cl::desc("Include only compilands those which match a regular expression"),
-    cl::ZeroOrMore, cl::cat(FilterCategory));
+    cl::ZeroOrMore, cl::cat(FilterCategory), cl::sub(PrettySubcommand));
 
 cl::opt<bool> ExcludeCompilerGenerated(
     "no-compiler-generated",
     cl::desc("Don't show compiler generated types and symbols"),
-    cl::cat(FilterCategory));
+    cl::cat(FilterCategory), cl::sub(PrettySubcommand));
 cl::opt<bool>
     ExcludeSystemLibraries("no-system-libs",
                            cl::desc("Don't show symbols from system libraries"),
-                           cl::cat(FilterCategory));
+                           cl::cat(FilterCategory), cl::sub(PrettySubcommand));
 cl::opt<bool> NoClassDefs("no-class-definitions",
                           cl::desc("Don't display full class definitions"),
-                          cl::cat(FilterCategory));
+                          cl::cat(FilterCategory), cl::sub(PrettySubcommand));
 cl::opt<bool> NoEnumDefs("no-enum-definitions",
                          cl::desc("Don't display full enum definitions"),
-                         cl::cat(FilterCategory));
+                         cl::cat(FilterCategory), cl::sub(PrettySubcommand));
 }
 
-static Error dumpFileHeaders(ScopedPrinter &P, PDBFile &File) {
-  if (!opts::DumpHeaders)
-    return Error::success();
+namespace raw {
 
-  DictScope D(P, "FileHeaders");
-  P.printNumber("BlockSize", File.getBlockSize());
-  P.printNumber("Unknown0", File.getUnknown0());
-  P.printNumber("NumBlocks", File.getBlockCount());
-  P.printNumber("NumDirectoryBytes", File.getNumDirectoryBytes());
-  P.printNumber("Unknown1", File.getUnknown1());
-  P.printNumber("BlockMapAddr", File.getBlockMapIndex());
-  P.printNumber("NumDirectoryBlocks", File.getNumDirectoryBlocks());
-  P.printNumber("BlockMapOffset", File.getBlockMapOffset());
+cl::OptionCategory MsfOptions("MSF Container Options");
+cl::OptionCategory TypeOptions("Type Record Options");
+cl::OptionCategory FileOptions("Module & File Options");
+cl::OptionCategory SymbolOptions("Symbol Options");
+cl::OptionCategory MiscOptions("Miscellaneous Options");
 
-  // The directory is not contiguous.  Instead, the block map contains a
-  // contiguous list of block numbers whose contents, when concatenated in
-  // order, make up the directory.
-  P.printList("DirectoryBlocks", File.getDirectoryBlockArray());
-  P.printNumber("NumStreams", File.getNumStreams());
-  return Error::success();
+// MSF OPTIONS
+cl::opt<bool> DumpHeaders("headers", cl::desc("dump PDB headers"),
+                          cl::cat(MsfOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpStreamBlocks("stream-blocks",
+                               cl::desc("dump PDB stream blocks"),
+                               cl::cat(MsfOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpStreamSummary("stream-summary",
+                                cl::desc("dump summary of the PDB streams"),
+                                cl::cat(MsfOptions), cl::sub(RawSubcommand));
+
+// TYPE OPTIONS
+cl::opt<bool>
+    DumpTpiRecords("tpi-records",
+                   cl::desc("dump CodeView type records from TPI stream"),
+                   cl::cat(TypeOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpTpiRecordBytes(
+    "tpi-record-bytes",
+    cl::desc("dump CodeView type record raw bytes from TPI stream"),
+    cl::cat(TypeOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpTpiHash("tpi-hash", cl::desc("dump CodeView TPI hash stream"),
+                          cl::cat(TypeOptions), cl::sub(RawSubcommand));
+cl::opt<bool>
+    DumpIpiRecords("ipi-records",
+                   cl::desc("dump CodeView type records from IPI stream"),
+                   cl::cat(TypeOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpIpiRecordBytes(
+    "ipi-record-bytes",
+    cl::desc("dump CodeView type record raw bytes from IPI stream"),
+    cl::cat(TypeOptions), cl::sub(RawSubcommand));
+
+// MODULE & FILE OPTIONS
+cl::opt<bool> DumpModules("modules", cl::desc("dump compiland information"),
+                          cl::cat(FileOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpModuleFiles("module-files", cl::desc("dump file information"),
+                              cl::cat(FileOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpLineInfo("line-info",
+                           cl::desc("dump file and line information"),
+                           cl::cat(FileOptions), cl::sub(RawSubcommand));
+
+// SYMBOL OPTIONS
+cl::opt<bool> DumpModuleSyms("module-syms", cl::desc("dump module symbols"),
+                             cl::cat(SymbolOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpPublics("publics", cl::desc("dump Publics stream data"),
+                          cl::cat(SymbolOptions), cl::sub(RawSubcommand));
+cl::opt<bool>
+    DumpSymRecordBytes("sym-record-bytes",
+                       cl::desc("dump CodeView symbol record raw bytes"),
+                       cl::cat(SymbolOptions), cl::sub(RawSubcommand));
+
+// MISCELLANEOUS OPTIONS
+cl::opt<bool> DumpSectionContribs("section-contribs",
+                                  cl::desc("dump section contributions"),
+                                  cl::cat(MiscOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpSectionMap("section-map", cl::desc("dump section map"),
+                             cl::cat(MiscOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpSectionHeaders("section-headers",
+                                 cl::desc("dump section headers"),
+                                 cl::cat(MiscOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpFpo("fpo", cl::desc("dump FPO records"), cl::cat(MiscOptions),
+                      cl::sub(RawSubcommand));
+
+cl::opt<std::string> DumpStreamDataIdx("stream", cl::desc("dump stream data"),
+                                       cl::cat(MiscOptions),
+                                       cl::sub(RawSubcommand));
+cl::opt<std::string> DumpStreamDataName("stream-name",
+                                        cl::desc("dump stream data"),
+                                        cl::cat(MiscOptions),
+                                        cl::sub(RawSubcommand));
+
+cl::opt<bool> RawAll("all", cl::desc("Implies most other options."),
+                     cl::cat(MiscOptions), cl::sub(RawSubcommand));
+
+cl::list<std::string> InputFilenames(cl::Positional,
+                                     cl::desc("<input PDB files>"),
+                                     cl::OneOrMore, cl::sub(RawSubcommand));
 }
 
-static Error dumpStreamSizes(ScopedPrinter &P, PDBFile &File) {
-  if (!opts::DumpStreamSizes)
-    return Error::success();
+namespace yaml2pdb {
+cl::opt<std::string>
+    YamlPdbOutputFile("pdb", cl::desc("the name of the PDB file to write"),
+                      cl::sub(YamlToPdbSubcommand));
 
-  ListScope L(P, "StreamSizes");
-  uint32_t StreamCount = File.getNumStreams();
-  for (uint32_t StreamIdx = 0; StreamIdx < StreamCount; ++StreamIdx) {
-    std::string Name("Stream ");
-    Name += to_string(StreamIdx);
-    P.printNumber(Name, File.getStreamByteSize(StreamIdx));
+cl::list<std::string> InputFilename(cl::Positional,
+                                    cl::desc("<input YAML file>"), cl::Required,
+                                    cl::sub(YamlToPdbSubcommand));
+}
+
+namespace pdb2yaml {
+cl::opt<bool>
+    NoFileHeaders("no-file-headers",
+                  cl::desc("Do not dump MSF file headers (you will not be able "
+                           "to generate a fresh PDB from the resulting YAML)"),
+                  cl::sub(PdbToYamlSubcommand), cl::init(false));
+
+cl::opt<bool> StreamMetadata(
+    "stream-metadata",
+    cl::desc("Dump the number of streams and each stream's size"),
+    cl::sub(PdbToYamlSubcommand), cl::init(false));
+cl::opt<bool> StreamDirectory(
+    "stream-directory",
+    cl::desc("Dump each stream's block map (implies -stream-metadata)"),
+    cl::sub(PdbToYamlSubcommand), cl::init(false));
+cl::opt<bool> PdbStream("pdb-stream",
+                        cl::desc("Dump the PDB Stream (Stream 1)"),
+                        cl::sub(PdbToYamlSubcommand), cl::init(false));
+cl::opt<bool> DbiStream("dbi-stream",
+                        cl::desc("Dump the DBI Stream (Stream 2)"),
+                        cl::sub(PdbToYamlSubcommand), cl::init(false));
+
+cl::list<std::string> InputFilename(cl::Positional,
+                                    cl::desc("<input PDB file>"), cl::Required,
+                                    cl::sub(PdbToYamlSubcommand));
+}
+}
+
+static ExitOnError ExitOnErr;
+
+static void yamlToPdb(StringRef Path) {
+  ErrorOr<std::unique_ptr<MemoryBuffer>> ErrorOrBuffer =
+      MemoryBuffer::getFileOrSTDIN(Path, /*FileSize=*/-1,
+                                   /*RequiresNullTerminator=*/false);
+
+  if (ErrorOrBuffer.getError()) {
+    ExitOnErr(make_error<GenericError>(generic_error_code::invalid_path, Path));
   }
-  return Error::success();
-}
 
-static Error dumpStreamBlocks(ScopedPrinter &P, PDBFile &File) {
-  if (!opts::DumpStreamBlocks)
-    return Error::success();
+  std::unique_ptr<MemoryBuffer> &Buffer = ErrorOrBuffer.get();
 
-  ListScope L(P, "StreamBlocks");
-  uint32_t StreamCount = File.getNumStreams();
-  for (uint32_t StreamIdx = 0; StreamIdx < StreamCount; ++StreamIdx) {
-    std::string Name("Stream ");
-    Name += to_string(StreamIdx);
-    auto StreamBlocks = File.getStreamBlockList(StreamIdx);
-    P.printList(Name, StreamBlocks);
+  llvm::yaml::Input In(Buffer->getBuffer());
+  pdb::yaml::PdbObject YamlObj;
+  In >> YamlObj;
+  if (!YamlObj.Headers.hasValue())
+    ExitOnErr(make_error<GenericError>(generic_error_code::unspecified,
+                                       "Yaml does not contain MSF headers"));
+
+  auto OutFileOrError = FileOutputBuffer::create(
+      opts::yaml2pdb::YamlPdbOutputFile, YamlObj.Headers->FileSize);
+  if (OutFileOrError.getError())
+    ExitOnErr(make_error<GenericError>(generic_error_code::invalid_path,
+                                       opts::yaml2pdb::YamlPdbOutputFile));
+
+  auto FileByteStream =
+      llvm::make_unique<FileBufferByteStream>(std::move(*OutFileOrError));
+  PDBFileBuilder Builder(std::move(FileByteStream));
+
+  ExitOnErr(Builder.initialize(YamlObj.Headers->SuperBlock));
+  ExitOnErr(Builder.getMsfBuilder().setDirectoryBlocksHint(
+      YamlObj.Headers->DirectoryBlocks));
+  if (!YamlObj.StreamSizes.hasValue()) {
+    ExitOnErr(make_error<GenericError>(
+        generic_error_code::unspecified,
+        "Cannot generate a PDB when stream sizes are not known"));
   }
-  return Error::success();
-}
 
-static Error dumpStreamData(ScopedPrinter &P, PDBFile &File) {
-  uint32_t StreamCount = File.getNumStreams();
-  StringRef DumpStreamStr = opts::DumpStreamData;
-  uint32_t DumpStreamNum;
-  if (DumpStreamStr.getAsInteger(/*Radix=*/0U, DumpStreamNum) ||
-      DumpStreamNum >= StreamCount)
-    return Error::success();
+  if (YamlObj.StreamMap.hasValue()) {
+    if (YamlObj.StreamMap->size() != YamlObj.StreamSizes->size()) {
+      ExitOnErr(make_error<GenericError>(generic_error_code::unspecified,
+                                         "YAML specifies different number of "
+                                         "streams in stream sizes and stream "
+                                         "map"));
+    }
 
-  uint32_t StreamBytesRead = 0;
-  uint32_t StreamSize = File.getStreamByteSize(DumpStreamNum);
-  auto StreamBlocks = File.getStreamBlockList(DumpStreamNum);
-
-  for (uint32_t StreamBlockAddr : StreamBlocks) {
-    uint32_t BytesLeftToReadInStream = StreamSize - StreamBytesRead;
-    if (BytesLeftToReadInStream == 0)
-      break;
-
-    uint32_t BytesToReadInBlock = std::min(
-        BytesLeftToReadInStream, static_cast<uint32_t>(File.getBlockSize()));
-    auto StreamBlockData =
-        File.getBlockData(StreamBlockAddr, BytesToReadInBlock);
-
-    outs() << StreamBlockData;
-    StreamBytesRead += StreamBlockData.size();
-  }
-  return Error::success();
-}
-
-static Error dumpInfoStream(ScopedPrinter &P, PDBFile &File) {
-  auto InfoS = File.getPDBInfoStream();
-  if (auto EC = InfoS.takeError())
-    return EC;
-
-  InfoStream &IS = InfoS.get();
-
-  DictScope D(P, "PDB Stream");
-  P.printNumber("Version", IS.getVersion());
-  P.printHex("Signature", IS.getSignature());
-  P.printNumber("Age", IS.getAge());
-  P.printObject("Guid", IS.getGuid());
-  return Error::success();
-}
-
-static Error dumpNamedStream(ScopedPrinter &P, PDBFile &File,
-                             StringRef Stream) {
-  auto InfoS = File.getPDBInfoStream();
-  if (auto EC = InfoS.takeError())
-    return EC;
-  InfoStream &IS = InfoS.get();
-
-  uint32_t NameStreamIndex = IS.getNamedStreamIndex(Stream);
-
-  if (NameStreamIndex != 0) {
-    std::string Name("Stream '");
-    Name += Stream;
-    Name += "'";
-    DictScope D(P, Name);
-    P.printNumber("Index", NameStreamIndex);
-
-    MappedBlockStream NameStream(NameStreamIndex, File);
-    StreamReader Reader(NameStream);
-
-    NameHashTable NameTable;
-    if (auto EC = NameTable.load(Reader))
-      return EC;
-
-    P.printHex("Signature", NameTable.getSignature());
-    P.printNumber("Version", NameTable.getHashVersion());
-    P.printNumber("Name Count", NameTable.getNameCount());
-    ListScope L(P, "Names");
-    for (uint32_t ID : NameTable.name_ids()) {
-      StringRef Str = NameTable.getStringForID(ID);
-      if (!Str.empty())
-        P.printString(Str);
+    auto &Sizes = *YamlObj.StreamSizes;
+    auto &Map = *YamlObj.StreamMap;
+    for (uint32_t I = 0; I < Sizes.size(); ++I) {
+      uint32_t Size = Sizes[I];
+      std::vector<uint32_t> Blocks;
+      for (auto E : Map[I].Blocks)
+        Blocks.push_back(E);
+      ExitOnErr(Builder.getMsfBuilder().addStream(Size, Blocks));
+    }
+  } else {
+    auto &Sizes = *YamlObj.StreamSizes;
+    for (auto S : Sizes) {
+      ExitOnErr(Builder.getMsfBuilder().addStream(S));
     }
   }
-  return Error::success();
-}
 
-static Error dumpDbiStream(ScopedPrinter &P, PDBFile &File) {
-  auto DbiS = File.getPDBDbiStream();
-  if (auto EC = DbiS.takeError())
-    return EC;
-  DbiStream &DS = DbiS.get();
-
-  DictScope D(P, "DBI Stream");
-  P.printNumber("Dbi Version", DS.getDbiVersion());
-  P.printNumber("Age", DS.getAge());
-  P.printBoolean("Incremental Linking", DS.isIncrementallyLinked());
-  P.printBoolean("Has CTypes", DS.hasCTypes());
-  P.printBoolean("Is Stripped", DS.isStripped());
-  P.printObject("Machine Type", DS.getMachineType());
-  P.printNumber("Symbol Record Stream Index", DS.getSymRecordStreamIndex());
-
-  uint16_t Major = DS.getBuildMajorVersion();
-  uint16_t Minor = DS.getBuildMinorVersion();
-  P.printVersion("Toolchain Version", Major, Minor);
-
-  std::string DllName;
-  raw_string_ostream DllStream(DllName);
-  DllStream << "mspdb" << Major << Minor << ".dll version";
-  DllStream.flush();
-  P.printVersion(DllName, Major, Minor, DS.getPdbDllVersion());
-
-  ListScope L(P, "Modules");
-  for (auto &Modi : DS.modules()) {
-    DictScope DD(P);
-    P.printString("Name", Modi.Info.getModuleName());
-    P.printNumber("Debug Stream Index", Modi.Info.getModuleStreamIndex());
-    P.printString("Object File Name", Modi.Info.getObjFileName());
-    P.printNumber("Num Files", Modi.Info.getNumberOfFiles());
-    P.printNumber("Source File Name Idx", Modi.Info.getSourceFileNameIndex());
-    P.printNumber("Pdb File Name Idx", Modi.Info.getPdbFilePathNameIndex());
-    P.printNumber("Line Info Byte Size", Modi.Info.getLineInfoByteSize());
-    P.printNumber("C13 Line Info Byte Size",
-                  Modi.Info.getC13LineInfoByteSize());
-    P.printNumber("Symbol Byte Size", Modi.Info.getSymbolDebugInfoByteSize());
-    P.printNumber("Type Server Index", Modi.Info.getTypeServerIndex());
-    P.printBoolean("Has EC Info", Modi.Info.hasECInfo());
-    {
-      std::string FileListName =
-          to_string(Modi.SourceFiles.size()) + " Contributing Source Files";
-      ListScope LL(P, FileListName);
-      for (auto File : Modi.SourceFiles)
-        P.printString(File);
-    }
-    if (opts::DumpModuleSyms) {
-      ListScope SS(P, "Symbols");
-      ModStream ModS(File, Modi.Info);
-      if (auto EC = ModS.reload())
-        return EC;
-
-      for (auto &S : ModS.symbols()) {
-        DictScope SD(P);
-        P.printHex("Kind", static_cast<uint32_t>(S.Type));
-        P.printNumber("Length", static_cast<uint32_t>(S.Length));
-        P.printBinaryBlock("Bytes", S.Data);
-      }
-    }
+  if (YamlObj.PdbStream.hasValue()) {
+    auto &InfoBuilder = Builder.getInfoBuilder();
+    InfoBuilder.setAge(YamlObj.PdbStream->Age);
+    InfoBuilder.setGuid(YamlObj.PdbStream->Guid);
+    InfoBuilder.setSignature(YamlObj.PdbStream->Signature);
+    InfoBuilder.setVersion(YamlObj.PdbStream->Version);
+    for (auto &NM : YamlObj.PdbStream->NamedStreams)
+      InfoBuilder.getNamedStreamsBuilder().addMapping(NM.StreamName,
+                                                      NM.StreamNumber);
   }
-  return Error::success();
-}
 
-static Error dumpTpiStream(ScopedPrinter &P, PDBFile &File) {
-  if (!opts::DumpTpiRecordBytes && !opts::DumpTpiRecords)
-    return Error::success();
-
-  DictScope D(P, "Type Info Stream");
-
-  auto TpiS = File.getPDBTpiStream();
-  if (auto EC = TpiS.takeError())
-    return EC;
-  TpiStream &Tpi = TpiS.get();
-
-  P.printNumber("TPI Version", Tpi.getTpiVersion());
-  P.printNumber("Record count", Tpi.NumTypeRecords());
-
-  if (opts::DumpTpiRecordBytes || opts::DumpTpiRecords) {
-    ListScope L(P, "Records");
-    codeview::CVTypeDumper TD(P, false);
-
-    bool HadError = false;
-    for (auto &Type : Tpi.types(&HadError)) {
-      DictScope DD(P, "");
-
-      if (opts::DumpTpiRecords)
-        TD.dump(Type);
-
-      if (opts::DumpTpiRecordBytes)
-        P.printBinaryBlock("Bytes", Type.Data);
-    }
-    if (HadError)
-      return make_error<RawError>(raw_error_code::corrupt_file,
-                                  "TPI stream contained corrupt record");
+  if (YamlObj.DbiStream.hasValue()) {
+    auto &DbiBuilder = Builder.getDbiBuilder();
+    DbiBuilder.setAge(YamlObj.DbiStream->Age);
+    DbiBuilder.setBuildNumber(YamlObj.DbiStream->BuildNumber);
+    DbiBuilder.setFlags(YamlObj.DbiStream->Flags);
+    DbiBuilder.setMachineType(YamlObj.DbiStream->MachineType);
+    DbiBuilder.setPdbDllRbld(YamlObj.DbiStream->PdbDllRbld);
+    DbiBuilder.setPdbDllVersion(YamlObj.DbiStream->PdbDllVersion);
+    DbiBuilder.setVersionHeader(YamlObj.DbiStream->VerHeader);
   }
-  return Error::success();
+
+  auto Pdb = Builder.build();
+  ExitOnErr(Pdb.takeError());
+
+  auto &PdbFile = *Pdb;
+  ExitOnErr(PdbFile->commit());
 }
 
-static Error dumpPublicsStream(ScopedPrinter &P, PDBFile &File) {
-  if (!opts::DumpPublics)
-    return Error::success();
-
-  DictScope D(P, "Publics Stream");
-  auto PublicsS = File.getPDBPublicsStream();
-  if (auto EC = PublicsS.takeError())
-    return EC;
-  PublicsStream &Publics = PublicsS.get();
-  P.printNumber("Stream number", Publics.getStreamNum());
-  P.printNumber("SymHash", Publics.getSymHash());
-  P.printNumber("AddrMap", Publics.getAddrMap());
-  P.printNumber("Number of buckets", Publics.getNumBuckets());
-  P.printList("Hash Buckets", Publics.getHashBuckets());
-  P.printList("Address Map", Publics.getAddressMap());
-  P.printList("Thunk Map", Publics.getThunkMap());
-  P.printList("Section Offsets", Publics.getSectionOffsets());
-  return Error::success();
-}
-
-static Error dumpStructure(RawSession &RS) {
-  PDBFile &File = RS.getPDBFile();
-  ScopedPrinter P(outs());
-
-  if (auto EC = dumpFileHeaders(P, File))
-    return EC;
-
-  if (auto EC = dumpStreamSizes(P, File))
-    return EC;
-
-  if (auto EC = dumpStreamBlocks(P, File))
-    return EC;
-
-  if (auto EC = dumpStreamData(P, File))
-    return EC;
-
-  if (auto EC = dumpInfoStream(P, File))
-    return EC;
-
-  if (auto EC = dumpNamedStream(P, File, "/names"))
-    return EC;
-
-  if (auto EC = dumpDbiStream(P, File))
-    return EC;
-
-  if (auto EC = dumpTpiStream(P, File))
-    return EC;
-
-  if (auto EC = dumpPublicsStream(P, File))
-    return EC;
-return Error::success();
-}
-
-static void dumpInput(StringRef Path) {
+static void pdb2Yaml(StringRef Path) {
   std::unique_ptr<IPDBSession> Session;
-  if (opts::DumpHeaders || !opts::DumpStreamData.empty()) {
-    auto E = loadDataForPDB(PDB_ReaderType::Raw, Path, Session);
-    if (!E) {
-      RawSession *RS = static_cast<RawSession *>(Session.get());
-      E = dumpStructure(*RS);
-    }
+  ExitOnErr(loadDataForPDB(PDB_ReaderType::Raw, Path, Session));
 
-    if (E)
-      logAllUnhandledErrors(std::move(E), outs(), "");
+  RawSession *RS = static_cast<RawSession *>(Session.get());
+  PDBFile &File = RS->getPDBFile();
+  auto O = llvm::make_unique<YAMLOutputStyle>(File);
+  O = llvm::make_unique<YAMLOutputStyle>(File);
 
-    return;
-  }
+  ExitOnErr(O->dump());
+}
 
-  Error E = loadDataForPDB(PDB_ReaderType::DIA, Path, Session);
-  if (E) {
-    logAllUnhandledErrors(std::move(E), outs(), "");
-    return;
-  }
+static void dumpRaw(StringRef Path) {
+  std::unique_ptr<IPDBSession> Session;
+  ExitOnErr(loadDataForPDB(PDB_ReaderType::Raw, Path, Session));
 
-  if (opts::LoadAddress)
-    Session->setLoadAddress(opts::LoadAddress);
+  RawSession *RS = static_cast<RawSession *>(Session.get());
+  PDBFile &File = RS->getPDBFile();
+  auto O = llvm::make_unique<LLVMOutputStyle>(File);
+
+  ExitOnErr(O->dump());
+}
+
+static void dumpPretty(StringRef Path) {
+  std::unique_ptr<IPDBSession> Session;
+
+  ExitOnErr(loadDataForPDB(PDB_ReaderType::DIA, Path, Session));
+
+  if (opts::pretty::LoadAddress)
+    Session->setLoadAddress(opts::pretty::LoadAddress);
 
   LinePrinter Printer(2, outs());
 
@@ -510,7 +450,7 @@ static void dumpInput(StringRef Path) {
     outs() << "HasPrivateSymbols ";
   Printer.Unindent();
 
-  if (opts::Compilands) {
+  if (opts::pretty::Compilands) {
     Printer.NewLine();
     WithColor(Printer, PDB_ColorItem::SectionHeader).get()
         << "---COMPILANDS---";
@@ -518,14 +458,14 @@ static void dumpInput(StringRef Path) {
     auto Compilands = GlobalScope->findAllChildren<PDBSymbolCompiland>();
     CompilandDumper Dumper(Printer);
     CompilandDumpFlags options = CompilandDumper::Flags::None;
-    if (opts::Lines)
+    if (opts::pretty::Lines)
       options = options | CompilandDumper::Flags::Lines;
     while (auto Compiland = Compilands->getNext())
       Dumper.start(*Compiland, options);
     Printer.Unindent();
   }
 
-  if (opts::Types) {
+  if (opts::pretty::Types) {
     Printer.NewLine();
     WithColor(Printer, PDB_ColorItem::SectionHeader).get() << "---TYPES---";
     Printer.Indent();
@@ -534,7 +474,7 @@ static void dumpInput(StringRef Path) {
     Printer.Unindent();
   }
 
-  if (opts::Symbols) {
+  if (opts::pretty::Symbols) {
     Printer.NewLine();
     WithColor(Printer, PDB_ColorItem::SectionHeader).get() << "---SYMBOLS---";
     Printer.Indent();
@@ -545,7 +485,7 @@ static void dumpInput(StringRef Path) {
     Printer.Unindent();
   }
 
-  if (opts::Globals) {
+  if (opts::pretty::Globals) {
     Printer.NewLine();
     WithColor(Printer, PDB_ColorItem::SectionHeader).get() << "---GLOBALS---";
     Printer.Indent();
@@ -571,14 +511,14 @@ static void dumpInput(StringRef Path) {
     }
     Printer.Unindent();
   }
-  if (opts::Externals) {
+  if (opts::pretty::Externals) {
     Printer.NewLine();
     WithColor(Printer, PDB_ColorItem::SectionHeader).get() << "---EXTERNALS---";
     Printer.Indent();
     ExternalSymbolDumper Dumper(Printer);
     Dumper.start(*GlobalScope);
   }
-  if (opts::Lines) {
+  if (opts::pretty::Lines) {
     Printer.NewLine();
   }
   outs().flush();
@@ -586,59 +526,83 @@ static void dumpInput(StringRef Path) {
 
 int main(int argc_, const char *argv_[]) {
   // Print a stack trace if we signal out.
-  sys::PrintStackTraceOnErrorSignal();
+  sys::PrintStackTraceOnErrorSignal(argv_[0]);
   PrettyStackTraceProgram X(argc_, argv_);
+
+  ExitOnErr.setBanner("llvm-pdbdump: ");
 
   SmallVector<const char *, 256> argv;
   SpecificBumpPtrAllocator<char> ArgAllocator;
-  std::error_code EC = sys::Process::GetArgumentVector(
-      argv, makeArrayRef(argv_, argc_), ArgAllocator);
-  if (EC) {
-    errs() << "error: couldn't get arguments: " << EC.message() << '\n';
-    return 1;
-  }
+  ExitOnErr(errorCodeToError(sys::Process::GetArgumentVector(
+      argv, makeArrayRef(argv_, argc_), ArgAllocator)));
 
   llvm_shutdown_obj Y; // Call llvm_shutdown() on exit.
 
   cl::ParseCommandLineOptions(argv.size(), argv.data(), "LLVM PDB Dumper\n");
-  if (opts::Lines)
-    opts::Compilands = true;
 
-  if (opts::All) {
-    opts::Compilands = true;
-    opts::Symbols = true;
-    opts::Globals = true;
-    opts::Types = true;
-    opts::Externals = true;
-    opts::Lines = true;
+  // These options are shared by two subcommands.
+  if ((opts::PdbToYamlSubcommand || opts::RawSubcommand) && opts::raw::RawAll) {
+    opts::raw::DumpHeaders = true;
+    opts::raw::DumpModules = true;
+    opts::raw::DumpModuleFiles = true;
+    opts::raw::DumpModuleSyms = true;
+    opts::raw::DumpPublics = true;
+    opts::raw::DumpSectionHeaders = true;
+    opts::raw::DumpStreamSummary = true;
+    opts::raw::DumpStreamBlocks = true;
+    opts::raw::DumpTpiRecords = true;
+    opts::raw::DumpTpiHash = true;
+    opts::raw::DumpIpiRecords = true;
+    opts::raw::DumpSectionMap = true;
+    opts::raw::DumpSectionContribs = true;
+    opts::raw::DumpLineInfo = true;
+    opts::raw::DumpFpo = true;
   }
 
-  // When adding filters for excluded compilands and types, we need to remember
-  // that these are regexes.  So special characters such as * and \ need to be
-  // escaped in the regex.  In the case of a literal \, this means it needs to
-  // be escaped again in the C++.  So matching a single \ in the input requires
-  // 4 \es in the C++.
-  if (opts::ExcludeCompilerGenerated) {
-    opts::ExcludeTypes.push_back("__vc_attributes");
-    opts::ExcludeCompilands.push_back("\\* Linker \\*");
+  llvm::sys::InitializeCOMRAII COM(llvm::sys::COMThreadingMode::MultiThreaded);
+
+  if (opts::PdbToYamlSubcommand) {
+    pdb2Yaml(opts::pdb2yaml::InputFilename.front());
+  } else if (opts::YamlToPdbSubcommand) {
+    yamlToPdb(opts::yaml2pdb::InputFilename.front());
+  } else if (opts::PrettySubcommand) {
+    if (opts::pretty::Lines)
+      opts::pretty::Compilands = true;
+
+    if (opts::pretty::All) {
+      opts::pretty::Compilands = true;
+      opts::pretty::Symbols = true;
+      opts::pretty::Globals = true;
+      opts::pretty::Types = true;
+      opts::pretty::Externals = true;
+      opts::pretty::Lines = true;
+    }
+
+    // When adding filters for excluded compilands and types, we need to
+    // remember
+    // that these are regexes.  So special characters such as * and \ need to be
+    // escaped in the regex.  In the case of a literal \, this means it needs to
+    // be escaped again in the C++.  So matching a single \ in the input
+    // requires
+    // 4 \es in the C++.
+    if (opts::pretty::ExcludeCompilerGenerated) {
+      opts::pretty::ExcludeTypes.push_back("__vc_attributes");
+      opts::pretty::ExcludeCompilands.push_back("\\* Linker \\*");
+    }
+    if (opts::pretty::ExcludeSystemLibraries) {
+      opts::pretty::ExcludeCompilands.push_back(
+          "f:\\\\binaries\\\\Intermediate\\\\vctools\\\\crt_bld");
+      opts::pretty::ExcludeCompilands.push_back("f:\\\\dd\\\\vctools\\\\crt");
+      opts::pretty::ExcludeCompilands.push_back(
+          "d:\\\\th.obj.x86fre\\\\minkernel");
+    }
+    std::for_each(opts::pretty::InputFilenames.begin(),
+                  opts::pretty::InputFilenames.end(), dumpPretty);
+  } else if (opts::RawSubcommand) {
+    std::for_each(opts::raw::InputFilenames.begin(),
+                  opts::raw::InputFilenames.end(), dumpRaw);
   }
-  if (opts::ExcludeSystemLibraries) {
-    opts::ExcludeCompilands.push_back(
-        "f:\\\\binaries\\\\Intermediate\\\\vctools\\\\crt_bld");
-    opts::ExcludeCompilands.push_back("f:\\\\dd\\\\vctools\\\\crt");
-    opts::ExcludeCompilands.push_back("d:\\\\th.obj.x86fre\\\\minkernel");
-  }
 
-#if defined(HAVE_DIA_SDK)
-  CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-#endif
-
-  std::for_each(opts::InputFilenames.begin(), opts::InputFilenames.end(),
-                dumpInput);
-
-#if defined(HAVE_DIA_SDK)
-  CoUninitialize();
-#endif
   outs().flush();
   return 0;
 }

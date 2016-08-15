@@ -16,17 +16,24 @@
 #include <cstdint>
 
 namespace llvm {
-namespace pdb {
-
+namespace codeview {
 class StreamReader;
-
+class StreamWriter;
+}
+namespace pdb {
+class NameMapBuilder;
 class NameMap {
+  friend NameMapBuilder;
+
 public:
   NameMap();
 
-  Error load(StreamReader &Stream);
+  Error load(codeview::StreamReader &Stream);
+  Error commit(codeview::StreamWriter &Writer);
 
   bool tryGetValue(StringRef Name, uint32_t &Value) const;
+
+  iterator_range<StringMapConstIterator<uint32_t>> entries() const;
 
 private:
   StringMap<uint32_t> Mapping;

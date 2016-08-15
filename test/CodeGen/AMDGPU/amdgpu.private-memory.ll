@@ -1,9 +1,9 @@
 ; RUN: llc -show-mc-encoding -mattr=+promote-alloca -verify-machineinstrs -march=amdgcn < %s | FileCheck %s -check-prefix=SI-PROMOTE -check-prefix=SI -check-prefix=FUNC
-; RUN: llc -show-mc-encoding -mattr=+promote-alloca -verify-machineinstrs -mtriple=amdgcn--amdhsa -mcpu=kaveri < %s | FileCheck %s -check-prefix=SI-PROMOTE -check-prefix=SI -check-prefix=FUNC -check-prefix=HSA-PROMOTE
+; RUN: llc -show-mc-encoding -mattr=+promote-alloca -verify-machineinstrs -mtriple=amdgcn--amdhsa -mcpu=kaveri -mattr=-unaligned-buffer-access < %s | FileCheck %s -check-prefix=SI-PROMOTE -check-prefix=SI -check-prefix=FUNC -check-prefix=HSA-PROMOTE
 ; RUN: llc -show-mc-encoding -mattr=-promote-alloca -verify-machineinstrs -march=amdgcn < %s | FileCheck %s -check-prefix=SI-ALLOCA -check-prefix=SI -check-prefix=FUNC
-; RUN: llc -show-mc-encoding -mattr=-promote-alloca -verify-machineinstrs -mtriple=amdgcn-amdhsa -mcpu=kaveri < %s | FileCheck %s -check-prefix=SI-ALLOCA -check-prefix=SI -check-prefix=FUNC -check-prefix=HSA-ALLOCA
-; RUN: llc -show-mc-encoding -mattr=+promote-alloca -verify-machineinstrs -mtriple=amdgcn-amdhsa -march=amdgcn -mcpu=tonga < %s | FileCheck %s -check-prefix=SI-PROMOTE -check-prefix=SI -check-prefix=FUNC
-; RUN: llc -show-mc-encoding -mattr=-promote-alloca -verify-machineinstrs -mtriple=amdgcn-amdhsa -march=amdgcn -mcpu=tonga < %s | FileCheck %s -check-prefix=SI-ALLOCA -check-prefix=SI -check-prefix=FUNC
+; RUN: llc -show-mc-encoding -mattr=-promote-alloca -verify-machineinstrs -mtriple=amdgcn-amdhsa -mcpu=kaveri -mattr=-unaligned-buffer-access < %s | FileCheck %s -check-prefix=SI-ALLOCA -check-prefix=SI -check-prefix=FUNC -check-prefix=HSA-ALLOCA
+; RUN: llc -show-mc-encoding -mattr=+promote-alloca -verify-machineinstrs -mtriple=amdgcn-amdhsa -march=amdgcn -mcpu=tonga -mattr=-unaligned-buffer-access < %s | FileCheck %s -check-prefix=SI-PROMOTE -check-prefix=SI -check-prefix=FUNC
+; RUN: llc -show-mc-encoding -mattr=-promote-alloca -verify-machineinstrs -mtriple=amdgcn-amdhsa -march=amdgcn -mcpu=tonga -mattr=-unaligned-buffer-access < %s | FileCheck %s -check-prefix=SI-ALLOCA -check-prefix=SI -check-prefix=FUNC
 
 ; RUN: opt -S -mtriple=amdgcn-unknown-amdhsa -mcpu=kaveri -amdgpu-promote-alloca < %s | FileCheck -check-prefix=HSAOPT -check-prefix=OPT %s
 ; RUN: opt -S -mtriple=amdgcn-unknown-unknown -mcpu=kaveri -amdgpu-promote-alloca < %s | FileCheck -check-prefix=NOHSAOPT -check-prefix=OPT %s
@@ -417,12 +417,6 @@ entry:
   ret void
 }
 
-; HSAOPT: !0 = !{}
-; HSAOPT: !1 = !{i32 0, i32 2048}
-
-; NOHSAOPT: !0 = !{i32 0, i32 2048}
-
-
 ; FUNC-LABEL: v16i32_stack:
 
 ; R600: MOVA_INT
@@ -527,4 +521,33 @@ define void @v2float_stack(<2 x float> addrspace(1)* %out, i32 %a) {
   ret void
 }
 
+; OPT-LABEL: @direct_alloca_read_0xi32(
+; OPT: store [0 x i32] undef, [0 x i32] addrspace(3)*
+; OPT: load [0 x i32], [0 x i32] addrspace(3)*
+define void @direct_alloca_read_0xi32([0 x i32] addrspace(1)* %out, i32 %index) {
+entry:
+  %tmp = alloca [0 x i32]
+  store [0 x i32] [], [0 x i32]* %tmp
+  %load = load [0 x i32], [0 x i32]* %tmp
+  store [0 x i32] %load, [0 x i32] addrspace(1)* %out
+  ret void
+}
+
+; OPT-LABEL: @direct_alloca_read_1xi32(
+; OPT: store [1 x i32] zeroinitializer, [1 x i32] addrspace(3)*
+; OPT: load [1 x i32], [1 x i32] addrspace(3)*
+define void @direct_alloca_read_1xi32([1 x i32] addrspace(1)* %out, i32 %index) {
+entry:
+  %tmp = alloca [1 x i32]
+  store [1 x i32] [i32 0], [1 x i32]* %tmp
+  %load = load [1 x i32], [1 x i32]* %tmp
+  store [1 x i32] %load, [1 x i32] addrspace(1)* %out
+  ret void
+}
+
 attributes #0 = { nounwind "amdgpu-max-waves-per-eu"="2" }
+
+; HSAOPT: !0 = !{}
+; HSAOPT: !1 = !{i32 0, i32 2048}
+
+; NOHSAOPT: !0 = !{i32 0, i32 2048}

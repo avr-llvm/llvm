@@ -70,16 +70,16 @@ void LanaiFrameLowering::replaceAdjDynAllocPseudo(MachineFunction &MF) const {
        ++MBB) {
     MachineBasicBlock::iterator MBBI = MBB->begin();
     while (MBBI != MBB->end()) {
-      MachineInstr *MI = MBBI++;
-      if (MI->getOpcode() == Lanai::ADJDYNALLOC) {
-        DebugLoc DL = MI->getDebugLoc();
-        unsigned Dst = MI->getOperand(0).getReg();
-        unsigned Src = MI->getOperand(1).getReg();
+      MachineInstr &MI = *MBBI++;
+      if (MI.getOpcode() == Lanai::ADJDYNALLOC) {
+        DebugLoc DL = MI.getDebugLoc();
+        unsigned Dst = MI.getOperand(0).getReg();
+        unsigned Src = MI.getOperand(1).getReg();
 
         BuildMI(*MBB, MI, DL, LII.get(Lanai::ADD_I_LO), Dst)
             .addReg(Src)
             .addImm(MaxCallFrameSize);
-        MI->eraseFromParent();
+        MI.eraseFromParent();
       }
     }
   }
@@ -140,7 +140,7 @@ void LanaiFrameLowering::emitPrologue(MachineFunction &MF,
 }
 
 MachineBasicBlock::iterator LanaiFrameLowering::eliminateCallFramePseudoInstr(
-    MachineFunction &MF, MachineBasicBlock &MBB,
+    MachineFunction & /*MF*/, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator I) const {
   // Discard ADJCALLSTACKDOWN, ADJCALLSTACKUP instructions.
   return MBB.erase(I);
@@ -176,7 +176,7 @@ MachineBasicBlock::iterator LanaiFrameLowering::eliminateCallFramePseudoInstr(
 //      ld -8[%fp],%fp  # restore the caller's frame pointer
 // before RET and the delay slot filler will move RET such that these
 // instructions execute in the delay slots of the load to PC.
-void LanaiFrameLowering::emitEpilogue(MachineFunction &MF,
+void LanaiFrameLowering::emitEpilogue(MachineFunction & /*MF*/,
                                       MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
   const LanaiInstrInfo &LII =

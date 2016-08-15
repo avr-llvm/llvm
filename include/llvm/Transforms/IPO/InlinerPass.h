@@ -24,6 +24,7 @@ class AssumptionCacheTracker;
 class CallSite;
 class DataLayout;
 class InlineCost;
+class ProfileSummaryInfo;
 template <class PtrType, unsigned SmallSize> class SmallPtrSet;
 
 /// Inliner - This class contains all of the helper code which is used to
@@ -62,6 +63,12 @@ struct Inliner : public CallGraphSCCPass {
   /// deal with that subset of the functions.
   bool removeDeadFunctions(CallGraph &CG, bool AlwaysInlineOnly = false);
 
+  /// This function performs the main work of the pass.  The default
+  /// of Inlinter::runOnSCC() calls skipSCC() before calling this method, but
+  /// derived classes which cannot be skipped can override that method and
+  /// call this function unconditionally.
+  bool inlineCalls(CallGraphSCC &SCC);
+
 private:
   // InsertLifetime - Insert @llvm.lifetime intrinsics.
   bool InsertLifetime;
@@ -79,6 +86,7 @@ private:
 
 protected:
   AssumptionCacheTracker *ACT;
+  ProfileSummaryInfo *PSI;
 };
 
 } // End llvm namespace

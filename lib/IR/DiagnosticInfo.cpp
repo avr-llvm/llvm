@@ -91,7 +91,7 @@ int llvm::getNextAvailablePluginDiagnosticKind() {
   return ++PluginKindID;
 }
 
-const char *DiagnosticInfo::AlwaysPrint = "";
+const char *DiagnosticInfoOptimizationRemarkAnalysis::AlwaysPrint = "";
 
 DiagnosticInfoInlineAsm::DiagnosticInfoInlineAsm(const Instruction &I,
                                                  const Twine &MsgStr,
@@ -112,9 +112,13 @@ void DiagnosticInfoInlineAsm::print(DiagnosticPrinter &DP) const {
     DP << " at line " << getLocCookie();
 }
 
-void DiagnosticInfoStackSize::print(DiagnosticPrinter &DP) const {
-  DP << "stack size limit exceeded (" << getStackSize() << ") in "
-     << getFunction();
+void DiagnosticInfoResourceLimit::print(DiagnosticPrinter &DP) const {
+  DP << getResourceName() << " limit";
+
+  if (getResourceLimit() != 0)
+    DP << " of " << getResourceLimit();
+
+  DP << " exceeded (" <<  getResourceSize() << ") in " << getFunction();
 }
 
 void DiagnosticInfoDebugMetadataVersion::print(DiagnosticPrinter &DP) const {
@@ -168,6 +172,8 @@ const std::string DiagnosticInfoWithDebugLocBase::getLocationStr() const {
 
 void DiagnosticInfoOptimizationBase::print(DiagnosticPrinter &DP) const {
   DP << getLocationStr() << ": " << getMsg();
+  if (Hotness)
+    DP << " (hotness: " << *Hotness << ")";
 }
 
 bool DiagnosticInfoOptimizationRemark::isEnabled() const {
@@ -181,7 +187,7 @@ bool DiagnosticInfoOptimizationRemarkMissed::isEnabled() const {
 }
 
 bool DiagnosticInfoOptimizationRemarkAnalysis::isEnabled() const {
-  return getPassName() == DiagnosticInfo::AlwaysPrint ||
+  return shouldAlwaysPrint() ||
          (PassRemarksAnalysisOptLoc.Pattern &&
           PassRemarksAnalysisOptLoc.Pattern->match(getPassName()));
 }

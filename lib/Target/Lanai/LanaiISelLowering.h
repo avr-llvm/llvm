@@ -103,26 +103,28 @@ public:
                                     std::vector<SDValue> &Ops,
                                     SelectionDAG &DAG) const override;
 
+  SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
+
 private:
   SDValue LowerCCCCallTo(SDValue Chain, SDValue Callee,
                          CallingConv::ID CallConv, bool IsVarArg,
                          bool IsTailCall,
                          const SmallVectorImpl<ISD::OutputArg> &Outs,
                          const SmallVectorImpl<SDValue> &OutVals,
-                         const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc dl,
-                         SelectionDAG &DAG,
+                         const SmallVectorImpl<ISD::InputArg> &Ins,
+                         const SDLoc &dl, SelectionDAG &DAG,
                          SmallVectorImpl<SDValue> &InVals) const;
 
   SDValue LowerCCCArguments(SDValue Chain, CallingConv::ID CallConv,
                             bool IsVarArg,
-                            const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc DL,
-                            SelectionDAG &DAG,
+                            const SmallVectorImpl<ISD::InputArg> &Ins,
+                            const SDLoc &DL, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals) const;
 
   SDValue LowerCallResult(SDValue Chain, SDValue InFlag,
                           CallingConv::ID CallConv, bool IsVarArg,
-                          const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc DL,
-                          SelectionDAG &DAG,
+                          const SmallVectorImpl<ISD::InputArg> &Ins,
+                          const SDLoc &DL, SelectionDAG &DAG,
                           SmallVectorImpl<SDValue> &InVals) const;
 
   SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
@@ -131,12 +133,12 @@ private:
   SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv,
                                bool IsVarArg,
                                const SmallVectorImpl<ISD::InputArg> &Ins,
-                               SDLoc DL, SelectionDAG &DAG,
+                               const SDLoc &DL, SelectionDAG &DAG,
                                SmallVectorImpl<SDValue> &InVals) const override;
 
   SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
-                      const SmallVectorImpl<SDValue> &OutVals, SDLoc DL,
+                      const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
                       SelectionDAG &DAG) const override;
 
   const LanaiRegisterInfo *TRI;

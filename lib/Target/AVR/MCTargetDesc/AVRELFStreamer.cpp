@@ -4,6 +4,7 @@
 #include "llvm/Support/FormattedStream.h"
 
 #include "InstPrinter/AVRInstPrinter.h"
+#include "AVRMCTargetDesc.h"
 
 namespace llvm {
 

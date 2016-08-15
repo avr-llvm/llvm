@@ -20,6 +20,7 @@
 #include "llvm/Analysis/BasicAliasAnalysis.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/InlineCost.h"
+#include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/DataLayout.h"
@@ -56,6 +57,7 @@ Inliner::Inliner(char &ID, bool InsertLifetime)
 /// always explicitly call the implementation here.
 void Inliner::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<AssumptionCacheTracker>();
+  AU.addRequired<ProfileSummaryInfoWrapperPass>();
   AU.addRequired<TargetLibraryInfoWrapperPass>();
   getAAResultsAnalysisUsage(AU);
   CallGraphSCCPass::getAnalysisUsage(AU);
@@ -368,9 +370,13 @@ static bool InlineHistoryIncludes(Function *F, int InlineHistoryID,
 bool Inliner::runOnSCC(CallGraphSCC &SCC) {
   if (skipSCC(SCC))
     return false;
+  return inlineCalls(SCC);
+}
 
+bool Inliner::inlineCalls(CallGraphSCC &SCC) {
   CallGraph &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
   ACT = &getAnalysis<AssumptionCacheTracker>();
+  PSI = getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI(CG.getModule());
   auto &TLI = getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
 
   SmallPtrSet<Function*, 8> SCCFunctions;

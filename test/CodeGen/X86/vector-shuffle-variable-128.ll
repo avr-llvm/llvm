@@ -198,6 +198,12 @@ define <4 x i32> @var_shuffle_v4i32_v4i32_xxxx_i32(<4 x i32> %x, i32 %i0, i32 %i
 define <8 x i16> @var_shuffle_v8i16_v8i16_xxxxxxxx_i16(<8 x i16> %x, i16 %i0, i16 %i1, i16 %i2, i16 %i3, i16 %i4, i16 %i5, i16 %i6, i16 %i7) nounwind {
 ; SSE2-LABEL: var_shuffle_v8i16_v8i16_xxxxxxxx_i16:
 ; SSE2:       # BB#0:
+; SSE2-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; SSE2-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; SSE2-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; SSE2-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; SSE2-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; SSE2-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
 ; SSE2-NEXT:    movswq %di, %rax
 ; SSE2-NEXT:    movswq %si, %rsi
 ; SSE2-NEXT:    movswq %dx, %rdx
@@ -234,6 +240,12 @@ define <8 x i16> @var_shuffle_v8i16_v8i16_xxxxxxxx_i16(<8 x i16> %x, i16 %i0, i1
 ;
 ; SSSE3-LABEL: var_shuffle_v8i16_v8i16_xxxxxxxx_i16:
 ; SSSE3:       # BB#0:
+; SSSE3-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; SSSE3-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; SSSE3-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; SSSE3-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; SSSE3-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; SSSE3-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
 ; SSSE3-NEXT:    movswq %di, %rax
 ; SSSE3-NEXT:    movswq %si, %rsi
 ; SSSE3-NEXT:    movswq %dx, %rdx
@@ -271,6 +283,12 @@ define <8 x i16> @var_shuffle_v8i16_v8i16_xxxxxxxx_i16(<8 x i16> %x, i16 %i0, i1
 ; SSE41-LABEL: var_shuffle_v8i16_v8i16_xxxxxxxx_i16:
 ; SSE41:       # BB#0:
 ; SSE41-NEXT:    pushq %rbx
+; SSE41-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; SSE41-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; SSE41-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; SSE41-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; SSE41-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; SSE41-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
 ; SSE41-NEXT:    movswq %di, %rax
 ; SSE41-NEXT:    movswq %si, %rbx
 ; SSE41-NEXT:    movswq %dx, %r11
@@ -298,6 +316,12 @@ define <8 x i16> @var_shuffle_v8i16_v8i16_xxxxxxxx_i16(<8 x i16> %x, i16 %i0, i1
 ; AVX:       # BB#0:
 ; AVX-NEXT:    pushq %r14
 ; AVX-NEXT:    pushq %rbx
+; AVX-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; AVX-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; AVX-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; AVX-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; AVX-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; AVX-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
 ; AVX-NEXT:    movswq %di, %r10
 ; AVX-NEXT:    movswq %si, %r11
 ; AVX-NEXT:    movswq %dx, %r14
@@ -343,6 +367,12 @@ define <8 x i16> @var_shuffle_v8i16_v8i16_xxxxxxxx_i16(<8 x i16> %x, i16 %i0, i1
 define <16 x i8> @var_shuffle_v16i8_v16i8_xxxxxxxxxxxxxxxx_i8(<16 x i8> %x, i8 %i0, i8 %i1, i8 %i2, i8 %i3, i8 %i4, i8 %i5, i8 %i6, i8 %i7, i8 %i8, i8 %i9, i8 %i10, i8 %i11, i8 %i12, i8 %i13, i8 %i14, i8 %i15) nounwind {
 ; SSE2-LABEL: var_shuffle_v16i8_v16i8_xxxxxxxxxxxxxxxx_i8:
 ; SSE2:       # BB#0:
+; SSE2-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; SSE2-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; SSE2-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; SSE2-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; SSE2-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; SSE2-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
 ; SSE2-NEXT:    movaps %xmm0, -{{[0-9]+}}(%rsp)
 ; SSE2-NEXT:    movsbq {{[0-9]+}}(%rsp), %r10
 ; SSE2-NEXT:    leaq -{{[0-9]+}}(%rsp), %r11
@@ -412,6 +442,12 @@ define <16 x i8> @var_shuffle_v16i8_v16i8_xxxxxxxxxxxxxxxx_i8(<16 x i8> %x, i8 %
 ;
 ; SSSE3-LABEL: var_shuffle_v16i8_v16i8_xxxxxxxxxxxxxxxx_i8:
 ; SSSE3:       # BB#0:
+; SSSE3-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; SSSE3-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; SSSE3-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; SSSE3-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; SSSE3-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; SSSE3-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
 ; SSSE3-NEXT:    movaps %xmm0, -{{[0-9]+}}(%rsp)
 ; SSSE3-NEXT:    movsbq {{[0-9]+}}(%rsp), %r10
 ; SSSE3-NEXT:    leaq -{{[0-9]+}}(%rsp), %r11
@@ -487,6 +523,12 @@ define <16 x i8> @var_shuffle_v16i8_v16i8_xxxxxxxxxxxxxxxx_i8(<16 x i8> %x, i8 %
 ; SSE41-NEXT:    pushq %r13
 ; SSE41-NEXT:    pushq %r12
 ; SSE41-NEXT:    pushq %rbx
+; SSE41-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; SSE41-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; SSE41-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; SSE41-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; SSE41-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; SSE41-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
 ; SSE41-NEXT:    movsbq %dil, %r15
 ; SSE41-NEXT:    movsbq %sil, %r14
 ; SSE41-NEXT:    movsbq %dl, %r11
@@ -548,6 +590,12 @@ define <16 x i8> @var_shuffle_v16i8_v16i8_xxxxxxxxxxxxxxxx_i8(<16 x i8> %x, i8 %
 ; AVX-NEXT:    pushq %r13
 ; AVX-NEXT:    pushq %r12
 ; AVX-NEXT:    pushq %rbx
+; AVX-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; AVX-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; AVX-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; AVX-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; AVX-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; AVX-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
 ; AVX-NEXT:    movsbq %dil, %r10
 ; AVX-NEXT:    movsbq %sil, %r11
 ; AVX-NEXT:    movsbq %dl, %r14
@@ -1097,6 +1145,12 @@ define <4 x float> @var_shuffle_v4f32_v4f32_x0yx_i32(<4 x float> %x, <4 x float>
 define <8 x i16> @var_shuffle_v8i16_v8i16_xyxyxy00_i16(<8 x i16> %x, <8 x i16> %y, i16 %i0, i16 %i1, i16 %i2, i16 %i3, i16 %i4, i16 %i5, i16 %i6, i16 %i7) nounwind {
 ; SSE2-LABEL: var_shuffle_v8i16_v8i16_xyxyxy00_i16:
 ; SSE2:       # BB#0:
+; SSE2-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; SSE2-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; SSE2-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; SSE2-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; SSE2-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; SSE2-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
 ; SSE2-NEXT:    movswq %di, %r10
 ; SSE2-NEXT:    movswq %si, %rsi
 ; SSE2-NEXT:    movswq %dx, %r11
@@ -1130,6 +1184,12 @@ define <8 x i16> @var_shuffle_v8i16_v8i16_xyxyxy00_i16(<8 x i16> %x, <8 x i16> %
 ;
 ; SSSE3-LABEL: var_shuffle_v8i16_v8i16_xyxyxy00_i16:
 ; SSSE3:       # BB#0:
+; SSSE3-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; SSSE3-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; SSSE3-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; SSSE3-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; SSSE3-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; SSSE3-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
 ; SSSE3-NEXT:    movswq %di, %r10
 ; SSSE3-NEXT:    movswq %si, %rsi
 ; SSSE3-NEXT:    movswq %dx, %r11
@@ -1163,6 +1223,12 @@ define <8 x i16> @var_shuffle_v8i16_v8i16_xyxyxy00_i16(<8 x i16> %x, <8 x i16> %
 ;
 ; SSE41-LABEL: var_shuffle_v8i16_v8i16_xyxyxy00_i16:
 ; SSE41:       # BB#0:
+; SSE41-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; SSE41-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; SSE41-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; SSE41-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; SSE41-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; SSE41-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
 ; SSE41-NEXT:    movswq %di, %rax
 ; SSE41-NEXT:    movswq %si, %rsi
 ; SSE41-NEXT:    movswq %dx, %rdx
@@ -1182,26 +1248,59 @@ define <8 x i16> @var_shuffle_v8i16_v8i16_xyxyxy00_i16(<8 x i16> %x, <8 x i16> %
 ; SSE41-NEXT:    pblendw {{.*#+}} xmm0 = xmm1[0,1,2,3,4,5],xmm0[6,7]
 ; SSE41-NEXT:    retq
 ;
-; AVX-LABEL: var_shuffle_v8i16_v8i16_xyxyxy00_i16:
-; AVX:       # BB#0:
-; AVX-NEXT:    movswq %di, %r10
-; AVX-NEXT:    movswq %si, %r11
-; AVX-NEXT:    movswq %dx, %rdx
-; AVX-NEXT:    movswq %cx, %rcx
-; AVX-NEXT:    vmovaps %xmm0, -{{[0-9]+}}(%rsp)
-; AVX-NEXT:    movswq %r8w, %rdi
-; AVX-NEXT:    vmovdqa %xmm1, -{{[0-9]+}}(%rsp)
-; AVX-NEXT:    movswq %r9w, %rax
-; AVX-NEXT:    movzwl -40(%rsp,%r10,2), %esi
-; AVX-NEXT:    vmovd %esi, %xmm0
-; AVX-NEXT:    vpinsrw $1, -24(%rsp,%r11,2), %xmm0, %xmm0
-; AVX-NEXT:    vpinsrw $2, -40(%rsp,%rdx,2), %xmm0, %xmm0
-; AVX-NEXT:    vpinsrw $3, -24(%rsp,%rcx,2), %xmm0, %xmm0
-; AVX-NEXT:    vpinsrw $4, -40(%rsp,%rdi,2), %xmm0, %xmm0
-; AVX-NEXT:    vpinsrw $5, -24(%rsp,%rax,2), %xmm0, %xmm0
-; AVX-NEXT:    vpxor %xmm1, %xmm1, %xmm1
-; AVX-NEXT:    vpblendw {{.*#+}} xmm0 = xmm0[0,1,2,3,4,5],xmm1[6,7]
-; AVX-NEXT:    retq
+; AVX1-LABEL: var_shuffle_v8i16_v8i16_xyxyxy00_i16:
+; AVX1:       # BB#0:
+; AVX1-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; AVX1-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; AVX1-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; AVX1-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; AVX1-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; AVX1-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
+; AVX1-NEXT:    movswq %di, %r10
+; AVX1-NEXT:    movswq %si, %r11
+; AVX1-NEXT:    movswq %dx, %rdx
+; AVX1-NEXT:    movswq %cx, %rcx
+; AVX1-NEXT:    vmovaps %xmm0, -{{[0-9]+}}(%rsp)
+; AVX1-NEXT:    movswq %r8w, %rdi
+; AVX1-NEXT:    vmovdqa %xmm1, -{{[0-9]+}}(%rsp)
+; AVX1-NEXT:    movswq %r9w, %rax
+; AVX1-NEXT:    movzwl -40(%rsp,%r10,2), %esi
+; AVX1-NEXT:    vmovd %esi, %xmm0
+; AVX1-NEXT:    vpinsrw $1, -24(%rsp,%r11,2), %xmm0, %xmm0
+; AVX1-NEXT:    vpinsrw $2, -40(%rsp,%rdx,2), %xmm0, %xmm0
+; AVX1-NEXT:    vpinsrw $3, -24(%rsp,%rcx,2), %xmm0, %xmm0
+; AVX1-NEXT:    vpinsrw $4, -40(%rsp,%rdi,2), %xmm0, %xmm0
+; AVX1-NEXT:    vpinsrw $5, -24(%rsp,%rax,2), %xmm0, %xmm0
+; AVX1-NEXT:    vpxor %xmm1, %xmm1, %xmm1
+; AVX1-NEXT:    vpblendw {{.*#+}} xmm0 = xmm0[0,1,2,3,4,5],xmm1[6,7]
+; AVX1-NEXT:    retq
+;
+; AVX2-LABEL: var_shuffle_v8i16_v8i16_xyxyxy00_i16:
+; AVX2:       # BB#0:
+; AVX2-NEXT:    # kill: %R9D<def> %R9D<kill> %R9<def>
+; AVX2-NEXT:    # kill: %R8D<def> %R8D<kill> %R8<def>
+; AVX2-NEXT:    # kill: %ECX<def> %ECX<kill> %RCX<def>
+; AVX2-NEXT:    # kill: %EDX<def> %EDX<kill> %RDX<def>
+; AVX2-NEXT:    # kill: %ESI<def> %ESI<kill> %RSI<def>
+; AVX2-NEXT:    # kill: %EDI<def> %EDI<kill> %RDI<def>
+; AVX2-NEXT:    movswq %di, %r10
+; AVX2-NEXT:    movswq %si, %r11
+; AVX2-NEXT:    movswq %dx, %rdx
+; AVX2-NEXT:    movswq %cx, %rcx
+; AVX2-NEXT:    vmovaps %xmm0, -{{[0-9]+}}(%rsp)
+; AVX2-NEXT:    movswq %r8w, %rdi
+; AVX2-NEXT:    vmovdqa %xmm1, -{{[0-9]+}}(%rsp)
+; AVX2-NEXT:    movswq %r9w, %rax
+; AVX2-NEXT:    movzwl -40(%rsp,%r10,2), %esi
+; AVX2-NEXT:    vmovd %esi, %xmm0
+; AVX2-NEXT:    vpinsrw $1, -24(%rsp,%r11,2), %xmm0, %xmm0
+; AVX2-NEXT:    vpinsrw $2, -40(%rsp,%rdx,2), %xmm0, %xmm0
+; AVX2-NEXT:    vpinsrw $3, -24(%rsp,%rcx,2), %xmm0, %xmm0
+; AVX2-NEXT:    vpinsrw $4, -40(%rsp,%rdi,2), %xmm0, %xmm0
+; AVX2-NEXT:    vpinsrw $5, -24(%rsp,%rax,2), %xmm0, %xmm0
+; AVX2-NEXT:    vpxor %xmm1, %xmm1, %xmm1
+; AVX2-NEXT:    vpblendd {{.*#+}} xmm0 = xmm0[0,1,2],xmm1[3]
+; AVX2-NEXT:    retq
   %x0 = extractelement <8 x i16> %x, i16 %i0
   %y1 = extractelement <8 x i16> %y, i16 %i1
   %x2 = extractelement <8 x i16> %x, i16 %i2

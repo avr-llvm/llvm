@@ -68,6 +68,7 @@ public:
     MD_invariant_group = 16,          // "invariant.group"
     MD_align = 17,                    // "align"
     MD_loop = 18,                     // "llvm.loop"
+    MD_type = 19,                     // "type"
   };
 
   /// Known operand bundle tag IDs, which always have the same value.  All
@@ -172,6 +173,13 @@ public:
   /// getDiagnosticContext - Return the diagnostic context set by
   /// setDiagnosticContext.
   void *getDiagnosticContext() const;
+
+  /// \brief Return if a code hotness metric should be included in optimization
+  /// diagnostics.
+  bool getDiagnosticHotnessRequested() const;
+  /// \brief Set if a code hotness metric should be included in optimization
+  /// diagnostics.
+  void setDiagnosticHotnessRequested(bool Requested);
 
   /// \brief Get the prefix that should be printed in front of a diagnostic of
   ///        the given \p Severity

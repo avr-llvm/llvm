@@ -60,6 +60,11 @@ namespace llvm {
   std::string getBitcodeTargetTriple(MemoryBufferRef Buffer,
                                      LLVMContext &Context);
 
+  /// Return true if \p Buffer contains a bitcode file with ObjC code (category
+  /// or class) in it.
+  bool isBitcodeContainingObjCCategory(MemoryBufferRef Buffer,
+                                       LLVMContext &Context);
+
   /// Read the header of the specified bitcode buffer and extract just the
   /// producer string information. If successful, this returns a string. On
   /// error, this returns "".
@@ -71,13 +76,14 @@ namespace llvm {
                                                     LLVMContext &Context);
 
   /// Check if the given bitcode buffer contains a summary block.
-  bool hasGlobalValueSummary(MemoryBufferRef Buffer,
-                             DiagnosticHandlerFunction DiagnosticHandler);
+  bool
+  hasGlobalValueSummary(MemoryBufferRef Buffer,
+                        const DiagnosticHandlerFunction &DiagnosticHandler);
 
   /// Parse the specified bitcode buffer, returning the module summary index.
   ErrorOr<std::unique_ptr<ModuleSummaryIndex>>
   getModuleSummaryIndex(MemoryBufferRef Buffer,
-                        DiagnosticHandlerFunction DiagnosticHandler);
+                        const DiagnosticHandlerFunction &DiagnosticHandler);
 
   /// \brief Write the specified module to the specified raw output stream.
   ///

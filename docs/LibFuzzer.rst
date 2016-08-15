@@ -23,6 +23,7 @@ corpus of input data in order to maximize the code coverage.  The code coverage
 information for libFuzzer is provided by LLVM's SanitizerCoverage_
 instrumentation.
 
+Contact: libfuzzer(#)googlegroups.com
 
 Versions
 ========
@@ -273,9 +274,8 @@ The most important command line options are:
   If 1 (default) and if LeakSanitizer is enabled
   try to detect memory leaks during fuzzing (i.e. not only at shut down).
 ``-close_fd_mask``
-  Indicate output streams to close at startup. Be careful, this will also
-  remove diagnostic output from the tools in use; for example the messages
-  AddressSanitizer_ sends to ``stderr``/``stdout`` will also be lost.
+  Indicate output streams to close at startup. Be careful, this will
+  remove diagnostic output from target code (e.g. messages on assert failure).
 
    - 0 (default): close neither ``stdout`` nor ``stderr``
    - 1 : close ``stdout``
@@ -600,6 +600,35 @@ It will later use those recorded inputs during mutations.
 
 This mode can be combined with DataFlowSanitizer_ to achieve better sensitivity.
 
+Fuzzer-friendly build mode
+---------------------------
+Sometimes the code under test is not fuzzing-friendly. Examples:
+
+  - The target code uses a PRNG seeded e.g. by system time and
+    thus two consequent invocations may potentially execute different code paths
+    even if the end result will be the same. This will cause a fuzzer to treat
+    two similar inputs as significantly different and it will blow up the test corpus.
+    E.g. libxml uses ``rand()`` inside its hash table.
+  - The target code uses checksums to protect from invalid inputs.
+    E.g. png checks CRC for every chunk.
+
+In many cases it makes sense to build a special fuzzing-friendly build
+with certain fuzzing-unfriendly features disabled. We propose to use a common build macro
+for all such cases for consistency: ``FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION``.
+
+.. code-block:: c++
+
+  void MyInitPRNG() {
+  #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    // In fuzzing mode the behavior of the code should be deterministic.
+    srand(0);
+  #else
+    srand(time(0));
+  #endif
+  }
+
+
+
 AFL compatibility
 -----------------
 LibFuzzer can be used together with AFL_ on the same test corpus.
@@ -634,8 +663,9 @@ At the end of the process it will dump a single html file with coverage informat
 See SanitizerCoverage_ for details.
 
 You may also use other ways to visualize coverage,
-e.g. `llvm-cov <http://llvm.org/docs/CommandGuide/llvm-cov.html>`_, but those will require
-you to rebuild the code with different compiler flags. 
+e.g. using `Clang coverage <http://clang.llvm.org/docs/SourceBasedCodeCoverage.html>`_,
+but those will require
+you to rebuild the code with different compiler flags.
 
 User-supplied mutators
 ----------------------
@@ -689,21 +719,32 @@ If your target has massive leaks and the leak detection is disabled
 you will eventually run out of RAM (see the ``-rss_limit_mb`` flag).
 
 
+Developing libFuzzer
+====================
+
+Building libFuzzer as a part of LLVM project and running its test requires
+fresh clang as the host compiler and special CMake configuration:
+
+.. code-block:: console
+
+    cmake -GNinja  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DLLVM_USE_SANITIZER=Address -DLLVM_USE_SANITIZE_COVERAGE=YES -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON /path/to/llvm
+    ninja check-fuzzer
+
+
 Fuzzing components of LLVM
 ==========================
 .. contents::
    :local:
    :depth: 1
 
+To build any of the LLVM fuzz targets use the build instructions above.
+
 clang-format-fuzzer
 -------------------
 The inputs are random pieces of C++-like text.
 
-Build (make sure to use fresh clang as the host compiler):
-
 .. code-block:: console
 
-    cmake -GNinja  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DLLVM_USE_SANITIZER=Address -DLLVM_USE_SANITIZE_COVERAGE=YES -DCMAKE_BUILD_TYPE=Release /path/to/llvm
     ninja clang-format-fuzzer
     mkdir CORPUS_DIR
     ./bin/clang-format-fuzzer CORPUS_DIR
@@ -809,10 +850,7 @@ Trophies
 ========
 * GLIBC: https://sourceware.org/glibc/wiki/FuzzingLibc
 
-* MUSL LIBC:
-
-  * http://git.musl-libc.org/cgit/musl/commit/?id=39dfd58417ef642307d90306e1c7e50aaec5a35c
-  * http://www.openwall.com/lists/oss-security/2015/03/30/3
+* MUSL LIBC: `[1] <http://git.musl-libc.org/cgit/musl/commit/?id=39dfd58417ef642307d90306e1c7e50aaec5a35c>`__ `[2] <http://www.openwall.com/lists/oss-security/2015/03/30/3>`__
 
 * `pugixml <https://github.com/zeux/pugixml/issues/39>`_
 
@@ -837,6 +875,8 @@ Trophies
 * `Linux Kernel's BPF verifier <https://github.com/iovisor/bpf-fuzzer>`_
 
 * Capstone: `[1] <https://github.com/aquynh/capstone/issues/600>`__ `[2] <https://github.com/aquynh/capstone/commit/6b88d1d51eadf7175a8f8a11b690684443b11359>`__
+
+* file:`[1] <http://bugs.gw.com/view.php?id=550>`__  `[2] <http://bugs.gw.com/view.php?id=551>`__  `[3] <http://bugs.gw.com/view.php?id=553>`__  `[4] <http://bugs.gw.com/view.php?id=554>`__
 
 * Radare2: `[1] <https://github.com/revskills?tab=contributions&from=2016-04-09>`__
 

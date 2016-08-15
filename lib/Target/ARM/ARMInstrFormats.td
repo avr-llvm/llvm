@@ -258,20 +258,21 @@ def const_pool_asm_imm : Operand<i32> {
 //===----------------------------------------------------------------------===//
 // ARM Assembler alias templates.
 //
-class ARMInstAlias<string Asm, dag Result, bit Emit = 0b1>
-      : InstAlias<Asm, Result, Emit>, Requires<[IsARM]>;
-class  tInstAlias<string Asm, dag Result, bit Emit = 0b1>
-      : InstAlias<Asm, Result, Emit>, Requires<[IsThumb]>;
-class t2InstAlias<string Asm, dag Result, bit Emit = 0b1>
-      : InstAlias<Asm, Result, Emit>, Requires<[IsThumb2]>;
-class VFP2InstAlias<string Asm, dag Result, bit Emit = 0b1>
-      : InstAlias<Asm, Result, Emit>, Requires<[HasVFP2]>;
-class VFP2DPInstAlias<string Asm, dag Result, bit Emit = 0b1>
-      : InstAlias<Asm, Result, Emit>, Requires<[HasVFP2,HasDPVFP]>;
-class VFP3InstAlias<string Asm, dag Result, bit Emit = 0b1>
-      : InstAlias<Asm, Result, Emit>, Requires<[HasVFP3]>;
-class NEONInstAlias<string Asm, dag Result, bit Emit = 0b1>
-      : InstAlias<Asm, Result, Emit>, Requires<[HasNEON]>;
+// Note: When EmitPriority == 1, the alias will be used for printing
+class ARMInstAlias<string Asm, dag Result, bit EmitPriority = 0>
+      : InstAlias<Asm, Result, EmitPriority>, Requires<[IsARM]>;
+class  tInstAlias<string Asm, dag Result, bit EmitPriority = 0>
+      : InstAlias<Asm, Result, EmitPriority>, Requires<[IsThumb]>;
+class t2InstAlias<string Asm, dag Result, bit EmitPriority = 0>
+      : InstAlias<Asm, Result, EmitPriority>, Requires<[IsThumb2]>;
+class VFP2InstAlias<string Asm, dag Result, bit EmitPriority = 0>
+      : InstAlias<Asm, Result, EmitPriority>, Requires<[HasVFP2]>;
+class VFP2DPInstAlias<string Asm, dag Result, bit EmitPriority = 0>
+      : InstAlias<Asm, Result, EmitPriority>, Requires<[HasVFP2,HasDPVFP]>;
+class VFP3InstAlias<string Asm, dag Result, bit EmitPriority = 0>
+      : InstAlias<Asm, Result, EmitPriority>, Requires<[HasVFP3]>;
+class NEONInstAlias<string Asm, dag Result, bit EmitPriority = 0>
+      : InstAlias<Asm, Result, EmitPriority>, Requires<[HasNEON]>;
 
 
 class VFP2MnemonicAlias<string src, string dst> : MnemonicAlias<src, dst>,
@@ -1388,11 +1389,6 @@ class T2Ipostldst<bit signed, bits<2> opcod, bit load, bit pre,
   let DecoderMethod = "DecodeT2LdStPre";
 }
 
-// Tv5Pat - Same as Pat<>, but requires V5T Thumb mode.
-class Tv5Pat<dag pattern, dag result> : Pat<pattern, result> {
-  list<Predicate> Predicates = [IsThumb, IsThumb1Only, HasV5T];
-}
-
 // T1Pat - Same as Pat<>, but requires that the compiler be in Thumb1 mode.
 class T1Pat<dag pattern, dag result> : Pat<pattern, result> {
   list<Predicate> Predicates = [IsThumb, IsThumb1Only];
@@ -2464,22 +2460,25 @@ class NEONFPPat<dag pattern, dag result> : Pat<pattern, result> {
 }
 
 // VFP/NEON Instruction aliases for type suffices.
-class VFPDataTypeInstAlias<string opc, string dt, string asm, dag Result> :
-  InstAlias<!strconcat(opc, dt, "\t", asm), Result>, Requires<[HasVFP2]>;
+// Note: When EmitPriority == 1, the alias will be used for printing
+class VFPDataTypeInstAlias<string opc, string dt, string asm, dag Result, bit EmitPriority = 0> :
+  InstAlias<!strconcat(opc, dt, "\t", asm), Result, EmitPriority>, Requires<[HasVFP2]>;
 
-multiclass VFPDTAnyInstAlias<string opc, string asm, dag Result> {
-  def : VFPDataTypeInstAlias<opc, ".8", asm, Result>;
-  def : VFPDataTypeInstAlias<opc, ".16", asm, Result>;
-  def : VFPDataTypeInstAlias<opc, ".32", asm, Result>;
-  def : VFPDataTypeInstAlias<opc, ".64", asm, Result>;
+// Note: When EmitPriority == 1, the alias will be used for printing
+multiclass VFPDTAnyInstAlias<string opc, string asm, dag Result, bit EmitPriority = 0> {
+  def : VFPDataTypeInstAlias<opc, ".8", asm, Result, EmitPriority>;
+  def : VFPDataTypeInstAlias<opc, ".16", asm, Result, EmitPriority>;
+  def : VFPDataTypeInstAlias<opc, ".32", asm, Result, EmitPriority>;
+  def : VFPDataTypeInstAlias<opc, ".64", asm, Result, EmitPriority>;
 }
 
-multiclass NEONDTAnyInstAlias<string opc, string asm, dag Result> {
+// Note: When EmitPriority == 1, the alias will be used for printing
+multiclass NEONDTAnyInstAlias<string opc, string asm, dag Result, bit EmitPriority = 0> {
   let Predicates = [HasNEON] in {
-  def : VFPDataTypeInstAlias<opc, ".8", asm, Result>;
-  def : VFPDataTypeInstAlias<opc, ".16", asm, Result>;
-  def : VFPDataTypeInstAlias<opc, ".32", asm, Result>;
-  def : VFPDataTypeInstAlias<opc, ".64", asm, Result>;
+  def : VFPDataTypeInstAlias<opc, ".8", asm, Result, EmitPriority>;
+  def : VFPDataTypeInstAlias<opc, ".16", asm, Result, EmitPriority>;
+  def : VFPDataTypeInstAlias<opc, ".32", asm, Result, EmitPriority>;
+  def : VFPDataTypeInstAlias<opc, ".64", asm, Result, EmitPriority>;
 }
 }
 

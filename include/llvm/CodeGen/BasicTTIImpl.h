@@ -105,6 +105,11 @@ public:
 
   /// \name Scalar TTI Implementations
   /// @{
+  bool allowsMisalignedMemoryAccesses(unsigned BitWidth, unsigned AddressSpace,
+                                      unsigned Alignment, bool *Fast) const {
+    MVT M = MVT::getIntegerVT(BitWidth);
+    return getTLI()->allowsMisalignedMemoryAccesses(M, AddressSpace, Alignment, Fast);
+  }
 
   bool hasBranchDivergence() { return false; }
 
@@ -150,6 +155,11 @@ public:
   bool isTypeLegal(Type *Ty) {
     EVT VT = getTLI()->getValueType(DL, Ty);
     return getTLI()->isTypeLegal(VT);
+  }
+
+  int getGEPCost(Type *PointeeType, const Value *Ptr,
+                 ArrayRef<const Value *> Operands) {
+    return BaseT::getGEPCost(PointeeType, Ptr, Operands);
   }
 
   unsigned getIntrinsicCost(Intrinsic::ID IID, Type *RetTy,
@@ -315,6 +325,8 @@ public:
     }
 
     // Else, assume that we need to scalarize this op.
+    // TODO: If one of the types get legalized by splitting, handle this
+    // similarly to what getCastInstrCost() does.
     if (Ty->isVectorTy()) {
       unsigned Num = Ty->getVectorNumElements();
       unsigned Cost = static_cast<T *>(this)
@@ -409,9 +421,25 @@ public:
           return SrcLT.first * 1;
       }
 
-      // If we are converting vectors and the operation is illegal, or
-      // if the vectors are legalized to different types, estimate the
-      // scalarization costs.
+      // If we are legalizing by splitting, query the concrete TTI for the cost
+      // of casting the original vector twice. We also need to factor int the
+      // cost of the split itself. Count that as 1, to be consistent with
+      // TLI->getTypeLegalizationCost().
+      if ((TLI->getTypeAction(Src->getContext(), TLI->getValueType(DL, Src)) ==
+           TargetLowering::TypeSplitVector) ||
+          (TLI->getTypeAction(Dst->getContext(), TLI->getValueType(DL, Dst)) ==
+           TargetLowering::TypeSplitVector)) {
+        Type *SplitDst = VectorType::get(Dst->getVectorElementType(),
+                                         Dst->getVectorNumElements() / 2);
+        Type *SplitSrc = VectorType::get(Src->getVectorElementType(),
+                                         Src->getVectorNumElements() / 2);
+        T *TTI = static_cast<T *>(this);
+        return TTI->getVectorSplitCost() +
+               (2 * TTI->getCastInstrCost(Opcode, SplitDst, SplitSrc));
+      }
+
+      // In other cases where the source or destination are illegal, assume
+      // the operation will get scalarized.
       unsigned Num = Dst->getVectorNumElements();
       unsigned Cost = static_cast<T *>(this)->getCastInstrCost(
           Opcode, Dst->getScalarType(), Src->getScalarType());
@@ -469,6 +497,8 @@ public:
     }
 
     // Otherwise, assume that the cast is scalarized.
+    // TODO: If one of the types get legalized by splitting, handle this
+    // similarly to what getCastInstrCost() does.
     if (ValTy->isVectorTy()) {
       unsigned Num = ValTy->getVectorNumElements();
       if (CondTy)
@@ -477,8 +507,7 @@ public:
           Opcode, ValTy->getScalarType(), CondTy);
 
       // Return the cost of multiple scalar invocation plus the cost of
-      // inserting
-      // and extracting the values.
+      // inserting and extracting the values.
       return getScalarizationOverhead(ValTy, true, false) + Num * Cost;
     }
 
@@ -541,6 +570,51 @@ public:
     // Firstly, the cost of load/store operation.
     unsigned Cost = static_cast<T *>(this)->getMemoryOpCost(
         Opcode, VecTy, Alignment, AddressSpace);
+
+    // Legalize the vector type, and get the legalized and unlegalized type
+    // sizes.
+    MVT VecTyLT = getTLI()->getTypeLegalizationCost(DL, VecTy).second;
+    unsigned VecTySize =
+        static_cast<T *>(this)->getDataLayout().getTypeStoreSize(VecTy);
+    unsigned VecTyLTSize = VecTyLT.getStoreSize();
+
+    // Return the ceiling of dividing A by B.
+    auto ceil = [](unsigned A, unsigned B) { return (A + B - 1) / B; };
+
+    // Scale the cost of the memory operation by the fraction of legalized
+    // instructions that will actually be used. We shouldn't account for the
+    // cost of dead instructions since they will be removed.
+    //
+    // E.g., An interleaved load of factor 8:
+    //       %vec = load <16 x i64>, <16 x i64>* %ptr
+    //       %v0 = shufflevector %vec, undef, <0, 8>
+    //
+    // If <16 x i64> is legalized to 8 v2i64 loads, only 2 of the loads will be
+    // used (those corresponding to elements [0:1] and [8:9] of the unlegalized
+    // type). The other loads are unused.
+    //
+    // We only scale the cost of loads since interleaved store groups aren't
+    // allowed to have gaps.
+    if (Opcode == Instruction::Load && VecTySize > VecTyLTSize) {
+
+      // The number of loads of a legal type it will take to represent a load
+      // of the unlegalized vector type.
+      unsigned NumLegalInsts = ceil(VecTySize, VecTyLTSize);
+
+      // The number of elements of the unlegalized type that correspond to a
+      // single legal instruction.
+      unsigned NumEltsPerLegalInst = ceil(NumElts, NumLegalInsts);
+
+      // Determine which legal instructions will be used.
+      BitVector UsedInsts(NumLegalInsts, false);
+      for (unsigned Index : Indices)
+        for (unsigned Elt = 0; Elt < NumSubElts; ++Elt)
+          UsedInsts.set((Index + Elt * Factor) / NumEltsPerLegalInst);
+
+      // Scale the cost of the load by the fraction of legal instructions that
+      // will be used.
+      Cost *= UsedInsts.count() / NumLegalInsts;
+    }
 
     // Then plus the cost of interleave operation.
     if (Opcode == Instruction::Load) {
@@ -857,6 +931,8 @@ public:
             ->getShuffleCost(TTI::SK_ExtractSubvector, Ty, NumVecElts / 2, Ty);
     return ShuffleCost + ArithCost + getScalarizationOverhead(Ty, false, true);
   }
+
+  unsigned getVectorSplitCost() { return 1; }
 
   /// @}
 };

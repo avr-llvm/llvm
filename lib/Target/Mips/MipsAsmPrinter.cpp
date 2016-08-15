@@ -313,7 +313,6 @@ const char *MipsAsmPrinter::getCurrentABIString() const {
   case MipsABIInfo::ABI::O32:  return "abi32";
   case MipsABIInfo::ABI::N32:  return "abiN32";
   case MipsABIInfo::ABI::N64:  return "abi64";
-  case MipsABIInfo::ABI::EABI: return "eabi32"; // TODO: handle eabi64
   default: llvm_unreachable("Unknown Mips ABI");
   }
 }
@@ -326,9 +325,10 @@ void MipsAsmPrinter::EmitFunctionEntryLabel() {
   if (Subtarget->isTargetNaCl())
     EmitAlignment(std::max(MF->getAlignment(), MIPS_NACL_BUNDLE_ALIGN));
 
-  if (Subtarget->inMicroMipsMode())
+  if (Subtarget->inMicroMipsMode()) {
     TS.emitDirectiveSetMicroMips();
-  else
+    TS.setUsesMicroMips();
+  } else
     TS.emitDirectiveSetNoMicroMips();
 
   if (Subtarget->inMips16Mode())
@@ -691,12 +691,11 @@ void MipsAsmPrinter::EmitStartOfAsmFile(Module &M) {
   const MipsABIInfo &ABI = MTM.getABI();
   if (IsABICalls) {
     TS.emitDirectiveAbiCalls();
-    Reloc::Model RM = TM.getRelocationModel();
     // FIXME: This condition should be a lot more complicated that it is here.
     //        Ideally it should test for properties of the ABI and not the ABI
     //        itself.
     //        For the moment, I'm only correcting enough to make MIPS-IV work.
-    if (RM == Reloc::Static && !ABI.IsN64())
+    if (!isPositionIndependent() && !ABI.IsN64())
       TS.emitDirectiveOptionPic0();
   }
 
@@ -712,15 +711,6 @@ void MipsAsmPrinter::EmitStartOfAsmFile(Module &M) {
                   : TS.emitDirectiveNaNLegacy();
 
   // TODO: handle O64 ABI
-
-  if (ABI.IsEABI()) {
-    if (STI.isGP32bit())
-      OutStreamer->SwitchSection(OutContext.getELFSection(".gcc_compiled_long32",
-                                                          ELF::SHT_PROGBITS, 0));
-    else
-      OutStreamer->SwitchSection(OutContext.getELFSection(".gcc_compiled_long64",
-                                                          ELF::SHT_PROGBITS, 0));
-  }
 
   TS.updateABIInfo(STI);
 
@@ -978,7 +968,7 @@ void MipsAsmPrinter::EmitFPCallStub(
   OutStreamer->EmitLabel(Stub);
 
   // Only handle non-pic for now.
-  assert(TM.getRelocationModel() != Reloc::PIC_ &&
+  assert(!isPositionIndependent() &&
          "should not be here if we are compiling pic");
   TS.emitDirectiveSetReorder();
   //

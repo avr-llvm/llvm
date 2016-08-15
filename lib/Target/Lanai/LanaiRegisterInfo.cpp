@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Lanai.h"
 #include "LanaiRegisterInfo.h"
+#include "Lanai.h"
 #include "LanaiSubtarget.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
@@ -31,11 +31,10 @@
 
 using namespace llvm;
 
-LanaiRegisterInfo::LanaiRegisterInfo()
-    : LanaiGenRegisterInfo(Lanai::RCA) {}
+LanaiRegisterInfo::LanaiRegisterInfo() : LanaiGenRegisterInfo(Lanai::RCA) {}
 
 const uint16_t *
-LanaiRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
+LanaiRegisterInfo::getCalleeSavedRegs(const MachineFunction * /*MF*/) const {
   return CSR_SaveList;
 }
 
@@ -62,12 +61,12 @@ BitVector LanaiRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 }
 
 bool LanaiRegisterInfo::requiresRegisterScavenging(
-    const MachineFunction &MF) const {
+    const MachineFunction & /*MF*/) const {
   return true;
 }
 
 bool LanaiRegisterInfo::trackLivenessAfterRegAlloc(
-    const MachineFunction &MF) const {
+    const MachineFunction & /*MF*/) const {
   return true;
 }
 
@@ -198,11 +197,16 @@ void LanaiRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     }
     // Reg = FrameReg OP Reg
     if (MI.getOpcode() == Lanai::ADD_I_LO) {
-      if (HasNegOffset)
-        MI.setDesc(TII->get(Lanai::SUB_R));
-      else
-        MI.setDesc(TII->get(Lanai::ADD_R));
-    } else if (isSPLSOpcode(MI.getOpcode()) || isRMOpcode(MI.getOpcode())) {
+      BuildMI(*MI.getParent(), II, DL,
+              HasNegOffset ? TII->get(Lanai::SUB_R) : TII->get(Lanai::ADD_R),
+              MI.getOperand(0).getReg())
+          .addReg(FrameReg)
+          .addReg(Reg)
+          .addImm(LPCC::ICC_T);
+      MI.eraseFromParent();
+      return;
+    }
+    if (isSPLSOpcode(MI.getOpcode()) || isRMOpcode(MI.getOpcode())) {
       MI.setDesc(TII->get(getRRMOpcodeVariant(MI.getOpcode())));
       if (HasNegOffset) {
         // Change the ALU op (operand 3) from LPAC::ADD (the default) to
@@ -253,7 +257,8 @@ bool LanaiRegisterInfo::hasBasePointer(const MachineFunction &MF) const {
 
 unsigned LanaiRegisterInfo::getRARegister() const { return Lanai::RCA; }
 
-unsigned LanaiRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
+unsigned
+LanaiRegisterInfo::getFrameRegister(const MachineFunction & /*MF*/) const {
   return Lanai::FP;
 }
 
@@ -276,7 +281,7 @@ unsigned LanaiRegisterInfo::getEHHandlerRegister() const {
 }
 
 const uint32_t *
-LanaiRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
-                                        CallingConv::ID CC) const {
+LanaiRegisterInfo::getCallPreservedMask(const MachineFunction & /*MF*/,
+                                        CallingConv::ID /*CC*/) const {
   return CSR_RegMask;
 }

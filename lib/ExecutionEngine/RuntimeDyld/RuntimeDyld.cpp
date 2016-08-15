@@ -34,6 +34,9 @@ enum RuntimeDyldErrorCode {
   GenericRTDyldError = 1
 };
 
+// FIXME: This class is only here to support the transition to llvm::Error. It
+// will be removed once this transition is complete. Clients should prefer to
+// deal with the Error value directly, rather than converting to error_code.
 class RuntimeDyldErrorCategory : public std::error_category {
 public:
   const char *name() const LLVM_NOEXCEPT override { return "runtimedyld"; }
@@ -160,9 +163,9 @@ void RuntimeDyldImpl::mapSectionAddress(const void *LocalAddress,
 
 static Error getOffset(const SymbolRef &Sym, SectionRef Sec,
                        uint64_t &Result) {
-  ErrorOr<uint64_t> AddressOrErr = Sym.getAddress();
-  if (std::error_code EC = AddressOrErr.getError())
-    return errorCodeToError(EC);
+  Expected<uint64_t> AddressOrErr = Sym.getAddress();
+  if (!AddressOrErr)
+    return AddressOrErr.takeError();
   Result = *AddressOrErr - Sec.getAddress();
   return Error::success();
 }
@@ -233,7 +236,7 @@ RuntimeDyldImpl::loadObjectImpl(const object::ObjectFile &Obj) {
         if (auto AddrOrErr = I->getAddress())
           Addr = *AddrOrErr;
         else
-          return errorCodeToError(AddrOrErr.getError());
+          return AddrOrErr.takeError();
 
         unsigned SectionID = AbsoluteSymbolSection;
 
@@ -355,16 +358,17 @@ static bool isRequiredForExecution(const SectionRef Section) {
     const coff_section *CoffSection = COFFObj->getCOFFSection(Section);
     // Avoid loading zero-sized COFF sections.
     // In PE files, VirtualSize gives the section size, and SizeOfRawData
-    // may be zero for sections with content. In Obj files, SizeOfRawData 
+    // may be zero for sections with content. In Obj files, SizeOfRawData
     // gives the section size, and VirtualSize is always zero. Hence
     // the need to check for both cases below.
-    bool HasContent = (CoffSection->VirtualSize > 0) 
-      || (CoffSection->SizeOfRawData > 0);
-    bool IsDiscardable = CoffSection->Characteristics &
-      (COFF::IMAGE_SCN_MEM_DISCARDABLE | COFF::IMAGE_SCN_LNK_INFO);
+    bool HasContent =
+        (CoffSection->VirtualSize > 0) || (CoffSection->SizeOfRawData > 0);
+    bool IsDiscardable =
+        CoffSection->Characteristics &
+        (COFF::IMAGE_SCN_MEM_DISCARDABLE | COFF::IMAGE_SCN_LNK_INFO);
     return HasContent && !IsDiscardable;
   }
-  
+
   assert(isa<MachOObjectFile>(Obj));
   return true;
 }
@@ -475,7 +479,7 @@ Error RuntimeDyldImpl::computeTotalAllocSize(const ObjectFile &Obj,
       // If this is the first common symbol, use its alignment as the alignment
       // for the common symbols section.
       if (CommonSize == 0)
-	CommonAlign = Align;
+        CommonAlign = Align;
       CommonSize = alignTo(CommonSize, Align) + Size;
     }
   }
@@ -591,15 +595,14 @@ Error RuntimeDyldImpl::emitCommonSymbols(const ObjectFile &Obj,
     uint64_t Size = Sym.getCommonSize();
 
     CommonSize = alignTo(CommonSize, Align) + Size;
-    
+
     SymbolsToAllocate.push_back(Sym);
   }
 
   // Allocate memory for the section
   unsigned SectionID = Sections.size();
-  uint8_t *Addr = MemMgr.allocateDataSection(CommonSize, CommonAlign,
-                                             SectionID, "<common symbols>",
-					     false);
+  uint8_t *Addr = MemMgr.allocateDataSection(CommonSize, CommonAlign, SectionID,
+                                             "<common symbols>", false);
   if (!Addr)
     report_fatal_error("Unable to allocate memory for common symbols!");
   uint64_t Offset = 0;
@@ -813,7 +816,10 @@ uint8_t *RuntimeDyldImpl::createStubFunction(uint8_t *Addr,
     // 8:   03200008        jr      t9.
     // c:   00000000        nop.
     const unsigned LuiT9Instr = 0x3c190000, AdduiT9Instr = 0x27390000;
-    const unsigned JrT9Instr = 0x03200008, NopInstr = 0x0;
+    const unsigned NopInstr = 0x0;
+    unsigned JrT9Instr = 0x03200008;
+    if ((AbiVariant & ELF::EF_MIPS_ARCH) == ELF::EF_MIPS_ARCH_32R6)
+        JrT9Instr = 0x03200009;
 
     writeBytesUnaligned(LuiT9Instr, Addr, 4);
     writeBytesUnaligned(AdduiT9Instr, Addr+4, 4);
@@ -913,7 +919,11 @@ void RuntimeDyldImpl::resolveExternalSymbols() {
       if (Loc == GlobalSymbolTable.end()) {
         // This is an external symbol, try to get its address from the symbol
         // resolver.
-        Addr = Resolver.findSymbol(Name.data()).getAddress();
+        // First search for the symbol in this logical dylib.
+        Addr = Resolver.findSymbolInLogicalDylib(Name.data()).getAddress();
+        // If that fails, try searching for an external symbol.
+        if (!Addr)
+          Addr = Resolver.findSymbol(Name.data()).getAddress();
         // The call to getSymbolAddress may have caused additional modules to
         // be loaded, which may have added new entries to the
         // ExternalSymbolRelocations map.  Consquently, we need to update our

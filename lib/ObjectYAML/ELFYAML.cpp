@@ -195,6 +195,7 @@ ScalarEnumerationTraits<ELFYAML::ELF_EM>::enumeration(IO &IO,
   ECase(EM_56800EX)
   ECase(EM_AMDGPU)
   ECase(EM_LANAI)
+  ECase(EM_BPF)
 #undef ECase
 }
 
@@ -531,6 +532,12 @@ void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
   case ELF::EM_LANAI:
 #include "llvm/Support/ELFRelocs/Lanai.def"
     break;
+  case ELF::EM_AMDGPU:
+#include "llvm/Support/ELFRelocs/AMDGPU.def"
+    break;
+  case ELF::EM_BPF:
+#include "llvm/Support/ELFRelocs/BPF.def"
+    break;
   default:
     llvm_unreachable("Unsupported architecture");
   }
@@ -817,6 +824,7 @@ void MappingTraits<ELFYAML::Relocation>::mapping(IO &IO,
 void MappingTraits<ELFYAML::Object>::mapping(IO &IO, ELFYAML::Object &Object) {
   assert(!IO.getContext() && "The IO context is initialized already");
   IO.setContext(&Object);
+  IO.mapTag("!ELF", true);
   IO.mapRequired("FileHeader", Object.Header);
   IO.mapOptional("Sections", Object.Sections);
   IO.mapOptional("Symbols", Object.Symbols);

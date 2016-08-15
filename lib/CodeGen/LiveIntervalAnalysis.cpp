@@ -564,9 +564,9 @@ void LiveIntervals::shrinkToUses(LiveInterval::SubRange &SR, unsigned Reg)
       continue;
     if (VNI->isPHIDef()) {
       // This is a dead PHI. Remove it.
+      DEBUG(dbgs() << "Dead PHI at " << VNI->def << " may separate interval\n");
       VNI->markUnused();
       SR.removeSegment(*Segment);
-      DEBUG(dbgs() << "Dead PHI at " << VNI->def << " may separate interval\n");
     }
   }
 
@@ -1257,20 +1257,16 @@ private:
           // value.
           LiveRange::iterator NewSegment = NewIdxIn;
           LiveRange::iterator Next = std::next(NewSegment);
-          NewSegment->valno = OldIdxVNI;
           if (SlotIndex::isEarlierInstr(Next->start, NewIdx)) {
             // There is no gap between NewSegment and its predecessor.
             *NewSegment = LiveRange::Segment(Next->start, SplitPos,
-                                             NewSegment->valno);
-            NewSegment->valno->def = Next->start;
-
-            *Next = LiveRange::Segment(SplitPos, Next->end, Next->valno);
+                                             Next->valno);
+            *Next = LiveRange::Segment(SplitPos, Next->end, OldIdxVNI);
             Next->valno->def = SplitPos;
           } else {
             // There is a gap between NewSegment and its predecessor
             // Value becomes live in.
-            *NewSegment = LiveRange::Segment(SplitPos, Next->start,
-                                             NewSegment->valno);
+            *NewSegment = LiveRange::Segment(SplitPos, Next->start, OldIdxVNI);
             NewSegment->valno->def = SplitPos;
           }
         } else {
@@ -1318,6 +1314,8 @@ private:
     if (TargetRegisterInfo::isVirtualRegister(Reg)) {
       SlotIndex LastUse = Before;
       for (MachineOperand &MO : MRI.use_nodbg_operands(Reg)) {
+        if (MO.isUndef())
+          continue;
         unsigned SubReg = MO.getSubReg();
         if (SubReg != 0 && LaneMask != 0
             && (TRI.getSubRegIndexLaneMask(SubReg) & LaneMask) == 0)
@@ -1357,7 +1355,7 @@ private:
 
       // Check if MII uses Reg.
       for (MIBundleOperands MO(*MII); MO.isValid(); ++MO)
-        if (MO->isReg() &&
+        if (MO->isReg() && !MO->isUndef() &&
             TargetRegisterInfo::isPhysicalRegister(MO->getReg()) &&
             TRI.hasRegUnit(MO->getReg(), Reg))
           return Idx.getRegSlot();
@@ -1496,7 +1494,7 @@ LiveIntervals::repairIntervalsInRange(MachineBasicBlock *MBB,
   else
     endIdx = getInstructionIndex(*End);
 
-  Indexes->repairIndexesInRange(MBB, *Begin, *End);
+  Indexes->repairIndexesInRange(MBB, Begin, End);
 
   for (MachineBasicBlock::iterator I = End; I != Begin;) {
     --I;
@@ -1570,18 +1568,8 @@ void LiveIntervals::splitSeparateComponents(LiveInterval &LI,
   ConEQ.Distribute(LI, SplitLIs.data(), *MRI);
 }
 
-void LiveIntervals::renameDisconnectedComponents() {
-  ConnectedSubRegClasses SubRegClasses(*this, *MRI);
-
-  // Iterate over all vregs. Note that we query getNumVirtRegs() the newly
-  // created vregs end up with higher numbers but do not need to be visited as
-  // there can't be any further splitting.
-  for (size_t I = 0, E = MRI->getNumVirtRegs(); I < E; ++I) {
-    unsigned Reg = TargetRegisterInfo::index2VirtReg(I);
-    LiveInterval *LI = VirtRegIntervals[Reg];
-    if (LI == nullptr || !LI->hasSubRanges())
-      continue;
-
-    SubRegClasses.renameComponents(*LI);
-  }
+void LiveIntervals::constructMainRangeFromSubranges(LiveInterval &LI) {
+  assert(LRCalc && "LRCalc not initialized.");
+  LRCalc->reset(MF, getSlotIndexes(), DomTree, &getVNInfoAllocator());
+  LRCalc->constructMainRangeFromSubranges(LI);
 }

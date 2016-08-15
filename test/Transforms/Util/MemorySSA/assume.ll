@@ -1,4 +1,5 @@
-; RUN: opt -basicaa -print-memoryssa -verify-memoryssa -analyze < %s 2>&1 | FileCheck %s
+; RUN: opt -basicaa -memoryssa -analyze < %s 2>&1 | FileCheck %s
+; RUN: opt -aa-pipeline=basic-aa -passes='print<memoryssa>,verify<memoryssa>' -disable-output < %s 2>&1 | FileCheck %s
 ;
 ; Ensures that assumes are treated as not reading or writing memory.
 
@@ -8,6 +9,7 @@ define i32 @foo(i32* %a, i32* %b, i1 %c) {
 ; CHECK: 1 = MemoryDef(liveOnEntry)
 ; CHECK-NEXT: store i32 4
   store i32 4, i32* %a, align 4
+; CHECK-NOT: MemoryDef
 ; CHECK: call void @llvm.assume
   call void @llvm.assume(i1 %c)
 ; CHECK: MemoryUse(1)

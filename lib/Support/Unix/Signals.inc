@@ -46,7 +46,15 @@
 #include <link.h>
 #endif
 #if HAVE_UNWIND_BACKTRACE
+// FIXME: We should be able to use <unwind.h> for any target that has an
+// _Unwind_Backtrace function, but on FreeBSD the configure test passes
+// despite the function not existing, and on Android, <unwind.h> conflicts
+// with <link.h>.
+#ifdef __GLIBC__
 #include <unwind.h>
+#else
+#undef HAVE_UNWIND_BACKTRACE
+#endif
 #endif
 
 using namespace llvm;
@@ -59,6 +67,8 @@ static ManagedStatic<SmartMutex<true> > SignalsMutex;
 static void (*InterruptFunction)() = nullptr;
 
 static ManagedStatic<std::vector<std::string>> FilesToRemove;
+
+static StringRef Argv0;
 
 // IntSigs - Signals that represent requested termination. There's no bug
 // or failure, or if there is, it's not our direct responsibility. For whatever
@@ -99,7 +109,7 @@ static void RegisterHandler(int Signal) {
   struct sigaction NewHandler;
 
   NewHandler.sa_handler = SignalHandler;
-  NewHandler.sa_flags = SA_NODEFER|SA_RESETHAND;
+  NewHandler.sa_flags = SA_NODEFER | SA_RESETHAND | SA_ONSTACK;
   sigemptyset(&NewHandler.sa_mask);
 
   // Install the new handler, save the old one in RegisteredSignalInfo.
@@ -108,6 +118,35 @@ static void RegisterHandler(int Signal) {
   RegisteredSignalInfo[NumRegisteredSignals].SigNo = Signal;
   ++NumRegisteredSignals;
 }
+
+#if defined(HAVE_SIGALTSTACK)
+// Hold onto the old alternate signal stack so that it's not reported as a leak.
+// We don't make any attempt to remove our alt signal stack if we remove our
+// signal handlers; that can't be done reliably if someone else is also trying
+// to do the same thing.
+static stack_t OldAltStack;
+
+static void CreateSigAltStack() {
+  const size_t AltStackSize = MINSIGSTKSZ + 8192;
+
+  // If we're executing on the alternate stack, or we already have an alternate
+  // signal stack that we're happy with, there's nothing for us to do. Don't
+  // reduce the size, some other part of the process might need a larger stack
+  // than we do.
+  if (sigaltstack(nullptr, &OldAltStack) != 0 ||
+      OldAltStack.ss_flags & SS_ONSTACK ||
+      (OldAltStack.ss_sp && OldAltStack.ss_size >= AltStackSize))
+    return;
+
+  stack_t AltStack = {};
+  AltStack.ss_sp = reinterpret_cast<char *>(malloc(AltStackSize));
+  AltStack.ss_size = AltStackSize;
+  if (sigaltstack(&AltStack, &OldAltStack) != 0)
+    free(AltStack.ss_sp);
+}
+#else
+static void CreateSigAltStack() {}
+#endif
 
 static void RegisterHandlers() {
   // We need to dereference the signals mutex during handler registration so
@@ -118,6 +157,10 @@ static void RegisterHandlers() {
 
   // If the handlers are already registered, we're done.
   if (NumRegisteredSignals != 0) return;
+
+  // Create an alternate stack for signal handling. This is necessary for us to
+  // be able to reliably handle signals due to stack overflow.
+  CreateSigAltStack();
 
   for (auto S : IntSigs) RegisterHandler(S);
   for (auto S : KillSigs) RegisterHandler(S);
@@ -367,7 +410,7 @@ void llvm::sys::PrintStackTrace(raw_ostream &OS) {
   if (!depth)
     return;
 
-  if (printSymbolizedStackTrace(StackTrace, depth, OS))
+  if (printSymbolizedStackTrace(Argv0, StackTrace, depth, OS))
     return;
 #if HAVE_DLFCN_H && __GNUG__
   int width = 0;
@@ -430,7 +473,10 @@ void llvm::sys::DisableSystemDialogsOnCrash() {}
 
 /// PrintStackTraceOnErrorSignal - When an error signal (such as SIGABRT or
 /// SIGSEGV) is delivered to the process, print a stack trace and then exit.
-void llvm::sys::PrintStackTraceOnErrorSignal(bool DisableCrashReporting) {
+void llvm::sys::PrintStackTraceOnErrorSignal(StringRef Argv0,
+                                             bool DisableCrashReporting) {
+  ::Argv0 = Argv0;
+
   AddSignalHandler(PrintStackTraceSignalHandler, nullptr);
 
 #if defined(__APPLE__) && defined(ENABLE_CRASH_OVERRIDES)
@@ -449,42 +495,3 @@ void llvm::sys::PrintStackTraceOnErrorSignal(bool DisableCrashReporting) {
   }
 #endif
 }
-
-
-/***/
-
-// On Darwin, raise sends a signal to the main thread instead of the current
-// thread. This has the unfortunate effect that assert() and abort() will end up
-// bypassing our crash recovery attempts. We work around this for anything in
-// the same linkage unit by just defining our own versions of the assert handler
-// and abort.
-
-#if defined(__APPLE__) && defined(ENABLE_CRASH_OVERRIDES)
-
-#include <signal.h>
-#include <pthread.h>
-
-int raise(int sig) {
-  return pthread_kill(pthread_self(), sig);
-}
-
-void __assert_rtn(const char *func,
-                  const char *file,
-                  int line,
-                  const char *expr) {
-  if (func)
-    fprintf(stderr, "Assertion failed: (%s), function %s, file %s, line %d.\n",
-            expr, func, file, line);
-  else
-    fprintf(stderr, "Assertion failed: (%s), file %s, line %d.\n",
-            expr, file, line);
-  abort();
-}
-
-void abort() {
-  raise(SIGABRT);
-  usleep(1000);
-  __builtin_trap();
-}
-
-#endif

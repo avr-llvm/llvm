@@ -8,6 +8,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/Error.h"
+
+#include "llvm/ADT/Twine.h"
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "gtest/gtest.h"
@@ -312,6 +314,51 @@ TEST(Error, CheckJoinErrors) {
   EXPECT_TRUE(CustomErrorInfo1 == 7 && CustomErrorInfo2 == 42 &&
               CustomErrorExtraInfo == 7)
       << "Failed handling compound Error.";
+
+  // Test appending a single item to a list.
+  {
+    int Sum = 0;
+    handleAllErrors(
+        joinErrors(
+            joinErrors(make_error<CustomError>(7),
+                       make_error<CustomError>(7)),
+            make_error<CustomError>(7)),
+        [&](const CustomError &CE) {
+          Sum += CE.getInfo();
+        });
+    EXPECT_EQ(Sum, 21) << "Failed to correctly append error to error list.";
+  }
+
+  // Test prepending a single item to a list.
+  {
+    int Sum = 0;
+    handleAllErrors(
+        joinErrors(
+            make_error<CustomError>(7),
+            joinErrors(make_error<CustomError>(7),
+                       make_error<CustomError>(7))),
+        [&](const CustomError &CE) {
+          Sum += CE.getInfo();
+        });
+    EXPECT_EQ(Sum, 21) << "Failed to correctly prepend error to error list.";
+  }
+
+  // Test concatenating two error lists.
+  {
+    int Sum = 0;
+    handleAllErrors(
+        joinErrors(
+            joinErrors(
+                make_error<CustomError>(7),
+                make_error<CustomError>(7)),
+            joinErrors(
+                make_error<CustomError>(7),
+                make_error<CustomError>(7))),
+        [&](const CustomError &CE) {
+          Sum += CE.getInfo();
+        });
+    EXPECT_EQ(Sum, 28) << "Failed to correctly concatenate erorr lists.";
+  }
 }
 
 // Test that we can consume success values.
@@ -374,6 +421,20 @@ TEST(Error, CatchErrorFromHandler) {
 
   EXPECT_EQ(ErrorInfo, 7)
       << "Failed to handle Error returned from handleErrors.";
+}
+
+TEST(Error, StringError) {
+  std::string Msg;
+  raw_string_ostream S(Msg);
+  logAllUnhandledErrors(make_error<StringError>("foo" + Twine(42),
+                                                inconvertibleErrorCode()),
+                        S, "");
+  EXPECT_EQ(S.str(), "foo42\n") << "Unexpected StringError log result";
+
+  auto EC =
+    errorToErrorCode(make_error<StringError>("", errc::invalid_argument));
+  EXPECT_EQ(EC, errc::invalid_argument)
+    << "Failed to convert StringError to error_code.";
 }
 
 // Test that the ExitOnError utility works as expected.

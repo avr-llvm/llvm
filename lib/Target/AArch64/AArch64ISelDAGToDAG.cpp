@@ -164,6 +164,7 @@ public:
   void SelectPostStoreLane(SDNode *N, unsigned NumVecs, unsigned Opc);
 
   bool tryBitfieldExtractOp(SDNode *N);
+  bool tryBitfieldExtractOpFromSExt(SDNode *N);
   bool tryBitfieldInsertOp(SDNode *N);
   bool tryBitfieldInsertInZeroOp(SDNode *N);
 
@@ -1505,6 +1506,39 @@ static bool isBitfieldExtractOpFromAnd(SelectionDAG *CurDAG, SDNode *N,
   return true;
 }
 
+static bool isBitfieldExtractOpFromSExtInReg(SDNode *N, unsigned &Opc,
+                                             SDValue &Opd0, unsigned &Immr,
+                                             unsigned &Imms) {
+  assert(N->getOpcode() == ISD::SIGN_EXTEND_INREG);
+
+  EVT VT = N->getValueType(0);
+  unsigned BitWidth = VT.getSizeInBits();
+  assert((VT == MVT::i32 || VT == MVT::i64) &&
+         "Type checking must have been done before calling this function");
+
+  SDValue Op = N->getOperand(0);
+  if (Op->getOpcode() == ISD::TRUNCATE) {
+    Op = Op->getOperand(0);
+    VT = Op->getValueType(0);
+    BitWidth = VT.getSizeInBits();
+  }
+
+  uint64_t ShiftImm;
+  if (!isOpcWithIntImmediate(Op.getNode(), ISD::SRL, ShiftImm) &&
+      !isOpcWithIntImmediate(Op.getNode(), ISD::SRA, ShiftImm))
+    return false;
+
+  unsigned Width = cast<VTSDNode>(N->getOperand(1))->getVT().getSizeInBits();
+  if (ShiftImm + Width > BitWidth)
+    return false;
+
+  Opc = (VT == MVT::i32) ? AArch64::SBFMWri : AArch64::SBFMXri;
+  Opd0 = Op.getOperand(0);
+  Immr = ShiftImm;
+  Imms = ShiftImm + Width - 1;
+  return true;
+}
+
 static bool isSeveralBitsExtractOpFromShr(SDNode *N, unsigned &Opc,
                                           SDValue &Opd0, unsigned &LSB,
                                           unsigned &MSB) {
@@ -1617,6 +1651,30 @@ static bool isBitfieldExtractOpFromShr(SDNode *N, unsigned &Opc, SDValue &Opd0,
   return true;
 }
 
+bool AArch64DAGToDAGISel::tryBitfieldExtractOpFromSExt(SDNode *N) {
+  assert(N->getOpcode() == ISD::SIGN_EXTEND);
+
+  EVT VT = N->getValueType(0);
+  EVT NarrowVT = N->getOperand(0)->getValueType(0);
+  if (VT != MVT::i64 || NarrowVT != MVT::i32)
+    return false;
+
+  uint64_t ShiftImm;
+  SDValue Op = N->getOperand(0);
+  if (!isOpcWithIntImmediate(Op.getNode(), ISD::SRA, ShiftImm))
+    return false;
+
+  SDLoc dl(N);
+  // Extend the incoming operand of the shift to 64-bits.
+  SDValue Opd0 = Widen(CurDAG, Op.getOperand(0));
+  unsigned Immr = ShiftImm;
+  unsigned Imms = NarrowVT.getSizeInBits() - 1;
+  SDValue Ops[] = {Opd0, CurDAG->getTargetConstant(Immr, dl, VT),
+                   CurDAG->getTargetConstant(Imms, dl, VT)};
+  CurDAG->SelectNodeTo(N, AArch64::SBFMXri, VT, Ops);
+  return true;
+}
+
 static bool isBitfieldExtractOp(SelectionDAG *CurDAG, SDNode *N, unsigned &Opc,
                                 SDValue &Opd0, unsigned &Immr, unsigned &Imms,
                                 unsigned NumberOfIgnoredLowBits = 0,
@@ -1635,6 +1693,9 @@ static bool isBitfieldExtractOp(SelectionDAG *CurDAG, SDNode *N, unsigned &Opc,
   case ISD::SRL:
   case ISD::SRA:
     return isBitfieldExtractOpFromShr(N, Opc, Opd0, Immr, Imms, BiggerPattern);
+
+  case ISD::SIGN_EXTEND_INREG:
+    return isBitfieldExtractOpFromSExtInReg(N, Opc, Opd0, Immr, Imms);
   }
 
   unsigned NOpc = N->getMachineOpcode();
@@ -1687,7 +1748,7 @@ bool AArch64DAGToDAGISel::tryBitfieldExtractOp(SDNode *N) {
 /// BitsToBeInserted, suitable for use in a BFI instruction. Roughly speaking,
 /// this asks whether DstMask zeroes precisely those bits that will be set by
 /// the other half.
-static bool isBitfieldDstMask(uint64_t DstMask, APInt BitsToBeInserted,
+static bool isBitfieldDstMask(uint64_t DstMask, const APInt &BitsToBeInserted,
                               unsigned NumberOfIgnoredHighBits, EVT VT) {
   assert((VT == MVT::i32 || VT == MVT::i64) &&
          "i32 or i64 mask type expected!");
@@ -1981,6 +2042,97 @@ static bool isShiftedMask(uint64_t Mask, EVT VT) {
   return isShiftedMask_64(Mask);
 }
 
+// Generate a BFI/BFXIL from 'or (and X, MaskImm), OrImm' iff the value being
+// inserted only sets known zero bits.
+static bool tryBitfieldInsertOpFromOrAndImm(SDNode *N, SelectionDAG *CurDAG) {
+  assert(N->getOpcode() == ISD::OR && "Expect a OR operation");
+
+  EVT VT = N->getValueType(0);
+  if (VT != MVT::i32 && VT != MVT::i64)
+    return false;
+
+  unsigned BitWidth = VT.getSizeInBits();
+
+  uint64_t OrImm;
+  if (!isOpcWithIntImmediate(N, ISD::OR, OrImm))
+    return false;
+
+  // Skip this transformation if the ORR immediate can be encoded in the ORR.
+  // Otherwise, we'll trade an AND+ORR for ORR+BFI/BFXIL, which is most likely
+  // performance neutral.
+  if (AArch64_AM::isLogicalImmediate(OrImm, BitWidth))
+    return false;
+
+  uint64_t MaskImm;
+  SDValue And = N->getOperand(0);
+  // Must be a single use AND with an immediate operand.
+  if (!And.hasOneUse() ||
+      !isOpcWithIntImmediate(And.getNode(), ISD::AND, MaskImm))
+    return false;
+
+  // Compute the Known Zero for the AND as this allows us to catch more general
+  // cases than just looking for AND with imm.
+  APInt KnownZero, KnownOne;
+  CurDAG->computeKnownBits(And, KnownZero, KnownOne);
+
+  // Non-zero in the sense that they're not provably zero, which is the key
+  // point if we want to use this value.
+  uint64_t NotKnownZero = (~KnownZero).getZExtValue();
+
+  // The KnownZero mask must be a shifted mask (e.g., 1110..011, 11100..00).
+  if (!isShiftedMask(KnownZero.getZExtValue(), VT))
+    return false;
+
+  // The bits being inserted must only set those bits that are known to be zero.
+  if ((OrImm & NotKnownZero) != 0) {
+    // FIXME:  It's okay if the OrImm sets NotKnownZero bits to 1, but we don't
+    // currently handle this case.
+    return false;
+  }
+
+  // BFI/BFXIL dst, src, #lsb, #width.
+  int LSB = countTrailingOnes(NotKnownZero);
+  int Width = BitWidth - APInt(BitWidth, NotKnownZero).countPopulation();
+
+  // BFI/BFXIL is an alias of BFM, so translate to BFM operands.
+  unsigned ImmR = (BitWidth - LSB) % BitWidth;
+  unsigned ImmS = Width - 1;
+
+  // If we're creating a BFI instruction avoid cases where we need more
+  // instructions to materialize the BFI constant as compared to the original
+  // ORR.  A BFXIL will use the same constant as the original ORR, so the code
+  // should be no worse in this case.
+  bool IsBFI = LSB != 0;
+  uint64_t BFIImm = OrImm >> LSB;
+  if (IsBFI && !AArch64_AM::isLogicalImmediate(BFIImm, BitWidth)) {
+    // We have a BFI instruction and we know the constant can't be materialized
+    // with a ORR-immediate with the zero register.
+    unsigned OrChunks = 0, BFIChunks = 0;
+    for (unsigned Shift = 0; Shift < BitWidth; Shift += 16) {
+      if (((OrImm >> Shift) & 0xFFFF) != 0)
+        ++OrChunks;
+      if (((BFIImm >> Shift) & 0xFFFF) != 0)
+        ++BFIChunks;
+    }
+    if (BFIChunks > OrChunks)
+      return false;
+  }
+
+  // Materialize the constant to be inserted.
+  SDLoc DL(N);
+  unsigned MOVIOpc = VT == MVT::i32 ? AArch64::MOVi32imm : AArch64::MOVi64imm;
+  SDNode *MOVI = CurDAG->getMachineNode(
+      MOVIOpc, DL, VT, CurDAG->getTargetConstant(BFIImm, DL, VT));
+
+  // Create the BFI/BFXIL instruction.
+  SDValue Ops[] = {And.getOperand(0), SDValue(MOVI, 0),
+                   CurDAG->getTargetConstant(ImmR, DL, VT),
+                   CurDAG->getTargetConstant(ImmS, DL, VT)};
+  unsigned Opc = (VT == MVT::i32) ? AArch64::BFMWri : AArch64::BFMXri;
+  CurDAG->SelectNodeTo(N, Opc, VT, Ops);
+  return true;
+}
+
 static bool tryBitfieldInsertOpFromOr(SDNode *N, const APInt &UsefulBits,
                                       SelectionDAG *CurDAG) {
   assert(N->getOpcode() == ISD::OR && "Expect a OR operation");
@@ -2020,7 +2172,8 @@ static bool tryBitfieldInsertOpFromOr(SDNode *N, const APInt &UsefulBits,
     SDValue Dst, Src;
     unsigned ImmR, ImmS;
     bool BiggerPattern = I / 2;
-    SDNode *OrOpd0 = N->getOperand(I % 2).getNode();
+    SDValue OrOpd0Val = N->getOperand(I % 2);
+    SDNode *OrOpd0 = OrOpd0Val.getNode();
     SDValue OrOpd1Val = N->getOperand((I + 1) % 2);
     SDNode *OrOpd1 = OrOpd1Val.getNode();
 
@@ -2045,7 +2198,7 @@ static bool tryBitfieldInsertOpFromOr(SDNode *N, const APInt &UsefulBits,
 
       // If the mask on the insertee is correct, we have a BFXIL operation. We
       // can share the ImmR and ImmS values from the already-computed UBFM.
-    } else if (isBitfieldPositioningOp(CurDAG, SDValue(OrOpd0, 0),
+    } else if (isBitfieldPositioningOp(CurDAG, OrOpd0Val,
                                        BiggerPattern,
                                        Src, DstLSB, Width)) {
       ImmR = (BitWidth - DstLSB) % BitWidth;
@@ -2104,11 +2257,6 @@ static bool tryBitfieldInsertOpFromOr(SDNode *N, const APInt &UsefulBits,
       APInt(BitWidth, Mask0Imm) == ~APInt(BitWidth, Mask1Imm) &&
       (isShiftedMask(Mask0Imm, VT) || isShiftedMask(Mask1Imm, VT))) {
 
-    // We should have already caught the case where we extract hi and low parts.
-    // E.g. BFXIL from 'or (and X, 0xffff0000), (and Y, 0x0000ffff)'.
-    assert(!(isShiftedMask(Mask0Imm, VT) && isShiftedMask(Mask1Imm, VT)) &&
-           "BFXIL should have already been optimized.");
-
     // ORR is commutative, so canonicalize to the form 'or (and X, Mask0Imm),
     // (and Y, Mask1Imm)' where Mask1Imm is the shifted mask masking off the
     // bits to be inserted.
@@ -2159,7 +2307,10 @@ bool AArch64DAGToDAGISel::tryBitfieldInsertOp(SDNode *N) {
     return true;
   }
 
-  return tryBitfieldInsertOpFromOr(N, NUsefulBits, CurDAG);
+  if (tryBitfieldInsertOpFromOr(N, NUsefulBits, CurDAG))
+    return true;
+
+  return tryBitfieldInsertOpFromOrAndImm(N, CurDAG);
 }
 
 /// SelectBitfieldInsertInZeroOp - Match a UBFIZ instruction that is the
@@ -2287,12 +2438,14 @@ bool AArch64DAGToDAGISel::tryReadRegister(SDNode *N) {
 
   // Use the sysreg mapper to map the remaining possible strings to the
   // value for the register to be used for the instruction operand.
-  AArch64SysReg::MRSMapper mapper;
-  bool IsValidSpecialReg;
-  Reg = mapper.fromString(RegString->getString(),
-                          Subtarget->getFeatureBits(),
-                          IsValidSpecialReg);
-  if (IsValidSpecialReg) {
+  auto TheReg = AArch64SysReg::lookupSysRegByName(RegString->getString());
+  if (TheReg && TheReg->Readable &&
+      TheReg->haveFeatures(Subtarget->getFeatureBits()))
+    Reg = TheReg->Encoding;
+  else
+    Reg = AArch64SysReg::parseGenericRegister(RegString->getString());
+
+  if (Reg != -1) {
     ReplaceNode(N, CurDAG->getMachineNode(
                        AArch64::MRS, DL, N->getSimpleValueType(0), MVT::Other,
                        CurDAG->getTargetConstant(Reg, DL, MVT::i32),
@@ -2326,14 +2479,11 @@ bool AArch64DAGToDAGISel::tryWriteRegister(SDNode *N) {
   // pstatefield for the MSR (immediate) instruction, we also require that an
   // immediate value has been provided as an argument, we know that this is
   // the case as it has been ensured by semantic checking.
-  AArch64PState::PStateMapper PMapper;
-  bool IsValidSpecialReg;
-  Reg = PMapper.fromString(RegString->getString(),
-                           Subtarget->getFeatureBits(),
-                           IsValidSpecialReg);
-  if (IsValidSpecialReg) {
+  auto PMapper = AArch64PState::lookupPStateByName(RegString->getString());;
+  if (PMapper) {
     assert (isa<ConstantSDNode>(N->getOperand(2))
               && "Expected a constant integer expression.");
+    unsigned Reg = PMapper->Encoding;
     uint64_t Immed = cast<ConstantSDNode>(N->getOperand(2))->getZExtValue();
     unsigned State;
     if (Reg == AArch64PState::PAN || Reg == AArch64PState::UAO) {
@@ -2354,16 +2504,17 @@ bool AArch64DAGToDAGISel::tryWriteRegister(SDNode *N) {
   // Use the sysreg mapper to attempt to map the remaining possible strings
   // to the value for the register to be used for the MSR (register)
   // instruction operand.
-  AArch64SysReg::MSRMapper Mapper;
-  Reg = Mapper.fromString(RegString->getString(),
-                          Subtarget->getFeatureBits(),
-                          IsValidSpecialReg);
-
-  if (IsValidSpecialReg) {
-    ReplaceNode(
-        N, CurDAG->getMachineNode(AArch64::MSR, DL, MVT::Other,
-                                  CurDAG->getTargetConstant(Reg, DL, MVT::i32),
-                                  N->getOperand(2), N->getOperand(0)));
+  auto TheReg = AArch64SysReg::lookupSysRegByName(RegString->getString());
+  if (TheReg && TheReg->Writeable &&
+      TheReg->haveFeatures(Subtarget->getFeatureBits()))
+    Reg = TheReg->Encoding;
+  else
+    Reg = AArch64SysReg::parseGenericRegister(RegString->getString());
+  if (Reg != -1) {
+    ReplaceNode(N, CurDAG->getMachineNode(
+                       AArch64::MSR, DL, MVT::Other,
+                       CurDAG->getTargetConstant(Reg, DL, MVT::i32),
+                       N->getOperand(2), N->getOperand(0)));
     return true;
   }
 
@@ -2451,9 +2602,15 @@ void AArch64DAGToDAGISel::Select(SDNode *Node) {
   case ISD::SRL:
   case ISD::AND:
   case ISD::SRA:
+  case ISD::SIGN_EXTEND_INREG:
     if (tryBitfieldExtractOp(Node))
       return;
     if (tryBitfieldInsertInZeroOp(Node))
+      return;
+    break;
+
+  case ISD::SIGN_EXTEND:
+    if (tryBitfieldExtractOpFromSExt(Node))
       return;
     break;
 

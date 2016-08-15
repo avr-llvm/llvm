@@ -1,4 +1,4 @@
-//===- llvm/Support/DiagnosticInfo.h - Diagnostic Declaration ---*- C++ -*-===//
+//===- llvm/IR/DiagnosticInfo.h - Diagnostic Declaration --------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -15,6 +15,7 @@
 #ifndef LLVM_IR_DIAGNOSTICINFO_H
 #define LLVM_IR_DIAGNOSTICINFO_H
 
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/IR/DebugLoc.h"
@@ -48,6 +49,7 @@ enum DiagnosticSeverity : char {
 enum DiagnosticKind {
   DK_Bitcode,
   DK_InlineAsm,
+  DK_ResourceLimit,
   DK_StackSize,
   DK_Linker,
   DK_DebugMetadataVersion,
@@ -105,8 +107,6 @@ public:
   /// The printed message must not end with '.' nor start with a severity
   /// keyword.
   virtual void print(DiagnosticPrinter &DP) const = 0;
-
-  static const char *AlwaysPrint;
 };
 
 typedef std::function<void(const DiagnosticInfo &)> DiagnosticHandlerFunction;
@@ -160,27 +160,62 @@ public:
   }
 };
 
-/// Diagnostic information for stack size reporting.
+/// Diagnostic information for stack size etc. reporting.
 /// This is basically a function and a size.
-class DiagnosticInfoStackSize : public DiagnosticInfo {
+class DiagnosticInfoResourceLimit : public DiagnosticInfo {
 private:
-  /// The function that is concerned by this stack size diagnostic.
+  /// The function that is concerned by this resource limit diagnostic.
   const Function &Fn;
-  /// The computed stack size.
-  unsigned StackSize;
+
+  /// Description of the resource type (e.g. stack size)
+  const char *ResourceName;
+
+  /// The computed size usage
+  uint64_t ResourceSize;
+
+  // Threshould passed
+  uint64_t ResourceLimit;
 
 public:
   /// \p The function that is concerned by this stack size diagnostic.
   /// \p The computed stack size.
-  DiagnosticInfoStackSize(const Function &Fn, unsigned StackSize,
-                          DiagnosticSeverity Severity = DS_Warning)
-      : DiagnosticInfo(DK_StackSize, Severity), Fn(Fn), StackSize(StackSize) {}
+  DiagnosticInfoResourceLimit(const Function &Fn,
+                              const char *ResourceName,
+                              uint64_t ResourceSize,
+                              DiagnosticSeverity Severity = DS_Warning,
+                              DiagnosticKind Kind = DK_ResourceLimit,
+                              uint64_t ResourceLimit = 0)
+      : DiagnosticInfo(Kind, Severity),
+        Fn(Fn),
+        ResourceName(ResourceName),
+        ResourceSize(ResourceSize),
+        ResourceLimit(ResourceLimit) {}
 
   const Function &getFunction() const { return Fn; }
-  unsigned getStackSize() const { return StackSize; }
+  const char *getResourceName() const { return ResourceName; }
+  uint64_t getResourceSize() const { return ResourceSize; }
+  uint64_t getResourceLimit() const { return ResourceLimit; }
 
   /// \see DiagnosticInfo::print.
   void print(DiagnosticPrinter &DP) const override;
+
+  static bool classof(const DiagnosticInfo *DI) {
+    return DI->getKind() == DK_ResourceLimit ||
+           DI->getKind() == DK_StackSize;
+  }
+};
+
+class DiagnosticInfoStackSize : public DiagnosticInfoResourceLimit {
+public:
+  DiagnosticInfoStackSize(const Function &Fn,
+                          uint64_t StackSize,
+                          DiagnosticSeverity Severity = DS_Warning,
+                          uint64_t StackLimit = 0)
+    : DiagnosticInfoResourceLimit(Fn, "stack size", StackSize,
+                                  Severity, DK_StackSize, StackLimit) {}
+
+  uint64_t getStackSize() const { return getResourceSize(); }
+  uint64_t getStackLimit() const { return getResourceLimit(); }
 
   static bool classof(const DiagnosticInfo *DI) {
     return DI->getKind() == DK_StackSize;
@@ -349,9 +384,10 @@ public:
   DiagnosticInfoOptimizationBase(enum DiagnosticKind Kind,
                                  enum DiagnosticSeverity Severity,
                                  const char *PassName, const Function &Fn,
-                                 const DebugLoc &DLoc, const Twine &Msg)
+                                 const DebugLoc &DLoc, const Twine &Msg,
+                                 Optional<uint64_t> Hotness = None)
       : DiagnosticInfoWithDebugLocBase(Kind, Severity, Fn, DLoc),
-        PassName(PassName), Msg(Msg) {}
+        PassName(PassName), Msg(Msg), Hotness(Hotness) {}
 
   /// \see DiagnosticInfo::print.
   void print(DiagnosticPrinter &DP) const override;
@@ -379,6 +415,10 @@ private:
 
   /// Message to report.
   const Twine &Msg;
+
+  /// If profile information is available, this is the number of times the
+  /// corresponding code was executed in a profile instrumentation run.
+  Optional<uint64_t> Hotness;
 };
 
 /// Diagnostic information for applied optimization remarks.
@@ -419,9 +459,10 @@ public:
   /// must be valid for the whole life time of the diagnostic.
   DiagnosticInfoOptimizationRemarkMissed(const char *PassName,
                                          const Function &Fn,
-                                         const DebugLoc &DLoc, const Twine &Msg)
+                                         const DebugLoc &DLoc, const Twine &Msg,
+                                         Optional<uint64_t> Hotness = None)
       : DiagnosticInfoOptimizationBase(DK_OptimizationRemarkMissed, DS_Remark,
-                                       PassName, Fn, DLoc, Msg) {}
+                                       PassName, Fn, DLoc, Msg, Hotness) {}
 
   static bool classof(const DiagnosticInfo *DI) {
     return DI->getKind() == DK_OptimizationRemarkMissed;
@@ -456,6 +497,10 @@ public:
 
   /// \see DiagnosticInfoOptimizationBase::isEnabled.
   bool isEnabled() const override;
+
+  static const char *AlwaysPrint;
+
+  bool shouldAlwaysPrint() const { return getPassName() == AlwaysPrint; }
 
 protected:
   DiagnosticInfoOptimizationRemarkAnalysis(enum DiagnosticKind Kind,
@@ -632,8 +677,9 @@ public:
   /// copy this message, so this reference must be valid for the whole life time
   /// of the diagnostic.
   DiagnosticInfoUnsupported(const Function &Fn, const Twine &Msg,
-                            DebugLoc DLoc = DebugLoc())
-      : DiagnosticInfoWithDebugLocBase(DK_Unsupported, DS_Error, Fn, DLoc),
+                            DebugLoc DLoc = DebugLoc(),
+                            DiagnosticSeverity Severity = DS_Error)
+      : DiagnosticInfoWithDebugLocBase(DK_Unsupported, Severity, Fn, DLoc),
         Msg(Msg) {}
 
   static bool classof(const DiagnosticInfo *DI) {

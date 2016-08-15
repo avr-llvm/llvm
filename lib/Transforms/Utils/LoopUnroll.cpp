@@ -34,6 +34,7 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Transforms/Utils/LoopSimplify.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/SimplifyIndVar.h"
 using namespace llvm;
@@ -199,7 +200,7 @@ static bool needToInsertPhisForLCSSA(Loop *L, std::vector<BasicBlock *> Blocks,
 ///
 /// This utility preserves LoopInfo. It will also preserve ScalarEvolution and
 /// DominatorTree if they are non-null.
-bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
+bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount, bool Force,
                       bool AllowRuntime, bool AllowExpensiveTripCount,
                       unsigned TripMultiple, LoopInfo *LI, ScalarEvolution *SE,
                       DominatorTree *DT, AssumptionCache *AC,
@@ -298,8 +299,12 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
   if (RuntimeTripCount && TripMultiple % Count != 0 &&
       !UnrollRuntimeLoopRemainder(L, Count, AllowExpensiveTripCount,
                                   UnrollRuntimeEpilog, LI, SE, DT, 
-                                  PreserveLCSSA))
-    return false;
+                                  PreserveLCSSA)) {
+    if (Force)
+      RuntimeTripCount = false;
+    else
+      return false;
+  }
 
   // Notify ScalarEvolution that the loop will be substantially changed,
   // if not outright eliminated.
@@ -598,7 +603,7 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
   // updating domtree after partial loop unrolling should also be easy.
   if (DT && !CompletelyUnroll)
     DT->recalculate(*L->getHeader()->getParent());
-  else
+  else if (DT)
     DEBUG(DT->verifyDomTree());
 
   // Simplify any new induction variables in the partially unrolled loop.
@@ -619,18 +624,17 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
   // go.
   const DataLayout &DL = Header->getModule()->getDataLayout();
   const std::vector<BasicBlock*> &NewLoopBlocks = L->getBlocks();
-  for (BasicBlock *BB : NewLoopBlocks)
+  for (BasicBlock *BB : NewLoopBlocks) {
     for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ) {
       Instruction *Inst = &*I++;
 
+      if (Value *V = SimplifyInstruction(Inst, DL))
+        if (LI->replacementPreservesLCSSAForm(Inst, V))
+          Inst->replaceAllUsesWith(V);
       if (isInstructionTriviallyDead(Inst))
         BB->getInstList().erase(Inst);
-      else if (Value *V = SimplifyInstruction(Inst, DL))
-        if (LI->replacementPreservesLCSSAForm(Inst, V)) {
-          Inst->replaceAllUsesWith(V);
-          BB->getInstList().erase(Inst);
-        }
     }
+  }
 
   NumCompletelyUnrolled += CompletelyUnroll;
   ++NumUnrolled;

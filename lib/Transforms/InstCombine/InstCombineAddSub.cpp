@@ -58,7 +58,6 @@ namespace {
     // operators inevitably call FAddendCoef's constructor which is not cheap.
     void operator=(const FAddendCoef &A);
     void operator+=(const FAddendCoef &A);
-    void operator-=(const FAddendCoef &A);
     void operator*=(const FAddendCoef &S);
 
     bool isOne() const { return isInt() && IntVal == 1; }
@@ -277,27 +276,6 @@ void FAddendCoef::operator+=(const FAddendCoef &That) {
 
   APFloat &T = getFpVal();
   T.add(createAPFloatFromInt(T.getSemantics(), That.IntVal), RndMode);
-}
-
-void FAddendCoef::operator-=(const FAddendCoef &That) {
-  enum APFloat::roundingMode RndMode = APFloat::rmNearestTiesToEven;
-  if (isInt() == That.isInt()) {
-    if (isInt())
-      IntVal -= That.IntVal;
-    else
-      getFpVal().subtract(That.getFpVal(), RndMode);
-    return;
-  }
-
-  if (isInt()) {
-    const APFloat &T = That.getFpVal();
-    convertToFpType(T.getSemantics());
-    getFpVal().subtract(T, RndMode);
-    return;
-  }
-
-  APFloat &T = getFpVal();
-  T.subtract(createAPFloatFromInt(T.getSemantics(), IntVal), RndMode);
 }
 
 void FAddendCoef::operator*=(const FAddendCoef &That) {
@@ -721,10 +699,9 @@ Value *FAddCombine::createNaryFAdd
   bool LastValNeedNeg = false;
 
   // Iterate the addends, creating fadd/fsub using adjacent two addends.
-  for (AddendVect::const_iterator I = Opnds.begin(), E = Opnds.end();
-       I != E; I++) {
+  for (const FAddend *Opnd : Opnds) {
     bool NeedNeg;
-    Value *V = createAddendVal(**I, NeedNeg);
+    Value *V = createAddendVal(*Opnd, NeedNeg);
     if (!LastVal) {
       LastVal = V;
       LastValNeedNeg = NeedNeg;
@@ -813,9 +790,7 @@ unsigned FAddCombine::calcInstrNumber(const AddendVect &Opnds) {
   unsigned NegOpndNum = 0;
 
   // Adjust the number of instructions needed to emit the N-ary add.
-  for (AddendVect::const_iterator I = Opnds.begin(), E = Opnds.end();
-       I != E; I++) {
-    const FAddend *Opnd = *I;
+  for (const FAddend *Opnd : Opnds) {
     if (Opnd->isConstant())
       continue;
 
@@ -1067,12 +1042,16 @@ Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
   if (Value *V = SimplifyUsingDistributiveLaws(I))
     return replaceInstUsesWith(I, V);
 
-  if (ConstantInt *CI = dyn_cast<ConstantInt>(RHS)) {
+  const APInt *Val;
+  if (match(RHS, m_APInt(Val))) {
     // X + (signbit) --> X ^ signbit
-    const APInt &Val = CI->getValue();
-    if (Val.isSignBit())
+    if (Val->isSignBit())
       return BinaryOperator::CreateXor(LHS, RHS);
+  }
 
+  // FIXME: Use the match above instead of dyn_cast to allow these transforms
+  // for splat vectors.
+  if (ConstantInt *CI = dyn_cast<ConstantInt>(RHS)) {
     // See if SimplifyDemandedBits can simplify this.  This handles stuff like
     // (X & 254)+1 -> (X&254)|1
     if (SimplifyDemandedInstructionBits(I))
@@ -1174,6 +1153,9 @@ Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
       return BinaryOperator::CreateSub(SubOne(CRHS), X);
   }
 
+  // FIXME: We already did a check for ConstantInt RHS above this.
+  // FIXME: Is this pattern covered by another fold? No regression tests fail on
+  // removal.
   if (ConstantInt *CRHS = dyn_cast<ConstantInt>(RHS)) {
     // (X & FF00) + xx00  -> (X+xx00) & FF00
     Value *X;

@@ -37,7 +37,7 @@ code. By default, the back-end will emit device functions. Metadata is used to
 declare a function as a kernel function. This metadata is attached to the
 ``nvvm.annotations`` named metadata object, and has the following format:
 
-.. code-block:: llvm
+.. code-block:: text
 
    !0 = !{<function-ref>, metadata !"kernel", i32 1}
 
@@ -566,7 +566,7 @@ Intrinsic                                        CUDA Equivalent
 ``i32 @llvm.nvvm.read.ptx.sreg.ctaid.{x,y,z}``   blockIdx.{x,y,z}
 ``i32 @llvm.nvvm.read.ptx.sreg.ntid.{x,y,z}``    blockDim.{x,y,z}
 ``i32 @llvm.nvvm.read.ptx.sreg.nctaid.{x,y,z}``  gridDim.{x,y,z}
-``void @llvm.cuda.syncthreads()``                __syncthreads()
+``void @llvm.nvvm.barrier0()``                   __syncthreads()
 ================================================ ====================
 
 

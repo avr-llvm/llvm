@@ -39,12 +39,12 @@ LoopVersioning::LoopVersioning(const LoopAccessInfo &LAI, Loop *L, LoopInfo *LI,
   assert(L->getLoopPreheader() && "No preheader");
   if (UseLAIChecks) {
     setAliasChecks(LAI.getRuntimePointerChecking()->getChecks());
-    setSCEVChecks(LAI.PSE.getUnionPredicate());
+    setSCEVChecks(LAI.getPSE().getUnionPredicate());
   }
 }
 
 void LoopVersioning::setAliasChecks(
-    const SmallVector<RuntimePointerChecking::PointerCheck, 4> Checks) {
+    SmallVector<RuntimePointerChecking::PointerCheck, 4> Checks) {
   AliasChecks = std::move(Checks);
 }
 
@@ -64,7 +64,7 @@ void LoopVersioning::versionLoop(
   std::tie(FirstCheckInst, MemRuntimeCheck) =
       LAI.addRuntimeChecks(RuntimeCheckBB->getTerminator(), AliasChecks);
 
-  const SCEVUnionPredicate &Pred = LAI.PSE.getUnionPredicate();
+  const SCEVUnionPredicate &Pred = LAI.getPSE().getUnionPredicate();
   SCEVExpander Exp(*SE, RuntimeCheckBB->getModule()->getDataLayout(),
                    "scev.check");
   SCEVRuntimeCheck =
@@ -77,7 +77,7 @@ void LoopVersioning::versionLoop(
 
   if (MemRuntimeCheck && SCEVRuntimeCheck) {
     RuntimeCheck = BinaryOperator::Create(Instruction::Or, MemRuntimeCheck,
-                                          SCEVRuntimeCheck, "ldist.safe");
+                                          SCEVRuntimeCheck, "lver.safe");
     if (auto *I = dyn_cast<Instruction>(RuntimeCheck))
       I->insertBefore(RuntimeCheckBB->getTerminator());
   } else
@@ -125,19 +125,16 @@ void LoopVersioning::addPHINodes(
     const SmallVectorImpl<Instruction *> &DefsUsedOutside) {
   BasicBlock *PHIBlock = VersionedLoop->getExitBlock();
   assert(PHIBlock && "No single successor to loop exit block");
+  PHINode *PN;
 
+  // First add a single-operand PHI for each DefsUsedOutside if one does not
+  // exists yet.
   for (auto *Inst : DefsUsedOutside) {
-    auto *NonVersionedLoopInst = cast<Instruction>(VMap[Inst]);
-    PHINode *PN;
-
-    // First see if we have a single-operand PHI with the value defined by the
+    // See if we have a single-operand PHI with the value defined by the
     // original loop.
     for (auto I = PHIBlock->begin(); (PN = dyn_cast<PHINode>(I)); ++I) {
-      if (PN->getIncomingValue(0) == Inst) {
-        assert(PN->getNumOperands() == 1 &&
-               "Exit block should only have on predecessor");
+      if (PN->getIncomingValue(0) == Inst)
         break;
-      }
     }
     // If not create it.
     if (!PN) {
@@ -148,8 +145,20 @@ void LoopVersioning::addPHINodes(
           User->replaceUsesOfWith(Inst, PN);
       PN->addIncoming(Inst, VersionedLoop->getExitingBlock());
     }
-    // Add the new incoming value from the non-versioned loop.
-    PN->addIncoming(NonVersionedLoopInst, NonVersionedLoop->getExitingBlock());
+  }
+
+  // Then for each PHI add the operand for the edge from the cloned loop.
+  for (auto I = PHIBlock->begin(); (PN = dyn_cast<PHINode>(I)); ++I) {
+    assert(PN->getNumOperands() == 1 &&
+           "Exit block should only have on predecessor");
+
+    // If the definition was cloned used that otherwise use the same value.
+    Value *ClonedValue = PN->getIncomingValue(0);
+    auto Mapped = VMap.find(ClonedValue);
+    if (Mapped != VMap.end())
+      ClonedValue = Mapped->second;
+
+    PN->addIncoming(ClonedValue, NonVersionedLoop->getExitingBlock());
   }
 }
 
@@ -250,7 +259,7 @@ public:
 
   bool runOnFunction(Function &F) override {
     auto *LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-    auto *LAA = &getAnalysis<LoopAccessAnalysis>();
+    auto *LAA = &getAnalysis<LoopAccessLegacyAnalysis>();
     auto *DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
     auto *SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
 
@@ -268,9 +277,9 @@ public:
     // Now walk the identified inner loops.
     bool Changed = false;
     for (Loop *L : Worklist) {
-      const LoopAccessInfo &LAI = LAA->getInfo(L, ValueToValueMap());
+      const LoopAccessInfo &LAI = LAA->getInfo(L);
       if (LAI.getNumRuntimePointerChecks() ||
-          !LAI.PSE.getUnionPredicate().isAlwaysTrue()) {
+          !LAI.getPSE().getUnionPredicate().isAlwaysTrue()) {
         LoopVersioning LVer(LAI, L, LI, DT, SE);
         LVer.versionLoop();
         LVer.annotateLoopWithNoAlias();
@@ -284,7 +293,7 @@ public:
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<LoopInfoWrapperPass>();
     AU.addPreserved<LoopInfoWrapperPass>();
-    AU.addRequired<LoopAccessAnalysis>();
+    AU.addRequired<LoopAccessLegacyAnalysis>();
     AU.addRequired<DominatorTreeWrapperPass>();
     AU.addPreserved<DominatorTreeWrapperPass>();
     AU.addRequired<ScalarEvolutionWrapperPass>();
@@ -302,7 +311,7 @@ static const char LVer_name[] = "Loop Versioning";
 
 INITIALIZE_PASS_BEGIN(LoopVersioningPass, LVER_OPTION, LVer_name, false, false)
 INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(LoopAccessAnalysis)
+INITIALIZE_PASS_DEPENDENCY(LoopAccessLegacyAnalysis)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
 INITIALIZE_PASS_END(LoopVersioningPass, LVER_OPTION, LVer_name, false, false)

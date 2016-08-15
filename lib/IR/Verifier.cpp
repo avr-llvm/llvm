@@ -276,13 +276,14 @@ public:
     Context = &M->getContext();
 
     // First ensure the function is well-enough formed to compute dominance
-    // information.
-    if (F.empty()) {
-      if (OS)
-        *OS << "Function '" << F.getName()
-            << "' does not contain an entry block!\n";
-      return false;
-    }
+    // information, and directly compute a dominance tree. We don't rely on the
+    // pass manager to provide this as it isolates us from a potentially
+    // out-of-date dominator tree and makes it significantly more complex to run
+    // this code outside of a pass manager.
+    // FIXME: It's really gross that we have to cast away constness here.
+    if (!F.empty())
+      DT.recalculate(const_cast<Function &>(F));
+
     for (const BasicBlock &BB : F) {
       if (!BB.empty() && BB.back().isTerminator())
         continue;
@@ -295,13 +296,6 @@ public:
       }
       return false;
     }
-
-    // Now directly compute a dominance tree. We don't rely on the pass
-    // manager to provide this as it isolates us from a potentially
-    // out-of-date dominator tree and makes it significantly more complex to
-    // run this code outside of a pass manager.
-    // FIXME: It's really gross that we have to cast away constness here.
-    DT.recalculate(const_cast<Function &>(F));
 
     Broken = false;
     // FIXME: We strip const here because the inst visitor strips const.
@@ -320,17 +314,10 @@ public:
     Context = &M.getContext();
     Broken = false;
 
-    // Scan through, checking all of the external function's linkage now...
-    for (const Function &F : M) {
-      visitGlobalValue(F);
-
-      // Check to make sure function prototypes are okay.
-      if (F.isDeclaration()) {
-        visitFunction(F);
-        if (F.getIntrinsicID() == Intrinsic::experimental_deoptimize)
-          DeoptimizeDeclarations.push_back(&F);
-      }
-    }
+    // Collect all declarations of the llvm.experimental.deoptimize intrinsic.
+    for (const Function &F : M)
+      if (F.getIntrinsicID() == Intrinsic::experimental_deoptimize)
+        DeoptimizeDeclarations.push_back(&F);
 
     // Now that we've visited every function, verify that we never asked to
     // recover a frame index that wasn't escaped.
@@ -454,10 +441,6 @@ private:
   void verifyMustTailCall(CallInst &CI);
   bool performTypeCheck(Intrinsic::ID ID, Function *F, Type *Ty, int VT,
                         unsigned ArgNo, std::string &Suffix);
-  bool verifyIntrinsicType(Type *Ty, ArrayRef<Intrinsic::IITDescriptor> &Infos,
-                           SmallVectorImpl<Type *> &ArgTys);
-  bool verifyIntrinsicIsVarArg(bool isVarArg,
-                               ArrayRef<Intrinsic::IITDescriptor> &Infos);
   bool verifyAttributeCount(AttributeSet Attrs, unsigned Params);
   void verifyAttributeTypes(AttributeSet Attrs, unsigned Idx, bool isFunction,
                             const Value *V);
@@ -465,8 +448,7 @@ private:
                             bool isReturnValue, const Value *V);
   void verifyFunctionAttrs(FunctionType *FT, AttributeSet Attrs,
                            const Value *V);
-  void verifyFunctionMetadata(
-      const SmallVector<std::pair<unsigned, MDNode *>, 4> MDs);
+  void verifyFunctionMetadata(ArrayRef<std::pair<unsigned, MDNode *>> MDs);
 
   void visitConstantExprsRecursively(const Constant *EntryC);
   void visitConstantExpr(const ConstantExpr *CE);
@@ -1327,6 +1309,7 @@ void Verifier::verifyAttributeTypes(AttributeSet Attrs, unsigned Idx,
         return;
       }
     } else if (I->getKindAsEnum() == Attribute::ReadOnly ||
+               I->getKindAsEnum() == Attribute::WriteOnly ||
                I->getKindAsEnum() == Attribute::ReadNone) {
       if (Idx == 0) {
         CheckFailed("Attribute '" + I->getAsString() +
@@ -1398,6 +1381,18 @@ void Verifier::verifyParameterAttrs(AttributeSet Attrs, unsigned Idx, Type *Ty,
            Attrs.hasAttribute(Idx, Attribute::ReadOnly)),
          "Attributes "
          "'readnone and readonly' are incompatible!",
+         V);
+
+  Assert(!(Attrs.hasAttribute(Idx, Attribute::ReadNone) &&
+           Attrs.hasAttribute(Idx, Attribute::WriteOnly)),
+         "Attributes "
+         "'readnone and writeonly' are incompatible!",
+         V);
+
+  Assert(!(Attrs.hasAttribute(Idx, Attribute::ReadOnly) &&
+           Attrs.hasAttribute(Idx, Attribute::WriteOnly)),
+         "Attributes "
+         "'readonly and writeonly' are incompatible!",
          V);
 
   Assert(!(Attrs.hasAttribute(Idx, Attribute::NoInline) &&
@@ -1517,6 +1512,16 @@ void Verifier::verifyFunctionAttrs(FunctionType *FT, AttributeSet Attrs,
 
   Assert(
       !(Attrs.hasAttribute(AttributeSet::FunctionIndex, Attribute::ReadNone) &&
+        Attrs.hasAttribute(AttributeSet::FunctionIndex, Attribute::WriteOnly)),
+      "Attributes 'readnone and writeonly' are incompatible!", V);
+
+  Assert(
+      !(Attrs.hasAttribute(AttributeSet::FunctionIndex, Attribute::ReadOnly) &&
+        Attrs.hasAttribute(AttributeSet::FunctionIndex, Attribute::WriteOnly)),
+      "Attributes 'readonly and writeonly' are incompatible!", V);
+
+  Assert(
+      !(Attrs.hasAttribute(AttributeSet::FunctionIndex, Attribute::ReadNone) &&
         Attrs.hasAttribute(AttributeSet::FunctionIndex, 
                            Attribute::InaccessibleMemOrArgMemOnly)),
       "Attributes 'readnone and inaccessiblemem_or_argmemonly' are incompatible!", V);
@@ -1549,7 +1554,7 @@ void Verifier::verifyFunctionAttrs(FunctionType *FT, AttributeSet Attrs,
   if (Attrs.hasAttribute(AttributeSet::FunctionIndex,
                          Attribute::JumpTable)) {
     const GlobalValue *GV = cast<GlobalValue>(V);
-    Assert(GV->hasUnnamedAddr(),
+    Assert(GV->hasGlobalUnnamedAddr(),
            "Attribute 'jumptable' requires 'unnamed_addr'", V);
   }
 
@@ -1582,10 +1587,7 @@ void Verifier::verifyFunctionAttrs(FunctionType *FT, AttributeSet Attrs,
 }
 
 void Verifier::verifyFunctionMetadata(
-    const SmallVector<std::pair<unsigned, MDNode *>, 4> MDs) {
-  if (MDs.empty())
-    return;
-
+    ArrayRef<std::pair<unsigned, MDNode *>> MDs) {
   for (const auto &Pair : MDs) {
     if (Pair.first == LLVMContext::MD_prof) {
       MDNode *MD = Pair.second;
@@ -1872,6 +1874,8 @@ void Verifier::verifySiblingFuncletUnwinds() {
 // visitFunction - Verify that a function is ok.
 //
 void Verifier::visitFunction(const Function &F) {
+  visitGlobalValue(F);
+
   // Check function arguments.
   FunctionType *FT = F.getFunctionType();
   unsigned NumArgs = F.arg_size();
@@ -1971,8 +1975,15 @@ void Verifier::visitFunction(const Function &F) {
     Assert(MDs.empty(), "unmaterialized function cannot have metadata", &F,
            MDs.empty() ? nullptr : MDs.front().second);
   } else if (F.isDeclaration()) {
-    Assert(MDs.empty(), "function without a body cannot have metadata", &F,
-           MDs.empty() ? nullptr : MDs.front().second);
+    for (const auto &I : MDs) {
+      AssertDI(I.first != LLVMContext::MD_dbg,
+               "function declaration may not have a !dbg attachment", &F);
+      Assert(I.first != LLVMContext::MD_prof,
+             "function declaration may not have a !prof attachment", &F);
+
+      // Verify the metadata itself.
+      visitMDNode(*I.second);
+    }
     Assert(!F.hasPersonalityFn(),
            "Function declaration shouldn't have a personality routine", &F);
   } else {
@@ -1991,6 +2002,7 @@ void Verifier::visitFunction(const Function &F) {
              "blockaddress may not be used with the entry block!", Entry);
     }
 
+    unsigned NumDebugAttachments = 0, NumProfAttachments = 0;
     // Visit metadata attachments.
     for (const auto &I : MDs) {
       // Verify that the attachment is legal.
@@ -1998,8 +2010,16 @@ void Verifier::visitFunction(const Function &F) {
       default:
         break;
       case LLVMContext::MD_dbg:
+        ++NumDebugAttachments;
+        AssertDI(NumDebugAttachments == 1,
+                 "function must have a single !dbg attachment", &F, I.second);
         AssertDI(isa<DISubprogram>(I.second),
                  "function !dbg attachment must be a subprogram", &F, I.second);
+        break;
+      case LLVMContext::MD_prof:
+        ++NumProfAttachments;
+        Assert(NumProfAttachments == 1,
+               "function must have a single !prof attachment", &F, I.second);
         break;
       }
 
@@ -2959,6 +2979,7 @@ void Verifier::visitLoadInst(LoadInst &LI) {
   Type *ElTy = LI.getType();
   Assert(LI.getAlignment() <= Value::MaximumAlignment,
          "huge alignment values are unsupported", &LI);
+  Assert(ElTy->isSized(), "loading unsized types is not allowed", &LI);
   if (LI.isAtomic()) {
     Assert(LI.getOrdering() != AtomicOrdering::Release &&
                LI.getOrdering() != AtomicOrdering::AcquireRelease,
@@ -2987,6 +3008,7 @@ void Verifier::visitStoreInst(StoreInst &SI) {
          "Stored value type does not match pointer operand type!", &SI, ElTy);
   Assert(SI.getAlignment() <= Value::MaximumAlignment,
          "huge alignment values are unsupported", &SI);
+  Assert(ElTy->isSized(), "storing unsized types is not allowed", &SI);
   if (SI.isAtomic()) {
     Assert(SI.getOrdering() != AtomicOrdering::Acquire &&
                SI.getOrdering() != AtomicOrdering::AcquireRelease,
@@ -3668,7 +3690,9 @@ void Verifier::visitInstruction(Instruction &I) {
     Assert(MD->getNumOperands() == 1, "fpmath takes one operand!", &I);
     if (ConstantFP *CFP0 =
             mdconst::dyn_extract_or_null<ConstantFP>(MD->getOperand(0))) {
-      APFloat Accuracy = CFP0->getValueAPF();
+      const APFloat &Accuracy = CFP0->getValueAPF();
+      Assert(&Accuracy.getSemantics() == &APFloat::IEEEsingle,
+             "fpmath accuracy must have float type", &I);
       Assert(Accuracy.isFiniteNonZero() && !Accuracy.isNegative(),
              "fpmath accuracy not a positive number!", &I);
     } else {
@@ -3724,176 +3748,6 @@ void Verifier::visitInstruction(Instruction &I) {
   InstsInThisBlock.insert(&I);
 }
 
-/// Verify that the specified type (which comes from an intrinsic argument or
-/// return value) matches the type constraints specified by the .td file (e.g.
-/// an "any integer" argument really is an integer).
-///
-/// This returns true on error but does not print a message.
-bool Verifier::verifyIntrinsicType(Type *Ty,
-                                   ArrayRef<Intrinsic::IITDescriptor> &Infos,
-                                   SmallVectorImpl<Type*> &ArgTys) {
-  using namespace Intrinsic;
-
-  // If we ran out of descriptors, there are too many arguments.
-  if (Infos.empty()) return true;
-  IITDescriptor D = Infos.front();
-  Infos = Infos.slice(1);
-
-  switch (D.Kind) {
-  case IITDescriptor::Void: return !Ty->isVoidTy();
-  case IITDescriptor::VarArg: return true;
-  case IITDescriptor::MMX:  return !Ty->isX86_MMXTy();
-  case IITDescriptor::Token: return !Ty->isTokenTy();
-  case IITDescriptor::Metadata: return !Ty->isMetadataTy();
-  case IITDescriptor::Half: return !Ty->isHalfTy();
-  case IITDescriptor::Float: return !Ty->isFloatTy();
-  case IITDescriptor::Double: return !Ty->isDoubleTy();
-  case IITDescriptor::Integer: return !Ty->isIntegerTy(D.Integer_Width);
-  case IITDescriptor::Vector: {
-    VectorType *VT = dyn_cast<VectorType>(Ty);
-    return !VT || VT->getNumElements() != D.Vector_Width ||
-           verifyIntrinsicType(VT->getElementType(), Infos, ArgTys);
-  }
-  case IITDescriptor::Pointer: {
-    PointerType *PT = dyn_cast<PointerType>(Ty);
-    return !PT || PT->getAddressSpace() != D.Pointer_AddressSpace ||
-           verifyIntrinsicType(PT->getElementType(), Infos, ArgTys);
-  }
-
-  case IITDescriptor::Struct: {
-    StructType *ST = dyn_cast<StructType>(Ty);
-    if (!ST || ST->getNumElements() != D.Struct_NumElements)
-      return true;
-
-    for (unsigned i = 0, e = D.Struct_NumElements; i != e; ++i)
-      if (verifyIntrinsicType(ST->getElementType(i), Infos, ArgTys))
-        return true;
-    return false;
-  }
-
-  case IITDescriptor::Argument:
-    // Two cases here - If this is the second occurrence of an argument, verify
-    // that the later instance matches the previous instance.
-    if (D.getArgumentNumber() < ArgTys.size())
-      return Ty != ArgTys[D.getArgumentNumber()];
-
-    // Otherwise, if this is the first instance of an argument, record it and
-    // verify the "Any" kind.
-    assert(D.getArgumentNumber() == ArgTys.size() && "Table consistency error");
-    ArgTys.push_back(Ty);
-
-    switch (D.getArgumentKind()) {
-    case IITDescriptor::AK_Any:        return false; // Success
-    case IITDescriptor::AK_AnyInteger: return !Ty->isIntOrIntVectorTy();
-    case IITDescriptor::AK_AnyFloat:   return !Ty->isFPOrFPVectorTy();
-    case IITDescriptor::AK_AnyVector:  return !isa<VectorType>(Ty);
-    case IITDescriptor::AK_AnyPointer: return !isa<PointerType>(Ty);
-    }
-    llvm_unreachable("all argument kinds not covered");
-
-  case IITDescriptor::ExtendArgument: {
-    // This may only be used when referring to a previous vector argument.
-    if (D.getArgumentNumber() >= ArgTys.size())
-      return true;
-
-    Type *NewTy = ArgTys[D.getArgumentNumber()];
-    if (VectorType *VTy = dyn_cast<VectorType>(NewTy))
-      NewTy = VectorType::getExtendedElementVectorType(VTy);
-    else if (IntegerType *ITy = dyn_cast<IntegerType>(NewTy))
-      NewTy = IntegerType::get(ITy->getContext(), 2 * ITy->getBitWidth());
-    else
-      return true;
-
-    return Ty != NewTy;
-  }
-  case IITDescriptor::TruncArgument: {
-    // This may only be used when referring to a previous vector argument.
-    if (D.getArgumentNumber() >= ArgTys.size())
-      return true;
-
-    Type *NewTy = ArgTys[D.getArgumentNumber()];
-    if (VectorType *VTy = dyn_cast<VectorType>(NewTy))
-      NewTy = VectorType::getTruncatedElementVectorType(VTy);
-    else if (IntegerType *ITy = dyn_cast<IntegerType>(NewTy))
-      NewTy = IntegerType::get(ITy->getContext(), ITy->getBitWidth() / 2);
-    else
-      return true;
-
-    return Ty != NewTy;
-  }
-  case IITDescriptor::HalfVecArgument:
-    // This may only be used when referring to a previous vector argument.
-    return D.getArgumentNumber() >= ArgTys.size() ||
-           !isa<VectorType>(ArgTys[D.getArgumentNumber()]) ||
-           VectorType::getHalfElementsVectorType(
-                         cast<VectorType>(ArgTys[D.getArgumentNumber()])) != Ty;
-  case IITDescriptor::SameVecWidthArgument: {
-    if (D.getArgumentNumber() >= ArgTys.size())
-      return true;
-    VectorType * ReferenceType =
-      dyn_cast<VectorType>(ArgTys[D.getArgumentNumber()]);
-    VectorType *ThisArgType = dyn_cast<VectorType>(Ty);
-    if (!ThisArgType || !ReferenceType || 
-        (ReferenceType->getVectorNumElements() !=
-         ThisArgType->getVectorNumElements()))
-      return true;
-    return verifyIntrinsicType(ThisArgType->getVectorElementType(),
-                               Infos, ArgTys);
-  }
-  case IITDescriptor::PtrToArgument: {
-    if (D.getArgumentNumber() >= ArgTys.size())
-      return true;
-    Type * ReferenceType = ArgTys[D.getArgumentNumber()];
-    PointerType *ThisArgType = dyn_cast<PointerType>(Ty);
-    return (!ThisArgType || ThisArgType->getElementType() != ReferenceType);
-  }
-  case IITDescriptor::VecOfPtrsToElt: {
-    if (D.getArgumentNumber() >= ArgTys.size())
-      return true;
-    VectorType * ReferenceType =
-      dyn_cast<VectorType> (ArgTys[D.getArgumentNumber()]);
-    VectorType *ThisArgVecTy = dyn_cast<VectorType>(Ty);
-    if (!ThisArgVecTy || !ReferenceType || 
-        (ReferenceType->getVectorNumElements() !=
-         ThisArgVecTy->getVectorNumElements()))
-      return true;
-    PointerType *ThisArgEltTy =
-      dyn_cast<PointerType>(ThisArgVecTy->getVectorElementType());
-    if (!ThisArgEltTy)
-      return true;
-    return ThisArgEltTy->getElementType() !=
-           ReferenceType->getVectorElementType();
-  }
-  }
-  llvm_unreachable("unhandled");
-}
-
-/// Verify if the intrinsic has variable arguments. This method is intended to
-/// be called after all the fixed arguments have been verified first.
-///
-/// This method returns true on error and does not print an error message.
-bool
-Verifier::verifyIntrinsicIsVarArg(bool isVarArg,
-                                  ArrayRef<Intrinsic::IITDescriptor> &Infos) {
-  using namespace Intrinsic;
-
-  // If there are no descriptors left, then it can't be a vararg.
-  if (Infos.empty())
-    return isVarArg;
-
-  // There should be only one descriptor remaining at this point.
-  if (Infos.size() != 1)
-    return true;
-
-  // Check and verify the descriptor.
-  IITDescriptor D = Infos.front();
-  Infos = Infos.slice(1);
-  if (D.Kind == IITDescriptor::VarArg)
-    return !isVarArg;
-
-  return true;
-}
-
 /// Allow intrinsics to be verified in different ways.
 void Verifier::visitIntrinsicCallSite(Intrinsic::ID ID, CallSite CS) {
   Function *IF = CS.getCalledFunction();
@@ -3910,18 +3764,20 @@ void Verifier::visitIntrinsicCallSite(Intrinsic::ID ID, CallSite CS) {
   ArrayRef<Intrinsic::IITDescriptor> TableRef = Table;
 
   SmallVector<Type *, 4> ArgTys;
-  Assert(!verifyIntrinsicType(IFTy->getReturnType(), TableRef, ArgTys),
+  Assert(!Intrinsic::matchIntrinsicType(IFTy->getReturnType(),
+                                        TableRef, ArgTys),
          "Intrinsic has incorrect return type!", IF);
   for (unsigned i = 0, e = IFTy->getNumParams(); i != e; ++i)
-    Assert(!verifyIntrinsicType(IFTy->getParamType(i), TableRef, ArgTys),
+    Assert(!Intrinsic::matchIntrinsicType(IFTy->getParamType(i),
+                                          TableRef, ArgTys),
            "Intrinsic has incorrect argument type!", IF);
 
   // Verify if the intrinsic call matches the vararg property.
   if (IsVarArg)
-    Assert(!verifyIntrinsicIsVarArg(IsVarArg, TableRef),
+    Assert(!Intrinsic::matchIntrinsicVarArg(IsVarArg, TableRef),
            "Intrinsic was not defined with variable arguments!", IF);
   else
-    Assert(!verifyIntrinsicIsVarArg(IsVarArg, TableRef),
+    Assert(!Intrinsic::matchIntrinsicVarArg(IsVarArg, TableRef),
            "Callsite was not defined with variable arguments!", IF);
 
   // All descriptors should be absorbed by now.
@@ -4427,7 +4283,6 @@ void Verifier::verifyDeoptimizeCallingConvs() {
 
 bool llvm::verifyFunction(const Function &f, raw_ostream *OS) {
   Function &F = const_cast<Function &>(f);
-  assert(!F.isDeclaration() && "Cannot verify external functions");
 
   // Don't use a raw_null_ostream.  Printing IR is expensive.
   Verifier V(OS, /*ShouldTreatBrokenDebugInfoAsError=*/true);
@@ -4444,8 +4299,7 @@ bool llvm::verifyModule(const Module &M, raw_ostream *OS,
 
   bool Broken = false;
   for (const Function &F : M)
-    if (!F.isDeclaration() && !F.isMaterializable())
-      Broken |= !V.verify(F);
+    Broken |= !V.verify(F);
 
   Broken |= !V.verify(M);
   if (BrokenDebugInfo)
@@ -4460,17 +4314,16 @@ struct VerifierLegacyPass : public FunctionPass {
   static char ID;
 
   Verifier V;
-  bool FatalErrors;
+  bool FatalErrors = true;
 
   VerifierLegacyPass()
       : FunctionPass(ID),
-        V(&dbgs(), /*ShouldTreatBrokenDebugInfoAsError=*/true),
-        FatalErrors(true) {
+        V(&dbgs(), /*ShouldTreatBrokenDebugInfoAsError=*/false) {
     initializeVerifierLegacyPassPass(*PassRegistry::getPassRegistry());
   }
   explicit VerifierLegacyPass(bool FatalErrors)
       : FunctionPass(ID),
-        V(&dbgs(), /*ShouldTreatBrokenDebugInfoAsError=*/true),
+        V(&dbgs(), /*ShouldTreatBrokenDebugInfoAsError=*/false),
         FatalErrors(FatalErrors) {
     initializeVerifierLegacyPassPass(*PassRegistry::getPassRegistry());
   }
@@ -4483,9 +4336,25 @@ struct VerifierLegacyPass : public FunctionPass {
   }
 
   bool doFinalization(Module &M) override {
-    if (!V.verify(M) && FatalErrors)
-      report_fatal_error("Broken module found, compilation aborted!");
+    bool HasErrors = false;
+    for (Function &F : M)
+      if (F.isDeclaration())
+        HasErrors |= !V.verify(F);
 
+    HasErrors |= !V.verify(M);
+    if (FatalErrors) {
+      if (HasErrors)
+        report_fatal_error("Broken module found, compilation aborted!");
+      assert(!V.hasBrokenDebugInfo() && "Module contains invalid debug info");
+    }
+
+    // Strip broken debug info.
+    if (V.hasBrokenDebugInfo()) {
+      DiagnosticInfoIgnoringInvalidDebugMetadata DiagInvalid(M);
+      M.getContext().diagnose(DiagInvalid);
+      if (!StripDebugInfo(M))
+        report_fatal_error("Failed to strip malformed debug info");
+    }
     return false;
   }
 
@@ -4503,13 +4372,15 @@ FunctionPass *llvm::createVerifierPass(bool FatalErrors) {
 }
 
 char VerifierAnalysis::PassID;
-VerifierAnalysis::Result VerifierAnalysis::run(Module &M) {
+VerifierAnalysis::Result VerifierAnalysis::run(Module &M,
+                                               ModuleAnalysisManager &) {
   Result Res;
   Res.IRBroken = llvm::verifyModule(M, &dbgs(), &Res.DebugInfoBroken);
   return Res;
 }
 
-VerifierAnalysis::Result VerifierAnalysis::run(Function &F) {
+VerifierAnalysis::Result VerifierAnalysis::run(Function &F,
+                                               FunctionAnalysisManager &) {
   return { llvm::verifyFunction(F, &dbgs()), false };
 }
 

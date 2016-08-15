@@ -1394,7 +1394,7 @@ X86AsmParser::ParseIntelBracExpression(unsigned SegReg, SMLoc Start,
     return ErrorOperand(BracLoc, "Expected '[' token!");
   Parser.Lex(); // Eat '['
 
-  SMLoc StartInBrac = Tok.getLoc();
+  SMLoc StartInBrac = Parser.getTok().getLoc();
   // Parse [ Symbol + ImmDisp ] and [ BaseReg + Scale*IndexReg + ImmDisp ].  We
   // may have already parsed an immediate displacement before the bracketed
   // expression.
@@ -1423,7 +1423,10 @@ X86AsmParser::ParseIntelBracExpression(unsigned SegReg, SMLoc Start,
   // Parse struct field access.  Intel requires a dot, but MSVC doesn't.  MSVC
   // will in fact do global lookup the field name inside all global typedefs,
   // but we don't emulate that.
-  if (Tok.getString().find('.') != StringRef::npos) {
+  if ((Parser.getTok().getKind() == AsmToken::Identifier ||
+       Parser.getTok().getKind() == AsmToken::Dot ||
+       Parser.getTok().getKind() == AsmToken::Real) &&
+      Parser.getTok().getString().find('.') != StringRef::npos) {
     const MCExpr *NewDisp;
     if (ParseIntelDotOperator(Disp, NewDisp))
       return nullptr;
@@ -2364,10 +2367,11 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
     static_cast<X86Operand &>(*Operands[0]).setTokenValue(Repl);
   }
 
-  // This is a terrible hack to handle "out[bwl]? %al, (%dx)" ->
+  // This is a terrible hack to handle "out[s]?[bwl]? %al, (%dx)" ->
   // "outb %al, %dx".  Out doesn't take a memory form, but this is a widely
   // documented form in various unofficial manuals, so a lot of code uses it.
-  if ((Name == "outb" || Name == "outw" || Name == "outl" || Name == "out") &&
+  if ((Name == "outb" || Name == "outsb" || Name == "outw" || Name == "outsw" ||
+       Name == "outl" || Name == "outsl" || Name == "out" || Name == "outs") &&
       Operands.size() == 3) {
     X86Operand &Op = (X86Operand &)*Operands.back();
     if (Op.isMem() && Op.Mem.SegReg == 0 &&
@@ -2378,8 +2382,9 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
       Operands.back() = X86Operand::CreateReg(Op.Mem.BaseReg, Loc, Loc);
     }
   }
-  // Same hack for "in[bwl]? (%dx), %al" -> "inb %dx, %al".
-  if ((Name == "inb" || Name == "inw" || Name == "inl" || Name == "in") &&
+  // Same hack for "in[s]?[bwl]? (%dx), %al" -> "inb %dx, %al".
+  if ((Name == "inb" || Name == "insb" || Name == "inw" || Name == "insw" ||
+       Name == "inl" || Name == "insl" || Name == "in" || Name == "ins") &&
       Operands.size() == 3) {
     X86Operand &Op = (X86Operand &)*Operands[1];
     if (Op.isMem() && Op.Mem.SegReg == 0 &&
@@ -2527,60 +2532,7 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
 }
 
 bool X86AsmParser::processInstruction(MCInst &Inst, const OperandVector &Ops) {
-  switch (Inst.getOpcode()) {
-  default: return false;
-  case X86::VMOVZPQILo2PQIrr:
-  case X86::VMOVAPDrr:
-  case X86::VMOVAPDYrr:
-  case X86::VMOVAPSrr:
-  case X86::VMOVAPSYrr:
-  case X86::VMOVDQArr:
-  case X86::VMOVDQAYrr:
-  case X86::VMOVDQUrr:
-  case X86::VMOVDQUYrr:
-  case X86::VMOVUPDrr:
-  case X86::VMOVUPDYrr:
-  case X86::VMOVUPSrr:
-  case X86::VMOVUPSYrr: {
-    if (X86II::isX86_64ExtendedReg(Inst.getOperand(0).getReg()) ||
-        !X86II::isX86_64ExtendedReg(Inst.getOperand(1).getReg()))
-      return false;
-
-    unsigned NewOpc;
-    switch (Inst.getOpcode()) {
-    default: llvm_unreachable("Invalid opcode");
-    case X86::VMOVZPQILo2PQIrr: NewOpc = X86::VMOVPQI2QIrr;   break;
-    case X86::VMOVAPDrr:        NewOpc = X86::VMOVAPDrr_REV;  break;
-    case X86::VMOVAPDYrr:       NewOpc = X86::VMOVAPDYrr_REV; break;
-    case X86::VMOVAPSrr:        NewOpc = X86::VMOVAPSrr_REV;  break;
-    case X86::VMOVAPSYrr:       NewOpc = X86::VMOVAPSYrr_REV; break;
-    case X86::VMOVDQArr:        NewOpc = X86::VMOVDQArr_REV;  break;
-    case X86::VMOVDQAYrr:       NewOpc = X86::VMOVDQAYrr_REV; break;
-    case X86::VMOVDQUrr:        NewOpc = X86::VMOVDQUrr_REV;  break;
-    case X86::VMOVDQUYrr:       NewOpc = X86::VMOVDQUYrr_REV; break;
-    case X86::VMOVUPDrr:        NewOpc = X86::VMOVUPDrr_REV;  break;
-    case X86::VMOVUPDYrr:       NewOpc = X86::VMOVUPDYrr_REV; break;
-    case X86::VMOVUPSrr:        NewOpc = X86::VMOVUPSrr_REV;  break;
-    case X86::VMOVUPSYrr:       NewOpc = X86::VMOVUPSYrr_REV; break;
-    }
-    Inst.setOpcode(NewOpc);
-    return true;
-  }
-  case X86::VMOVSDrr:
-  case X86::VMOVSSrr: {
-    if (X86II::isX86_64ExtendedReg(Inst.getOperand(0).getReg()) ||
-        !X86II::isX86_64ExtendedReg(Inst.getOperand(2).getReg()))
-      return false;
-    unsigned NewOpc;
-    switch (Inst.getOpcode()) {
-    default: llvm_unreachable("Invalid opcode");
-    case X86::VMOVSDrr: NewOpc = X86::VMOVSDrr_REV;   break;
-    case X86::VMOVSSrr: NewOpc = X86::VMOVSSrr_REV;   break;
-    }
-    Inst.setOpcode(NewOpc);
-    return true;
-  }
-  }
+  return false;
 }
 
 static const char *getSubtargetFeatureName(uint64_t Val);

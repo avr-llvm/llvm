@@ -61,6 +61,12 @@ def FeatureFlatAddressSpace : SubtargetFeature<"flat-address-space",
   "Support flat address space"
 >;
 
+def FeatureUnalignedBufferAccess : SubtargetFeature<"unaligned-buffer-access",
+  "UnalignedBufferAccess",
+  "true",
+  "Support unaligned global loads and stores"
+>;
+
 def FeatureXNACK : SubtargetFeature<"xnack",
   "EnableXNACK",
   "true",
@@ -216,12 +222,6 @@ def FeatureDumpCodeLower : SubtargetFeature <"dumpcode",
   "Dump MachineInstrs in the CodeEmitter"
 >;
 
-def FeatureIRStructurizer : SubtargetFeature <"disable-irstructurizer",
-  "EnableIRStructurizer",
-  "false",
-  "Disable IR Structurizer"
->;
-
 def FeaturePromoteAlloca : SubtargetFeature <"promote-alloca",
   "EnablePromoteAlloca",
   "true",
@@ -245,12 +245,6 @@ def FeatureEnableUnsafeDSOffsetFolding : SubtargetFeature <
   "EnableUnsafeDSOffsetFolding",
   "true",
   "Force using DS instruction immediate offsets on SI"
->;
-
-def FeatureIfCvt : SubtargetFeature <"disable-ifcvt",
-  "EnableIfCvt",
-  "false",
-  "Disable the if conversion pass"
 >;
 
 def FeatureEnableSIScheduler : SubtargetFeature<"si-scheduler",
@@ -328,11 +322,18 @@ def FeatureDebuggerInsertNops : SubtargetFeature<
   "Insert one nop instruction for each high level source statement"
 >;
 
-def FeatureDebuggerReserveTrapRegs : SubtargetFeature<
-  "amdgpu-debugger-reserve-trap-regs",
-  "DebuggerReserveTrapVGPRs",
+def FeatureDebuggerReserveRegs : SubtargetFeature<
+  "amdgpu-debugger-reserve-regs",
+  "DebuggerReserveRegs",
   "true",
-  "Reserve VGPRs for trap handler usage"
+  "Reserve registers for debugger usage"
+>;
+
+def FeatureDebuggerEmitPrologue : SubtargetFeature<
+  "amdgpu-debugger-emit-prologue",
+  "DebuggerEmitPrologue",
+  "true",
+  "Emit debugger prologue"
 >;
 
 //===----------------------------------------------------------------------===//

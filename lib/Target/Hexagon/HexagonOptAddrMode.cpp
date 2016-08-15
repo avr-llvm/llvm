@@ -80,8 +80,6 @@ private:
   bool analyzeUses(unsigned DefR, const NodeList &UNodeList,
                    InstrEvalMap &InstrEvalResult, short &SizeInc);
   bool hasRepForm(MachineInstr *MI, unsigned TfrDefR);
-  MachineInstr *getReachedDefMI(NodeAddr<StmtNode *> SN, unsigned OffsetReg,
-                                bool &HasReachingDef);
   bool canRemoveAddasl(NodeAddr<StmtNode *> AddAslSN, MachineInstr *MI,
                        const NodeList &UNodeList);
   void getAllRealUses(NodeAddr<StmtNode *> SN, NodeList &UNodeList);
@@ -126,40 +124,6 @@ bool HexagonOptAddrMode::hasRepForm(MachineInstr *MI, unsigned TfrDefR) {
     return (HII->getAbsoluteForm(MI) >= 0);
 
   return false;
-}
-
-MachineInstr *HexagonOptAddrMode::getReachedDefMI(NodeAddr<StmtNode *> SN,
-                                                  unsigned OffsetReg,
-                                                  bool &HasReachingDef) {
-  MachineInstr *ReachedDefMI = NULL;
-  NodeId RD = 0;
-  for (NodeAddr<UseNode *> UN : SN.Addr->members_if(DFG->IsUse, *DFG)) {
-    RegisterRef UR = UN.Addr->getRegRef();
-    if (OffsetReg == UR.Reg) {
-      RD = UN.Addr->getReachingDef();
-      if (!RD)
-        continue;
-      HasReachingDef = true;
-    }
-  }
-  if (HasReachingDef) {
-    NodeAddr<DefNode *> RDN = DFG->addr<DefNode *>(RD);
-    NodeAddr<StmtNode *> ReachingIA = RDN.Addr->getOwner(*DFG);
-    DEBUG(dbgs() << "\t\t\t[Def Node]: "
-                 << Print<NodeAddr<InstrNode *>>(ReachingIA, *DFG) << "\n");
-    (void)ReachingIA;
-    NodeId ReachedID = RDN.Addr->getReachedDef();
-    if (!ReachedID)
-      return ReachedDefMI;
-
-    NodeAddr<DefNode *> ReachedDN = DFG->addr<DefNode *>(ReachedID);
-    NodeAddr<StmtNode *> ReachedIA = ReachedDN.Addr->getOwner(*DFG);
-    DEBUG(dbgs() << "\t\t\t[Reached Def Node]: "
-                 << Print<NodeAddr<InstrNode *>>(ReachedIA, *DFG) << "\n");
-    ReachedDefMI = ReachedIA.Addr->getCode();
-    DEBUG(dbgs() << "\nReached Def MI === " << *ReachedDefMI << "\n");
-  }
-  return ReachedDefMI;
 }
 
 // Check if addasl instruction can be removed. This is possible only
@@ -231,14 +195,15 @@ bool HexagonOptAddrMode::allValidCandidates(NodeAddr<StmtNode *> SA,
     NodeSet Visited, Defs;
     const auto &ReachingDefs = LV->getAllReachingDefsRec(UR, UN, Visited, Defs);
     if (ReachingDefs.size() > 1) {
-      DEBUG(dbgs() << "*** Multiple Reaching Defs found!!! *** \n");
-      for (auto DI : ReachingDefs) {
-        NodeAddr<UseNode *> DA = DFG->addr<UseNode *>(DI);
-        NodeAddr<StmtNode *> TempIA = DA.Addr->getOwner(*DFG);
-        (void)TempIA;
-        DEBUG(dbgs() << "\t\t[Reaching Def]: "
-                     << Print<NodeAddr<InstrNode *>>(TempIA, *DFG) << "\n");
-      }
+      DEBUG({
+        dbgs() << "*** Multiple Reaching Defs found!!! ***\n";
+        for (auto DI : ReachingDefs) {
+          NodeAddr<UseNode *> DA = DFG->addr<UseNode *>(DI);
+          NodeAddr<StmtNode *> TempIA = DA.Addr->getOwner(*DFG);
+          dbgs() << "\t\t[Reaching Def]: "
+                 << Print<NodeAddr<InstrNode *>>(TempIA, *DFG) << "\n";
+        }
+      });
       return false;
     }
   }
@@ -255,10 +220,11 @@ void HexagonOptAddrMode::getAllRealUses(NodeAddr<StmtNode *> SA,
 
     for (auto UI : UseSet) {
       NodeAddr<UseNode *> UA = DFG->addr<UseNode *>(UI);
-      NodeAddr<StmtNode *> TempIA = UA.Addr->getOwner(*DFG);
-      (void)TempIA;
-      DEBUG(dbgs() << "\t\t\t[Reached Use]: "
-                   << Print<NodeAddr<InstrNode *>>(TempIA, *DFG) << "\n");
+      DEBUG({
+        NodeAddr<StmtNode *> TempIA = UA.Addr->getOwner(*DFG);
+        dbgs() << "\t\t\t[Reached Use]: "
+               << Print<NodeAddr<InstrNode *>>(TempIA, *DFG) << "\n";
+      });
 
       if (UA.Addr->getFlags() & NodeAttrs::PhiRef) {
         NodeAddr<PhiNode *> PA = UA.Addr->getOwner(*DFG);
@@ -582,9 +548,8 @@ bool HexagonOptAddrMode::processBlock(NodeAddr<BlockNode *> BA) {
 
       NodeAddr<StmtNode *> OwnerN = UseN.Addr->getOwner(*DFG);
       MachineInstr *UseMI = OwnerN.Addr->getCode();
-      unsigned BBNum = UseMI->getParent()->getNumber();
-      (void)BBNum;
-      DEBUG(dbgs() << "\t\t[MI <BB#" << BBNum << ">]: " << *UseMI << "\n");
+      DEBUG(dbgs() << "\t\t[MI <BB#" << UseMI->getParent()->getNumber()
+                   << ">]: " << *UseMI << "\n");
 
       int UseMOnum = -1;
       unsigned NumOperands = UseMI->getNumOperands();

@@ -11,7 +11,12 @@
 #define LLVM_DEBUGINFO_PDB_RAW_MAPPEDBLOCKSTREAM_H
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/DebugInfo/PDB/Raw/StreamInterface.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/DebugInfo/CodeView/StreamInterface.h"
+#include "llvm/DebugInfo/PDB/Raw/IPDBStreamData.h"
+#include "llvm/Support/Allocator.h"
+#include "llvm/Support/Endian.h"
 #include "llvm/Support/Error.h"
 #include <cstdint>
 #include <vector>
@@ -19,23 +24,42 @@
 namespace llvm {
 namespace pdb {
 
+class IPDBFile;
 class PDBFile;
 
-class MappedBlockStream : public StreamInterface {
+class MappedBlockStream : public codeview::StreamInterface {
 public:
-  MappedBlockStream(uint32_t StreamIdx, const PDBFile &File);
+  Error readBytes(uint32_t Offset, uint32_t Size,
+                  ArrayRef<uint8_t> &Buffer) const override;
+  Error readLongestContiguousChunk(uint32_t Offset,
+                                   ArrayRef<uint8_t> &Buffer) const override;
+  Error writeBytes(uint32_t Offset, ArrayRef<uint8_t> Buffer) const override;
 
-  Error readBytes(uint32_t Offset,
-                  MutableArrayRef<uint8_t> Buffer) const override;
-  Error getArrayRef(uint32_t Offset, ArrayRef<uint8_t> &Buffer,
-                    uint32_t Length) const override;
+  uint32_t getLength() const override;
+  Error commit() const override;
 
-  uint32_t getLength() const override { return StreamLength; }
+  uint32_t getNumBytesCopied() const;
 
-private:
-  uint32_t StreamLength;
-  std::vector<uint32_t> BlockList;
-  const PDBFile &Pdb;
+  static Expected<std::unique_ptr<MappedBlockStream>>
+  createIndexedStream(uint32_t StreamIdx, const IPDBFile &File);
+  static Expected<std::unique_ptr<MappedBlockStream>>
+  createDirectoryStream(const PDBFile &File);
+
+  llvm::BumpPtrAllocator &getAllocator() { return Pool; }
+
+protected:
+  MappedBlockStream(std::unique_ptr<IPDBStreamData> Data, const IPDBFile &File);
+
+  Error readBytes(uint32_t Offset, MutableArrayRef<uint8_t> Buffer) const;
+  bool tryReadContiguously(uint32_t Offset, uint32_t Size,
+                           ArrayRef<uint8_t> &Buffer) const;
+
+  const IPDBFile &Pdb;
+  std::unique_ptr<IPDBStreamData> Data;
+
+  typedef MutableArrayRef<uint8_t> CacheEntry;
+  mutable llvm::BumpPtrAllocator Pool;
+  mutable DenseMap<uint32_t, std::vector<CacheEntry>> CacheMap;
 };
 
 } // end namespace pdb

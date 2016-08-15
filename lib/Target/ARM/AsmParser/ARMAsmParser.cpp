@@ -296,6 +296,9 @@ class ARMAsmParser : public MCTargetAsmParser {
   bool hasV8_1aOps() const {
     return getSTI().getFeatureBits()[ARM::HasV8_1aOps];
   }
+  bool hasRAS() const {
+    return getSTI().getFeatureBits()[ARM::FeatureRAS];
+  }
 
   void SwitchMode() {
     MCSubtargetInfo &STI = copySTI();
@@ -673,6 +676,24 @@ public:
   bool isImm() const override {
     return Kind == k_Immediate;
   }
+
+  bool isARMBranchTarget() const {
+    if (!isImm()) return false;
+
+    if (const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(getImm()))
+      return CE->getValue() % 4 == 0;
+    return true;
+  }
+
+
+  bool isThumbBranchTarget() const {
+    if (!isImm()) return false;
+
+    if (const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(getImm()))
+      return CE->getValue() % 2 == 0;
+    return true;
+  }
+
   // checks whether this operand is an unsigned offset which fits is a field
   // of specified width and scaled by a specific number of bits
   template<unsigned width, unsigned scale>
@@ -1710,7 +1731,7 @@ public:
     if (!CE) return false;
     uint64_t Value = CE->getValue();
     // i64 value with each byte being either 0 or 0xff.
-    for (unsigned i = 0; i < 8; ++i)
+    for (unsigned i = 0; i < 8; ++i, Value >>= 8)
       if ((Value & 0xff) != 0 && (Value & 0xff) != 0xff) return false;
     return true;
   }
@@ -1723,6 +1744,16 @@ public:
       Inst.addOperand(MCOperand::createImm(CE->getValue()));
     else
       Inst.addOperand(MCOperand::createExpr(Expr));
+  }
+
+  void addARMBranchTargetOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+    addExpr(Inst, getImm());
+  }
+
+  void addThumbBranchTargetOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+    addExpr(Inst, getImm());
   }
 
   void addCondCodeOperands(MCInst &Inst, unsigned N) const {
@@ -5417,6 +5448,7 @@ StringRef ARMAsmParser::splitMnemonic(StringRef Mnemonic,
         Mnemonic == "fsts" || Mnemonic == "fcpys" || Mnemonic == "fdivs" ||
         Mnemonic == "fmuls" || Mnemonic == "fcmps" || Mnemonic == "fcmpzs" ||
         Mnemonic == "vfms" || Mnemonic == "vfnms" || Mnemonic == "fconsts" ||
+        Mnemonic == "bxns" || Mnemonic == "blxns" ||
         (Mnemonic == "movs" && isThumb()))) {
     Mnemonic = Mnemonic.slice(0, Mnemonic.size() - 1);
     CarrySetting = true;
@@ -6510,6 +6542,20 @@ bool ARMAsmParser::validateInstruction(MCInst &Inst,
       return Error(
           Op.getStartLoc(),
           "immediate expression for mov requires :lower16: or :upper16");
+    break;
+  }
+  case ARM::HINT:
+  case ARM::t2HINT: {
+    if (hasRAS()) {
+      // ESB is not predicable (pred must be AL)
+      unsigned Imm8 = Inst.getOperand(0).getImm();
+      unsigned Pred = Inst.getOperand(1).getImm();
+      if (Imm8 == 0x10 && Pred != ARMCC::AL)
+        return Error(Operands[1]->getStartLoc(), "instruction 'esb' is not "
+                                                 "predicable, but condition "
+                                                 "code specified");
+    }
+    // Without the RAS extension, this behaves as any other unallocated hint.
     break;
   }
   }
@@ -10054,7 +10100,7 @@ bool ARMAsmParser::parseDirectiveObjectArch(SMLoc L) {
 
   StringRef Arch = Parser.getTok().getString();
   SMLoc ArchLoc = Parser.getTok().getLoc();
-  getLexer().Lex();
+  Lex();
 
   unsigned ID = ARM::parseArch(Arch);
 
@@ -10155,6 +10201,7 @@ static const struct {
   // FIXME: Only available in A-class, isel not predicated
   { ARM::AEK_VIRT, Feature_HasV7, {ARM::FeatureVirtualization} },
   { ARM::AEK_FP16, Feature_HasV8_2a, {ARM::FeatureFPARMv8, ARM::FeatureFullFP16} },
+  { ARM::AEK_RAS, Feature_HasV8, {ARM::FeatureRAS} },
   // FIXME: Unsupported extensions.
   { ARM::AEK_OS, Feature_None, {} },
   { ARM::AEK_IWMMXT, Feature_None, {} },
@@ -10176,7 +10223,7 @@ bool ARMAsmParser::parseDirectiveArchExtension(SMLoc L) {
 
   StringRef Name = Parser.getTok().getString();
   SMLoc ExtLoc = Parser.getTok().getLoc();
-  getLexer().Lex();
+  Lex();
 
   bool EnableFeature = true;
   if (Name.startswith_lower("no")) {

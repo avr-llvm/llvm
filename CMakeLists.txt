@@ -1,6 +1,6 @@
 # See docs/CMake.html for instructions about how to build LLVM with CMake.
 
-cmake_minimum_required(VERSION 2.8.12.2)
+cmake_minimum_required(VERSION 3.4.3)
 
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   message(STATUS "No build type selected, default to Debug")
@@ -20,12 +20,6 @@ if (POLICY CMP0051)
   cmake_policy(SET CMP0051 OLD)
 endif()
 
-if(CMAKE_VERSION VERSION_LESS 3.1.20141117)
-  set(cmake_3_2_USES_TERMINAL)
-else()
-  set(cmake_3_2_USES_TERMINAL USES_TERMINAL)
-endif()
-
 if(NOT DEFINED LLVM_VERSION_MAJOR)
   set(LLVM_VERSION_MAJOR 3)
 endif()
@@ -36,7 +30,7 @@ if(NOT DEFINED LLVM_VERSION_PATCH)
   set(LLVM_VERSION_PATCH 0)
 endif()
 if(NOT DEFINED LLVM_VERSION_SUFFIX)
-  set(LLVM_VERSION_SUFFIX svn)
+  set(LLVM_VERSION_SUFFIX "")
 endif()
 
 if (POLICY CMP0048)
@@ -75,8 +69,8 @@ endif()
 set(LLVM_PARALLEL_COMPILE_JOBS "" CACHE STRING
   "Define the maximum number of concurrent compilation jobs.")
 if(LLVM_PARALLEL_COMPILE_JOBS)
-  if(CMAKE_VERSION VERSION_LESS 3.0 OR NOT CMAKE_MAKE_PROGRAM MATCHES "ninja")
-    message(WARNING "Job pooling is only available with Ninja generators and CMake 3.0 and later.")
+  if(NOT CMAKE_MAKE_PROGRAM MATCHES "ninja")
+    message(WARNING "Job pooling is only available with Ninja generators.")
   else()
     set_property(GLOBAL APPEND PROPERTY JOB_POOLS compile_job_pool=${LLVM_PARALLEL_COMPILE_JOBS})
     set(CMAKE_JOB_POOL_COMPILE compile_job_pool)
@@ -91,8 +85,8 @@ endif()
 set(LLVM_PARALLEL_LINK_JOBS "" CACHE STRING
   "Define the maximum number of concurrent link jobs.")
 if(LLVM_PARALLEL_LINK_JOBS)
-  if(CMAKE_VERSION VERSION_LESS 3.0 OR NOT CMAKE_MAKE_PROGRAM MATCHES "ninja")
-    message(WARNING "Job pooling is only available with Ninja generators and CMake 3.0 and later.")
+  if(NOT CMAKE_MAKE_PROGRAM MATCHES "ninja")
+    message(WARNING "Job pooling is only available with Ninja generators.")
   else()
     set_property(GLOBAL APPEND PROPERTY JOB_POOLS link_job_pool=${LLVM_PARALLEL_LINK_JOBS})
     set(CMAKE_JOB_POOL_LINK link_job_pool)
@@ -201,6 +195,9 @@ endif()
 
 set(LLVM_LIBDIR_SUFFIX "" CACHE STRING "Define suffix of library directory name (32/64)" )
 
+set(LLVM_TOOLS_INSTALL_DIR "bin" CACHE STRING "Path for binary subdirectory (defaults to 'bin')")
+mark_as_advanced(LLVM_TOOLS_INSTALL_DIR)
+
 # They are used as destination of target generators.
 set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
 set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib${LLVM_LIBDIR_SUFFIX})
@@ -287,6 +284,13 @@ include(AddLLVMDefinitions)
 option(LLVM_ENABLE_PIC "Build Position-Independent Code" ON)
 option(LLVM_ENABLE_WARNINGS "Enable compiler warnings." ON)
 option(LLVM_ENABLE_MODULES "Compile with C++ modules enabled." OFF)
+if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+  option(LLVM_ENABLE_MODULE_DEBUGGING "Compile with -gmodules." ON)
+  option(LLVM_ENABLE_LOCAL_SUBMODULE_VISIBILITY "Compile with -fmodules-local-submodule-visibility." OFF)
+else()
+  option(LLVM_ENABLE_MODULE_DEBUGGING "Compile with -gmodules." OFF)
+  option(LLVM_ENABLE_LOCAL_SUBMODULE_VISIBILITY "Compile with -fmodules-local-submodule-visibility." ON)
+endif()
 option(LLVM_ENABLE_CXX1Y "Compile with C++1y enabled." OFF)
 option(LLVM_ENABLE_LIBCXX "Use libc++ if available." OFF)
 option(LLVM_ENABLE_LIBCXXABI "Use libc++abi when using libc++." OFF)
@@ -388,6 +392,8 @@ option(LLVM_BUILD_TOOLS
   "Build the LLVM tools. If OFF, just generate build targets." ON)
 
 option(LLVM_INCLUDE_UTILS "Generate build targets for the LLVM utils." ON)
+option(LLVM_BUILD_UTILS
+  "Build LLVM utility binaries. If OFF, just generate build targets." ON)
 
 option(LLVM_BUILD_RUNTIME
   "Build the LLVM runtime libraries." ON)
@@ -432,6 +438,21 @@ if (MSVC_IDE AND NOT (MSVC_VERSION LESS 1900))
   option(LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION "Configure project to use Visual Studio native visualizers" TRUE)
 else()
   set(LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION FALSE CACHE INTERNAL "For Visual Studio 2013, manually copy natvis files to Documents\\Visual Studio 2013\\Visualizers" FORCE)
+endif()
+
+if (LLVM_BUILD_INSTRUMENTED OR LLVM_BUILD_INSTRUMENTED_COVERAGE)
+  if(NOT LLVM_PROFILE_MERGE_POOL_SIZE)
+    # A pool size of 1-2 is probably sufficient on a SSD. 3-4 should be fine
+    # for spining disks. Anything higher may only help on slower mediums.
+    set(LLVM_PROFILE_MERGE_POOL_SIZE "4")
+  endif()
+  if(NOT LLVM_PROFILE_FILE_PATTERN)
+    if(NOT LLVM_PROFILE_DATA_DIR)
+      set(LLVM_PROFILE_FILE_PATTERN "%${LLVM_PROFILE_MERGE_POOL_SIZE}m.profraw")
+    else()
+      file(TO_NATIVE_PATH "${LLVM_PROFILE_DATA_DIR}/%${LLVM_PROFILE_MERGE_POOL_SIZE}m.profraw" LLVM_PROFILE_FILE_PATTERN)
+    endif()
+  endif()
 endif()
 
 # All options referred to from HandleLLVMOptions have to be specified
@@ -682,6 +703,15 @@ add_subdirectory(lib/TableGen)
 
 add_subdirectory(utils/TableGen)
 
+# Force target to be built as soon as possible. Clang modules builds depend
+# header-wise on it as they ship all headers from the umbrella folders. Building
+# an entire module might include header, which depends on intrinsics_gen. This
+# should be right after LLVMSupport and LLVMTableGen otherwise we introduce a
+# circular dependence.
+if (LLVM_ENABLE_MODULES)
+  list(APPEND LLVM_COMMON_DEPENDS intrinsics_gen)
+endif(LLVM_ENABLE_MODULES)
+
 add_subdirectory(include/llvm)
 
 add_subdirectory(lib)
@@ -721,6 +751,8 @@ if( LLVM_INCLUDE_TOOLS )
   add_subdirectory(tools)
 endif()
 
+add_subdirectory(runtimes)
+
 if( LLVM_INCLUDE_EXAMPLES )
   add_subdirectory(examples)
 endif()
@@ -731,7 +763,8 @@ if( LLVM_INCLUDE_TESTS )
     llvm_ExternalProject_Add(test-suite ${LLVM_MAIN_SRC_DIR}/projects/test-suite
       USE_TOOLCHAIN
       EXCLUDE_FROM_ALL
-      NO_INSTALL)
+      NO_INSTALL
+      ALWAYS_CLEAN)
   endif()
   add_subdirectory(test)
   add_subdirectory(unittests)

@@ -11,6 +11,8 @@
 #define LLVM_DEBUGINFO_PDB_RAW_MODINFO_H
 
 #include "llvm/ADT/StringRef.h"
+#include "llvm/DebugInfo/CodeView/StreamArray.h"
+#include "llvm/DebugInfo/CodeView/StreamRef.h"
 #include <cstdint>
 #include <vector>
 
@@ -22,8 +24,11 @@ private:
   struct FileLayout;
 
 public:
-  ModInfo(const uint8_t *Bytes);
+  ModInfo();
+  ModInfo(const ModInfo &Info);
   ~ModInfo();
+
+  static Error initialize(codeview::StreamRef Stream, ModInfo &Info);
 
   bool hasECInfo() const;
   uint16_t getTypeServerIndex() const;
@@ -38,34 +43,37 @@ public:
   StringRef getModuleName() const;
   StringRef getObjFileName() const;
 
+  uint32_t getRecordLength() const;
+
 private:
+  StringRef ModuleName;
+  StringRef ObjFileName;
   const FileLayout *Layout;
 };
 
 struct ModuleInfoEx {
-  ModuleInfoEx(ModInfo Module) : Info(Module) {}
+  ModuleInfoEx(const ModInfo &Info) : Info(Info) {}
+  ModuleInfoEx(const ModuleInfoEx &Ex)
+      : Info(Ex.Info), SourceFiles(Ex.SourceFiles) {}
 
   ModInfo Info;
   std::vector<StringRef> SourceFiles;
 };
 
-class ModInfoIterator {
-public:
-  ModInfoIterator(const uint8_t *Stream);
-  ModInfoIterator(const ModInfoIterator &Other);
-
-  ModInfo operator*();
-  ModInfoIterator &operator++();
-  ModInfoIterator operator++(int);
-  bool operator==(const ModInfoIterator &Other);
-  bool operator!=(const ModInfoIterator &Other);
-  ModInfoIterator &operator=(const ModInfoIterator &Other);
-
-private:
-  const uint8_t *Bytes;
-};
-
 } // end namespace pdb
+
+namespace codeview {
+template <> struct VarStreamArrayExtractor<pdb::ModInfo> {
+  Error operator()(StreamRef Stream, uint32_t &Length,
+                   pdb::ModInfo &Info) const {
+    if (auto EC = pdb::ModInfo::initialize(Stream, Info))
+      return EC;
+    Length = Info.getRecordLength();
+    return Error::success();
+  }
+};
+}
+
 } // end namespace llvm
 
 #endif // LLVM_DEBUGINFO_PDB_RAW_MODINFO_H
