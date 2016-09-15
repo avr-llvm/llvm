@@ -14,6 +14,7 @@
 
 #include "Unix.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Demangle/Demangle.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FileUtilities.h"
@@ -32,9 +33,6 @@
 #endif
 #if HAVE_SYS_STAT_H
 #include <sys/stat.h>
-#endif
-#if HAVE_CXXABI_H
-#include <cxxabi.h>
 #endif
 #if HAVE_DLFCN_H
 #include <dlfcn.h>
@@ -120,14 +118,15 @@ static void RegisterHandler(int Signal) {
 }
 
 #if defined(HAVE_SIGALTSTACK)
-// Hold onto the old alternate signal stack so that it's not reported as a leak.
-// We don't make any attempt to remove our alt signal stack if we remove our
-// signal handlers; that can't be done reliably if someone else is also trying
-// to do the same thing.
+// Hold onto both the old and new alternate signal stack so that it's not
+// reported as a leak. We don't make any attempt to remove our alt signal
+// stack if we remove our signal handlers; that can't be done reliably if
+// someone else is also trying to do the same thing.
 static stack_t OldAltStack;
+static void* NewAltStackPointer;
 
 static void CreateSigAltStack() {
-  const size_t AltStackSize = MINSIGSTKSZ + 8192;
+  const size_t AltStackSize = MINSIGSTKSZ + 64 * 1024;
 
   // If we're executing on the alternate stack, or we already have an alternate
   // signal stack that we're happy with, there's nothing for us to do. Don't
@@ -140,6 +139,7 @@ static void CreateSigAltStack() {
 
   stack_t AltStack = {};
   AltStack.ss_sp = reinterpret_cast<char *>(malloc(AltStackSize));
+  NewAltStackPointer = AltStack.ss_sp; // Save to avoid reporting a leak.
   AltStack.ss_size = AltStackSize;
   if (sigaltstack(&AltStack, &OldAltStack) != 0)
     free(AltStack.ss_sp);
@@ -284,7 +284,7 @@ bool llvm::sys::RemoveFileOnSignal(StringRef Filename,
 void llvm::sys::DontRemoveFileOnSignal(StringRef Filename) {
   sys::SmartScopedLock<true> Guard(*SignalsMutex);
   std::vector<std::string>::reverse_iterator RI =
-    std::find(FilesToRemove->rbegin(), FilesToRemove->rend(), Filename);
+      find(reverse(*FilesToRemove), Filename);
   std::vector<std::string>::iterator I = FilesToRemove->end();
   if (RI != FilesToRemove->rend())
     I = FilesToRemove->erase(RI.base()-1);
@@ -441,12 +441,8 @@ void llvm::sys::PrintStackTrace(raw_ostream &OS) {
 
     if (dlinfo.dli_sname != nullptr) {
       OS << ' ';
-#  if HAVE_CXXABI_H
       int res;
-      char* d = abi::__cxa_demangle(dlinfo.dli_sname, nullptr, nullptr, &res);
-#  else
-      char* d = NULL;
-#  endif
+      char* d = itaniumDemangle(dlinfo.dli_sname, nullptr, nullptr, &res);
       if (!d) OS << dlinfo.dli_sname;
       else    OS << d;
       free(d);

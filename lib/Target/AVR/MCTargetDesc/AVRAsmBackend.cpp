@@ -494,7 +494,7 @@ void AVRAsmBackend::processFixupValue(const MCAssembler &Asm,
 }
 
 MCAsmBackend *createAVRAsmBackend(const Target &T, const MCRegisterInfo &MRI,
-                                  const Triple &TT, StringRef CPU) {
+                                  const Triple &TT, StringRef CPU, const llvm::MCTargetOptions &TO) {
   return new AVRAsmBackend(T, TT.getOS());
 }
 

@@ -184,13 +184,12 @@ bool AMDGPUPromoteAlloca::runOnFunction(Function &F) {
 
   // TODO: Have some sort of hint or other heuristics to guess occupancy based
   // on other factors..
-  unsigned OccupancyHint
-    = AMDGPU::getIntegerAttribute(F, "amdgpu-max-waves-per-eu", 0);
+  unsigned OccupancyHint = ST.getWavesPerEU(F).second;
   if (OccupancyHint == 0)
     OccupancyHint = 7;
 
   // Clamp to max value.
-  OccupancyHint = std::min(OccupancyHint, ST.getMaxWavesPerCU());
+  OccupancyHint = std::min(OccupancyHint, ST.getMaxWavesPerEU());
 
   // Check the hint but ignore it if it's obviously wrong from the existing LDS
   // usage.
@@ -535,7 +534,7 @@ bool AMDGPUPromoteAlloca::collectUsesWithPtrTypes(
   std::vector<Value*> &WorkList) const {
 
   for (User *User : Val->users()) {
-    if (std::find(WorkList.begin(), WorkList.end(), User) != WorkList.end())
+    if (is_contained(WorkList, User))
       continue;
 
     if (CallInst *CI = dyn_cast<CallInst>(User)) {
@@ -550,7 +549,7 @@ bool AMDGPUPromoteAlloca::collectUsesWithPtrTypes(
     if (UseInst->getOpcode() == Instruction::PtrToInt)
       return false;
 
-    if (LoadInst *LI = dyn_cast_or_null<LoadInst>(UseInst)) {
+    if (LoadInst *LI = dyn_cast<LoadInst>(UseInst)) {
       if (LI->isVolatile())
         return false;
 
@@ -564,11 +563,10 @@ bool AMDGPUPromoteAlloca::collectUsesWithPtrTypes(
       // Reject if the stored value is not the pointer operand.
       if (SI->getPointerOperand() != Val)
         return false;
-    } else if (AtomicRMWInst *RMW = dyn_cast_or_null<AtomicRMWInst>(UseInst)) {
+    } else if (AtomicRMWInst *RMW = dyn_cast<AtomicRMWInst>(UseInst)) {
       if (RMW->isVolatile())
         return false;
-    } else if (AtomicCmpXchgInst *CAS
-               = dyn_cast_or_null<AtomicCmpXchgInst>(UseInst)) {
+    } else if (AtomicCmpXchgInst *CAS = dyn_cast<AtomicCmpXchgInst>(UseInst)) {
       if (CAS->isVolatile())
         return false;
     }
@@ -651,9 +649,11 @@ void AMDGPUPromoteAlloca::handleAlloca(AllocaInst &I) {
   if (AMDGPU::isShader(ContainingFunction.getCallingConv()))
     return;
 
+  const AMDGPUSubtarget &ST =
+    TM->getSubtarget<AMDGPUSubtarget>(ContainingFunction);
   // FIXME: We should also try to get this value from the reqd_work_group_size
   // function attribute if it is available.
-  unsigned WorkGroupSize = AMDGPU::getMaximumWorkGroupSize(ContainingFunction);
+  unsigned WorkGroupSize = ST.getFlatWorkGroupSizes(ContainingFunction).second;
 
   const DataLayout &DL = Mod->getDataLayout();
 

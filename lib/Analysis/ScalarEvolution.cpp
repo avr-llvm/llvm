@@ -3378,8 +3378,28 @@ bool ScalarEvolution::containsAddRecurrence(const SCEV *S) {
   return F.FoundOne;
 }
 
-/// Return the Value set from S.
-SetVector<Value *> *ScalarEvolution::getSCEVValues(const SCEV *S) {
+/// Try to split a SCEVAddExpr into a pair of {SCEV, ConstantInt}.
+/// If \p S is a SCEVAddExpr and is composed of a sub SCEV S' and an
+/// offset I, then return {S', I}, else return {\p S, nullptr}.
+static std::pair<const SCEV *, ConstantInt *> splitAddExpr(const SCEV *S) {
+  const auto *Add = dyn_cast<SCEVAddExpr>(S);
+  if (!Add)
+    return {S, nullptr};
+
+  if (Add->getNumOperands() != 2)
+    return {S, nullptr};
+
+  auto *ConstOp = dyn_cast<SCEVConstant>(Add->getOperand(0));
+  if (!ConstOp)
+    return {S, nullptr};
+
+  return {Add->getOperand(1), ConstOp->getValue()};
+}
+
+/// Return the ValueOffsetPair set for \p S. \p S can be represented
+/// by the value and offset from any ValueOffsetPair in the set.
+SetVector<ScalarEvolution::ValueOffsetPair> *
+ScalarEvolution::getSCEVValues(const SCEV *S) {
   ExprValueMapType::iterator SI = ExprValueMap.find_as(S);
   if (SI == ExprValueMap.end())
     return nullptr;
@@ -3387,24 +3407,31 @@ SetVector<Value *> *ScalarEvolution::getSCEVValues(const SCEV *S) {
   if (VerifySCEVMap) {
     // Check there is no dangling Value in the set returned.
     for (const auto &VE : SI->second)
-      assert(ValueExprMap.count(VE));
+      assert(ValueExprMap.count(VE.first));
   }
 #endif
   return &SI->second;
 }
 
-/// Erase Value from ValueExprMap and ExprValueMap.  If ValueExprMap.erase(V) is
-/// not used together with forgetMemoizedResults(S), eraseValueFromMap should be
-/// used instead to ensure whenever V->S is removed from ValueExprMap, V is also
-/// removed from the set of ExprValueMap[S].
+/// Erase Value from ValueExprMap and ExprValueMap. ValueExprMap.erase(V)
+/// cannot be used separately. eraseValueFromMap should be used to remove
+/// V from ValueExprMap and ExprValueMap at the same time.
 void ScalarEvolution::eraseValueFromMap(Value *V) {
   ValueExprMapType::iterator I = ValueExprMap.find_as(V);
   if (I != ValueExprMap.end()) {
     const SCEV *S = I->second;
-    SetVector<Value *> *SV = getSCEVValues(S);
-    // Remove V from the set of ExprValueMap[S]
-    if (SV)
-      SV->remove(V);
+    // Remove {V, 0} from the set of ExprValueMap[S]
+    if (SetVector<ValueOffsetPair> *SV = getSCEVValues(S))
+      SV->remove({V, nullptr});
+
+    // Remove {V, Offset} from the set of ExprValueMap[Stripped]
+    const SCEV *Stripped;
+    ConstantInt *Offset;
+    std::tie(Stripped, Offset) = splitAddExpr(S);
+    if (Offset != nullptr) {
+      if (SetVector<ValueOffsetPair> *SV = getSCEVValues(Stripped))
+        SV->remove({V, Offset});
+    }
     ValueExprMap.erase(V);
   }
 }
@@ -3419,11 +3446,26 @@ const SCEV *ScalarEvolution::getSCEV(Value *V) {
     S = createSCEV(V);
     // During PHI resolution, it is possible to create two SCEVs for the same
     // V, so it is needed to double check whether V->S is inserted into
-    // ValueExprMap before insert S->V into ExprValueMap.
+    // ValueExprMap before insert S->{V, 0} into ExprValueMap.
     std::pair<ValueExprMapType::iterator, bool> Pair =
         ValueExprMap.insert({SCEVCallbackVH(V, this), S});
-    if (Pair.second)
-      ExprValueMap[S].insert(V);
+    if (Pair.second) {
+      ExprValueMap[S].insert({V, nullptr});
+
+      // If S == Stripped + Offset, add Stripped -> {V, Offset} into
+      // ExprValueMap.
+      const SCEV *Stripped = S;
+      ConstantInt *Offset = nullptr;
+      std::tie(Stripped, Offset) = splitAddExpr(S);
+      // If stripped is SCEVUnknown, don't bother to save
+      // Stripped -> {V, offset}. It doesn't simplify and sometimes even
+      // increase the complexity of the expansion code.
+      // If V is GetElementPtrInst, don't save Stripped -> {V, offset}
+      // because it may generate add/sub instead of GEP in SCEV expansion.
+      if (Offset != nullptr && !isa<SCEVUnknown>(Stripped) &&
+          !isa<GetElementPtrInst>(V))
+        ExprValueMap[Stripped].insert({V, Offset});
+    }
   }
   return S;
 }
@@ -3436,8 +3478,8 @@ const SCEV *ScalarEvolution::getExistingSCEV(Value *V) {
     const SCEV *S = I->second;
     if (checkValidity(S))
       return S;
+    eraseValueFromMap(V);
     forgetMemoizedResults(S);
-    ValueExprMap.erase(I);
   }
   return nullptr;
 }
@@ -3675,8 +3717,8 @@ void ScalarEvolution::forgetSymbolicName(Instruction *PN, const SCEV *SymName) {
       if (!isa<PHINode>(I) ||
           !isa<SCEVUnknown>(Old) ||
           (I != PN && Old == SymName)) {
+        eraseValueFromMap(It->first);
         forgetMemoizedResults(Old);
-        ValueExprMap.erase(It);
       }
     }
 
@@ -4055,7 +4097,7 @@ const SCEV *ScalarEvolution::createAddRecFromPHI(PHINode *PN) {
     // to create an AddRecExpr for this PHI node. We can not keep this temporary
     // as it will prevent later (possibly simpler) SCEV expressions to be added
     // to the ValueExprMap.
-    ValueExprMap.erase(PN);
+    eraseValueFromMap(PN);
   }
 
   return nullptr;
@@ -4168,7 +4210,9 @@ static bool BrPHIToSelect(DominatorTree &DT, BranchInst *BI, PHINode *Merge,
 }
 
 const SCEV *ScalarEvolution::createNodeFromSelectLikePHI(PHINode *PN) {
-  if (PN->getNumIncomingValues() == 2) {
+  auto IsReachable =
+      [&](BasicBlock *BB) { return DT.isReachableFromEntry(BB); };
+  if (PN->getNumIncomingValues() == 2 && all_of(PN->blocks(), IsReachable)) {
     const Loop *L = LI.getLoopFor(PN->getParent());
 
     // We don't want to break LCSSA, even in a SCEV expression tree.
@@ -4244,7 +4288,7 @@ const SCEV *ScalarEvolution::createNodeForSelectOrPHI(Instruction *I,
   case ICmpInst::ICMP_SLT:
   case ICmpInst::ICMP_SLE:
     std::swap(LHS, RHS);
-  // fall through
+    LLVM_FALLTHROUGH;
   case ICmpInst::ICMP_SGT:
   case ICmpInst::ICMP_SGE:
     // a >s b ? a+x : b+x  ->  smax(a, b)+x
@@ -4267,7 +4311,7 @@ const SCEV *ScalarEvolution::createNodeForSelectOrPHI(Instruction *I,
   case ICmpInst::ICMP_ULT:
   case ICmpInst::ICMP_ULE:
     std::swap(LHS, RHS);
-  // fall through
+    LLVM_FALLTHROUGH;
   case ICmpInst::ICMP_UGT:
   case ICmpInst::ICMP_UGE:
     // a >u b ? a+x : b+x  ->  umax(a, b)+x
@@ -4822,6 +4866,10 @@ bool ScalarEvolution::isSCEVExprNeverPoison(const Instruction *I) {
   // from different loops, so that we know which loop to prove that I is
   // executed in.
   for (unsigned OpIndex = 0; OpIndex < I->getNumOperands(); ++OpIndex) {
+    // I could be an extractvalue from a call to an overflow intrinsic.
+    // TODO: We can do better here in some cases.
+    if (!isSCEVable(I->getOperand(OpIndex)->getType()))
+      return false;
     const SCEV *Op = getSCEV(I->getOperand(OpIndex));
     if (auto *AddRec = dyn_cast<SCEVAddRecExpr>(Op)) {
       bool AllOtherOpsLoopInvariant = true;
@@ -5431,8 +5479,8 @@ ScalarEvolution::getBackedgeTakenInfo(const Loop *L) {
         // case, createNodeForPHI will perform the necessary updates on its
         // own when it gets to that point.
         if (!isa<PHINode>(I) || !isa<SCEVUnknown>(Old)) {
+          eraseValueFromMap(It->first);
           forgetMemoizedResults(Old);
-          ValueExprMap.erase(It);
         }
         if (PHINode *PN = dyn_cast<PHINode>(I))
           ConstantEvolutionLoopExitValue.erase(PN);
@@ -5477,8 +5525,8 @@ void ScalarEvolution::forgetLoop(const Loop *L) {
     ValueExprMapType::iterator It =
       ValueExprMap.find_as(static_cast<Value *>(I));
     if (It != ValueExprMap.end()) {
+      eraseValueFromMap(It->first);
       forgetMemoizedResults(It->second);
-      ValueExprMap.erase(It);
       if (PHINode *PN = dyn_cast<PHINode>(I))
         ConstantEvolutionLoopExitValue.erase(PN);
     }
@@ -5511,8 +5559,8 @@ void ScalarEvolution::forgetValue(Value *V) {
     ValueExprMapType::iterator It =
       ValueExprMap.find_as(static_cast<Value *>(I));
     if (It != ValueExprMap.end()) {
+      eraseValueFromMap(It->first);
       forgetMemoizedResults(It->second);
-      ValueExprMap.erase(It);
       if (PHINode *PN = dyn_cast<PHINode>(I))
         ConstantEvolutionLoopExitValue.erase(PN);
     }
@@ -8233,9 +8281,8 @@ bool ScalarEvolution::splitBinaryAdd(const SCEV *Expr,
   return true;
 }
 
-bool ScalarEvolution::computeConstantDifference(const SCEV *Less,
-                                                const SCEV *More,
-                                                APInt &C) {
+Optional<APInt> ScalarEvolution::computeConstantDifference(const SCEV *More,
+                                                           const SCEV *Less) {
   // We avoid subtracting expressions here because this function is usually
   // fairly deep in the call stack (i.e. is called many times).
 
@@ -8244,15 +8291,15 @@ bool ScalarEvolution::computeConstantDifference(const SCEV *Less,
     const auto *MAR = cast<SCEVAddRecExpr>(More);
 
     if (LAR->getLoop() != MAR->getLoop())
-      return false;
+      return None;
 
     // We look at affine expressions only; not for correctness but to keep
     // getStepRecurrence cheap.
     if (!LAR->isAffine() || !MAR->isAffine())
-      return false;
+      return None;
 
     if (LAR->getStepRecurrence(*this) != MAR->getStepRecurrence(*this))
-      return false;
+      return None;
 
     Less = LAR->getStart();
     More = MAR->getStart();
@@ -8263,27 +8310,22 @@ bool ScalarEvolution::computeConstantDifference(const SCEV *Less,
   if (isa<SCEVConstant>(Less) && isa<SCEVConstant>(More)) {
     const auto &M = cast<SCEVConstant>(More)->getAPInt();
     const auto &L = cast<SCEVConstant>(Less)->getAPInt();
-    C = M - L;
-    return true;
+    return M - L;
   }
 
   const SCEV *L, *R;
   SCEV::NoWrapFlags Flags;
   if (splitBinaryAdd(Less, L, R, Flags))
     if (const auto *LC = dyn_cast<SCEVConstant>(L))
-      if (R == More) {
-        C = -(LC->getAPInt());
-        return true;
-      }
+      if (R == More)
+        return -(LC->getAPInt());
 
   if (splitBinaryAdd(More, L, R, Flags))
     if (const auto *LC = dyn_cast<SCEVConstant>(L))
-      if (R == Less) {
-        C = LC->getAPInt();
-        return true;
-      }
+      if (R == Less)
+        return LC->getAPInt();
 
-  return false;
+  return None;
 }
 
 bool ScalarEvolution::isImpliedCondOperandsViaNoOverflow(
@@ -8340,22 +8382,21 @@ bool ScalarEvolution::isImpliedCondOperandsViaNoOverflow(
   // neither necessary nor sufficient to prove "(FoundLHS + C) s< (FoundRHS +
   // C)".
 
-  APInt LDiff, RDiff;
-  if (!computeConstantDifference(FoundLHS, LHS, LDiff) ||
-      !computeConstantDifference(FoundRHS, RHS, RDiff) ||
-      LDiff != RDiff)
+  Optional<APInt> LDiff = computeConstantDifference(LHS, FoundLHS);
+  Optional<APInt> RDiff = computeConstantDifference(RHS, FoundRHS);
+  if (!LDiff || !RDiff || *LDiff != *RDiff)
     return false;
 
-  if (LDiff == 0)
+  if (LDiff->isMinValue())
     return true;
 
   APInt FoundRHSLimit;
 
   if (Pred == CmpInst::ICMP_ULT) {
-    FoundRHSLimit = -RDiff;
+    FoundRHSLimit = -(*RDiff);
   } else {
     assert(Pred == CmpInst::ICMP_SLT && "Checked above!");
-    FoundRHSLimit = APInt::getSignedMinValue(getTypeSizeInBits(RHS->getType())) - RDiff;
+    FoundRHSLimit = APInt::getSignedMinValue(getTypeSizeInBits(RHS->getType())) - *RDiff;
   }
 
   // Try to prove (1) or (2), as needed.
@@ -8465,7 +8506,7 @@ static bool IsKnownPredicateViaMinOrMax(ScalarEvolution &SE,
 
   case ICmpInst::ICMP_SGE:
     std::swap(LHS, RHS);
-    // fall through
+    LLVM_FALLTHROUGH;
   case ICmpInst::ICMP_SLE:
     return
       // min(A, ...) <= A
@@ -8475,7 +8516,7 @@ static bool IsKnownPredicateViaMinOrMax(ScalarEvolution &SE,
 
   case ICmpInst::ICMP_UGE:
     std::swap(LHS, RHS);
-    // fall through
+    LLVM_FALLTHROUGH;
   case ICmpInst::ICMP_ULE:
     return
       // min(A, ...) <= A
@@ -8546,9 +8587,8 @@ bool ScalarEvolution::isImpliedCondOperandsViaRanges(ICmpInst::Predicate Pred,
     // reduce the compile time impact of this optimization.
     return false;
 
-  const SCEVAddExpr *AddLHS = dyn_cast<SCEVAddExpr>(LHS);
-  if (!AddLHS || AddLHS->getOperand(1) != FoundLHS ||
-      !isa<SCEVConstant>(AddLHS->getOperand(0)))
+  Optional<APInt> Addend = computeConstantDifference(LHS, FoundLHS);
+  if (!Addend)
     return false;
 
   APInt ConstFoundRHS = cast<SCEVConstant>(FoundRHS)->getAPInt();
@@ -8558,10 +8598,8 @@ bool ScalarEvolution::isImpliedCondOperandsViaRanges(ICmpInst::Predicate Pred,
   ConstantRange FoundLHSRange =
       ConstantRange::makeAllowedICmpRegion(Pred, ConstFoundRHS);
 
-  // Since `LHS` is `FoundLHS` + `AddLHS->getOperand(0)`, we can compute a range
-  // for `LHS`:
-  APInt Addend = cast<SCEVConstant>(AddLHS->getOperand(0))->getAPInt();
-  ConstantRange LHSRange = FoundLHSRange.add(ConstantRange(Addend));
+  // Since `LHS` is `FoundLHS` + `Addend`, we can compute a range for `LHS`:
+  ConstantRange LHSRange = FoundLHSRange.add(ConstantRange(*Addend));
 
   // We can also compute the range of values for `LHS` that satisfy the
   // consequent, "`LHS` `Pred` `RHS`":
@@ -9112,10 +9150,9 @@ static bool findArrayDimensionsRec(ScalarEvolution &SE,
   }
 
   // Remove all SCEVConstants.
-  Terms.erase(std::remove_if(Terms.begin(), Terms.end(), [](const SCEV *E) {
-                return isa<SCEVConstant>(E);
-              }),
-              Terms.end());
+  Terms.erase(
+      remove_if(Terms, [](const SCEV *E) { return isa<SCEVConstant>(E); }),
+      Terms.end());
 
   if (Terms.size() > 0)
     if (!findArrayDimensionsRec(SE, Terms, Sizes))
@@ -9825,8 +9862,10 @@ ScalarEvolution::computeBlockDisposition(const SCEV *S, const BasicBlock *BB) {
     const SCEVAddRecExpr *AR = cast<SCEVAddRecExpr>(S);
     if (!DT.dominates(AR->getLoop()->getHeader(), BB))
       return DoesNotDominateBlock;
+
+    // Fall through into SCEVNAryExpr handling.
+    LLVM_FALLTHROUGH;
   }
-  // FALL THROUGH into SCEVNAryExpr handling.
   case scAddExpr:
   case scMulExpr:
   case scUMaxExpr:
@@ -10007,7 +10046,7 @@ void ScalarEvolution::verify() const {
 char ScalarEvolutionAnalysis::PassID;
 
 ScalarEvolution ScalarEvolutionAnalysis::run(Function &F,
-                                             AnalysisManager<Function> &AM) {
+                                             FunctionAnalysisManager &AM) {
   return ScalarEvolution(F, AM.getResult<TargetLibraryAnalysis>(F),
                          AM.getResult<AssumptionAnalysis>(F),
                          AM.getResult<DominatorTreeAnalysis>(F),
@@ -10015,7 +10054,7 @@ ScalarEvolution ScalarEvolutionAnalysis::run(Function &F,
 }
 
 PreservedAnalyses
-ScalarEvolutionPrinterPass::run(Function &F, AnalysisManager<Function> &AM) {
+ScalarEvolutionPrinterPass::run(Function &F, FunctionAnalysisManager &AM) {
   AM.getResult<ScalarEvolutionAnalysis>(F).print(OS);
   return PreservedAnalyses::all();
 }

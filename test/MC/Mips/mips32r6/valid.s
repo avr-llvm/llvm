@@ -107,6 +107,8 @@ a:
         eretnc                   # CHECK: eretnc           # encoding: [0x42,0x00,0x00,0x58]
         jialc   $5, 256          # CHECK: jialc $5, 256    # encoding: [0xf8,0x05,0x01,0x00]
         jic     $5, 256          # CHECK: jic $5, 256      # encoding: [0xd8,0x05,0x01,0x00]
+        l.s     $f2, 8($3)       # CHECK: lwc1 $f2, 8($3)  # encoding: [0xc4,0x62,0x00,0x08]
+        l.d     $f2, 8($3)       # CHECK: ldc1 $f2, 8($3)  # encoding: [0xd4,0x62,0x00,0x08]
         lsa     $2, $3, $4, 3    # CHECK: lsa  $2, $3, $4, 3 # encoding: [0x00,0x64,0x10,0x85]
         lwpc    $2,268           # CHECK: lwpc $2, 268     # encoding: [0xec,0x48,0x00,0x43]
         lwupc   $2,268           # CHECK: lwupc $2, 268    # encoding: [0xec,0x50,0x00,0x43]
@@ -126,6 +128,10 @@ a:
         maddf.d $f2,$f3,$f4      # CHECK: maddf.d $f2, $f3, $f4  # encoding: [0x46,0x24,0x18,0x98]
         msubf.s $f2,$f3,$f4      # CHECK: msubf.s $f2, $f3, $f4  # encoding: [0x46,0x04,0x18,0x99]
         msubf.d $f2,$f3,$f4      # CHECK: msubf.d $f2, $f3, $f4  # encoding: [0x46,0x24,0x18,0x99]
+        neg       $2             # CHECK: neg  $2, $2            # encoding: [0x00,0x02,0x10,0x22]
+        neg       $2, $3         # CHECK: neg  $2, $3            # encoding: [0x00,0x03,0x10,0x22]
+        negu      $2             # CHECK: negu $2, $2            # encoding: [0x00,0x02,0x10,0x23]
+        negu      $2,$3          # CHECK: negu $2, $3            # encoding: [0x00,0x03,0x10,0x23]
         pref    1, 8($5)         # CHECK: pref 1, 8($5)          # encoding: [0x7c,0xa1,0x04,0x35]
         # FIXME: Use the code generator in order to print the .set directives
         #        instead of the instruction printer.
@@ -133,6 +139,8 @@ a:
                                  # CHECK-NEXT: .set  mips32r2
                                  # CHECK-NEXT: rdhwr $sp, $11
                                  # CHECK-NEXT: .set  pop      # encoding: [0x7c,0x1d,0x58,0x3b]
+        s.s    $f2, 8($3)        # CHECK: swc1 $f2, 8($3)     # encoding: [0xe4,0x62,0x00,0x08]
+        s.d    $f2, 8($3)        # CHECK: sdc1 $f2, 8($3)     # encoding: [0xf4,0x62,0x00,0x08]
         sel.d   $f0,$f1,$f2      # CHECK: sel.d $f0, $f1, $f2 # encoding: [0x46,0x22,0x08,0x10]
         sel.s   $f0,$f1,$f2      # CHECK: sel.s $f0, $f1, $f2 # encoding: [0x46,0x02,0x08,0x10]
         seleqz  $2,$3,$4         # CHECK: seleqz $2, $3, $4 # encoding: [0x00,0x64,0x10,0x35]
@@ -177,6 +185,13 @@ a:
         sc      $15,-40($s3)     # CHECK: sc $15, -40($19)       # encoding: [0x7e,0x6f,0xec,0x26]
         clo     $11,$a1          # CHECK: clo $11, $5            # encoding: [0x00,0xa0,0x58,0x51]
         clz     $sp,$gp          # CHECK: clz $sp, $gp           # encoding: [0x03,0x80,0xe8,0x50]
+        sgt     $4, $5           # CHECK: slt $4, $5, $4         # encoding: [0x00,0xa4,0x20,0x2a]
+        sgt     $4, $5, $6       # CHECK: slt $4, $6, $5         # encoding: [0x00,0xc5,0x20,0x2a]
+        sgtu    $4, $5           # CHECK: sltu $4, $5, $4        # encoding: [0x00,0xa4,0x20,0x2b]
+        sgtu    $4, $5, $6       # CHECK: sltu $4, $6, $5        # encoding: [0x00,0xc5,0x20,0x2b]
+        sll     $4, $5           # CHECK: sllv $4, $4, $5        # encoding: [0x00,0xa4,0x20,0x04]
+        sra     $4, $5           # CHECK: srav $4, $4, $5        # encoding: [0x00,0xa4,0x20,0x07]
+        srl     $4, $5           # CHECK: srlv $4, $4, $5        # encoding: [0x00,0xa4,0x20,0x06]
         ssnop                    # WARNING: [[@LINE]]:9: warning: ssnop is deprecated for MIPS32r6 and is equivalent to a nop instruction
         ssnop                    # CHECK: ssnop                  # encoding: [0x00,0x00,0x00,0x40]
         sdbbp                    # CHECK: sdbbp                  # encoding: [0x00,0x00,0x00,0x0e]

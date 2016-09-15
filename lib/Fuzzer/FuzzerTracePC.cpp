@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 // Trace PCs.
-// This module implements __sanitizer_cov_trace_pc, a callback required
-// for -fsanitize-coverage=trace-pc instrumentation.
+// This module implements __sanitizer_cov_trace_pc_guard[_init],
+// the callback required for -fsanitize-coverage=trace-pc-guard instrumentation.
 //
 //===----------------------------------------------------------------------===//
 
@@ -16,56 +16,74 @@
 
 namespace fuzzer {
 
-void PcCoverageMap::Reset() { memset(Map, 0, sizeof(Map)); }
+TracePC TPC;
 
-void PcCoverageMap::Update(uintptr_t Addr) {
-  uintptr_t Idx = Addr % kMapSizeInBits;
-  uintptr_t WordIdx = Idx / kBitsInWord;
-  uintptr_t BitIdx = Idx % kBitsInWord;
-  Map[WordIdx] |= 1UL << BitIdx;
-}
-
-size_t PcCoverageMap::MergeFrom(const PcCoverageMap &Other) {
-  uintptr_t Res = 0;
-  for (size_t i = 0; i < kMapSizeInWords; i++)
-    Res += __builtin_popcountl(Map[i] |= Other.Map[i]);
-  return Res;
-}
-
-static PcCoverageMap CurrentMap;
-static thread_local uintptr_t Prev;
-
-void PcMapResetCurrent() {
-  if (Prev) {
-    Prev = 0;
-    CurrentMap.Reset();
+void TracePC::HandleTrace(uint8_t *Guard, uintptr_t PC) {
+  if (UseCounters) {
+    uintptr_t GV = *Guard;
+    if (GV == 0) {
+      size_t Idx = Guard - Start;
+      if (TotalCoverageMap.AddValue(Idx)) {
+        TotalCoverage++;
+        AddNewPC(PC);
+      }
+    }
+    if (GV < 255)
+      GV++;
+    *Guard = GV;
+  } else {
+    *Guard = 0xff;
+    TotalCoverage++;
+    AddNewPC(PC);
   }
 }
 
-size_t PcMapMergeInto(PcCoverageMap *Map) {
-  if (!Prev)
-    return 0;
-  return Map->MergeFrom(CurrentMap);
+void TracePC::HandleInit(uint8_t *Start, uint8_t *Stop) {
+  // TODO: this handles only one DSO/binary.
+  this->Start = Start;
+  this->Stop = Stop;
 }
 
-static void HandlePC(uint32_t PC) {
-  // We take 12 bits of PC and mix it with the previous PCs.
-  uintptr_t Next = (Prev << 5) ^ (PC & 4095);
-  CurrentMap.Update(Next);
-  Prev = Next;
+void TracePC::FinalizeTrace() {
+  if (UseCounters && TotalCoverage) {
+    for (uint8_t *X = Start; X < Stop; X++) {
+      uint8_t Value = *X;
+      size_t Idx = X - Start;
+      if (Value >= 1) {
+        unsigned Bit = 0;
+        /**/ if (Value >= 128) Bit = 7;
+        else if (Value >= 32) Bit = 6;
+        else if (Value >= 16) Bit = 5;
+        else if (Value >= 8) Bit = 4;
+        else if (Value >= 4) Bit = 3;
+        else if (Value >= 3) Bit = 2;
+        else if (Value >= 2) Bit = 1;
+        CounterMap.AddValue(Idx * 8 + Bit);
+      }
+      *X = 0;
+    }
+  }
+}
+
+size_t TracePC::UpdateCounterMap(ValueBitMap *Map) {
+  if (!TotalCoverage) return 0;
+  size_t NewTotalCounterBits = Map->MergeFrom(CounterMap);
+  size_t Delta = NewTotalCounterBits - TotalCounterBits;
+  TotalCounterBits = NewTotalCounterBits;
+  return Delta;
 }
 
 } // namespace fuzzer
 
 extern "C" {
-void __sanitizer_cov_trace_pc() {
-  fuzzer::HandlePC(static_cast<uint32_t>(
-      reinterpret_cast<uintptr_t>(__builtin_return_address(0))));
+__attribute__((visibility("default")))
+void __sanitizer_cov_trace_pc_guard(uint8_t *Guard) {
+  uintptr_t PC = (uintptr_t)__builtin_return_address(0);
+  fuzzer::TPC.HandleTrace(Guard, PC);
 }
 
-void __sanitizer_cov_trace_pc_indir(int *) {
-  // Stub to allow linking with code built with
-  // -fsanitize=indirect-calls,trace-pc.
-  // This isn't used currently.
+__attribute__((visibility("default")))
+void __sanitizer_cov_trace_pc_guard_init(uint8_t *Start, uint8_t *Stop) {
+  fuzzer::TPC.HandleInit(Start, Stop);
 }
 }

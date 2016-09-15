@@ -253,8 +253,8 @@ const PPCFrameLowering::SpillSlot *PPCFrameLowering::getCalleeSavedSpillSlots(
 /// contents is spilled and reloaded around the call.  Without the prolog code,
 /// the spill instruction refers to an undefined register.  This code needs
 /// to account for all uses of that GPR.
-static void RemoveVRSaveCode(MachineInstr *MI) {
-  MachineBasicBlock *Entry = MI->getParent();
+static void RemoveVRSaveCode(MachineInstr &MI) {
+  MachineBasicBlock *Entry = MI.getParent();
   MachineFunction *MF = Entry->getParent();
 
   // We know that the MTVRSAVE instruction immediately follows MI.  Remove it.
@@ -293,16 +293,16 @@ static void RemoveVRSaveCode(MachineInstr *MI) {
   }
 
   // Finally, nuke the UPDATE_VRSAVE.
-  MI->eraseFromParent();
+  MI.eraseFromParent();
 }
 
 // HandleVRSaveUpdate - MI is the UPDATE_VRSAVE instruction introduced by the
 // instruction selector.  Based on the vector registers that have been used,
 // transform this into the appropriate ORI instruction.
-static void HandleVRSaveUpdate(MachineInstr *MI, const TargetInstrInfo &TII) {
-  MachineFunction *MF = MI->getParent()->getParent();
+static void HandleVRSaveUpdate(MachineInstr &MI, const TargetInstrInfo &TII) {
+  MachineFunction *MF = MI.getParent()->getParent();
   const TargetRegisterInfo *TRI = MF->getSubtarget().getRegisterInfo();
-  DebugLoc dl = MI->getDebugLoc();
+  DebugLoc dl = MI.getDebugLoc();
 
   const MachineRegisterInfo &MRI = MF->getRegInfo();
   unsigned UsedRegMask = 0;
@@ -343,44 +343,44 @@ static void HandleVRSaveUpdate(MachineInstr *MI, const TargetInstrInfo &TII) {
     return;
   }
 
-  unsigned SrcReg = MI->getOperand(1).getReg();
-  unsigned DstReg = MI->getOperand(0).getReg();
+  unsigned SrcReg = MI.getOperand(1).getReg();
+  unsigned DstReg = MI.getOperand(0).getReg();
 
   if ((UsedRegMask & 0xFFFF) == UsedRegMask) {
     if (DstReg != SrcReg)
-      BuildMI(*MI->getParent(), MI, dl, TII.get(PPC::ORI), DstReg)
-        .addReg(SrcReg)
-        .addImm(UsedRegMask);
+      BuildMI(*MI.getParent(), MI, dl, TII.get(PPC::ORI), DstReg)
+          .addReg(SrcReg)
+          .addImm(UsedRegMask);
     else
-      BuildMI(*MI->getParent(), MI, dl, TII.get(PPC::ORI), DstReg)
-        .addReg(SrcReg, RegState::Kill)
-        .addImm(UsedRegMask);
+      BuildMI(*MI.getParent(), MI, dl, TII.get(PPC::ORI), DstReg)
+          .addReg(SrcReg, RegState::Kill)
+          .addImm(UsedRegMask);
   } else if ((UsedRegMask & 0xFFFF0000) == UsedRegMask) {
     if (DstReg != SrcReg)
-      BuildMI(*MI->getParent(), MI, dl, TII.get(PPC::ORIS), DstReg)
-        .addReg(SrcReg)
-        .addImm(UsedRegMask >> 16);
+      BuildMI(*MI.getParent(), MI, dl, TII.get(PPC::ORIS), DstReg)
+          .addReg(SrcReg)
+          .addImm(UsedRegMask >> 16);
     else
-      BuildMI(*MI->getParent(), MI, dl, TII.get(PPC::ORIS), DstReg)
-        .addReg(SrcReg, RegState::Kill)
-        .addImm(UsedRegMask >> 16);
+      BuildMI(*MI.getParent(), MI, dl, TII.get(PPC::ORIS), DstReg)
+          .addReg(SrcReg, RegState::Kill)
+          .addImm(UsedRegMask >> 16);
   } else {
     if (DstReg != SrcReg)
-      BuildMI(*MI->getParent(), MI, dl, TII.get(PPC::ORIS), DstReg)
-        .addReg(SrcReg)
-        .addImm(UsedRegMask >> 16);
+      BuildMI(*MI.getParent(), MI, dl, TII.get(PPC::ORIS), DstReg)
+          .addReg(SrcReg)
+          .addImm(UsedRegMask >> 16);
     else
-      BuildMI(*MI->getParent(), MI, dl, TII.get(PPC::ORIS), DstReg)
-        .addReg(SrcReg, RegState::Kill)
-        .addImm(UsedRegMask >> 16);
+      BuildMI(*MI.getParent(), MI, dl, TII.get(PPC::ORIS), DstReg)
+          .addReg(SrcReg, RegState::Kill)
+          .addImm(UsedRegMask >> 16);
 
-    BuildMI(*MI->getParent(), MI, dl, TII.get(PPC::ORI), DstReg)
-      .addReg(DstReg, RegState::Kill)
-      .addImm(UsedRegMask & 0xFFFF);
+    BuildMI(*MI.getParent(), MI, dl, TII.get(PPC::ORI), DstReg)
+        .addReg(DstReg, RegState::Kill)
+        .addImm(UsedRegMask & 0xFFFF);
   }
 
   // Remove the old UPDATE_VRSAVE instruction.
-  MI->eraseFromParent();
+  MI.eraseFromParent();
 }
 
 static bool spillsCR(const MachineFunction &MF) {
@@ -422,15 +422,15 @@ static bool MustSaveLR(const MachineFunction &MF, unsigned LR) {
 unsigned PPCFrameLowering::determineFrameLayout(MachineFunction &MF,
                                                 bool UpdateMF,
                                                 bool UseEstimate) const {
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
 
   // Get the number of bytes to allocate from the FrameInfo
   unsigned FrameSize =
-    UseEstimate ? MFI->estimateStackSize(MF) : MFI->getStackSize();
+    UseEstimate ? MFI.estimateStackSize(MF) : MFI.getStackSize();
 
   // Get stack alignments. The frame must be aligned to the greatest of these:
   unsigned TargetAlign = getStackAlignment(); // alignment required per the ABI
-  unsigned MaxAlign = MFI->getMaxAlignment(); // algmt required by data in frame
+  unsigned MaxAlign = MFI.getMaxAlignment(); // algmt required by data in frame
   unsigned AlignMask = std::max(MaxAlign, TargetAlign) - 1;
 
   const PPCRegisterInfo *RegInfo =
@@ -448,18 +448,18 @@ unsigned PPCFrameLowering::determineFrameLayout(MachineFunction &MF,
        !Subtarget.isSVR4ABI() ||                   //   allocated locals.
         FrameSize == 0) &&
       FrameSize <= 224 &&                          // Fits in red zone.
-      !MFI->hasVarSizedObjects() &&                // No dynamic alloca.
-      !MFI->adjustsStack() &&                      // No calls.
+      !MFI.hasVarSizedObjects() &&                 // No dynamic alloca.
+      !MFI.adjustsStack() &&                       // No calls.
       !MustSaveLR(MF, LR) &&
       !RegInfo->hasBasePointer(MF)) { // No special alignment.
     // No need for frame
     if (UpdateMF)
-      MFI->setStackSize(0);
+      MFI.setStackSize(0);
     return 0;
   }
 
   // Get the maximum call frame size of all the calls.
-  unsigned maxCallFrameSize = MFI->getMaxCallFrameSize();
+  unsigned maxCallFrameSize = MFI.getMaxCallFrameSize();
 
   // Maximum call frame needs to be at least big enough for linkage area.
   unsigned minCallFrameSize = getLinkageSize();
@@ -467,12 +467,12 @@ unsigned PPCFrameLowering::determineFrameLayout(MachineFunction &MF,
 
   // If we have dynamic alloca then maxCallFrameSize needs to be aligned so
   // that allocations will be aligned.
-  if (MFI->hasVarSizedObjects())
+  if (MFI.hasVarSizedObjects())
     maxCallFrameSize = (maxCallFrameSize + AlignMask) & ~AlignMask;
 
   // Update maximum call frame size.
   if (UpdateMF)
-    MFI->setMaxCallFrameSize(maxCallFrameSize);
+    MFI.setMaxCallFrameSize(maxCallFrameSize);
 
   // Include call frame size in total.
   FrameSize += maxCallFrameSize;
@@ -482,7 +482,7 @@ unsigned PPCFrameLowering::determineFrameLayout(MachineFunction &MF,
 
   // Update frame info.
   if (UpdateMF)
-    MFI->setStackSize(FrameSize);
+    MFI.setStackSize(FrameSize);
 
   return FrameSize;
 }
@@ -490,18 +490,18 @@ unsigned PPCFrameLowering::determineFrameLayout(MachineFunction &MF,
 // hasFP - Return true if the specified function actually has a dedicated frame
 // pointer register.
 bool PPCFrameLowering::hasFP(const MachineFunction &MF) const {
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
   // FIXME: This is pretty much broken by design: hasFP() might be called really
   // early, before the stack layout was calculated and thus hasFP() might return
   // true or false here depending on the time of call.
-  return (MFI->getStackSize()) && needsFP(MF);
+  return (MFI.getStackSize()) && needsFP(MF);
 }
 
 // needsFP - Return true if the specified function should have a dedicated frame
 // pointer register.  This is true if the function has variable sized allocas or
 // if frame pointer elimination is disabled.
 bool PPCFrameLowering::needsFP(const MachineFunction &MF) const {
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
 
   // Naked functions have no stack frame pushed, so we don't have a frame
   // pointer.
@@ -509,8 +509,7 @@ bool PPCFrameLowering::needsFP(const MachineFunction &MF) const {
     return false;
 
   return MF.getTarget().Options.DisableFramePointerElim(MF) ||
-    MFI->hasVarSizedObjects() ||
-    MFI->hasStackMap() || MFI->hasPatchPoint() ||
+    MFI.hasVarSizedObjects() || MFI.hasStackMap() || MFI.hasPatchPoint() ||
     (MF.getTarget().Options.GuaranteedTailCallOpt &&
      MF.getInfo<PPCFunctionInfo>()->hasFastCall());
 }
@@ -671,10 +670,11 @@ PPCFrameLowering::twoUniqueScratchRegsRequired(MachineBasicBlock *MBB) const {
   unsigned FrameSize = determineFrameLayout(MF, false);
   int NegFrameSize = -FrameSize;
   bool IsLargeFrame = !isInt<16>(NegFrameSize);
-  MachineFrameInfo *MFI = MF.getFrameInfo();
-  unsigned MaxAlign = MFI->getMaxAlignment();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  unsigned MaxAlign = MFI.getMaxAlignment();
+  bool HasRedZone = Subtarget.isPPC64() || !Subtarget.isSVR4ABI();
 
-  return IsLargeFrame && HasBP && MaxAlign > 1;
+  return (IsLargeFrame || !HasRedZone) && HasBP && MaxAlign > 1;
 }
 
 bool PPCFrameLowering::canUseAsPrologue(const MachineBasicBlock &MBB) const {
@@ -693,7 +693,7 @@ bool PPCFrameLowering::canUseAsEpilogue(const MachineBasicBlock &MBB) const {
 void PPCFrameLowering::emitPrologue(MachineFunction &MF,
                                     MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.begin();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   const PPCInstrInfo &TII =
       *static_cast<const PPCInstrInfo *>(Subtarget.getInstrInfo());
   const PPCRegisterInfo *RegInfo =
@@ -718,7 +718,7 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
   if (!isSVR4ABI)
     for (unsigned i = 0; MBBI != MBB.end(); ++i, ++MBBI) {
       if (MBBI->getOpcode() == PPC::UPDATE_VRSAVE) {
-        HandleVRSaveUpdate(MBBI, TII);
+        HandleVRSaveUpdate(*MBBI, TII);
         break;
       }
     }
@@ -732,7 +732,7 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
   if (!isInt<32>(NegFrameSize))
     llvm_unreachable("Unhandled stack size!");
 
-  if (MFI->isFrameAddressTaken())
+  if (MFI.isFrameAddressTaken())
     replaceFPWithRealFP(MF);
 
   // Check if the link register (LR) must be saved.
@@ -743,6 +743,7 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
   // Do we have a frame pointer and/or base pointer for this function?
   bool HasFP = hasFP(MF);
   bool HasBP = RegInfo->hasBasePointer(MF);
+  bool HasRedZone = isPPC64 || !isSVR4ABI;
 
   unsigned SPReg       = isPPC64 ? PPC::X1  : PPC::R1;
   unsigned BPReg       = RegInfo->getBaseRegister(MF);
@@ -791,10 +792,10 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
   int FPOffset = 0;
   if (HasFP) {
     if (isSVR4ABI) {
-      MachineFrameInfo *FFI = MF.getFrameInfo();
+      MachineFrameInfo &MFI = MF.getFrameInfo();
       int FPIndex = FI->getFramePointerSaveIndex();
       assert(FPIndex && "No Frame Pointer Save Slot!");
-      FPOffset = FFI->getObjectOffset(FPIndex);
+      FPOffset = MFI.getObjectOffset(FPIndex);
     } else {
       FPOffset = getFramePointerSaveOffset();
     }
@@ -803,10 +804,10 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
   int BPOffset = 0;
   if (HasBP) {
     if (isSVR4ABI) {
-      MachineFrameInfo *FFI = MF.getFrameInfo();
+      MachineFrameInfo &MFI = MF.getFrameInfo();
       int BPIndex = FI->getBasePointerSaveIndex();
       assert(BPIndex && "No Base Pointer Save Slot!");
-      BPOffset = FFI->getObjectOffset(BPIndex);
+      BPOffset = MFI.getObjectOffset(BPIndex);
     } else {
       BPOffset = getBasePointerSaveOffset();
     }
@@ -814,14 +815,14 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
 
   int PBPOffset = 0;
   if (FI->usesPICBase()) {
-    MachineFrameInfo *FFI = MF.getFrameInfo();
+    MachineFrameInfo &MFI = MF.getFrameInfo();
     int PBPIndex = FI->getPICBasePointerSaveIndex();
     assert(PBPIndex && "No PIC Base Pointer Save Slot!");
-    PBPOffset = FFI->getObjectOffset(PBPIndex);
+    PBPOffset = MFI.getObjectOffset(PBPIndex);
   }
 
   // Get stack alignments.
-  unsigned MaxAlign = MFI->getMaxAlignment();
+  unsigned MaxAlign = MFI.getMaxAlignment();
   if (HasBP && MaxAlign > 1)
     assert(isPowerOf2_32(MaxAlign) && isInt<16>(MaxAlign) &&
            "Invalid alignment!");
@@ -877,53 +878,56 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
       MIB.addReg(MustSaveCRs[i], CrState);
   }
 
-  if (HasFP)
-    // FIXME: On PPC32 SVR4, we must not spill before claiming the stackframe.
-    BuildMI(MBB, MBBI, dl, StoreInst)
-      .addReg(FPReg)
-      .addImm(FPOffset)
-      .addReg(SPReg);
-
-  if (FI->usesPICBase())
-    // FIXME: On PPC32 SVR4, we must not spill before claiming the stackframe.
-    BuildMI(MBB, MBBI, dl, StoreInst)
-      .addReg(PPC::R30)
-      .addImm(PBPOffset)
-      .addReg(SPReg);
-
-  if (HasBP)
-    // FIXME: On PPC32 SVR4, we must not spill before claiming the stackframe.
-    BuildMI(MBB, MBBI, dl, StoreInst)
-      .addReg(BPReg)
-      .addImm(BPOffset)
-      .addReg(SPReg);
+  if (HasRedZone) {
+    if (HasFP)
+      BuildMI(MBB, MBBI, dl, StoreInst)
+        .addReg(FPReg)
+        .addImm(FPOffset)
+        .addReg(SPReg);
+    if (FI->usesPICBase())
+      BuildMI(MBB, MBBI, dl, StoreInst)
+        .addReg(PPC::R30)
+        .addImm(PBPOffset)
+        .addReg(SPReg);
+    if (HasBP)
+      BuildMI(MBB, MBBI, dl, StoreInst)
+        .addReg(BPReg)
+        .addImm(BPOffset)
+        .addReg(SPReg);
+  }
 
   if (MustSaveLR)
-    // FIXME: On PPC32 SVR4, we must not spill before claiming the stackframe.
     BuildMI(MBB, MBBI, dl, StoreInst)
       .addReg(ScratchReg, getKillRegState(true))
       .addImm(LROffset)
       .addReg(SPReg);
 
   if (MustSaveCR &&
-      !(SingleScratchReg && MustSaveLR)) // will only occur for PPC64
+      !(SingleScratchReg && MustSaveLR)) { // will only occur for PPC64
+    assert(HasRedZone && "A red zone is always available on PPC64");
     BuildMI(MBB, MBBI, dl, TII.get(PPC::STW8))
       .addReg(TempReg, getKillRegState(true))
       .addImm(8)
       .addReg(SPReg);
+  }
 
   // Skip the rest if this is a leaf function & all spills fit in the Red Zone.
-  if (!FrameSize) return;
+  if (!FrameSize)
+    return;
 
   // Adjust stack pointer: r1 += NegFrameSize.
   // If there is a preferred stack alignment, align R1 now
 
-  if (HasBP) {
+  if (HasBP && HasRedZone) {
     // Save a copy of r1 as the base pointer.
     BuildMI(MBB, MBBI, dl, OrInst, BPReg)
       .addReg(SPReg)
       .addReg(SPReg);
   }
+
+  // Have we generated a STUX instruction to claim stack frame? If so,
+  // the frame size will be placed in ScratchReg.
+  bool HasSTUX = false;
 
   // This condition must be kept in sync with canUseAsPrologue.
   if (HasBP && MaxAlign > 1) {
@@ -953,10 +957,12 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
         .addReg(ScratchReg, RegState::Kill)
         .addReg(TempReg, RegState::Kill);
     }
+
     BuildMI(MBB, MBBI, dl, StoreUpdtIdxInst, SPReg)
       .addReg(SPReg, RegState::Kill)
       .addReg(SPReg)
       .addReg(ScratchReg);
+    HasSTUX = true;
 
   } else if (!isLargeFrame) {
     BuildMI(MBB, MBBI, dl, StoreUpdtInst, SPReg)
@@ -974,6 +980,65 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
       .addReg(SPReg, RegState::Kill)
       .addReg(SPReg)
       .addReg(ScratchReg);
+    HasSTUX = true;
+  }
+
+  if (!HasRedZone) {
+    assert(!isPPC64 && "A red zone is always available on PPC64");
+    if (HasSTUX) {
+      // The frame size is in ScratchReg, and the SPReg has been advanced
+      // (downwards) by the frame size: SPReg = old SPReg + ScratchReg.
+      // Set ScratchReg to the original SPReg: ScratchReg = SPReg - ScratchReg.
+      BuildMI(MBB, MBBI, dl, TII.get(PPC::SUBF), ScratchReg)
+        .addReg(ScratchReg, RegState::Kill)
+        .addReg(SPReg);
+
+      // Now that the stack frame has been allocated, save all the necessary
+      // registers using ScratchReg as the base address.
+      if (HasFP)
+        BuildMI(MBB, MBBI, dl, StoreInst)
+          .addReg(FPReg)
+          .addImm(FPOffset)
+          .addReg(ScratchReg);
+      if (FI->usesPICBase())
+        BuildMI(MBB, MBBI, dl, StoreInst)
+          .addReg(PPC::R30)
+          .addImm(PBPOffset)
+          .addReg(ScratchReg);
+      if (HasBP) {
+        BuildMI(MBB, MBBI, dl, StoreInst)
+          .addReg(BPReg)
+          .addImm(BPOffset)
+          .addReg(ScratchReg);
+        BuildMI(MBB, MBBI, dl, OrInst, BPReg)
+          .addReg(ScratchReg, RegState::Kill)
+          .addReg(ScratchReg);
+      }
+    } else {
+      // The frame size is a known 16-bit constant (fitting in the immediate
+      // field of STWU). To be here we have to be compiling for PPC32.
+      // Since the SPReg has been decreased by FrameSize, add it back to each
+      // offset.
+      if (HasFP)
+        BuildMI(MBB, MBBI, dl, StoreInst)
+          .addReg(FPReg)
+          .addImm(FrameSize + FPOffset)
+          .addReg(SPReg);
+      if (FI->usesPICBase())
+        BuildMI(MBB, MBBI, dl, StoreInst)
+          .addReg(PPC::R30)
+          .addImm(FrameSize + PBPOffset)
+          .addReg(SPReg);
+      if (HasBP) {
+        BuildMI(MBB, MBBI, dl, StoreInst)
+          .addReg(BPReg)
+          .addImm(FrameSize + BPOffset)
+          .addReg(SPReg);
+        BuildMI(MBB, MBBI, dl, TII.get(PPC::ADDI), BPReg)
+          .addReg(SPReg)
+          .addImm(FrameSize);
+      }
+    }
   }
 
   // Add Call Frame Information for the instructions we generated above.
@@ -1054,7 +1119,7 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
   if (needsCFI) {
     // Describe where callee saved registers were saved, at fixed offsets from
     // CFA.
-    const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
+    const std::vector<CalleeSavedInfo> &CSI = MFI.getCalleeSavedInfo();
     for (unsigned I = 0, E = CSI.size(); I != E; ++I) {
       unsigned Reg = CSI[I].getReg();
       if (Reg == PPC::LR || Reg == PPC::LR8 || Reg == PPC::RM) continue;
@@ -1084,7 +1149,7 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF,
         continue;
       }
 
-      int Offset = MFI->getObjectOffset(CSI[I].getFrameIdx());
+      int Offset = MFI.getObjectOffset(CSI[I].getFrameIdx());
       unsigned CFIIndex = MMI.addFrameInst(MCCFIInstruction::createOffset(
           nullptr, MRI->getDwarfRegNum(Reg, true), Offset));
       BuildMI(MBB, MBBI, dl, TII.get(TargetOpcode::CFI_INSTRUCTION))
@@ -1107,10 +1172,10 @@ void PPCFrameLowering::emitEpilogue(MachineFunction &MF,
       static_cast<const PPCRegisterInfo *>(Subtarget.getRegisterInfo());
 
   // Get alignment info so we know how to restore the SP.
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
 
   // Get the number of bytes allocated from the FrameInfo.
-  int FrameSize = MFI->getStackSize();
+  int FrameSize = MFI.getStackSize();
 
   // Get processor type.
   bool isPPC64 = Subtarget.isPPC64();
@@ -1158,10 +1223,10 @@ void PPCFrameLowering::emitEpilogue(MachineFunction &MF,
 
   if (HasFP) {
     if (isSVR4ABI) {
-      MachineFrameInfo *FFI = MF.getFrameInfo();
+      MachineFrameInfo &MFI = MF.getFrameInfo();
       int FPIndex = FI->getFramePointerSaveIndex();
       assert(FPIndex && "No Frame Pointer Save Slot!");
-      FPOffset = FFI->getObjectOffset(FPIndex);
+      FPOffset = MFI.getObjectOffset(FPIndex);
     } else {
       FPOffset = getFramePointerSaveOffset();
     }
@@ -1170,10 +1235,10 @@ void PPCFrameLowering::emitEpilogue(MachineFunction &MF,
   int BPOffset = 0;
   if (HasBP) {
     if (isSVR4ABI) {
-      MachineFrameInfo *FFI = MF.getFrameInfo();
+      MachineFrameInfo &MFI = MF.getFrameInfo();
       int BPIndex = FI->getBasePointerSaveIndex();
       assert(BPIndex && "No Base Pointer Save Slot!");
-      BPOffset = FFI->getObjectOffset(BPIndex);
+      BPOffset = MFI.getObjectOffset(BPIndex);
     } else {
       BPOffset = getBasePointerSaveOffset();
     }
@@ -1181,10 +1246,10 @@ void PPCFrameLowering::emitEpilogue(MachineFunction &MF,
 
   int PBPOffset = 0;
   if (FI->usesPICBase()) {
-    MachineFrameInfo *FFI = MF.getFrameInfo();
+    MachineFrameInfo &MFI = MF.getFrameInfo();
     int PBPIndex = FI->getPICBasePointerSaveIndex();
     assert(PBPIndex && "No PIC Base Pointer Save Slot!");
-    PBPOffset = FFI->getObjectOffset(PBPIndex);
+    PBPOffset = MFI.getObjectOffset(PBPIndex);
   }
 
   bool IsReturnBlock = (MBBI != MBB.end() && MBBI->isReturn());
@@ -1241,7 +1306,7 @@ void PPCFrameLowering::emitEpilogue(MachineFunction &MF,
           .addReg(FPReg)
           .addReg(ScratchReg);
       }
-    } else if (!isLargeFrame && !HasBP && !MFI->hasVarSizedObjects()) {
+    } else if (!isLargeFrame && !HasBP && !MFI.hasVarSizedObjects()) {
       BuildMI(MBB, MBBI, dl, AddImmInst, SPReg)
         .addReg(SPReg)
         .addImm(FrameSize);
@@ -1392,14 +1457,14 @@ void PPCFrameLowering::determineCalleeSaves(MachineFunction &MF,
   int FPSI = FI->getFramePointerSaveIndex();
   bool isPPC64 = Subtarget.isPPC64();
   bool isDarwinABI  = Subtarget.isDarwinABI();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
 
   // If the frame pointer save index hasn't been defined yet.
   if (!FPSI && needsFP(MF)) {
     // Find out what the fix offset of the frame pointer save area.
     int FPOffset = getFramePointerSaveOffset();
     // Allocate the frame index for frame pointer save area.
-    FPSI = MFI->CreateFixedObject(isPPC64? 8 : 4, FPOffset, true);
+    FPSI = MFI.CreateFixedObject(isPPC64? 8 : 4, FPOffset, true);
     // Save the result.
     FI->setFramePointerSaveIndex(FPSI);
   }
@@ -1408,7 +1473,7 @@ void PPCFrameLowering::determineCalleeSaves(MachineFunction &MF,
   if (!BPSI && RegInfo->hasBasePointer(MF)) {
     int BPOffset = getBasePointerSaveOffset();
     // Allocate the frame index for the base pointer save area.
-    BPSI = MFI->CreateFixedObject(isPPC64? 8 : 4, BPOffset, true);
+    BPSI = MFI.CreateFixedObject(isPPC64? 8 : 4, BPOffset, true);
     // Save the result.
     FI->setBasePointerSaveIndex(BPSI);
   }
@@ -1416,15 +1481,26 @@ void PPCFrameLowering::determineCalleeSaves(MachineFunction &MF,
   // Reserve stack space for the PIC Base register (R30).
   // Only used in SVR4 32-bit.
   if (FI->usesPICBase()) {
-    int PBPSI = MFI->CreateFixedObject(4, -8, true);
+    int PBPSI = MFI.CreateFixedObject(4, -8, true);
     FI->setPICBasePointerSaveIndex(PBPSI);
   }
+
+  // Make sure we don't explicitly spill r31, because, for example, we have
+  // some inline asm which explicity clobbers it, when we otherwise have a
+  // frame pointer and are using r31's spill slot for the prologue/epilogue
+  // code. Same goes for the base pointer and the PIC base register.
+  if (needsFP(MF))
+    SavedRegs.reset(isPPC64 ? PPC::X31 : PPC::R31);
+  if (RegInfo->hasBasePointer(MF))
+    SavedRegs.reset(RegInfo->getBaseRegister(MF));
+  if (FI->usesPICBase())
+    SavedRegs.reset(PPC::R30);
 
   // Reserve stack space to move the linkage area to in case of a tail call.
   int TCSPDelta = 0;
   if (MF.getTarget().Options.GuaranteedTailCallOpt &&
       (TCSPDelta = FI->getTailCallSPDelta()) < 0) {
-    MFI->CreateFixedObject(-1 * TCSPDelta, TCSPDelta, true);
+    MFI.CreateFixedObject(-1 * TCSPDelta, TCSPDelta, true);
   }
 
   // For 32-bit SVR4, allocate the nonvolatile CR spill slot iff the
@@ -1433,7 +1509,7 @@ void PPCFrameLowering::determineCalleeSaves(MachineFunction &MF,
       (SavedRegs.test(PPC::CR2) ||
        SavedRegs.test(PPC::CR3) ||
        SavedRegs.test(PPC::CR4))) {
-    int FrameIdx = MFI->CreateFixedObject((uint64_t)4, (int64_t)-4, true);
+    int FrameIdx = MFI.CreateFixedObject((uint64_t)4, (int64_t)-4, true);
     FI->setCRSpillFrameIndex(FrameIdx);
   }
 }
@@ -1447,15 +1523,15 @@ void PPCFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF,
   }
 
   // Get callee saved register information.
-  MachineFrameInfo *FFI = MF.getFrameInfo();
-  const std::vector<CalleeSavedInfo> &CSI = FFI->getCalleeSavedInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  const std::vector<CalleeSavedInfo> &CSI = MFI.getCalleeSavedInfo();
 
   // If the function is shrink-wrapped, and if the function has a tail call, the
   // tail call might not be in the new RestoreBlock, so real branch instruction
   // won't be generated by emitEpilogue(), because shrink-wrap has chosen new
   // RestoreBlock. So we handle this case here.
-  if (FFI->getSavePoint() && FFI->hasTailCall()) {
-    MachineBasicBlock *RestoreBlock = FFI->getRestorePoint();
+  if (MFI.getSavePoint() && MFI.hasTailCall()) {
+    MachineBasicBlock *RestoreBlock = MFI.getRestorePoint();
     for (MachineBasicBlock &MBB : MF) {
       if (MBB.isReturnBlock() && (&MBB) != RestoreBlock)
         createTailCallBranchInstr(MBB);
@@ -1546,7 +1622,7 @@ void PPCFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF,
     for (unsigned i = 0, e = FPRegs.size(); i != e; ++i) {
       int FI = FPRegs[i].getFrameIdx();
 
-      FFI->setObjectOffset(FI, LowerBound + FFI->getObjectOffset(FI));
+      MFI.setObjectOffset(FI, LowerBound + MFI.getObjectOffset(FI));
     }
 
     LowerBound -= (31 - TRI->getEncodingValue(MinFPR) + 1) * 8;
@@ -1560,7 +1636,7 @@ void PPCFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF,
     int FI = PFI->getFramePointerSaveIndex();
     assert(FI && "No Frame Pointer Save Slot!");
 
-    FFI->setObjectOffset(FI, LowerBound + FFI->getObjectOffset(FI));
+    MFI.setObjectOffset(FI, LowerBound + MFI.getObjectOffset(FI));
   }
 
   if (PFI->usesPICBase()) {
@@ -1569,7 +1645,7 @@ void PPCFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF,
     int FI = PFI->getPICBasePointerSaveIndex();
     assert(FI && "No PIC Base Pointer Save Slot!");
 
-    FFI->setObjectOffset(FI, LowerBound + FFI->getObjectOffset(FI));
+    MFI.setObjectOffset(FI, LowerBound + MFI.getObjectOffset(FI));
   }
 
   const PPCRegisterInfo *RegInfo =
@@ -1580,7 +1656,7 @@ void PPCFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF,
     int FI = PFI->getBasePointerSaveIndex();
     assert(FI && "No Base Pointer Save Slot!");
 
-    FFI->setObjectOffset(FI, LowerBound + FFI->getObjectOffset(FI));
+    MFI.setObjectOffset(FI, LowerBound + MFI.getObjectOffset(FI));
   }
 
   // General register save area starts right below the Floating-point
@@ -1591,7 +1667,7 @@ void PPCFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF,
     for (unsigned i = 0, e = GPRegs.size(); i != e; ++i) {
       int FI = GPRegs[i].getFrameIdx();
 
-      FFI->setObjectOffset(FI, LowerBound + FFI->getObjectOffset(FI));
+      MFI.setObjectOffset(FI, LowerBound + MFI.getObjectOffset(FI));
     }
 
     // Move general register save area spill slots down, taking into account
@@ -1599,7 +1675,7 @@ void PPCFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF,
     for (unsigned i = 0, e = G8Regs.size(); i != e; ++i) {
       int FI = G8Regs[i].getFrameIdx();
 
-      FFI->setObjectOffset(FI, LowerBound + FFI->getObjectOffset(FI));
+      MFI.setObjectOffset(FI, LowerBound + MFI.getObjectOffset(FI));
     }
 
     unsigned MinReg =
@@ -1630,7 +1706,7 @@ void PPCFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF,
                PPC::CRRCRegClass.contains(Reg)))) {
         int FI = CSI[i].getFrameIdx();
 
-        FFI->setObjectOffset(FI, LowerBound + FFI->getObjectOffset(FI));
+        MFI.setObjectOffset(FI, LowerBound + MFI.getObjectOffset(FI));
       }
     }
 
@@ -1647,7 +1723,7 @@ void PPCFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF,
       if (PPC::VRSAVERCRegClass.contains(Reg)) {
         int FI = CSI[i].getFrameIdx();
 
-        FFI->setObjectOffset(FI, LowerBound + FFI->getObjectOffset(FI));
+        MFI.setObjectOffset(FI, LowerBound + MFI.getObjectOffset(FI));
       }
     }
 
@@ -1661,7 +1737,7 @@ void PPCFrameLowering::processFunctionBeforeFrameFinalized(MachineFunction &MF,
     for (unsigned i = 0, e = VRegs.size(); i != e; ++i) {
       int FI = VRegs[i].getFrameIdx();
 
-      FFI->setObjectOffset(FI, LowerBound + FFI->getObjectOffset(FI));
+      MFI.setObjectOffset(FI, LowerBound + MFI.getObjectOffset(FI));
     }
   }
 
@@ -1685,25 +1761,25 @@ PPCFrameLowering::addScavengingSpillSlot(MachineFunction &MF,
   // because we've not yet computed callee-saved register spills or the
   // needed alignment padding.
   unsigned StackSize = determineFrameLayout(MF, false, true);
-  MachineFrameInfo *MFI = MF.getFrameInfo();
-  if (MFI->hasVarSizedObjects() || spillsCR(MF) || spillsVRSAVE(MF) ||
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  if (MFI.hasVarSizedObjects() || spillsCR(MF) || spillsVRSAVE(MF) ||
       hasNonRISpills(MF) || (hasSpills(MF) && !isInt<16>(StackSize))) {
     const TargetRegisterClass *GPRC = &PPC::GPRCRegClass;
     const TargetRegisterClass *G8RC = &PPC::G8RCRegClass;
     const TargetRegisterClass *RC = Subtarget.isPPC64() ? G8RC : GPRC;
-    RS->addScavengingFrameIndex(MFI->CreateStackObject(RC->getSize(),
-                                                       RC->getAlignment(),
-                                                       false));
+    RS->addScavengingFrameIndex(MFI.CreateStackObject(RC->getSize(),
+                                                      RC->getAlignment(),
+                                                      false));
 
     // Might we have over-aligned allocas?
-    bool HasAlVars = MFI->hasVarSizedObjects() &&
-                     MFI->getMaxAlignment() > getStackAlignment();
+    bool HasAlVars = MFI.hasVarSizedObjects() &&
+                     MFI.getMaxAlignment() > getStackAlignment();
 
     // These kinds of spills might need two registers.
     if (spillsCR(MF) || spillsVRSAVE(MF) || HasAlVars)
-      RS->addScavengingFrameIndex(MFI->CreateStackObject(RC->getSize(),
-                                                         RC->getAlignment(),
-                                                         false));
+      RS->addScavengingFrameIndex(MFI.CreateStackObject(RC->getSize(),
+                                                        RC->getAlignment(),
+                                                        false));
 
   }
 }
@@ -1827,8 +1903,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
       unsigned ADDInstr = is64Bit ? PPC::ADD8 : PPC::ADD4;
       unsigned LISInstr = is64Bit ? PPC::LIS8 : PPC::LIS;
       unsigned ORIInstr = is64Bit ? PPC::ORI8 : PPC::ORI;
-      MachineInstr *MI = I;
-      const DebugLoc &dl = MI->getDebugLoc();
+      const DebugLoc &dl = I->getDebugLoc();
 
       if (isInt<16>(CalleeAmt)) {
         BuildMI(MBB, I, dl, TII.get(ADDIInstr), StackReg)

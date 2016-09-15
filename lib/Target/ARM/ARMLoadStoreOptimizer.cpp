@@ -95,7 +95,7 @@ namespace {
 
     MachineFunctionProperties getRequiredProperties() const override {
       return MachineFunctionProperties().set(
-          MachineFunctionProperties::Property::AllVRegsAllocated);
+          MachineFunctionProperties::Property::NoVRegs);
     }
 
     const char *getPassName() const override {
@@ -834,7 +834,7 @@ MachineInstr *ARMLoadStoreOpt::MergeOpsUpdate(const MergeCandidate &Cand) {
         assert(MO.isImplicit());
         unsigned DefReg = MO.getReg();
 
-        if (std::find(ImpDefs.begin(), ImpDefs.end(), DefReg) != ImpDefs.end())
+        if (is_contained(ImpDefs, DefReg))
           continue;
         // We can ignore cases where the super-reg is read and written.
         if (MI->readsRegister(DefReg))
@@ -1851,7 +1851,7 @@ bool ARMLoadStoreOpt::MergeReturnIntoLDM(MachineBasicBlock &MBB) {
   if (MBB.empty()) return false;
 
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
-  if (MBBI != MBB.begin() &&
+  if (MBBI != MBB.begin() && MBBI != MBB.end() &&
       (MBBI->getOpcode() == ARM::BX_RET ||
        MBBI->getOpcode() == ARM::tBX_RET ||
        MBBI->getOpcode() == ARM::MOVPCLR)) {

@@ -210,6 +210,25 @@ define <4 x i32> @test_x86_sse2_cvtpd2dq(<2 x double> %a0) {
 declare <4 x i32> @llvm.x86.sse2.cvtpd2dq(<2 x double>) nounwind readnone
 
 
+define <2 x i64> @test_mm_cvtpd_epi32_zext(<2 x double> %a0) nounwind {
+; SSE-LABEL: test_mm_cvtpd_epi32_zext:
+; SSE:       ## BB#0:
+; SSE-NEXT:    cvtpd2dq %xmm0, %xmm0
+; SSE-NEXT:    movq {{.*#+}} xmm0 = xmm0[0],zero
+; SSE-NEXT:    retl
+;
+; KNL-LABEL: test_mm_cvtpd_epi32_zext:
+; KNL:       ## BB#0:
+; KNL-NEXT:    vcvtpd2dq %xmm0, %xmm0
+; KNL-NEXT:    vmovq {{.*#+}} xmm0 = xmm0[0],zero
+; KNL-NEXT:    retl
+  %cvt = call <4 x i32> @llvm.x86.sse2.cvtpd2dq(<2 x double> %a0)
+  %res = shufflevector <4 x i32> %cvt, <4 x i32> zeroinitializer, <4 x i32> <i32 0, i32 1, i32 4, i32 5>
+  %bc = bitcast <4 x i32> %res to <2 x i64>
+  ret <2 x i64> %bc
+}
+
+
 define <4 x float> @test_x86_sse2_cvtpd2ps(<2 x double> %a0) {
 ; SSE-LABEL: test_x86_sse2_cvtpd2ps:
 ; SSE:       ## BB#0:
@@ -225,6 +244,20 @@ define <4 x float> @test_x86_sse2_cvtpd2ps(<2 x double> %a0) {
 }
 declare <4 x float> @llvm.x86.sse2.cvtpd2ps(<2 x double>) nounwind readnone
 
+define <4 x float> @test_x86_sse2_cvtpd2ps_zext(<2 x double> %a0) nounwind {
+; SSE-LABEL: test_x86_sse2_cvtpd2ps_zext:
+; SSE:       ## BB#0:
+; SSE-NEXT:    cvtpd2ps %xmm0, %xmm0
+; SSE-NEXT:    retl
+;
+; KNL-LABEL: test_x86_sse2_cvtpd2ps_zext:
+; KNL:       ## BB#0:
+; KNL-NEXT:    vcvtpd2ps %xmm0, %xmm0
+; KNL-NEXT:    retl
+  %cvt = call <4 x float> @llvm.x86.sse2.cvtpd2ps(<2 x double> %a0)
+  %res = shufflevector <4 x float> %cvt, <4 x float> zeroinitializer, <4 x i32> <i32 0, i32 1, i32 4, i32 5>
+  ret <4 x float> %res
+}
 
 define <4 x i32> @test_x86_sse2_cvtps2dq(<4 x float> %a0) {
 ; SSE-LABEL: test_x86_sse2_cvtps2dq:
@@ -293,6 +326,24 @@ define <4 x float> @test_x86_sse2_cvtsd2ss_load(<4 x float> %a0, <2 x double>* %
 }
 
 
+define <4 x float> @test_x86_sse2_cvtsd2ss_load_optsize(<4 x float> %a0, <2 x double>* %p1) optsize {
+; SSE-LABEL: test_x86_sse2_cvtsd2ss_load_optsize:
+; SSE:       ## BB#0:
+; SSE-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; SSE-NEXT:    cvtsd2ss (%eax), %xmm0
+; SSE-NEXT:    retl
+;
+; KNL-LABEL: test_x86_sse2_cvtsd2ss_load_optsize:
+; KNL:       ## BB#0:
+; KNL-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; KNL-NEXT:    vcvtsd2ss (%eax), %xmm0, %xmm0
+; KNL-NEXT:    retl
+  %a1 = load <2 x double>, <2 x double>* %p1
+  %res = call <4 x float> @llvm.x86.sse2.cvtsd2ss(<4 x float> %a0, <2 x double> %a1) ; <<4 x float>> [#uses=1]
+  ret <4 x float> %res
+}
+
+
 define <2 x double> @test_x86_sse2_cvtsi2sd(<2 x double> %a0, i32 %a1) {
 ; SSE-LABEL: test_x86_sse2_cvtsi2sd:
 ; SSE:       ## BB#0:
@@ -344,6 +395,24 @@ define <2 x double> @test_x86_sse2_cvtss2sd_load(<2 x double> %a0, <4 x float>* 
 }
 
 
+define <2 x double> @test_x86_sse2_cvtss2sd_load_optsize(<2 x double> %a0, <4 x float>* %p1) optsize {
+; SSE-LABEL: test_x86_sse2_cvtss2sd_load_optsize:
+; SSE:       ## BB#0:
+; SSE-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; SSE-NEXT:    cvtss2sd (%eax), %xmm0
+; SSE-NEXT:    retl
+;
+; KNL-LABEL: test_x86_sse2_cvtss2sd_load_optsize:
+; KNL:       ## BB#0:
+; KNL-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; KNL-NEXT:    vcvtss2sd (%eax), %xmm0, %xmm0
+; KNL-NEXT:    retl
+  %a1 = load <4 x float>, <4 x float>* %p1
+  %res = call <2 x double> @llvm.x86.sse2.cvtss2sd(<2 x double> %a0, <4 x float> %a1) ; <<2 x double>> [#uses=1]
+  ret <2 x double> %res
+}
+
+
 define <4 x i32> @test_x86_sse2_cvttpd2dq(<2 x double> %a0) {
 ; SSE-LABEL: test_x86_sse2_cvttpd2dq:
 ; SSE:       ## BB#0:
@@ -358,6 +427,25 @@ define <4 x i32> @test_x86_sse2_cvttpd2dq(<2 x double> %a0) {
   ret <4 x i32> %res
 }
 declare <4 x i32> @llvm.x86.sse2.cvttpd2dq(<2 x double>) nounwind readnone
+
+
+define <2 x i64> @test_mm_cvttpd_epi32_zext(<2 x double> %a0) nounwind {
+; SSE-LABEL: test_mm_cvttpd_epi32_zext:
+; SSE:       ## BB#0:
+; SSE-NEXT:    cvttpd2dq %xmm0, %xmm0
+; SSE-NEXT:    movq {{.*#+}} xmm0 = xmm0[0],zero
+; SSE-NEXT:    retl
+;
+; KNL-LABEL: test_mm_cvttpd_epi32_zext:
+; KNL:       ## BB#0:
+; KNL-NEXT:    vcvttpd2dq %xmm0, %xmm0
+; KNL-NEXT:    vmovq {{.*#+}} xmm0 = xmm0[0],zero
+; KNL-NEXT:    retl
+  %cvt = call <4 x i32> @llvm.x86.sse2.cvttpd2dq(<2 x double> %a0)
+  %res = shufflevector <4 x i32> %cvt, <4 x i32> zeroinitializer, <4 x i32> <i32 0, i32 1, i32 4, i32 5>
+  %bc = bitcast <4 x i32> %res to <2 x i64>
+  ret <2 x i64> %bc
+}
 
 
 define <4 x i32> @test_x86_sse2_cvttps2dq(<4 x float> %a0) {

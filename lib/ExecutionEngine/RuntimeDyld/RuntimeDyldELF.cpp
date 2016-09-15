@@ -184,7 +184,7 @@ LoadedELFObjectInfo::getObjectForDebug(const ObjectFile &Obj) const {
 namespace llvm {
 
 RuntimeDyldELF::RuntimeDyldELF(RuntimeDyld::MemoryManager &MemMgr,
-                               RuntimeDyld::SymbolResolver &Resolver)
+                               JITSymbolResolver &Resolver)
     : RuntimeDyldImpl(MemMgr, Resolver), GOTSectionID(0), CurrentGOTIndex(0) {}
 RuntimeDyldELF::~RuntimeDyldELF() {}
 
@@ -1258,6 +1258,7 @@ RuntimeDyldELF::processRelocationRef(
       break;
     }
     case SymbolRef::ST_Data:
+    case SymbolRef::ST_Function:
     case SymbolRef::ST_Unknown: {
       Value.SymbolName = TargetName.data();
       Value.Addend = Addend;

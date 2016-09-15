@@ -854,7 +854,7 @@ class AAManager : public AnalysisInfoMixin<AAManager> {
 public:
   typedef AAResults Result;
 
-  // This type hase value semantics. We have to spell these out because MSVC
+  // This type has value semantics. We have to spell these out because MSVC
   // won't synthesize them.
   AAManager() {}
   AAManager(AAManager &&Arg) : ResultGetters(std::move(Arg.ResultGetters)) {}
@@ -878,7 +878,7 @@ public:
     ResultGetters.push_back(&getModuleAAResultImpl<AnalysisT>);
   }
 
-  Result run(Function &F, AnalysisManager<Function> &AM) {
+  Result run(Function &F, FunctionAnalysisManager &AM) {
     Result R(AM.getResult<TargetLibraryAnalysis>(F));
     for (auto &Getter : ResultGetters)
       (*Getter)(F, AM, R);
@@ -889,19 +889,19 @@ private:
   friend AnalysisInfoMixin<AAManager>;
   static char PassID;
 
-  SmallVector<void (*)(Function &F, AnalysisManager<Function> &AM,
+  SmallVector<void (*)(Function &F, FunctionAnalysisManager &AM,
                        AAResults &AAResults),
               4> ResultGetters;
 
   template <typename AnalysisT>
   static void getFunctionAAResultImpl(Function &F,
-                                      AnalysisManager<Function> &AM,
+                                      FunctionAnalysisManager &AM,
                                       AAResults &AAResults) {
     AAResults.addAAResult(AM.template getResult<AnalysisT>(F));
   }
 
   template <typename AnalysisT>
-  static void getModuleAAResultImpl(Function &F, AnalysisManager<Function> &AM,
+  static void getModuleAAResultImpl(Function &F, FunctionAnalysisManager &AM,
                                     AAResults &AAResults) {
     auto &MAM =
         AM.getResult<ModuleAnalysisManagerFunctionProxy>(F).getManager();

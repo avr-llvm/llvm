@@ -11,6 +11,7 @@
 #include "AArch64RegisterInfo.h"
 #include "MCTargetDesc/AArch64FixupKinds.h"
 #include "llvm/ADT/Triple.h"
+#include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDirectives.h"
@@ -574,7 +575,8 @@ void ELFAArch64AsmBackend::processFixupValue(
 MCAsmBackend *llvm::createAArch64leAsmBackend(const Target &T,
                                               const MCRegisterInfo &MRI,
                                               const Triple &TheTriple,
-                                              StringRef CPU) {
+                                              StringRef CPU,
+                                              const MCTargetOptions &Options) {
   if (TheTriple.isOSBinFormatMachO())
     return new DarwinAArch64AsmBackend(T, MRI);
 
@@ -586,10 +588,10 @@ MCAsmBackend *llvm::createAArch64leAsmBackend(const Target &T,
 MCAsmBackend *llvm::createAArch64beAsmBackend(const Target &T,
                                               const MCRegisterInfo &MRI,
                                               const Triple &TheTriple,
-                                              StringRef CPU) {
+                                              StringRef CPU,
+                                              const MCTargetOptions &Options) {
   assert(TheTriple.isOSBinFormatELF() &&
          "Big endian is only supported for ELF targets!");
   uint8_t OSABI = MCELFObjectTargetWriter::getOSABI(TheTriple.getOS());
-  return new ELFAArch64AsmBackend(T, OSABI,
-                                  /*IsLittleEndian=*/false);
+  return new ELFAArch64AsmBackend(T, OSABI, /*IsLittleEndian=*/false);
 }

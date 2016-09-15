@@ -88,10 +88,10 @@ void SystemZInstrInfo::splitMove(MachineBasicBlock::iterator MI,
 void SystemZInstrInfo::splitAdjDynAlloc(MachineBasicBlock::iterator MI) const {
   MachineBasicBlock *MBB = MI->getParent();
   MachineFunction &MF = *MBB->getParent();
-  MachineFrameInfo *MFFrame = MF.getFrameInfo();
+  MachineFrameInfo &MFFrame = MF.getFrameInfo();
   MachineOperand &OffsetMO = MI->getOperand(2);
 
-  uint64_t Offset = (MFFrame->getMaxCallFrameSize() +
+  uint64_t Offset = (MFFrame.getMaxCallFrameSize() +
                      SystemZMC::CallFrameSize +
                      OffsetMO.getImm());
   unsigned NewOpcode = getOpcodeForOffset(SystemZ::LA, Offset);
@@ -252,7 +252,7 @@ bool SystemZInstrInfo::isStackSlotCopy(const MachineInstr &MI,
                                        int &DestFrameIndex,
                                        int &SrcFrameIndex) const {
   // Check for MVC 0(Length,FI1),0(FI2)
-  const MachineFrameInfo *MFI = MI.getParent()->getParent()->getFrameInfo();
+  const MachineFrameInfo &MFI = MI.getParent()->getParent()->getFrameInfo();
   if (MI.getOpcode() != SystemZ::MVC || !MI.getOperand(0).isFI() ||
       MI.getOperand(1).getImm() != 0 || !MI.getOperand(3).isFI() ||
       MI.getOperand(4).getImm() != 0)
@@ -262,8 +262,8 @@ bool SystemZInstrInfo::isStackSlotCopy(const MachineInstr &MI,
   int64_t Length = MI.getOperand(2).getImm();
   unsigned FI1 = MI.getOperand(0).getIndex();
   unsigned FI2 = MI.getOperand(3).getIndex();
-  if (MFI->getObjectSize(FI1) != Length ||
-      MFI->getObjectSize(FI2) != Length)
+  if (MFI.getObjectSize(FI1) != Length ||
+      MFI.getObjectSize(FI2) != Length)
     return false;
 
   DestFrameIndex = FI1;
@@ -363,7 +363,10 @@ bool SystemZInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
   return false;
 }
 
-unsigned SystemZInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
+unsigned SystemZInstrInfo::removeBranch(MachineBasicBlock &MBB,
+                                        int *BytesRemoved) const {
+  assert(!BytesRemoved && "code size not handled");
+
   // Most of the code and comments here are boilerplate.
   MachineBasicBlock::iterator I = MBB.end();
   unsigned Count = 0;
@@ -386,25 +389,27 @@ unsigned SystemZInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
 }
 
 bool SystemZInstrInfo::
-ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
+reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
   assert(Cond.size() == 2 && "Invalid condition");
   Cond[1].setImm(Cond[1].getImm() ^ Cond[0].getImm());
   return false;
 }
 
-unsigned SystemZInstrInfo::InsertBranch(MachineBasicBlock &MBB,
+unsigned SystemZInstrInfo::insertBranch(MachineBasicBlock &MBB,
                                         MachineBasicBlock *TBB,
                                         MachineBasicBlock *FBB,
                                         ArrayRef<MachineOperand> Cond,
-                                        const DebugLoc &DL) const {
+                                        const DebugLoc &DL,
+                                        int *BytesAdded) const {
   // In this function we output 32-bit branches, which should always
   // have enough range.  They can be shortened and relaxed by later code
   // in the pipeline, if desired.
 
   // Shouldn't be a fall through.
-  assert(TBB && "InsertBranch must not be told to insert a fallthrough");
+  assert(TBB && "insertBranch must not be told to insert a fallthrough");
   assert((Cond.size() == 2 || Cond.size() == 0) &&
          "SystemZ branch conditions have one component!");
+  assert(!BytesAdded && "code size not handled");
 
   if (Cond.empty()) {
     // Unconditional branch?
@@ -875,8 +880,8 @@ MachineInstr *SystemZInstrInfo::foldMemoryOperandImpl(
     MachineBasicBlock::iterator InsertPt, int FrameIndex,
     LiveIntervals *LIS) const {
   const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
-  unsigned Size = MFI->getObjectSize(FrameIndex);
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  unsigned Size = MFI.getObjectSize(FrameIndex);
   unsigned Opcode = MI.getOpcode();
 
   if (Ops.size() == 2 && Ops[0] == 0 && Ops[1] == 1) {
@@ -1194,7 +1199,7 @@ bool SystemZInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   }
 }
 
-uint64_t SystemZInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
+unsigned SystemZInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   if (MI.getOpcode() == TargetOpcode::INLINEASM) {
     const MachineFunction *MF = MI.getParent()->getParent();
     const char *AsmStr = MI.getOperand(0).getSymbolName();

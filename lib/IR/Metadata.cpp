@@ -16,6 +16,7 @@
 #include "MetadataImpl.h"
 #include "SymbolTableListTraitsImpl.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/IR/ConstantRange.h"
@@ -416,7 +417,7 @@ void ValueAsMetadata::handleRAUW(Value *From, Value *To) {
 
 MDString *MDString::get(LLVMContext &Context, StringRef Str) {
   auto &Store = Context.pImpl->MDStringCache;
-  auto I = Store.emplace_second(Str);
+  auto I = Store.try_emplace(Str);
   auto &MapEntry = I.first->getValue();
   if (!I.second)
     return &MapEntry;
@@ -862,42 +863,32 @@ MDNode *MDNode::concatenate(MDNode *A, MDNode *B) {
   if (!B)
     return A;
 
-  SmallVector<Metadata *, 4> MDs;
-  MDs.reserve(A->getNumOperands() + B->getNumOperands());
-  MDs.append(A->op_begin(), A->op_end());
-  MDs.append(B->op_begin(), B->op_end());
+  SmallSetVector<Metadata *, 4> MDs(A->op_begin(), A->op_end());
+  MDs.insert(B->op_begin(), B->op_end());
 
   // FIXME: This preserves long-standing behaviour, but is it really the right
   // behaviour?  Or was that an unintended side-effect of node uniquing?
-  return getOrSelfReference(A->getContext(), MDs);
+  return getOrSelfReference(A->getContext(), MDs.getArrayRef());
 }
 
 MDNode *MDNode::intersect(MDNode *A, MDNode *B) {
   if (!A || !B)
     return nullptr;
 
-  SmallVector<Metadata *, 4> MDs;
-  for (Metadata *MD : A->operands())
-    if (std::find(B->op_begin(), B->op_end(), MD) != B->op_end())
-      MDs.push_back(MD);
+  SmallSetVector<Metadata *, 4> MDs(A->op_begin(), A->op_end());
+  SmallPtrSet<Metadata *, 4> BSet(B->op_begin(), B->op_end());
+  MDs.remove_if([&](Metadata *MD) { return !is_contained(BSet, MD); });
 
   // FIXME: This preserves long-standing behaviour, but is it really the right
   // behaviour?  Or was that an unintended side-effect of node uniquing?
-  return getOrSelfReference(A->getContext(), MDs);
+  return getOrSelfReference(A->getContext(), MDs.getArrayRef());
 }
 
 MDNode *MDNode::getMostGenericAliasScope(MDNode *A, MDNode *B) {
   if (!A || !B)
     return nullptr;
 
-  SmallVector<Metadata *, 4> MDs(B->op_begin(), B->op_end());
-  for (Metadata *MD : A->operands())
-    if (std::find(B->op_begin(), B->op_end(), MD) == B->op_end())
-      MDs.push_back(MD);
-
-  // FIXME: This preserves long-standing behaviour, but is it really the right
-  // behaviour?  Or was that an unintended side-effect of node uniquing?
-  return getOrSelfReference(A->getContext(), MDs);
+  return concatenate(A, B);
 }
 
 MDNode *MDNode::getMostGenericFPMath(MDNode *A, MDNode *B) {
@@ -1433,6 +1424,21 @@ void GlobalObject::copyMetadata(const GlobalObject *Other, unsigned Offset) {
                   *MDNode::get(getContext(), {NewOffsetMD, TypeId}));
       continue;
     }
+    // If an offset adjustment was specified we need to modify the DIExpression
+    // to prepend the adjustment:
+    // !DIExpression(DW_OP_plus, Offset, [original expr])
+    if (Offset != 0 && MD.first == LLVMContext::MD_dbg) {
+      DIGlobalVariable *GV = cast<DIGlobalVariable>(MD.second);
+      DIExpression *E = GV->getExpr();
+      ArrayRef<uint64_t> OrigElements;
+      if (E)
+        OrigElements = E->getElements();
+      std::vector<uint64_t> Elements(OrigElements.size() + 2);
+      Elements[0] = dwarf::DW_OP_plus;
+      Elements[1] = Offset;
+      std::copy(OrigElements.begin(), OrigElements.end(), Elements.begin() + 2);
+      GV->replaceExpr(DIExpression::get(getContext(), Elements));
+    }
     addMetadata(MD.first, *MD.second);
   }
 }
@@ -1452,4 +1458,16 @@ void Function::setSubprogram(DISubprogram *SP) {
 
 DISubprogram *Function::getSubprogram() const {
   return cast_or_null<DISubprogram>(getMetadata(LLVMContext::MD_dbg));
+}
+
+void GlobalVariable::addDebugInfo(DIGlobalVariable *GV) {
+  addMetadata(LLVMContext::MD_dbg, *GV);
+}
+
+void GlobalVariable::getDebugInfo(
+    SmallVectorImpl<DIGlobalVariable *> &GVs) const {
+  SmallVector<MDNode *, 1> MDs;
+  getMetadata(LLVMContext::MD_dbg, MDs);
+  for (MDNode *MD : MDs)
+    GVs.push_back(cast<DIGlobalVariable>(MD));
 }

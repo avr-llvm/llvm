@@ -218,6 +218,14 @@ public:
   virtual bool addIRTranslator() { return true; }
 
   /// This method may be implemented by targets that want to run passes
+  /// immediately before legalization.
+  virtual void addPreLegalizeMachineIR() {}
+
+  /// This method should install a legalize pass, which converts the instruction
+  /// sequence into one that can be selected by the target.
+  virtual bool addLegalizeMachineIR() { return true; }
+
+  /// This method may be implemented by targets that want to run passes
   /// immediately before the register bank selection.
   virtual void addPreRegBankSelect() {}
 
@@ -225,6 +233,16 @@ public:
   /// assigns register banks to virtual registers without a register
   /// class or register banks.
   virtual bool addRegBankSelect() { return true; }
+
+  /// This method may be implemented by targets that want to run passes
+  /// immediately before the (global) instruction selection.
+  virtual void addPreGlobalInstructionSelect() {}
+
+  /// This method should install a (global) instruction selector pass, which
+  /// converts possibly generic instructions to fully target-specific
+  /// instructions, thereby constraining all generic virtual registers to
+  /// register classes.
+  virtual bool addGlobalInstructionSelect() { return true; }
 
   /// Add the complete, standard set of LLVM CodeGen passes.
   /// Fully developed targets will not generally override this.
@@ -262,6 +280,16 @@ public:
   /// Add a pass to perform basic verification of the machine function if
   /// verification is enabled.
   void addVerifyPass(const std::string &Banner);
+
+  /// Check whether or not GlobalISel should abort on error.
+  /// When this is disable, GlobalISel will fall back on SDISel instead of
+  /// erroring out.
+  virtual bool isGlobalISelAbortEnabled() const;
+
+  /// Check whether or not a diagnostic should be emitted when GlobalISel
+  /// uses the fallback path. In other words, it will emit a diagnostic
+  /// when GlobalISel failed and isGlobalISelAbortEnabled is false.
+  virtual bool reportDiagnosticWhenGlobalISelFallback() const;
 
 protected:
   // Helper to verify the analysis is really immutable.

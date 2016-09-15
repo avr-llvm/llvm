@@ -54,6 +54,12 @@ cl::opt<Reloc::Model> RelocModel(
                    "Fully relocatable, position independent code"),
         clEnumValN(Reloc::DynamicNoPIC, "dynamic-no-pic",
                    "Relocatable external references, non-relocatable code"),
+        clEnumValN(Reloc::ROPI, "ropi",
+                   "Code and read-only data relocatable, accessed PC-relative"),
+        clEnumValN(Reloc::RWPI, "rwpi",
+                   "Read-write data relocatable, accessed relative to static base"),
+        clEnumValN(Reloc::ROPI_RWPI, "ropi-rwpi",
+                   "Combination of ropi and rwpi"),
         clEnumValEnd));
 
 static inline Optional<Reloc::Model> getRelocModel() {
@@ -144,6 +150,26 @@ EnableNoNaNsFPMath("enable-no-nans-fp-math",
                    cl::init(false));
 
 cl::opt<bool>
+EnableNoTrappingFPMath("enable-no-trapping-fp-math",
+                       cl::desc("Enable setting the FP exceptions build "
+                                "attribute not to use exceptions"),
+                       cl::init(false));
+
+cl::opt<llvm::FPDenormal::DenormalType>
+DenormalType("denormal-fp-math",
+          cl::desc("Select which denormal numbers the code is permitted to require"),
+          cl::init(FPDenormal::IEEE),
+          cl::values(
+              clEnumValN(FPDenormal::IEEE, "ieee",
+                         "IEEE 754 denormal numbers"),
+              clEnumValN(FPDenormal::PreserveSign, "preserve-sign",
+                         "the sign of a  flushed-to-zero number is preserved "
+                         "in the sign of 0"),
+              clEnumValN(FPDenormal::PositiveZero, "positive-zero",
+                         "denormals are flushed to positive zero"),
+              clEnumValEnd));
+
+cl::opt<bool>
 EnableHonorSignDependentRoundingFPMath("enable-sign-dependent-rounding-fp-math",
       cl::Hidden,
       cl::desc("Force codegen to assume rounding mode can change dynamically"),
@@ -221,15 +247,6 @@ UseCtors("use-ctors",
              cl::desc("Use .ctors instead of .init_array."),
              cl::init(false));
 
-cl::opt<std::string> StopAfter("stop-after",
-                            cl::desc("Stop compilation after a specific pass"),
-                            cl::value_desc("pass-name"),
-                                      cl::init(""));
-cl::opt<std::string> StartAfter("start-after",
-                          cl::desc("Resume compilation after a specific pass"),
-                          cl::value_desc("pass-name"),
-                          cl::init(""));
-
 cl::opt<bool> DataSections("data-sections",
                            cl::desc("Emit data into separate sections"),
                            cl::init(false));
@@ -292,6 +309,8 @@ static inline TargetOptions InitTargetOptionsFromCodeGenFlags() {
   Options.UnsafeFPMath = EnableUnsafeFPMath;
   Options.NoInfsFPMath = EnableNoInfsFPMath;
   Options.NoNaNsFPMath = EnableNoNaNsFPMath;
+  Options.NoTrappingFPMath = EnableNoTrappingFPMath;
+  Options.FPDenormalType = DenormalType;
   Options.HonorSignDependentRoundingFPMathOption =
       EnableHonorSignDependentRoundingFPMath;
   if (FloatABIForCalls != FloatABI::Default)
@@ -385,7 +404,8 @@ static inline void setFunctionAttributes(StringRef CPU, StringRef Features,
               if (F->getIntrinsicID() == Intrinsic::debugtrap ||
                   F->getIntrinsicID() == Intrinsic::trap)
                 Call->addAttribute(llvm::AttributeSet::FunctionIndex,
-                                   "trap-func-name", TrapFuncName);
+                                   Attribute::get(Ctx, "trap-func-name",
+                                                  TrapFuncName));
 
     // Let NewAttrs override Attrs.
     NewAttrs = Attrs.addAttributes(Ctx, AttributeSet::FunctionIndex, NewAttrs);

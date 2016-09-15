@@ -193,6 +193,7 @@ def TTMP_128Regs : RegisterTuples<[sub0, sub1, sub2, sub3],
 def VGPR_32 : RegisterClass<"AMDGPU", [i32, f32], 32,
                             (add (sequence "VGPR%u", 0, 255))> {
   let AllocationPriority = 1;
+  let Size = 32;
 }
 
 // VGPR 64-bit registers
@@ -247,11 +248,6 @@ def VGPR_512 : RegisterTuples<[sub0, sub1, sub2, sub3, sub4, sub5, sub6, sub7,
 //===----------------------------------------------------------------------===//
 //  Register classes used as source and destination
 //===----------------------------------------------------------------------===//
-
-class RegImmMatcher<string name> : AsmOperandClass {
-  let Name = name;
-  let RenderMethod = "addRegOrImmOperands";
-}
 
 // Subset of SReg_32 without M0 for SMRD instructions and alike.
 // See comments in SIInstructions.td for more info.
@@ -311,6 +307,8 @@ def SReg_512 : RegisterClass<"AMDGPU", [v64i8, v16i32], 32, (add SGPR_512)> {
 
 // Register class for all vector registers (VGPRs + Interploation Registers)
 def VReg_64 : RegisterClass<"AMDGPU", [i64, f64, v2i32, v2f32], 32, (add VGPR_64)> {
+  let Size = 64;
+
   // Requires 2 v_mov_b32 to copy
   let CopyCost = 2;
   let AllocationPriority = 2;
@@ -325,17 +323,21 @@ def VReg_96 : RegisterClass<"AMDGPU", [untyped], 32, (add VGPR_96)> {
 }
 
 def VReg_128 : RegisterClass<"AMDGPU", [v4i32, v4f32, v2i64, v2f64], 32, (add VGPR_128)> {
+  let Size = 128;
+
   // Requires 4 v_mov_b32 to copy
   let CopyCost = 4;
   let AllocationPriority = 4;
 }
 
 def VReg_256 : RegisterClass<"AMDGPU", [v8i32, v8f32], 32, (add VGPR_256)> {
+  let Size = 256;
   let CopyCost = 8;
   let AllocationPriority = 5;
 }
 
 def VReg_512 : RegisterClass<"AMDGPU", [v16i32, v16f32], 32, (add VGPR_512)> {
+  let Size = 512;
   let CopyCost = 16;
   let AllocationPriority = 6;
 }
@@ -344,80 +346,87 @@ def VReg_1 : RegisterClass<"AMDGPU", [i1], 32, (add VGPR_32)> {
   let Size = 32;
 }
 
-class RegImmOperand <RegisterClass rc> : RegisterOperand<rc> {
-  let OperandNamespace = "AMDGPU";
-  let OperandType = "OPERAND_REG_IMM32";
+def VS_32 : RegisterClass<"AMDGPU", [i32, f32], 32, (add VGPR_32, SReg_32)> {
+  let isAllocatable = 0;
 }
 
-class RegInlineOperand <RegisterClass rc> : RegisterOperand<rc> {
-  let OperandNamespace = "AMDGPU";
-  let OperandType = "OPERAND_REG_INLINE_C";
+def VS_64 : RegisterClass<"AMDGPU", [i64, f64], 32, (add VReg_64, SReg_64)> {
+  let isAllocatable = 0;
 }
+
+//===----------------------------------------------------------------------===//
+//  Register operands
+//===----------------------------------------------------------------------===//
+
+class RegImmMatcher<string name> : AsmOperandClass {
+  let Name = name;
+  let RenderMethod = "addRegOrImmOperands";
+}
+
+multiclass SIRegOperand <string rc, string MatchName, string opType> {
+  let OperandNamespace = "AMDGPU" in {
+    
+    def _b32 : RegisterOperand<!cast<RegisterClass>(rc#"_32")> {
+      let OperandType = opType#"_INT";
+      let ParserMatchClass = RegImmMatcher<MatchName#"B32">;
+    }
+  
+    def _f32 : RegisterOperand<!cast<RegisterClass>(rc#"_32")> {
+      let OperandType = opType#"_FP";
+      let ParserMatchClass = RegImmMatcher<MatchName#"F32">;
+    }
+    
+    def _b64 : RegisterOperand<!cast<RegisterClass>(rc#"_64")> {
+      let OperandType = opType#"_INT";
+      let ParserMatchClass = RegImmMatcher<MatchName#"B64">;
+    }
+
+    def _f64 : RegisterOperand<!cast<RegisterClass>(rc#"_64")> {
+      let OperandType = opType#"_FP";
+      let ParserMatchClass = RegImmMatcher<MatchName#"F64">;
+    }
+  }
+}
+
+multiclass RegImmOperand <string rc, string MatchName> 
+  : SIRegOperand<rc, MatchName, "OPERAND_REG_IMM32">;
+
+multiclass RegInlineOperand <string rc, string MatchName> 
+  : SIRegOperand<rc, MatchName, "OPERAND_REG_INLINE_C">;
 
 //===----------------------------------------------------------------------===//
 //  SSrc_* Operands with an SGPR or a 32-bit immediate
 //===----------------------------------------------------------------------===//
 
-def SSrc_32 : RegImmOperand<SReg_32> {
-  let ParserMatchClass = RegImmMatcher<"SSrc32">;
-}
-
-def SSrc_64 : RegImmOperand<SReg_64> {
-  let ParserMatchClass = RegImmMatcher<"SSrc64">;
-}
+defm SSrc : RegImmOperand<"SReg", "SSrc">;
 
 //===----------------------------------------------------------------------===//
 //  SCSrc_* Operands with an SGPR or a inline constant
 //===----------------------------------------------------------------------===//
 
-def SCSrc_32 : RegInlineOperand<SReg_32> {
-  let ParserMatchClass = RegImmMatcher<"SCSrc32">;
-}
+defm SCSrc : RegInlineOperand<"SReg", "SCSrc"> ;
 
 //===----------------------------------------------------------------------===//
 //  VSrc_* Operands with an SGPR, VGPR or a 32-bit immediate
 //===----------------------------------------------------------------------===//
 
-def VS_32 : RegisterClass<"AMDGPU", [i32, f32], 32, (add VGPR_32, SReg_32)>;
+defm VSrc : RegImmOperand<"VS", "VSrc">;
 
-def VS_64 : RegisterClass<"AMDGPU", [i64, f64], 32, (add VReg_64, SReg_64)> {
-  let CopyCost = 2;
-}
+def VSrc_128 : RegisterOperand<VReg_128>;
 
-def VSrc_32 : RegisterOperand<VS_32> {
-  let OperandNamespace = "AMDGPU";
-  let OperandType = "OPERAND_REG_IMM32";
-  let ParserMatchClass = RegImmMatcher<"VSrc32">;
-}
+//===----------------------------------------------------------------------===//
+//  VSrc_* Operands with an VGPR
+//===----------------------------------------------------------------------===//
 
-def VSrc_64 : RegisterOperand<VS_64> {
-  let OperandNamespace = "AMDGPU";
-  let OperandType = "OPERAND_REG_IMM32";
-  let ParserMatchClass = RegImmMatcher<"VSrc64">;
+// This is for operands with the enum(9), VSrc encoding restriction,
+// but only allows VGPRs.
+def VRegSrc_32 : RegisterOperand<VGPR_32> {
+  //let ParserMatchClass = RegImmMatcher<"VRegSrc32">;
+  let DecoderMethod = "DecodeVS_32RegisterClass";
 }
 
 //===----------------------------------------------------------------------===//
 //  VCSrc_* Operands with an SGPR, VGPR or an inline constant
 //===----------------------------------------------------------------------===//
 
-def VCSrc_32 : RegisterOperand<VS_32> {
-  let OperandNamespace = "AMDGPU";
-  let OperandType = "OPERAND_REG_INLINE_C";
-  let ParserMatchClass = RegImmMatcher<"VCSrc32">;
-}
-
-def VCSrc_64 : RegisterOperand<VS_64> {
-  let OperandNamespace = "AMDGPU";
-  let OperandType = "OPERAND_REG_INLINE_C";
-  let ParserMatchClass = RegImmMatcher<"VCSrc64">;
-}
-
-//===----------------------------------------------------------------------===//
-//  SCSrc_* Operands with an SGPR or an inline constant
-//===----------------------------------------------------------------------===//
-
-def SCSrc_64 : RegisterOperand<SReg_64> {
-  let OperandNamespace = "AMDGPU";
-  let OperandType = "OPERAND_REG_INLINE_C";
-  let ParserMatchClass = RegImmMatcher<"SCSrc64">;
-}
+defm VCSrc : RegInlineOperand<"VS", "VCSrc">;

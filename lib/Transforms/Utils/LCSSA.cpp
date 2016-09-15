@@ -54,7 +54,7 @@ STATISTIC(NumLCSSA, "Number of live out of a loop variables");
 /// Return true if the specified block is in the list.
 static bool isExitBlock(BasicBlock *BB,
                         const SmallVectorImpl<BasicBlock *> &ExitBlocks) {
-  return find(ExitBlocks, BB) != ExitBlocks.end();
+  return is_contained(ExitBlocks, BB);
 }
 
 /// For every instruction from the worklist, check to see if it has any uses
@@ -196,6 +196,14 @@ bool llvm::formLCSSAForInstructions(SmallVectorImpl<Instruction *> &Worklist,
       }
     }
 
+    // SSAUpdater might have inserted phi-nodes inside other loops. We'll need
+    // to post-process them to keep LCSSA form.
+    for (PHINode *InsertedPN : InsertedPHIs) {
+      if (auto *OtherLoop = LI.getLoopFor(InsertedPN->getParent()))
+        if (!L->contains(OtherLoop))
+          PostProcessPHIs.push_back(InsertedPN);
+    }
+
     // Post process PHI instructions that were inserted into another disjoint
     // loop and update their exits properly.
     for (auto *PostProcessPN : PostProcessPHIs) {
@@ -229,7 +237,7 @@ blockDominatesAnExit(BasicBlock *BB,
                      DominatorTree &DT,
                      const SmallVectorImpl<BasicBlock *> &ExitBlocks) {
   DomTreeNode *DomNode = DT.getNode(BB);
-  return llvm::any_of(ExitBlocks, [&](BasicBlock * EB) {
+  return any_of(ExitBlocks, [&](BasicBlock *EB) {
     return DT.dominates(DomNode, DT.getNode(EB));
   });
 }
@@ -315,6 +323,11 @@ struct LCSSAWrapperPass : public FunctionPass {
   ScalarEvolution *SE;
 
   bool runOnFunction(Function &F) override;
+  void verifyAnalysis() const override {
+    assert(
+        all_of(*LI, [&](Loop *L) { return L->isRecursivelyLCSSAForm(*DT); }) &&
+        "LCSSA form is broken!");
+  };
 
   /// This transformation requires natural loop information & requires that
   /// loop preheaders be inserted into the CFG.  It maintains both of these,
@@ -355,7 +368,7 @@ bool LCSSAWrapperPass::runOnFunction(Function &F) {
   return formLCSSAOnAllLoops(LI, *DT, SE);
 }
 
-PreservedAnalyses LCSSAPass::run(Function &F, AnalysisManager<Function> &AM) {
+PreservedAnalyses LCSSAPass::run(Function &F, FunctionAnalysisManager &AM) {
   auto &LI = AM.getResult<LoopAnalysis>(F);
   auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
   auto *SE = AM.getCachedResult<ScalarEvolutionAnalysis>(F);

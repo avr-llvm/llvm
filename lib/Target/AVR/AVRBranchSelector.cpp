@@ -89,7 +89,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
     for (MachineBasicBlock::const_iterator MBBI = MBB.begin(),
                                            MBBE = MBB.end();
          MBBI != MBBE; ++MBBI) {
-      BlockSize += TII->GetInstSizeInBytes(MBBI);
+      BlockSize += TII->getInstSizeInBytes(*MBBI);
     }
 
     BlockSizes[MBB.getNumber()] = BlockSize;
@@ -133,7 +133,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
         int Opc = I->getOpcode();
         if ((!isCondBranch(Opc) || I->getOperand(0).isImm()) &&
             (Opc != AVR::RJMPk)) {
-          MBBStartOffset += TII->GetInstSizeInBytes(I);
+          MBBStartOffset += TII->getInstSizeInBytes(*I);
           continue;
         }
 
@@ -184,8 +184,8 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
         // Otherwise, we have to expand it to a long branch.
         unsigned NewSize;
         int UncondOpc;
-        MachineInstr *OldBranch = I;
-        DebugLoc dl = OldBranch->getDebugLoc();
+        MachineInstr &OldBranch = *I;
+        DebugLoc dl = OldBranch.getDebugLoc();
 
         if (Opc == AVR::RJMPk) {
           // Replace this instruction with a jmp which has a size of 4 bytes.
@@ -229,7 +229,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
         I = BuildMI(MBB, I, dl, TII->get(UncondOpc)).addMBB(Dest);
 
         // Remove the old branch from the function.
-        OldBranch->eraseFromParent();
+        OldBranch.eraseFromParent();
 
         // Remember that this instruction is NewSize bytes, increase the size of
         // the block by NewSize-2, remember to iterate.

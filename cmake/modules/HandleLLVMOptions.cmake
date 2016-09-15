@@ -79,11 +79,11 @@ else(WIN32)
   if(UNIX)
     set(LLVM_ON_WIN32 0)
     set(LLVM_ON_UNIX 1)
-    if(APPLE)
+    if(APPLE OR ${CMAKE_SYSTEM_NAME} MATCHES "AIX")
       set(LLVM_HAVE_LINK_VERSION_SCRIPT 0)
-    else(APPLE)
+    else()
       set(LLVM_HAVE_LINK_VERSION_SCRIPT 1)
-    endif(APPLE)
+    endif()
   else(UNIX)
     MESSAGE(SEND_ERROR "Unable to determine platform")
   endif(UNIX)
@@ -143,6 +143,12 @@ function(add_flag_or_print_warning flag name)
     message(WARNING "${flag} is not supported.")
   endif()
 endfunction()
+
+if(LLVM_ENABLE_LLD)
+  check_cxx_compiler_flag("-fuse-ld=lld" CXX_SUPPORTS_LLD)
+  append_if(CXX_SUPPORTS_LLD "-fuse-ld=lld"
+    CMAKE_EXE_LINKER_FLAGS CMAKE_MODULE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS)
+endif()
 
 if( LLVM_ENABLE_PIC )
   if( XCODE )
@@ -218,6 +224,17 @@ if( MSVC_IDE )
   endif()
 endif()
 
+# set stack reserved size to ~10MB
+if(MSVC)
+  # CMake previously automatically set this value for MSVC builds, but the
+  # behavior was changed in CMake 2.8.11 (Issue 12437) to use the MSVC default
+  # value (1 MB) which is not enough for us in tasks such as parsing recursive
+  # C++ templates in Clang.
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /STACK:10000000")
+elseif(MINGW) # FIXME: Also cygwin?
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--stack,16777216")
+endif()
+
 if( MSVC )
   if( CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19.0 )
     # For MSVC 2013, disable iterator null pointer checking in debug mode,
@@ -226,13 +243,6 @@ if( MSVC )
   endif()
   
   include(ChooseMSVCCRT)
-
-  # set stack reserved size to ~10MB
-  # CMake previously automatically set this value for MSVC builds, but the
-  # behavior was changed in CMake 2.8.11 (Issue 12437) to use the MSVC default
-  # value (1 MB) which is not enough for us in tasks such as parsing recursive
-  # C++ templates in Clang.
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /STACK:10000000")
 
   if( MSVC11 )
     add_llvm_definitions(-D_VARIADIC_MAX=10)

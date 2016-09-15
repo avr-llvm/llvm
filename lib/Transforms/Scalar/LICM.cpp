@@ -173,7 +173,7 @@ private:
 };
 }
 
-PreservedAnalyses LICMPass::run(Loop &L, AnalysisManager<Loop> &AM) {
+PreservedAnalyses LICMPass::run(Loop &L, LoopAnalysisManager &AM) {
   const auto &FAM =
       AM.getResult<FunctionAnalysisManagerLoopProxy>(L).getManager();
   Function *F = L.getHeader()->getParent();
@@ -1071,8 +1071,8 @@ bool llvm::promoteLoopAccessesToScalars(
 
 /// Returns an owning pointer to an alias set which incorporates aliasing info
 /// from L and all subloops of L.
-/// FIXME: In new pass manager, there is no helper functions to handle loop
-/// analysis such as cloneBasicBlockAnalysis. So the AST needs to be recompute
+/// FIXME: In new pass manager, there is no helper function to handle loop
+/// analysis such as cloneBasicBlockAnalysis, so the AST needs to be recomputed
 /// from scratch for every loop. Hook up with the helper functions when
 /// available in the new pass manager to avoid redundant computation.
 AliasSetTracker *

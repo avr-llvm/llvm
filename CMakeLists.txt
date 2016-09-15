@@ -2,11 +2,6 @@
 
 cmake_minimum_required(VERSION 3.4.3)
 
-if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-  message(STATUS "No build type selected, default to Debug")
-  set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type (default Debug)")
-endif()
-
 if(POLICY CMP0022)
   cmake_policy(SET CMP0022 NEW) # automatic when 2.8.12 is required
 endif()
@@ -21,10 +16,10 @@ if (POLICY CMP0051)
 endif()
 
 if(NOT DEFINED LLVM_VERSION_MAJOR)
-  set(LLVM_VERSION_MAJOR 3)
+  set(LLVM_VERSION_MAJOR 4)
 endif()
 if(NOT DEFINED LLVM_VERSION_MINOR)
-  set(LLVM_VERSION_MINOR 9)
+  set(LLVM_VERSION_MINOR 0)
 endif()
 if(NOT DEFINED LLVM_VERSION_PATCH)
   set(LLVM_VERSION_PATCH 0)
@@ -50,17 +45,46 @@ project(LLVM
   ${cmake_3_0_LANGUAGES}
   C CXX ASM)
 
-if(APPLE)
-  if(NOT CMAKE_LIBTOOL)
+if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  message(STATUS "No build type selected, default to Debug")
+  set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type (default Debug)")
+endif()
+
+# This should only apply if you are both on an Apple host, and targeting Apple.
+if(CMAKE_HOST_APPLE AND APPLE)
+  if(NOT CMAKE_XCRUN)
+    find_program(CMAKE_XCRUN NAMES xcrun)
+  endif()
+  if(CMAKE_XCRUN)
+    execute_process(COMMAND ${CMAKE_XCRUN} -find libtool
+      OUTPUT_VARIABLE CMAKE_LIBTOOL
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+  endif()
+
+  if(NOT CMAKE_LIBTOOL OR NOT EXISTS CMAKE_LIBTOOL)
     find_program(CMAKE_LIBTOOL NAMES libtool)
   endif()
+
+  get_property(languages GLOBAL PROPERTY ENABLED_LANGUAGES)
   if(CMAKE_LIBTOOL)
     set(CMAKE_LIBTOOL ${CMAKE_LIBTOOL} CACHE PATH "libtool executable")
     message(STATUS "Found libtool - ${CMAKE_LIBTOOL}")
-    get_property(languages GLOBAL PROPERTY ENABLED_LANGUAGES)
     foreach(lang ${languages})
       set(CMAKE_${lang}_CREATE_STATIC_LIBRARY
         "${CMAKE_LIBTOOL} -static -o <TARGET> <LINK_FLAGS> <OBJECTS> ")
+    endforeach()
+  endif()
+
+  # If DYLD_LIBRARY_PATH is set we need to set it on archiver commands
+  if(DYLD_LIBRARY_PATH)
+    set(dyld_envar "DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH}")
+    foreach(lang ${languages})
+      foreach(cmd ${CMAKE_${lang}_CREATE_STATIC_LIBRARY})
+        list(APPEND CMAKE_${lang}_CREATE_STATIC_LIBRARY_NEW
+             "${dyld_envar} ${cmd}")
+      endforeach()
+      set(CMAKE_${lang}_CREATE_STATIC_LIBRARY
+        ${CMAKE_${lang}_CREATE_STATIC_LIBRARY_NEW})
     endforeach()
   endif()
 endif()
@@ -77,7 +101,27 @@ if(LLVM_PARALLEL_COMPILE_JOBS)
   endif()
 endif()
 
-set(LLVM_BUILD_GLOBAL_ISEL OFF CACHE BOOL "Experimental: Build GlobalISel")
+# Build llvm with ccache if the package is present
+set(LLVM_CCACHE_BUILD OFF CACHE BOOL "Set to ON for a ccache enabled build")
+if(LLVM_CCACHE_BUILD)
+  find_program(CCACHE_PROGRAM ccache)
+  if(CCACHE_PROGRAM)
+      set(LLVM_CCACHE_SIZE "" CACHE STRING "Size of ccache")
+      set(LLVM_CCACHE_DIR "" CACHE STRING "Directory to keep ccached data")
+      set(CCACHE_PROGRAM "CCACHE_CPP2=yes CCACHE_HASHDIR=yes ${CCACHE_PROGRAM}")
+      if (LLVM_CCACHE_SIZE)
+        set(CCACHE_PROGRAM "CCACHE_SIZE=${LLVM_CCACHE_SIZE} ${CCACHE_PROGRAM}")
+      endif()
+      if (LLVM_CCACHE_DIR)
+        set(CCACHE_PROGRAM "CCACHE_DIR=${LLVM_CCACHE_DIR} ${CCACHE_PROGRAM}")
+      endif()
+      set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ${CCACHE_PROGRAM})
+  else()
+    message(FATAL_ERROR "Unable to find the program ccache. Set LLVM_CCACHE_BUILD to OFF")
+  endif()
+endif()
+
+option(LLVM_BUILD_GLOBAL_ISEL "Experimental: Build GlobalISel" OFF)
 if(LLVM_BUILD_GLOBAL_ISEL)
   add_definitions(-DLLVM_BUILD_GLOBAL_ISEL)
 endif()
@@ -225,6 +269,7 @@ set(LLVM_ALL_TARGETS
   AVR
   BPF
   Hexagon
+  Lanai
   Mips
   MSP430
   NVPTX
@@ -293,7 +338,7 @@ else()
 endif()
 option(LLVM_ENABLE_CXX1Y "Compile with C++1y enabled." OFF)
 option(LLVM_ENABLE_LIBCXX "Use libc++ if available." OFF)
-option(LLVM_ENABLE_LIBCXXABI "Use libc++abi when using libc++." OFF)
+option(LLVM_ENABLE_LLD "Use lld as C and C++ linker." OFF)
 option(LLVM_ENABLE_PEDANTIC "Compile with pedantic enabled." ON)
 option(LLVM_ENABLE_WERROR "Fail and stop if a warning is triggered." OFF)
 
@@ -410,6 +455,7 @@ option (LLVM_BUILD_DOCS "Build the llvm documentation." OFF)
 option (LLVM_INCLUDE_DOCS "Generate build targets for llvm documentation." ON)
 option (LLVM_ENABLE_DOXYGEN "Use doxygen to generate llvm API documentation." OFF)
 option (LLVM_ENABLE_SPHINX "Use Sphinx to generate llvm documentation." OFF)
+option (LLVM_ENABLE_OCAMLDOC "Build OCaml bindings documentation." ON)
 
 option (LLVM_BUILD_EXTERNAL_COMPILER_RT
   "Build compiler-rt as an external project." OFF)
@@ -448,7 +494,7 @@ if (LLVM_BUILD_INSTRUMENTED OR LLVM_BUILD_INSTRUMENTED_COVERAGE)
   endif()
   if(NOT LLVM_PROFILE_FILE_PATTERN)
     if(NOT LLVM_PROFILE_DATA_DIR)
-      set(LLVM_PROFILE_FILE_PATTERN "%${LLVM_PROFILE_MERGE_POOL_SIZE}m.profraw")
+      file(TO_NATIVE_PATH "${LLVM_BINARY_DIR}/profiles/%${LLVM_PROFILE_MERGE_POOL_SIZE}m.profraw" LLVM_PROFILE_FILE_PATTERN)
     else()
       file(TO_NATIVE_PATH "${LLVM_PROFILE_DATA_DIR}/%${LLVM_PROFILE_MERGE_POOL_SIZE}m.profraw" LLVM_PROFILE_FILE_PATTERN)
     endif()
@@ -644,7 +690,7 @@ endif()
 # check its symbols. This is wasteful (the check was done when foo.so
 # was created) and can fail since it is not the dynamic linker and
 # doesn't know how to handle search paths correctly.
-if (UNIX AND NOT APPLE AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "SunOS")
+if (UNIX AND NOT APPLE AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "SunOS|AIX")
   set(CMAKE_EXE_LINKER_FLAGS
       "${CMAKE_EXE_LINKER_FLAGS} -Wl,-allow-shlib-undefined")
 endif()
@@ -698,6 +744,7 @@ if( MINGW )
 endif()
 
 # Put this before tblgen. Else we have a circular dependence.
+add_subdirectory(lib/Demangle)
 add_subdirectory(lib/Support)
 add_subdirectory(lib/TableGen)
 
@@ -723,6 +770,7 @@ if( LLVM_INCLUDE_UTILS )
   add_subdirectory(utils/not)
   add_subdirectory(utils/llvm-lit)
   add_subdirectory(utils/yaml-bench)
+  add_subdirectory(utils/unittest)
 else()
   if ( LLVM_INCLUDE_TESTS )
     message(FATAL_ERROR "Including tests when not building utils will not work.
@@ -733,10 +781,6 @@ endif()
 # Use LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION instead of LLVM_INCLUDE_UTILS because it is not really a util
 if (LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION)
   add_subdirectory(utils/LLVMVisualizers)
-endif()
-
-if(LLVM_INCLUDE_TESTS)
-  add_subdirectory(utils/unittest)
 endif()
 
 foreach( binding ${LLVM_BINDINGS_LIST} )
@@ -780,14 +824,22 @@ if( LLVM_INCLUDE_TESTS )
   get_property(LLVM_LIT_PARAMS GLOBAL PROPERTY LLVM_LIT_PARAMS)
   get_property(LLVM_LIT_DEPENDS GLOBAL PROPERTY LLVM_LIT_DEPENDS)
   get_property(LLVM_LIT_EXTRA_ARGS GLOBAL PROPERTY LLVM_LIT_EXTRA_ARGS)
+  get_property(LLVM_ADDITIONAL_TEST_TARGETS
+               GLOBAL PROPERTY LLVM_ADDITIONAL_TEST_TARGETS)
+  get_property(LLVM_ADDITIONAL_TEST_DEPENDS
+               GLOBAL PROPERTY LLVM_ADDITIONAL_TEST_DEPENDS)
   add_lit_target(check-all
     "Running all regression tests"
     ${LLVM_LIT_TESTSUITES}
     PARAMS ${LLVM_LIT_PARAMS}
-    DEPENDS ${LLVM_LIT_DEPENDS}
+    DEPENDS ${LLVM_LIT_DEPENDS} ${LLVM_ADDITIONAL_TEST_TARGETS}
     ARGS ${LLVM_LIT_EXTRA_ARGS}
     )
-  add_custom_target(test-depends DEPENDS ${LLVM_LIT_DEPENDS})
+  if(TARGET check-runtimes)
+    add_dependencies(check-all check-runtimes)
+  endif()
+  add_custom_target(test-depends
+                    DEPENDS ${LLVM_LIT_DEPENDS} ${LLVM_ADDITIONAL_TEST_DEPENDS})
   set_target_properties(test-depends PROPERTIES FOLDER "Tests")
 endif()
 

@@ -164,10 +164,12 @@ public:
                      MachineBasicBlock *&FBB,
                      SmallVectorImpl<MachineOperand> &Cond,
                      bool AllowModify) const override;
-  unsigned RemoveBranch(MachineBasicBlock &MBB) const override;
-  unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+  unsigned removeBranch(MachineBasicBlock &MBB,
+                        int *BytesRemoved = nullptr) const override;
+  unsigned insertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                         MachineBasicBlock *FBB, ArrayRef<MachineOperand> Cond,
-                        const DebugLoc &DL) const override;
+                        const DebugLoc &DL,
+                        int *BytesAdded = nullptr) const override;
   bool analyzeCompare(const MachineInstr &MI, unsigned &SrcReg,
                       unsigned &SrcReg2, int &Mask, int &Value) const override;
   bool optimizeCompareInstr(MachineInstr &CmpInstr, unsigned SrcReg,
@@ -212,14 +214,14 @@ public:
       MachineBasicBlock::iterator InsertPt, MachineInstr &LoadMI,
       LiveIntervals *LIS = nullptr) const override;
   bool expandPostRAPseudo(MachineInstr &MBBI) const override;
-  bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const
+  bool reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const
     override;
 
   // Return the SystemZRegisterInfo, which this class owns.
   const SystemZRegisterInfo &getRegisterInfo() const { return RI; }
 
   // Return the size in bytes of MI.
-  uint64_t getInstSizeInBytes(const MachineInstr &MI) const;
+  unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
 
   // Return true if MI is a conditional or unconditional branch.
   // When returning true, set Cond to the mask of condition-code

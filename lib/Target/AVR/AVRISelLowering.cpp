@@ -1026,7 +1026,7 @@ SDValue AVRTargetLowering::LowerFormalArguments(
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &dl, SelectionDAG &DAG,
     SmallVectorImpl<SDValue> &InVals) const {
   MachineFunction &MF = DAG.getMachineFunction();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
   auto DL = DAG.getDataLayout();
 
   // Assign locations to all of the incoming arguments.
@@ -1089,8 +1089,8 @@ SDValue AVRTargetLowering::LowerFormalArguments(
       EVT LocVT = VA.getLocVT();
 
       // Create the frame index object for this incoming parameter.
-      int FI = MFI->CreateFixedObject(LocVT.getSizeInBits() / 8,
-                                      VA.getLocMemOffset(), true);
+      int FI = MFI.CreateFixedObject(LocVT.getSizeInBits() / 8,
+                                     VA.getLocMemOffset(), true);
 
       // Create the SelectionDAG nodes corresponding to a load
       // from this parameter.
@@ -1107,7 +1107,7 @@ SDValue AVRTargetLowering::LowerFormalArguments(
     unsigned StackSize = CCInfo.getNextStackOffset();
     AVRMachineFunctionInfo *AFI = MF.getInfo<AVRMachineFunctionInfo>();
 
-    AFI->setVarArgsFrameIndex(MFI->CreateFixedObject(2, StackSize, true));
+    AFI->setVarArgsFrameIndex(MFI.CreateFixedObject(2, StackSize, true));
   }
 
   return Chain;

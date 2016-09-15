@@ -1154,7 +1154,7 @@ static void CreateGCRelocates(ArrayRef<Value *> LiveVariables,
     return;
 
   auto FindIndex = [](ArrayRef<Value *> LiveVec, Value *Val) {
-    auto ValIt = std::find(LiveVec.begin(), LiveVec.end(), Val);
+    auto ValIt = find(LiveVec, Val);
     assert(ValIt != LiveVec.end() && "Val not found in LiveVec!");
     size_t Index = std::distance(LiveVec.begin(), ValIt);
     assert(Index < LiveVec.size() && "Bug in std::find?");
@@ -1273,6 +1273,24 @@ public:
 };
 }
 
+static StringRef getDeoptLowering(CallSite CS) {
+  const char *DeoptLowering = "deopt-lowering";
+  if (CS.hasFnAttr(DeoptLowering)) {
+    // FIXME: CallSite has a *really* confusing interface around attributes
+    // with values.  
+    const AttributeSet &CSAS = CS.getAttributes();
+    if (CSAS.hasAttribute(AttributeSet::FunctionIndex,
+                          DeoptLowering))
+      return CSAS.getAttribute(AttributeSet::FunctionIndex,
+                               DeoptLowering).getValueAsString();
+    Function *F = CS.getCalledFunction();
+    assert(F && F->hasFnAttribute(DeoptLowering));
+    return F->getFnAttribute(DeoptLowering).getValueAsString();
+  }
+  return "live-through";
+}
+    
+
 static void
 makeStatepointExplicitImpl(const CallSite CS, /* to replace */
                            const SmallVectorImpl<Value *> &BasePtrs,
@@ -1313,6 +1331,14 @@ makeStatepointExplicitImpl(const CallSite CS, /* to replace */
     NumPatchBytes = *SD.NumPatchBytes;
   if (SD.StatepointID)
     StatepointID = *SD.StatepointID;
+
+  // Pass through the requested lowering if any.  The default is live-through.
+  StringRef DeoptLowering = getDeoptLowering(CS);
+  if (DeoptLowering.equals("live-in"))
+    Flags |= uint32_t(StatepointFlags::DeoptLiveIn);
+  else {
+    assert(DeoptLowering.equals("live-through") && "Unsupported value!");
+  }
 
   Value *CallTarget = CS.getCalledValue();
   if (Function *F = dyn_cast<Function>(CallTarget)) {
@@ -1740,9 +1766,8 @@ static void relocationViaAlloca(
 /// tests in ways which make them less useful in testing fused safepoints.
 template <typename T> static void unique_unsorted(SmallVectorImpl<T> &Vec) {
   SmallSet<T, 8> Seen;
-  Vec.erase(std::remove_if(Vec.begin(), Vec.end(), [&](const T &V) {
-              return !Seen.insert(V).second;
-            }), Vec.end());
+  Vec.erase(remove_if(Vec, [&](const T &V) { return !Seen.insert(V).second; }),
+            Vec.end());
 }
 
 /// Insert holders so that each Value is obviously live through the entire
@@ -1797,6 +1822,42 @@ static bool findRematerializableChainToBasePointer(
   if (CurrentValue == BaseValue) {
     return true;
   }
+
+  // Check for same values, when both BaseValue and CurrentValue are phi nodes.
+  // PHI nodes that have the same incoming values, and belonging to the same
+  // basic blocks are essentially the same SSA value.  Such an example of same
+  // BaseValue, CurrentValue phis is created by findBasePointer, when a phi has
+  // incoming values with different base pointers. This phi is marked as
+  // conflict, and hence an additional phi with the same incoming values get
+  // generated. We need to identify the BaseValue (.base version of phi) and
+  // CurrentValue (the phi node itself) as the same, so that we can
+  // rematerialize the gep and casts below. This is a workaround for the
+  // deficieny in the findBasePointer algorithm.
+  if (PHINode *CurrentPhi = dyn_cast<PHINode>(CurrentValue))
+    if (PHINode *BasePhi = dyn_cast<PHINode>(BaseValue)) {
+      auto PhiNum = CurrentPhi->getNumIncomingValues();
+      if (PhiNum != BasePhi->getNumIncomingValues() ||
+          CurrentPhi->getParent() != BasePhi->getParent())
+        return false;
+      // Map of incoming values and their corresponding basic blocks of
+      // CurrentPhi.
+      SmallDenseMap<Value *, BasicBlock *, 8> CurrentIncomingValues;
+      for (unsigned i = 0; i < PhiNum; i++)
+        CurrentIncomingValues[CurrentPhi->getIncomingValue(i)] =
+            CurrentPhi->getIncomingBlock(i);
+
+      // Both current and base PHIs should have same incoming values and
+      // the same basic blocks corresponding to the incoming values.
+      for (unsigned i = 0; i < PhiNum; i++) {
+        auto CIVI = CurrentIncomingValues.find(BasePhi->getIncomingValue(i));
+        if (CIVI == CurrentIncomingValues.end())
+          return false;
+        BasicBlock *CurrentIncomingBB = CIVI->second;
+        if (CurrentIncomingBB != BasePhi->getIncomingBlock(i))
+          return false;
+      }
+      return true;
+    }
 
   if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(CurrentValue)) {
     ChainToBase.push_back(GEP);
@@ -1929,8 +1990,7 @@ static void rematerializeLiveValues(CallSite CS,
           // Assert that cloned instruction does not use any instructions from
           // this chain other than LastClonedValue
           for (auto OpValue : ClonedValue->operand_values()) {
-            assert(std::find(ChainToBase.begin(), ChainToBase.end(), OpValue) ==
-                       ChainToBase.end() &&
+            assert(!is_contained(ChainToBase, OpValue) &&
                    "incorrect use in rematerialization chain");
           }
 #endif
@@ -2268,8 +2328,7 @@ static bool shouldRewriteStatepointsIn(Function &F) {
 
 void RewriteStatepointsForGC::stripNonValidAttributes(Module &M) {
 #ifndef NDEBUG
-  assert(std::any_of(M.begin(), M.end(), shouldRewriteStatepointsIn) &&
-         "precondition!");
+  assert(any_of(M, shouldRewriteStatepointsIn) && "precondition!");
 #endif
 
   for (Function &F : M)
@@ -2546,8 +2605,8 @@ static void findLiveSetAtInst(Instruction *Inst, GCPtrLivenessData &Data,
   // call result is not live (normal), nor are it's arguments
   // (unless they're used again later).  This adjustment is
   // specifically what we need to relocate
-  BasicBlock::reverse_iterator rend(Inst->getIterator());
-  computeLiveInValues(BB->rbegin(), rend, LiveOut);
+  computeLiveInValues(BB->rbegin(), ++Inst->getIterator().getReverse(),
+                      LiveOut);
   LiveOut.remove(Inst);
   Out.insert(LiveOut.begin(), LiveOut.end());
 }

@@ -73,8 +73,8 @@ void VirtRegMap::grow() {
 }
 
 unsigned VirtRegMap::createSpillSlot(const TargetRegisterClass *RC) {
-  int SS = MF->getFrameInfo()->CreateSpillStackObject(RC->getSize(),
-                                                      RC->getAlignment());
+  int SS = MF->getFrameInfo().CreateSpillStackObject(RC->getSize(),
+                                                     RC->getAlignment());
   ++NumSpillSlots;
   return SS;
 }
@@ -110,7 +110,7 @@ void VirtRegMap::assignVirt2StackSlot(unsigned virtReg, int SS) {
   assert(Virt2StackSlotMap[virtReg] == NO_STACK_SLOT &&
          "attempt to assign stack slot to already spilled register");
   assert((SS >= 0 ||
-          (SS >= MF->getFrameInfo()->getObjectIndexBegin())) &&
+          (SS >= MF->getFrameInfo().getObjectIndexBegin())) &&
          "illegal fixed frame index");
   Virt2StackSlotMap[virtReg] = SS;
 }
@@ -177,7 +177,7 @@ public:
   bool runOnMachineFunction(MachineFunction&) override;
   MachineFunctionProperties getSetProperties() const override {
     return MachineFunctionProperties().set(
-        MachineFunctionProperties::Property::AllVRegsAllocated);
+        MachineFunctionProperties::Property::NoVRegs);
   }
 };
 } // end anonymous namespace
@@ -338,6 +338,7 @@ bool VirtRegRewriter::readsUndefSubreg(const MachineOperand &MO) const {
   assert(LI.liveAt(BaseIndex) &&
          "Reads of completely dead register should be marked undef already");
   unsigned SubRegIdx = MO.getSubReg();
+  assert(SubRegIdx != 0 && LI.hasSubRanges());
   LaneBitmask UseMask = TRI->getSubRegIndexLaneMask(SubRegIdx);
   // See if any of the relevant subregister liveranges is defined at this point.
   for (const LiveInterval::SubRange &SR : LI.subranges()) {

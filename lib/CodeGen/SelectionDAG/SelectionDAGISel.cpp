@@ -426,6 +426,10 @@ static void SplitCriticalSideEffectEdges(Function &Fn) {
 }
 
 bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
+  // If we already selected that function, we do not need to run SDISel.
+  if (mf.getProperties().hasProperty(
+          MachineFunctionProperties::Property::Selected))
+    return false;
   // Do some sanity-checking on the command-line options.
   assert((!EnableFastISelVerbose || TM.Options.EnableFastISel) &&
          "-fast-isel-verbose requires -fast-isel");
@@ -594,16 +598,16 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
   }
 
   // Determine if there are any calls in this machine function.
-  MachineFrameInfo *MFI = MF->getFrameInfo();
+  MachineFrameInfo &MFI = MF->getFrameInfo();
   for (const auto &MBB : *MF) {
-    if (MFI->hasCalls() && MF->hasInlineAsm())
+    if (MFI.hasCalls() && MF->hasInlineAsm())
       break;
 
     for (const auto &MI : MBB) {
       const MCInstrDesc &MCID = TII->get(MI.getOpcode());
       if ((MCID.isCall() && !MCID.isReturn()) ||
           MI.isStackAligningInlineAsm()) {
-        MFI->setHasCalls(true);
+        MFI.setHasCalls(true);
       }
       if (MI.isInlineAsm()) {
         MF->setHasInlineAsm(true);
@@ -645,7 +649,7 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
   }
 
   if (TLI->hasCopyImplyingStackAdjustment(MF))
-    MFI->setHasCopyImplyingStackAdjustment(true);
+    MFI.setHasCopyImplyingStackAdjustment(true);
 
   // Freeze the set of reserved registers now that MachineFrameInfo has been
   // set up. All the information required by getReservedRegs() should be
@@ -1249,7 +1253,7 @@ static void mergeIncomingSwiftErrors(FunctionLoweringInfo *FuncInfo,
     FuncInfo->SwiftErrorMap[FuncInfo->MBB].push_back(VReg);
 
     MachineInstrBuilder SwiftErrorPHI = BuildMI(*FuncInfo->MBB,
-        FuncInfo->MBB->begin(), SDB->getCurDebugLoc(),
+        FuncInfo->InsertPt, SDB->getCurDebugLoc(),
         TII->get(TargetOpcode::PHI), VReg);
     for (const_pred_iterator PI = pred_begin(LLVMBB), PE = pred_end(LLVMBB);
          PI != PE; ++PI) {
@@ -3388,7 +3392,7 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
         SelectionDAG::DAGNodeDeletedListener NDL(*CurDAG, [&](SDNode *N,
                                                               SDNode *E) {
           auto &Chain = ChainNodesMatched;
-          assert((!E || llvm::find(Chain, N) == Chain.end()) &&
+          assert((!E || !is_contained(Chain, N)) &&
                  "Chain node replaced during MorphNode");
           Chain.erase(std::remove(Chain.begin(), Chain.end(), N), Chain.end());
         });
@@ -3487,7 +3491,7 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
                 NodeToMatch->getValueType(i) == MVT::iPTR ||
                 Res.getValueType() == MVT::iPTR ||
                 NodeToMatch->getValueType(i).getSizeInBits() ==
-                    Res.getValueType().getSizeInBits()) &&
+                    Res.getValueSizeInBits()) &&
                "invalid replacement");
         CurDAG->ReplaceAllUsesOfValueWith(SDValue(NodeToMatch, i), Res);
       }
@@ -3579,7 +3583,7 @@ void SelectionDAGISel::CannotYetSelect(SDNode *N) {
     unsigned iid =
       cast<ConstantSDNode>(N->getOperand(HasInputChain))->getZExtValue();
     if (iid < Intrinsic::num_intrinsics)
-      Msg << "intrinsic %" << Intrinsic::getName((Intrinsic::ID)iid);
+      Msg << "intrinsic %" << Intrinsic::getName((Intrinsic::ID)iid, None);
     else if (const TargetIntrinsicInfo *TII = TM.getIntrinsicInfo())
       Msg << "target intrinsic %" << TII->getName(iid);
     else

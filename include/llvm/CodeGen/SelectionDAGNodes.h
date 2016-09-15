@@ -49,7 +49,6 @@ class Value;
 class MCSymbol;
 template <typename T> struct DenseMapInfo;
 template <typename T> struct simplify_type;
-template <typename T> struct ilist_traits;
 
 void checkForCycles(const SDNode *N, const SelectionDAG *DAG = nullptr,
                     bool force = false);
@@ -372,14 +371,6 @@ public:
   bool hasAllowReciprocal() const { return AllowReciprocal; }
   bool hasVectorReduction() const { return VectorReduction; }
 
-  /// Return a raw encoding of the flags.
-  /// This function should only be used to add data to the NodeID value.
-  unsigned getRawFlags() const {
-    return (NoUnsignedWrap << 0) | (NoSignedWrap << 1) | (Exact << 2) |
-    (UnsafeAlgebra << 3) | (NoNaNs << 4) | (NoInfs << 5) |
-    (NoSignedZeros << 6) | (AllowReciprocal << 7);
-  }
-
   /// Clear any flags in this flag set that aren't also set in Flags.
   void intersectWith(const SDNodeFlags *Flags) {
     NoUnsignedWrap &= Flags->NoUnsignedWrap;
@@ -400,15 +391,89 @@ private:
   /// The operation that this node performs.
   int16_t NodeType;
 
-  /// This tracks whether this node has one or more dbg_value
-  /// nodes corresponding to it.
-  uint16_t HasDebugValue : 1;
-
 protected:
-  /// This member is defined by this class, but is not used for
-  /// anything.  Subclasses can use it to hold whatever state they find useful.
-  /// This field is initialized to zero by the ctor.
-  uint16_t SubclassData : 15;
+  // We define a set of mini-helper classes to help us interpret the bits in our
+  // SubclassData.  These are designed to fit within a uint16_t so they pack
+  // with NodeType.
+
+  class SDNodeBitfields {
+    friend class SDNode;
+    friend class MemIntrinsicSDNode;
+
+    uint16_t HasDebugValue : 1;
+    uint16_t IsMemIntrinsic : 1;
+  };
+  enum { NumSDNodeBits = 2 };
+
+  class ConstantSDNodeBitfields {
+    friend class ConstantSDNode;
+
+    uint16_t : NumSDNodeBits;
+
+    uint16_t IsOpaque : 1;
+  };
+
+  class MemSDNodeBitfields {
+    friend class MemSDNode;
+    friend class MemIntrinsicSDNode;
+    friend class AtomicSDNode;
+
+    uint16_t : NumSDNodeBits;
+
+    uint16_t IsVolatile : 1;
+    uint16_t IsNonTemporal : 1;
+    uint16_t IsDereferenceable : 1;
+    uint16_t IsInvariant : 1;
+    uint16_t SynchScope : 1; // enum SynchronizationScope
+    uint16_t Ordering : 4;   // enum AtomicOrdering
+  };
+  enum { NumMemSDNodeBits = NumSDNodeBits + 9 };
+
+  class LSBaseSDNodeBitfields {
+    friend class LSBaseSDNode;
+    uint16_t : NumMemSDNodeBits;
+
+    uint16_t AddressingMode : 3; // enum ISD::MemIndexedMode
+  };
+  enum { NumLSBaseSDNodeBits = NumMemSDNodeBits + 3 };
+
+  class LoadSDNodeBitfields {
+    friend class LoadSDNode;
+    friend class MaskedLoadSDNode;
+
+    uint16_t : NumLSBaseSDNodeBits;
+
+    uint16_t ExtTy : 2; // enum ISD::LoadExtType
+  };
+
+  class StoreSDNodeBitfields {
+    friend class StoreSDNode;
+    friend class MaskedStoreSDNode;
+
+    uint16_t : NumLSBaseSDNodeBits;
+
+    uint16_t IsTruncating : 1;
+  };
+
+  union {
+    char RawSDNodeBits[sizeof(uint16_t)];
+    SDNodeBitfields SDNodeBits;
+    ConstantSDNodeBitfields ConstantSDNodeBits;
+    MemSDNodeBitfields MemSDNodeBits;
+    LSBaseSDNodeBitfields LSBaseSDNodeBits;
+    LoadSDNodeBitfields LoadSDNodeBits;
+    StoreSDNodeBitfields StoreSDNodeBits;
+  };
+
+  // RawSDNodeBits must cover the entirety of the union.  This means that all of
+  // the union's members must have size <= RawSDNodeBits.  We write the RHS as
+  // "2" instead of sizeof(RawSDNodeBits) because MSVC can't handle the latter.
+  static_assert(sizeof(SDNodeBitfields) <= 2, "field too wide");
+  static_assert(sizeof(ConstantSDNodeBitfields) <= 2, "field too wide");
+  static_assert(sizeof(MemSDNodeBitfields) <= 2, "field too wide");
+  static_assert(sizeof(LSBaseSDNodeBitfields) <= 2, "field too wide");
+  static_assert(sizeof(LoadSDNodeBitfields) <= 2, "field too wide");
+  static_assert(sizeof(StoreSDNodeBitfields) <= 2, "field too wide");
 
 private:
   /// Unique id per SDNode in the DAG.
@@ -441,7 +506,6 @@ private:
   static const EVT *getValueTypeList(EVT VT);
 
   friend class SelectionDAG;
-  friend struct ilist_traits<SDNode>;
   // TODO: unfriend HandleSDNode once we fix its operand handling.
   friend class HandleSDNode;
 
@@ -481,7 +545,8 @@ public:
   /// proper classof relationship.
   bool isMemIntrinsic() const {
     return (NodeType == ISD::INTRINSIC_W_CHAIN ||
-            NodeType == ISD::INTRINSIC_VOID) && ((SubclassData >> 13) & 1);
+            NodeType == ISD::INTRINSIC_VOID) &&
+           SDNodeBits.IsMemIntrinsic;
   }
 
   /// Test if this node has a post-isel opcode, directly
@@ -496,11 +561,8 @@ public:
     return ~NodeType;
   }
 
-  /// Get this bit.
-  bool getHasDebugValue() const { return HasDebugValue; }
-
-  /// Set this bit.
-  void setHasDebugValue(bool b) { HasDebugValue = b; }
+  bool getHasDebugValue() const { return SDNodeBits.HasDebugValue; }
+  void setHasDebugValue(bool b) { SDNodeBits.HasDebugValue = b; }
 
   /// Return true if there are no uses of this node.
   bool use_empty() const { return UseList == nullptr; }
@@ -815,10 +877,10 @@ protected:
   /// SDNodes are created without any operands, and never own the operand
   /// storage. To add operands, see SelectionDAG::createOperands.
   SDNode(unsigned Opc, unsigned Order, DebugLoc dl, SDVTList VTs)
-      : NodeType(Opc), HasDebugValue(false), SubclassData(0), NodeId(-1),
-        OperandList(nullptr), ValueList(VTs.VTs), UseList(nullptr),
-        NumOperands(0), NumValues(VTs.NumVTs), IROrder(Order),
+      : NodeType(Opc), NodeId(-1), OperandList(nullptr), ValueList(VTs.VTs),
+        UseList(nullptr), NumOperands(0), NumValues(VTs.NumVTs), IROrder(Order),
         debugLoc(std::move(dl)) {
+    memset(&RawSDNodeBits, 0, sizeof(RawSDNodeBits));
     assert(debugLoc.hasTrivialDestructor() && "Expected trivial destructor");
     assert(NumValues == VTs.NumVTs &&
            "NumValues wasn't wide enough for its operands!");
@@ -1036,20 +1098,21 @@ public:
   /// encoding of the volatile flag, as well as bits used by subclasses. This
   /// function should only be used to compute a FoldingSetNodeID value.
   unsigned getRawSubclassData() const {
-    return SubclassData;
+    uint16_t Data;
+    memcpy(&Data, &RawSDNodeBits, sizeof(RawSDNodeBits));
+    return Data;
   }
 
-  // We access subclass data here so that we can check consistency
-  // with MachineMemOperand information.
-  bool isVolatile() const { return (SubclassData >> 5) & 1; }
-  bool isNonTemporal() const { return (SubclassData >> 6) & 1; }
-  bool isInvariant() const { return (SubclassData >> 7) & 1; }
+  bool isVolatile() const { return MemSDNodeBits.IsVolatile; }
+  bool isNonTemporal() const { return MemSDNodeBits.IsNonTemporal; }
+  bool isDereferenceable() const { return MemSDNodeBits.IsDereferenceable; }
+  bool isInvariant() const { return MemSDNodeBits.IsInvariant; }
 
   AtomicOrdering getOrdering() const {
-    return AtomicOrdering((SubclassData >> 8) & 15);
+    return static_cast<AtomicOrdering>(MemSDNodeBits.Ordering);
   }
   SynchronizationScope getSynchScope() const {
-    return SynchronizationScope((SubclassData >> 12) & 1);
+    return static_cast<SynchronizationScope>(MemSDNodeBits.SynchScope);
   }
 
   // Returns the offset from the location of the access.
@@ -1130,23 +1193,11 @@ class AtomicSDNode : public MemSDNode {
   void InitAtomic(AtomicOrdering SuccessOrdering,
                   AtomicOrdering FailureOrdering,
                   SynchronizationScope SynchScope) {
-    // This must match encodeMemSDNodeFlags() in SelectionDAG.cpp.
-    assert((AtomicOrdering)((unsigned)SuccessOrdering & 15) ==
-               SuccessOrdering &&
-           "Ordering may not require more than 4 bits!");
-    assert((AtomicOrdering)((unsigned)FailureOrdering & 15) ==
-               FailureOrdering &&
-           "Ordering may not require more than 4 bits!");
-    assert((SynchScope & 1) == SynchScope &&
-           "SynchScope may not require more than 1 bit!");
-    SubclassData |= (unsigned)SuccessOrdering << 8;
-    SubclassData |= SynchScope << 12;
+    MemSDNodeBits.Ordering = static_cast<uint16_t>(SuccessOrdering);
+    assert(getOrdering() == SuccessOrdering && "Value truncated");
+    MemSDNodeBits.SynchScope = static_cast<uint16_t>(SynchScope);
+    assert(getSynchScope() == SynchScope && "Value truncated");
     this->FailureOrdering = FailureOrdering;
-    assert(getSuccessOrdering() == SuccessOrdering &&
-           "Ordering encoding error!");
-    assert(getFailureOrdering() == FailureOrdering &&
-           "Ordering encoding error!");
-    assert(getSynchScope() == SynchScope && "Synch-scope encoding error!");
   }
 
 public:
@@ -1205,7 +1256,7 @@ public:
   MemIntrinsicSDNode(unsigned Opc, unsigned Order, const DebugLoc &dl,
                      SDVTList VTs, EVT MemoryVT, MachineMemOperand *MMO)
       : MemSDNode(Opc, Order, dl, VTs, MemoryVT, MMO) {
-    SubclassData |= 1u << 13;
+    SDNodeBits.IsMemIntrinsic = true;
   }
 
   // Methods to support isa and dyn_cast
@@ -1285,7 +1336,7 @@ class ConstantSDNode : public SDNode {
       : SDNode(isTarget ? ISD::TargetConstant : ISD::Constant, 0, DL,
                getSDVTList(VT)),
         Value(val) {
-    SubclassData |= (uint16_t)isOpaque;
+    ConstantSDNodeBits.IsOpaque = isOpaque;
   }
 public:
 
@@ -1298,7 +1349,7 @@ public:
   bool isNullValue() const { return Value->isNullValue(); }
   bool isAllOnesValue() const { return Value->isAllOnesValue(); }
 
-  bool isOpaque() const { return SubclassData & 1; }
+  bool isOpaque() const { return ConstantSDNodeBits.IsOpaque; }
 
   static bool classof(const SDNode *N) {
     return N->getOpcode() == ISD::Constant ||
@@ -1780,8 +1831,8 @@ public:
                SDVTList VTs, ISD::MemIndexedMode AM, EVT MemVT,
                MachineMemOperand *MMO)
       : MemSDNode(NodeTy, Order, dl, VTs, MemVT, MMO) {
-    SubclassData |= AM << 2;
-    assert(getAddressingMode() == AM && "MemIndexedMode encoding error!");
+    LSBaseSDNodeBits.AddressingMode = AM;
+    assert(getAddressingMode() == AM && "Value truncated");
   }
 
   const SDValue &getOffset() const {
@@ -1791,7 +1842,7 @@ public:
   /// Return the addressing mode for this load or store:
   /// unindexed, pre-inc, pre-dec, post-inc, or post-dec.
   ISD::MemIndexedMode getAddressingMode() const {
-    return ISD::MemIndexedMode((SubclassData >> 2) & 7);
+    return static_cast<ISD::MemIndexedMode>(LSBaseSDNodeBits.AddressingMode);
   }
 
   /// Return true if this is a pre/post inc/dec load/store.
@@ -1813,8 +1864,7 @@ class LoadSDNode : public LSBaseSDNode {
              ISD::MemIndexedMode AM, ISD::LoadExtType ETy, EVT MemVT,
              MachineMemOperand *MMO)
       : LSBaseSDNode(ISD::LOAD, Order, dl, VTs, AM, MemVT, MMO) {
-    SubclassData |= (unsigned short)ETy;
-    assert(getExtensionType() == ETy && "LoadExtType encoding error!");
+    LoadSDNodeBits.ExtTy = ETy;
     assert(readMem() && "Load MachineMemOperand is not a load!");
     assert(!writeMem() && "Load MachineMemOperand is a store!");
   }
@@ -1823,7 +1873,7 @@ public:
   /// Return whether this is a plain node,
   /// or one of the varieties of value-extending loads.
   ISD::LoadExtType getExtensionType() const {
-    return ISD::LoadExtType(SubclassData & 3);
+    return static_cast<ISD::LoadExtType>(LoadSDNodeBits.ExtTy);
   }
 
   const SDValue &getBasePtr() const { return getOperand(1); }
@@ -1841,8 +1891,7 @@ class StoreSDNode : public LSBaseSDNode {
               ISD::MemIndexedMode AM, bool isTrunc, EVT MemVT,
               MachineMemOperand *MMO)
       : LSBaseSDNode(ISD::STORE, Order, dl, VTs, AM, MemVT, MMO) {
-    SubclassData |= (unsigned short)isTrunc;
-    assert(isTruncatingStore() == isTrunc && "isTrunc encoding error!");
+    StoreSDNodeBits.IsTruncating = isTrunc;
     assert(!readMem() && "Store MachineMemOperand is a load!");
     assert(writeMem() && "Store MachineMemOperand is not a store!");
   }
@@ -1851,7 +1900,7 @@ public:
   /// Return true if the op does a truncation before store.
   /// For integers this is the same as doing a TRUNCATE and storing the result.
   /// For floats, it is the same as doing an FP_ROUND and storing the result.
-  bool isTruncatingStore() const { return SubclassData & 1; }
+  bool isTruncatingStore() const { return StoreSDNodeBits.IsTruncating; }
 
   const SDValue &getValue() const { return getOperand(1); }
   const SDValue &getBasePtr() const { return getOperand(2); }
@@ -1891,12 +1940,13 @@ public:
   MaskedLoadSDNode(unsigned Order, const DebugLoc &dl, SDVTList VTs,
                    ISD::LoadExtType ETy, EVT MemVT, MachineMemOperand *MMO)
       : MaskedLoadStoreSDNode(ISD::MLOAD, Order, dl, VTs, MemVT, MMO) {
-    SubclassData |= (unsigned short)ETy;
+    LoadSDNodeBits.ExtTy = ETy;
   }
 
   ISD::LoadExtType getExtensionType() const {
-    return ISD::LoadExtType(SubclassData & 3);
+    return static_cast<ISD::LoadExtType>(LoadSDNodeBits.ExtTy);
   }
+
   const SDValue &getSrc0() const { return getOperand(3); }
   static bool classof(const SDNode *N) {
     return N->getOpcode() == ISD::MLOAD;
@@ -1911,12 +1961,12 @@ public:
   MaskedStoreSDNode(unsigned Order, const DebugLoc &dl, SDVTList VTs,
                     bool isTrunc, EVT MemVT, MachineMemOperand *MMO)
       : MaskedLoadStoreSDNode(ISD::MSTORE, Order, dl, VTs, MemVT, MMO) {
-    SubclassData |= (unsigned short)isTrunc;
+    StoreSDNodeBits.IsTruncating = isTrunc;
   }
   /// Return true if the op does a truncation before store.
   /// For integers this is the same as doing a TRUNCATE and storing the result.
   /// For floats, it is the same as doing an FP_ROUND and storing the result.
-  bool isTruncatingStore() const { return SubclassData & 1; }
+  bool isTruncatingStore() const { return StoreSDNodeBits.IsTruncating; }
 
   const SDValue &getValue() const { return getOperand(3); }
 
@@ -2055,13 +2105,13 @@ public:
 };
 
 template <> struct GraphTraits<SDNode*> {
-  typedef SDNode NodeType;
+  typedef SDNode *NodeRef;
   typedef SDNodeIterator ChildIteratorType;
-  static inline NodeType *getEntryNode(SDNode *N) { return N; }
-  static inline ChildIteratorType child_begin(NodeType *N) {
+  static NodeRef getEntryNode(SDNode *N) { return N; }
+  static ChildIteratorType child_begin(NodeRef N) {
     return SDNodeIterator::begin(N);
   }
-  static inline ChildIteratorType child_end(NodeType *N) {
+  static ChildIteratorType child_end(NodeRef N) {
     return SDNodeIterator::end(N);
   }
 };

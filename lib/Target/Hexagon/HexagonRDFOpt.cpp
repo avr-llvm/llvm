@@ -57,7 +57,7 @@ namespace {
 
     MachineFunctionProperties getRequiredProperties() const override {
       return MachineFunctionProperties().set(
-          MachineFunctionProperties::Property::AllVRegsAllocated);
+          MachineFunctionProperties::Property::NoVRegs);
     }
 
     static char ID;
@@ -116,8 +116,8 @@ bool HexagonCP::interpretAsCopy(const MachineInstr *MI, EqualityMap &EM) {
       const MachineOperand &A = MI->getOperand(2);
       if (!A.isImm() || A.getImm() != 0)
         return false;
+      LLVM_FALLTHROUGH;
     }
-    // Fall through.
     case Hexagon::A2_tfr: {
       const MachineOperand &DstOp = MI->getOperand(0);
       const MachineOperand &SrcOp = MI->getOperand(1);
@@ -202,11 +202,11 @@ bool HexagonDCE::rewrite(NodeAddr<InstrNode*> IA, SetVector<NodeId> &Remove) {
   if (!getDFG().IsCode<NodeAttrs::Stmt>(IA))
     return false;
   DataFlowGraph &DFG = getDFG();
-  MachineInstr *MI = NodeAddr<StmtNode*>(IA).Addr->getCode();
+  MachineInstr &MI = *NodeAddr<StmtNode*>(IA).Addr->getCode();
   auto &HII = static_cast<const HexagonInstrInfo&>(DFG.getTII());
   if (HII.getAddrMode(MI) != HexagonII::PostInc)
     return false;
-  unsigned Opc = MI->getOpcode();
+  unsigned Opc = MI.getOpcode();
   unsigned OpNum, NewOpc;
   switch (Opc) {
     case Hexagon::L2_loadri_pi:
@@ -240,12 +240,12 @@ bool HexagonDCE::rewrite(NodeAddr<InstrNode*> IA, SetVector<NodeId> &Remove) {
     return getDeadNodes().count(DA.Id);
   };
   NodeList Defs;
-  MachineOperand &Op = MI->getOperand(OpNum);
+  MachineOperand &Op = MI.getOperand(OpNum);
   for (NodeAddr<DefNode*> DA : IA.Addr->members_if(DFG.IsDef, DFG)) {
     if (&DA.Addr->getOp() != &Op)
       continue;
     Defs = DFG.getRelatedRefs(IA, DA);
-    if (!std::all_of(Defs.begin(), Defs.end(), IsDead))
+    if (!all_of(Defs, IsDead))
       return false;
     break;
   }
@@ -255,12 +255,12 @@ bool HexagonDCE::rewrite(NodeAddr<InstrNode*> IA, SetVector<NodeId> &Remove) {
     Remove.insert(D.Id);
 
   if (trace())
-    dbgs() << "Rewriting: " << *MI;
-  MI->setDesc(HII.get(NewOpc));
-  MI->getOperand(OpNum+2).setImm(0);
+    dbgs() << "Rewriting: " << MI;
+  MI.setDesc(HII.get(NewOpc));
+  MI.getOperand(OpNum+2).setImm(0);
   removeOperand(IA, OpNum);
   if (trace())
-    dbgs() << "       to: " << *MI;
+    dbgs() << "       to: " << MI;
 
   return true;
 }

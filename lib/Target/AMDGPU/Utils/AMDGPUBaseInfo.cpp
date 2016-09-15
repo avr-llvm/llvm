@@ -8,10 +8,13 @@
 //===----------------------------------------------------------------------===//
 #include "AMDGPUBaseInfo.h"
 #include "AMDGPU.h"
+#include "SIDefines.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/SubtargetFeature.h"
@@ -124,8 +127,29 @@ int getIntegerAttribute(const Function &F, StringRef Name, int Default) {
   return Result;
 }
 
-unsigned getMaximumWorkGroupSize(const Function &F) {
-  return getIntegerAttribute(F, "amdgpu-max-work-group-size", 256);
+std::pair<int, int> getIntegerPairAttribute(const Function &F,
+                                            StringRef Name,
+                                            std::pair<int, int> Default,
+                                            bool OnlyFirstRequired) {
+  Attribute A = F.getFnAttribute(Name);
+  if (!A.isStringAttribute())
+    return Default;
+
+  LLVMContext &Ctx = F.getContext();
+  std::pair<int, int> Ints = Default;
+  std::pair<StringRef, StringRef> Strs = A.getValueAsString().split(',');
+  if (Strs.first.trim().getAsInteger(0, Ints.first)) {
+    Ctx.emitError("can't parse first integer attribute " + Name);
+    return Default;
+  }
+  if (Strs.second.trim().getAsInteger(0, Ints.second)) {
+    if (!OnlyFirstRequired || Strs.second.trim().size()) {
+      Ctx.emitError("can't parse second integer attribute " + Name);
+      return Default;
+    }
+  }
+
+  return Ints;
 }
 
 unsigned getInitialPSInputAddr(const Function &F) {
@@ -178,6 +202,73 @@ unsigned getMCReg(unsigned Reg, const MCSubtargetInfo &STI) {
   }
   return Reg;
 }
+
+bool isSISrcOperand(const MCInstrDesc &Desc, unsigned OpNo) {
+  unsigned OpType = Desc.OpInfo[OpNo].OperandType;
+
+  return OpType == AMDGPU::OPERAND_REG_IMM32_INT ||
+         OpType == AMDGPU::OPERAND_REG_IMM32_FP ||
+         OpType == AMDGPU::OPERAND_REG_INLINE_C_INT ||
+         OpType == AMDGPU::OPERAND_REG_INLINE_C_FP;
+}
+
+bool isSISrcFPOperand(const MCInstrDesc &Desc, unsigned OpNo) {
+  unsigned OpType = Desc.OpInfo[OpNo].OperandType;
+
+  return OpType == AMDGPU::OPERAND_REG_IMM32_FP ||
+         OpType == AMDGPU::OPERAND_REG_INLINE_C_FP;
+}
+
+bool isSISrcInlinableOperand(const MCInstrDesc &Desc, unsigned OpNo) {
+  unsigned OpType = Desc.OpInfo[OpNo].OperandType;
+
+  return OpType == AMDGPU::OPERAND_REG_INLINE_C_INT ||
+         OpType == AMDGPU::OPERAND_REG_INLINE_C_FP;
+}
+
+unsigned getRegOperandSize(const MCRegisterInfo *MRI, const MCInstrDesc &Desc,
+                           unsigned OpNo) {
+  int RCID = Desc.OpInfo[OpNo].RegClass;
+  const MCRegisterClass &RC = MRI->getRegClass(RCID);
+  return RC.getSize();
+}
+
+bool isInlinableLiteral64(int64_t Literal, bool IsVI) {
+  if (Literal >= -16 && Literal <= 64)
+    return true;
+
+  double D = BitsToDouble(Literal);
+
+  if (D == 0.5 || D == -0.5 ||
+      D == 1.0 || D == -1.0 ||
+      D == 2.0 || D == -2.0 ||
+      D == 4.0 || D == -4.0)
+    return true;
+
+  if (IsVI && Literal == 0x3fc45f306dc9c882)
+    return true;
+
+  return false;
+}
+
+bool isInlinableLiteral32(int32_t Literal, bool IsVI) {
+  if (Literal >= -16 && Literal <= 64)
+    return true;
+
+  float F = BitsToFloat(Literal);
+
+  if (F == 0.5 || F == -0.5 ||
+      F == 1.0 || F == -1.0 ||
+      F == 2.0 || F == -2.0 ||
+      F == 4.0 || F == -4.0)
+    return true;
+
+  if (IsVI && Literal == 0x3e22f983)
+    return true;
+
+  return false;
+}
+
 
 } // End namespace AMDGPU
 } // End namespace llvm

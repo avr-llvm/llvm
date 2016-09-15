@@ -124,10 +124,10 @@ bool Value::isUsedInBasicBlock(const BasicBlock *BB) const {
   const_user_iterator UI = user_begin(), UE = user_end();
   for (; BI != BE && UI != UE; ++BI, ++UI) {
     // Scan basic block: Check if this Value is used by the instruction at BI.
-    if (std::find(BI->op_begin(), BI->op_end(), this) != BI->op_end())
+    if (is_contained(BI->operands(), this))
       return true;
     // Scan use list: Check if the use at UI is in BB.
-    const Instruction *User = dyn_cast<Instruction>(*UI);
+    const auto *User = dyn_cast<Instruction>(*UI);
     if (User && User->getParent() == BB)
       return true;
   }
@@ -449,7 +449,7 @@ static Value *stripPointerCastsAndOffsets(Value *V) {
       case PSK_InBoundsConstantIndices:
         if (!GEP->hasAllConstantIndices())
           return V;
-        // fallthrough
+        LLVM_FALLTHROUGH;
       case PSK_InBounds:
         if (!GEP->isInBounds())
           return V;
@@ -664,6 +664,16 @@ void Value::reverseUseList() {
   Head->setPrev(&UseList);
 }
 
+bool Value::isSwiftError() const {
+  auto *Arg = dyn_cast<Argument>(this);
+  if (Arg)
+    return Arg->hasSwiftErrorAttr();
+  auto *Alloca = dyn_cast<AllocaInst>(this);
+  if (!Alloca)
+    return false;
+  return Alloca->isSwiftError();
+}
+
 //===----------------------------------------------------------------------===//
 //                             ValueHandleBase Class
 //===----------------------------------------------------------------------===//
@@ -848,7 +858,7 @@ void ValueHandleBase::ValueIsRAUWd(Value *Old, Value *New) {
       // virtual (or inline) interface to handle this though, so instead we make
       // the TrackingVH accessors guarantee that a client never sees this value.
 
-      // FALLTHROUGH
+      LLVM_FALLTHROUGH;
     case Weak:
       // Weak goes to the new value, which will unlink it from Old's list.
       Entry->operator=(New);

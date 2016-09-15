@@ -353,6 +353,7 @@ public:
   std::string TokenizingCharacters;
   std::string SeparatorCharacters;
   std::string BreakCharacters;
+  std::string Name;
   int AsmVariantNo;
 };
 
@@ -556,20 +557,17 @@ struct MatchableInfo {
   /// findAsmOperand - Find the AsmOperand with the specified name and
   /// suboperand index.
   int findAsmOperand(StringRef N, int SubOpIdx) const {
-    auto I = std::find_if(AsmOperands.begin(), AsmOperands.end(),
-                          [&](const AsmOperand &Op) {
-                            return Op.SrcOpName == N && Op.SubOpIdx == SubOpIdx;
-                          });
+    auto I = find_if(AsmOperands, [&](const AsmOperand &Op) {
+      return Op.SrcOpName == N && Op.SubOpIdx == SubOpIdx;
+    });
     return (I != AsmOperands.end()) ? I - AsmOperands.begin() : -1;
   }
 
   /// findAsmOperandNamed - Find the first AsmOperand with the specified name.
   /// This does not check the suboperand index.
   int findAsmOperandNamed(StringRef N) const {
-    auto I = std::find_if(AsmOperands.begin(), AsmOperands.end(),
-                          [&](const AsmOperand &Op) {
-                            return Op.SrcOpName == N;
-                          });
+    auto I = find_if(AsmOperands,
+                     [&](const AsmOperand &Op) { return Op.SrcOpName == N; });
     return (I != AsmOperands.end()) ? I - AsmOperands.begin() : -1;
   }
 
@@ -774,9 +772,9 @@ public:
   }
 
   bool hasOptionalOperands() const {
-    return std::find_if(Classes.begin(), Classes.end(),
-                        [](const ClassInfo& Class){ return Class.IsOptional; })
-              != Classes.end();
+    return find_if(Classes, [](const ClassInfo &Class) {
+             return Class.IsOptional;
+           }) != Classes.end();
   }
 };
 
@@ -1471,6 +1469,7 @@ void AsmMatcherInfo::buildInfo() {
         AsmVariant->getValueAsString("SeparatorCharacters");
     Variant.BreakCharacters =
         AsmVariant->getValueAsString("BreakCharacters");
+    Variant.Name = AsmVariant->getValueAsString("Name");
     Variant.AsmVariantNo = AsmVariant->getValueAsInt("Variant");
 
     for (const CodeGenInstruction *CGI : Target.getInstructionsByEnumValue()) {
@@ -1482,6 +1481,11 @@ void AsmMatcherInfo::buildInfo() {
 
       // Ignore "codegen only" instructions.
       if (CGI->TheDef->getValueAsBit("isCodeGenOnly"))
+        continue;
+
+      // Ignore instructions for different instructions
+      const std::string V = CGI->TheDef->getValueAsString("AsmVariantName");
+      if (!V.empty() && V != Variant.Name)
         continue;
 
       auto II = llvm::make_unique<MatchableInfo>(*CGI);
@@ -1510,6 +1514,10 @@ void AsmMatcherInfo::buildInfo() {
       // instruction.
       if (!StringRef(Alias->ResultInst->TheDef->getName())
             .startswith( MatchPrefix))
+        continue;
+
+      const std::string V = Alias->TheDef->getValueAsString("AsmVariantName");
+      if (!V.empty() && V != Variant.Name)
         continue;
 
       auto II = llvm::make_unique<MatchableInfo>(std::move(Alias));
@@ -1819,8 +1827,7 @@ static unsigned getConverterOperandID(const std::string &Name,
                                       bool &IsNew) {
   IsNew = Table.insert(Name);
 
-  unsigned ID = IsNew ? Table.size() - 1 :
-    std::find(Table.begin(), Table.end(), Name) - Table.begin();
+  unsigned ID = IsNew ? Table.size() - 1 : find(Table, Name) - Table.begin();
 
   assert(ID < Table.size());
 
@@ -3254,8 +3261,24 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "    }\n";
   OS << "\n";
   OS << "    Inst.clear();\n\n";
+  OS << "    Inst.setOpcode(it->Opcode);\n";
+  // Verify the instruction with the target-specific match predicate function.
+  OS << "    // We have a potential match but have not rendered the operands.\n"
+     << "    // Check the target predicate to handle any context sensitive\n"
+        "    // constraints.\n"
+     << "    // For example, Ties that are referenced multiple times must be\n"
+        "    // checked here to ensure the input is the same for each match\n"
+        "    // constraints. If we leave it any later the ties will have been\n"
+        "    // canonicalized\n"
+     << "    unsigned MatchResult;\n"
+     << "    if ((MatchResult = checkEarlyTargetMatchPredicate(Inst, "
+        "Operands)) != Match_Success) {\n"
+     << "      Inst.clear();\n"
+     << "      RetCode = MatchResult;\n"
+     << "      HadMatchOtherThanPredicate = true;\n"
+     << "      continue;\n"
+     << "    }\n\n";
   OS << "    if (matchingInlineAsm) {\n";
-  OS << "      Inst.setOpcode(it->Opcode);\n";
   OS << "      convertToMapAndConstraints(it->ConvertFn, Operands);\n";
   OS << "      return Match_Success;\n";
   OS << "    }\n\n";
@@ -3272,7 +3295,6 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   // Verify the instruction with the target-specific match predicate function.
   OS << "    // We have a potential match. Check the target predicate to\n"
      << "    // handle any context sensitive constraints.\n"
-     << "    unsigned MatchResult;\n"
      << "    if ((MatchResult = checkTargetMatchPredicate(Inst)) !="
      << " Match_Success) {\n"
      << "      Inst.clear();\n"

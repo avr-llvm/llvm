@@ -563,7 +563,7 @@ define void @test_extract_f64(<2 x double> %arg, double* %dst) {
 ;
 ; SSE4A-LABEL: test_extract_f64:
 ; SSE4A:       # BB#0:
-; SSE4A-NEXT:    shufpd {{.*#+}} xmm0 = xmm0[1,0]
+; SSE4A-NEXT:    movhlps {{.*#+}} xmm0 = xmm0[1,1]
 ; SSE4A-NEXT:    movntsd %xmm0, (%rdi)
 ; SSE4A-NEXT:    retq
 ;
@@ -657,7 +657,7 @@ define void @test_arg_v4i32(<4 x i32> %arg, <4 x i32>* %dst) {
 ;
 ; VLX-LABEL: test_arg_v4i32:
 ; VLX:       # BB#0:
-; VLX-NEXT:    vmovntdq %xmm0, (%rdi)
+; VLX-NEXT:    vmovntps %xmm0, (%rdi)
 ; VLX-NEXT:    retq
   store <4 x i32> %arg, <4 x i32>* %dst, align 16, !nontemporal !1
   ret void
@@ -676,7 +676,7 @@ define void @test_arg_v2f64(<2 x double> %arg, <2 x double>* %dst) {
 ;
 ; VLX-LABEL: test_arg_v2f64:
 ; VLX:       # BB#0:
-; VLX-NEXT:    vmovntpd %xmm0, (%rdi)
+; VLX-NEXT:    vmovntps %xmm0, (%rdi)
 ; VLX-NEXT:    retq
   store <2 x double> %arg, <2 x double>* %dst, align 16, !nontemporal !1
   ret void
@@ -695,7 +695,7 @@ define void @test_arg_v2i64(<2 x i64> %arg, <2 x i64>* %dst) {
 ;
 ; VLX-LABEL: test_arg_v2i64:
 ; VLX:       # BB#0:
-; VLX-NEXT:    vmovntdq %xmm0, (%rdi)
+; VLX-NEXT:    vmovntps %xmm0, (%rdi)
 ; VLX-NEXT:    retq
   store <2 x i64> %arg, <2 x i64>* %dst, align 16, !nontemporal !1
   ret void
@@ -714,7 +714,7 @@ define void @test_arg_v8i16(<8 x i16> %arg, <8 x i16>* %dst) {
 ;
 ; VLX-LABEL: test_arg_v8i16:
 ; VLX:       # BB#0:
-; VLX-NEXT:    vmovntdq %xmm0, (%rdi)
+; VLX-NEXT:    vmovntps %xmm0, (%rdi)
 ; VLX-NEXT:    retq
   store <8 x i16> %arg, <8 x i16>* %dst, align 16, !nontemporal !1
   ret void
@@ -733,7 +733,7 @@ define void @test_arg_v16i8(<16 x i8> %arg, <16 x i8>* %dst) {
 ;
 ; VLX-LABEL: test_arg_v16i8:
 ; VLX:       # BB#0:
-; VLX-NEXT:    vmovntdq %xmm0, (%rdi)
+; VLX-NEXT:    vmovntps %xmm0, (%rdi)
 ; VLX-NEXT:    retq
   store <16 x i8> %arg, <16 x i8>* %dst, align 16, !nontemporal !1
   ret void

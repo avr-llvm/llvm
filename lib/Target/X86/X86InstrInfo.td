@@ -923,6 +923,7 @@ def X86_COND_S   : PatLeaf<(i8 15)>;
 def i16immSExt8  : ImmLeaf<i16, [{ return isInt<8>(Imm); }]>;
 def i32immSExt8  : ImmLeaf<i32, [{ return isInt<8>(Imm); }]>;
 def i64immSExt8  : ImmLeaf<i64, [{ return isInt<8>(Imm); }]>;
+def i64immSExt32 : ImmLeaf<i64, [{ return isInt<32>(Imm); }]>;
 
 // If we have multiple users of an immediate, it's much smaller to reuse
 // the register, rather than encode the immediate in every instruction.
@@ -950,6 +951,9 @@ def imm16_su : PatLeaf<(i16 imm), [{
 def imm32_su : PatLeaf<(i32 imm), [{
     return !shouldAvoidImmediateInstFormsForSize(N);
 }]>;
+def i64immSExt32_su : PatLeaf<(i64immSExt32), [{
+    return !shouldAvoidImmediateInstFormsForSize(N);
+}]>;
 
 def i16immSExt8_su : PatLeaf<(i16immSExt8), [{
     return !shouldAvoidImmediateInstFormsForSize(N);
@@ -957,10 +961,9 @@ def i16immSExt8_su : PatLeaf<(i16immSExt8), [{
 def i32immSExt8_su : PatLeaf<(i32immSExt8), [{
     return !shouldAvoidImmediateInstFormsForSize(N);
 }]>;
-
-
-def i64immSExt32 : ImmLeaf<i64, [{ return isInt<32>(Imm); }]>;
-
+def i64immSExt8_su : PatLeaf<(i64immSExt8), [{
+    return !shouldAvoidImmediateInstFormsForSize(N);
+}]>;
 
 // i64immZExt32 predicate - True if the 64-bit immediate fits in a 32-bit
 // unsigned field.
@@ -1409,7 +1412,7 @@ def MOV32mi : Ii32<0xC7, MRM0m, (outs), (ins i32mem:$dst, i32imm:$src),
                    [(store (i32 imm32_su:$src), addr:$dst)], IIC_MOV_MEM>, OpSize32;
 def MOV64mi32 : RIi32S<0xC7, MRM0m, (outs), (ins i64mem:$dst, i64i32imm:$src),
                        "mov{q}\t{$src, $dst|$dst, $src}",
-                       [(store i64immSExt32:$src, addr:$dst)], IIC_MOV_MEM>;
+                       [(store i64immSExt32_su:$src, addr:$dst)], IIC_MOV_MEM>;
 } // SchedRW
 
 let hasSideEffects = 0 in {
@@ -2251,14 +2254,14 @@ let Predicates = [HasBMI] in {
 multiclass bmi_bextr_bzhi<bits<8> opc, string mnemonic, RegisterClass RC,
                           X86MemOperand x86memop, Intrinsic Int,
                           PatFrag ld_frag> {
-  def rr : I<opc, MRMSrcReg, (outs RC:$dst), (ins RC:$src1, RC:$src2),
+  def rr : I<opc, MRMSrcReg4VOp3, (outs RC:$dst), (ins RC:$src1, RC:$src2),
              !strconcat(mnemonic, "\t{$src2, $src1, $dst|$dst, $src1, $src2}"),
              [(set RC:$dst, (Int RC:$src1, RC:$src2)), (implicit EFLAGS)]>,
-             T8PS, VEX_4VOp3;
-  def rm : I<opc, MRMSrcMem, (outs RC:$dst), (ins x86memop:$src1, RC:$src2),
+             T8PS, VEX;
+  def rm : I<opc, MRMSrcMem4VOp3, (outs RC:$dst), (ins x86memop:$src1, RC:$src2),
              !strconcat(mnemonic, "\t{$src2, $src1, $dst|$dst, $src1, $src2}"),
              [(set RC:$dst, (Int (ld_frag addr:$src1), RC:$src2)),
-              (implicit EFLAGS)]>, T8PS, VEX_4VOp3;
+              (implicit EFLAGS)]>, T8PS, VEX;
 }
 
 let Predicates = [HasBMI], Defs = [EFLAGS] in {

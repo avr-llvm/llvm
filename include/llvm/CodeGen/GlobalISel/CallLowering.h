@@ -16,11 +16,13 @@
 #define LLVM_CODEGEN_GLOBALISEL_CALLLOWERING_H
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/Function.h"
 
 namespace llvm {
 // Forward declarations.
 class MachineIRBuilder;
+class MachineOperand;
 class TargetLowering;
 class Value;
 
@@ -46,8 +48,8 @@ class CallLowering {
   /// This hook is used by GlobalISel.
   ///
   /// \return True if the lowering succeeds, false otherwise.
-  virtual bool lowerReturn(MachineIRBuilder &MIRBuilder, const Value *Val,
-                           unsigned VReg) const {
+  virtual bool lowerReturn(MachineIRBuilder &MIRBuilder,
+                           const Value *Val, unsigned VReg) const {
     return false;
   }
 
@@ -63,9 +65,54 @@ class CallLowering {
   virtual bool
   lowerFormalArguments(MachineIRBuilder &MIRBuilder,
                        const Function::ArgumentListType &Args,
-                       const SmallVectorImpl<unsigned> &VRegs) const {
+                       ArrayRef<unsigned> VRegs) const {
     return false;
   }
+
+  /// This hook must be implemented to lower the given call instruction,
+  /// including argument and return value marshalling.
+  ///
+  /// \p Callee is the destination of the call. It should be either a register,
+  /// globaladdress, or externalsymbol.
+  ///
+  /// \p ResTys is a list of the individual result types this function call will
+  /// produce. The types are used to assign physical registers to each slot.
+  ///
+  /// \p ResRegs is a list of the virtual registers that we expect to be defined
+  /// by this call, one per entry in \p ResTys.
+  ///
+  /// \p ArgTys is a list of the types each member of \p ArgRegs has; used by
+  /// the target to decide which register/stack slot should be allocated.
+  ///
+  /// \p ArgRegs is a list of virtual registers containing each argument that
+  /// needs to be passed.
+  ///
+  /// \return true if the lowering succeeded, false otherwise.
+  virtual bool lowerCall(MachineIRBuilder &MIRBuilder,
+                         const MachineOperand &Callee, ArrayRef<Type *> ResTys,
+                         ArrayRef<unsigned> ResRegs, ArrayRef<Type *> ArgTys,
+                         ArrayRef<unsigned> ArgRegs) const {
+    return false;
+  }
+
+  /// This hook must be implemented to lower the given call instruction,
+  /// including argument and return value marshalling.
+  ///
+  /// \p ResReg is a register where the call's return value should be stored (or
+  /// 0 if there is no return value).
+  ///
+  /// \p ArgRegs is a list of virtual registers containing each argument that
+  /// needs to be passed.
+  ///
+  /// \p GetCalleeReg is a callback to materialize a register for the callee if
+  /// the target determines it cannot jump to the destination based purely on \p
+  /// CI. This might be because \p CI is indirect, or because of the limited
+  /// range of an immediate jump.
+  ///
+  /// \return true if the lowering succeeded, false otherwise.
+  virtual bool lowerCall(MachineIRBuilder &MIRBuilder, const CallInst &CI,
+                         unsigned ResReg, ArrayRef<unsigned> ArgRegs,
+                         std::function<unsigned()> GetCalleeReg) const;
 };
 } // End namespace llvm.
 

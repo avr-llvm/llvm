@@ -350,12 +350,6 @@ void CallInst::addAttribute(unsigned i, Attribute::AttrKind Kind) {
   setAttributes(PAL);
 }
 
-void CallInst::addAttribute(unsigned i, StringRef Kind, StringRef Value) {
-  AttributeSet PAL = getAttributes();
-  PAL = PAL.addAttribute(getContext(), i, Kind, Value);
-  setAttributes(PAL);
-}
-
 void CallInst::addAttribute(unsigned i, Attribute Attr) {
   AttributeSet PAL = getAttributes();
   PAL = PAL.addAttribute(getContext(), i, Attr);
@@ -371,15 +365,6 @@ void CallInst::removeAttribute(unsigned i, Attribute::AttrKind Kind) {
 void CallInst::removeAttribute(unsigned i, StringRef Kind) {
   AttributeSet PAL = getAttributes();
   PAL = PAL.removeAttribute(getContext(), i, Kind);
-  setAttributes(PAL);
-}
-
-void CallInst::removeAttribute(unsigned i, Attribute Attr) {
-  AttributeSet PAL = getAttributes();
-  AttrBuilder B(Attr);
-  LLVMContext &Context = getContext();
-  PAL = PAL.removeAttributes(Context, i,
-                             AttributeSet::get(Context, i, B));
   setAttributes(PAL);
 }
 
@@ -403,14 +388,6 @@ bool CallInst::paramHasAttr(unsigned i, Attribute::AttrKind Kind) const {
   if (const Function *F = getCalledFunction())
     return F->getAttributes().hasAttribute(i, Kind);
   return false;
-}
-
-Attribute CallInst::getAttribute(unsigned i, Attribute::AttrKind Kind) const {
-  return getAttributes().getAttribute(i, Kind);
-}
-
-Attribute CallInst::getAttribute(unsigned i, StringRef Kind) const {
-  return getAttributes().getAttribute(i, Kind);
 }
 
 bool CallInst::dataOperandHasImpliedAttr(unsigned i,
@@ -764,23 +741,6 @@ void InvokeInst::removeAttribute(unsigned i, StringRef Kind) {
   AttributeSet PAL = getAttributes();
   PAL = PAL.removeAttribute(getContext(), i, Kind);
   setAttributes(PAL);
-}
-
-void InvokeInst::removeAttribute(unsigned i, Attribute Attr) {
-  AttributeSet PAL = getAttributes();
-  AttrBuilder B(Attr);
-  PAL = PAL.removeAttributes(getContext(), i,
-                             AttributeSet::get(getContext(), i, B));
-  setAttributes(PAL);
-}
-
-Attribute InvokeInst::getAttribute(unsigned i,
-                                   Attribute::AttrKind Kind) const {
-  return getAttributes().getAttribute(i, Kind);
-}
-
-Attribute InvokeInst::getAttribute(unsigned i, StringRef Kind) const {
-  return getAttributes().getAttribute(i, Kind);
 }
 
 void InvokeInst::addDereferenceableAttr(unsigned i, uint64_t Bytes) {
@@ -1209,15 +1169,7 @@ void BranchInst::swapSuccessors() {
 
   // Update profile metadata if present and it matches our structural
   // expectations.
-  MDNode *ProfileData = getMetadata(LLVMContext::MD_prof);
-  if (!ProfileData || ProfileData->getNumOperands() != 3)
-    return;
-
-  // The first operand is the name. Fetch them backwards and build a new one.
-  Metadata *Ops[] = {ProfileData->getOperand(0), ProfileData->getOperand(2),
-                     ProfileData->getOperand(1)};
-  setMetadata(LLVMContext::MD_prof,
-              MDNode::get(ProfileData->getContext(), Ops));
+  swapProfMetadata();
 }
 
 BasicBlock *BranchInst::getSuccessorV(unsigned idx) const {
@@ -1916,9 +1868,6 @@ bool ShuffleVectorInst::isValidOperands(const Value *V1, const Value *V2,
   return false;
 }
 
-/// getMaskValue - Return the index from the shuffle mask for the specified
-/// output result.  This is either -1 if the element is undef or a number less
-/// than 2*numelements.
 int ShuffleVectorInst::getMaskValue(Constant *Mask, unsigned i) {
   assert(i < Mask->getType()->getVectorNumElements() && "Index out of range");
   if (ConstantDataSequential *CDS =dyn_cast<ConstantDataSequential>(Mask))
@@ -1929,8 +1878,6 @@ int ShuffleVectorInst::getMaskValue(Constant *Mask, unsigned i) {
   return cast<ConstantInt>(C)->getZExtValue();
 }
 
-/// getShuffleMask - Return the full mask for this instruction, where each
-/// element is the element number and undef's are returned as -1.
 void ShuffleVectorInst::getShuffleMask(Constant *Mask,
                                        SmallVectorImpl<int> &Result) {
   unsigned NumElts = Mask->getType()->getVectorNumElements();
@@ -3462,6 +3409,38 @@ CmpInst::Predicate CmpInst::getInversePredicate(Predicate pred) {
     case FCMP_UNO: return FCMP_ORD;
     case FCMP_TRUE: return FCMP_FALSE;
     case FCMP_FALSE: return FCMP_TRUE;
+  }
+}
+
+StringRef CmpInst::getPredicateName(Predicate Pred) {
+  switch (Pred) {
+  default:                   return "unknown";
+  case FCmpInst::FCMP_FALSE: return "false";
+  case FCmpInst::FCMP_OEQ:   return "oeq";
+  case FCmpInst::FCMP_OGT:   return "ogt";
+  case FCmpInst::FCMP_OGE:   return "oge";
+  case FCmpInst::FCMP_OLT:   return "olt";
+  case FCmpInst::FCMP_OLE:   return "ole";
+  case FCmpInst::FCMP_ONE:   return "one";
+  case FCmpInst::FCMP_ORD:   return "ord";
+  case FCmpInst::FCMP_UNO:   return "uno";
+  case FCmpInst::FCMP_UEQ:   return "ueq";
+  case FCmpInst::FCMP_UGT:   return "ugt";
+  case FCmpInst::FCMP_UGE:   return "uge";
+  case FCmpInst::FCMP_ULT:   return "ult";
+  case FCmpInst::FCMP_ULE:   return "ule";
+  case FCmpInst::FCMP_UNE:   return "une";
+  case FCmpInst::FCMP_TRUE:  return "true";
+  case ICmpInst::ICMP_EQ:    return "eq";
+  case ICmpInst::ICMP_NE:    return "ne";
+  case ICmpInst::ICMP_SGT:   return "sgt";
+  case ICmpInst::ICMP_SGE:   return "sge";
+  case ICmpInst::ICMP_SLT:   return "slt";
+  case ICmpInst::ICMP_SLE:   return "sle";
+  case ICmpInst::ICMP_UGT:   return "ugt";
+  case ICmpInst::ICMP_UGE:   return "uge";
+  case ICmpInst::ICMP_ULT:   return "ult";
+  case ICmpInst::ICMP_ULE:   return "ule";
   }
 }
 

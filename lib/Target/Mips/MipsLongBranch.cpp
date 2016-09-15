@@ -74,7 +74,7 @@ namespace {
 
     MachineFunctionProperties getRequiredProperties() const override {
       return MachineFunctionProperties().set(
-          MachineFunctionProperties::Property::AllVRegsAllocated);
+          MachineFunctionProperties::Property::NoVRegs);
     }
 
   private:
@@ -157,7 +157,7 @@ void MipsLongBranch::splitMBB(MachineBasicBlock *MBB) {
   MBB->addSuccessor(Tgt);
   MF->insert(std::next(MachineFunction::iterator(MBB)), NewMBB);
 
-  NewMBB->splice(NewMBB->end(), MBB, (++LastBr).base(), MBB->end());
+  NewMBB->splice(NewMBB->end(), MBB, LastBr.getReverse(), MBB->end());
 }
 
 // Fill MBBInfos.
@@ -179,7 +179,7 @@ void MipsLongBranch::initMBBInfo() {
     // Compute size of MBB.
     for (MachineBasicBlock::instr_iterator MI = MBB->instr_begin();
          MI != MBB->instr_end(); ++MI)
-      MBBInfos[I].Size += TII->GetInstSizeInBytes(*MI);
+      MBBInfos[I].Size += TII->getInstSizeInBytes(*MI);
 
     // Search for MBB's branch instruction.
     ReverseIter End = MBB->rend();
@@ -187,7 +187,7 @@ void MipsLongBranch::initMBBInfo() {
 
     if ((Br != End) && !Br->isIndirectBranch() &&
         (Br->isConditionalBranch() || (Br->isUnconditionalBranch() && IsPIC)))
-      MBBInfos[I].Br = &*(++Br).base();
+      MBBInfos[I].Br = &*Br;
   }
 }
 

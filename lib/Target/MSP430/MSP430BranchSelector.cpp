@@ -41,7 +41,7 @@ namespace {
 
     MachineFunctionProperties getRequiredProperties() const override {
       return MachineFunctionProperties().set(
-          MachineFunctionProperties::Property::AllVRegsAllocated);
+          MachineFunctionProperties::Property::NoVRegs);
     }
 
     const char *getPassName() const override {
@@ -70,7 +70,7 @@ bool MSP430BSel::runOnMachineFunction(MachineFunction &Fn) {
   for (MachineBasicBlock &MBB : Fn) {
     unsigned BlockSize = 0;
     for (MachineInstr &MI : MBB)
-      BlockSize += TII->GetInstSizeInBytes(MI);
+      BlockSize += TII->getInstSizeInBytes(MI);
 
     BlockSizes[MBB.getNumber()] = BlockSize;
     FuncSize += BlockSize;
@@ -107,7 +107,7 @@ bool MSP430BSel::runOnMachineFunction(MachineFunction &Fn) {
            I != E; ++I) {
         if ((I->getOpcode() != MSP430::JCC || I->getOperand(0).isImm()) &&
             I->getOpcode() != MSP430::JMP) {
-          MBBStartOffset += TII->GetInstSizeInBytes(*I);
+          MBBStartOffset += TII->getInstSizeInBytes(*I);
           continue;
         }
 
@@ -154,7 +154,7 @@ bool MSP430BSel::runOnMachineFunction(MachineFunction &Fn) {
           Cond.push_back(I->getOperand(1));
 
           // Jump over the uncond branch inst (i.e. $+6) on opposite condition.
-          TII->ReverseBranchCondition(Cond);
+          TII->reverseBranchCondition(Cond);
           BuildMI(MBB, I, dl, TII->get(MSP430::JCC))
             .addImm(4).addOperand(Cond[0]);
 

@@ -26,7 +26,7 @@ HexagonEvaluator::HexagonEvaluator(const HexagonRegisterInfo &tri,
                                    MachineRegisterInfo &mri,
                                    const HexagonInstrInfo &tii,
                                    MachineFunction &mf)
-    : MachineEvaluator(tri, mri), MF(mf), MFI(*mf.getFrameInfo()), TII(tii) {
+    : MachineEvaluator(tri, mri), MF(mf), MFI(mf.getFrameInfo()), TII(tii) {
   // Populate the VRX map (VR to extension-type).
   // Go over all the formal parameters of the function. If a given parameter
   // P is sign- or zero-extended, locate the virtual register holding that
@@ -60,13 +60,15 @@ HexagonEvaluator::HexagonEvaluator(const HexagonRegisterInfo &tri,
     // Module::AnyPointerSize.
     if (Width == 0 || Width > 64)
       break;
+    AttributeSet Attrs = F.getAttributes();
+    if (Attrs.hasAttribute(AttrIdx, Attribute::ByVal))
+      continue;
     InPhysReg = getNextPhysReg(InPhysReg, Width);
     if (!InPhysReg)
       break;
     InVirtReg = getVirtRegFor(InPhysReg);
     if (!InVirtReg)
       continue;
-    AttributeSet Attrs = F.getAttributes();
     if (Attrs.hasAttribute(AttrIdx, Attribute::SExt))
       VRX.insert(std::make_pair(InVirtReg, ExtType(ExtType::SExt, Width)));
     else if (Attrs.hasAttribute(AttrIdx, Attribute::ZExt))
@@ -138,8 +140,20 @@ bool HexagonEvaluator::evaluate(const MachineInstr &MI,
   if (NumDefs == 0)
     return false;
 
-  if (MI.mayLoad())
-    return evaluateLoad(MI, Inputs, Outputs);
+  using namespace Hexagon;
+  unsigned Opc = MI.getOpcode();
+
+  if (MI.mayLoad()) {
+    switch (Opc) {
+      // These instructions may be marked as mayLoad, but they are generating
+      // immediate values, so skip them.
+      case CONST32:
+      case CONST64:
+        break;
+      default:
+        return evaluateLoad(MI, Inputs, Outputs);
+    }
+  }
 
   // Check COPY instructions that copy formal parameters into virtual
   // registers. Such parameters can be sign- or zero-extended at the
@@ -174,8 +188,6 @@ bool HexagonEvaluator::evaluate(const MachineInstr &MI,
   }
 
   RegisterRefs Reg(MI);
-  unsigned Opc = MI.getOpcode();
-  using namespace Hexagon;
 #define op(i) MI.getOperand(i)
 #define rc(i) RegisterCell::ref(getCell(Reg[i], Inputs))
 #define im(i) MI.getOperand(i).getImm()
@@ -246,16 +258,13 @@ bool HexagonEvaluator::evaluate(const MachineInstr &MI,
     case A2_tfrsi:
     case A2_tfrpi:
     case CONST32:
-    case CONST32_Float_Real:
-    case CONST32_Int_Real:
-    case CONST64_Float_Real:
-    case CONST64_Int_Real:
+    case CONST64:
       return rr0(eIMM(im(1), W0), Outputs);
-    case TFR_PdFalse:
+    case PS_false:
       return rr0(RegisterCell(W0).fill(0, W0, BT::BitValue::Zero), Outputs);
-    case TFR_PdTrue:
+    case PS_true:
       return rr0(RegisterCell(W0).fill(0, W0, BT::BitValue::One), Outputs);
-    case TFR_FI: {
+    case PS_fi: {
       int FI = op(1).getIndex();
       int Off = op(2).getImm();
       unsigned A = MFI.getObjectAlignment(FI) + std::abs(Off);
@@ -670,6 +679,8 @@ bool HexagonEvaluator::evaluate(const MachineInstr &MI,
     case A4_combineir:
     case A4_combineri:
     case A2_combinew:
+    case V6_vcombine:
+    case V6_vcombine_128B:
       assert(W0 % 2 == 0);
       return rr0(cop(2, W0/2).cat(cop(1, W0/2)), Outputs);
     case A2_combine_ll:
@@ -891,10 +902,12 @@ bool HexagonEvaluator::evaluate(const MachineInstr &BI,
   bool Negated = false;
   switch (Opc) {
     case Hexagon::J2_jumpf:
+    case Hexagon::J2_jumpfpt:
     case Hexagon::J2_jumpfnew:
     case Hexagon::J2_jumpfnewpt:
       Negated = true;
     case Hexagon::J2_jumpt:
+    case Hexagon::J2_jumptpt:
     case Hexagon::J2_jumptnew:
     case Hexagon::J2_jumptnewpt:
       // Simple branch:  if([!]Pn) jump ...

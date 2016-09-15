@@ -351,6 +351,12 @@ public:
                            bool HasBaseReg, int64_t Scale,
                            unsigned AddrSpace = 0) const;
 
+  /// \brief Return true if target supports the load / store
+  /// instruction with the given Offset on the form reg + Offset. It
+  /// may be that Offset is too big for a certain type (register
+  /// class).
+  bool isFoldableMemAccessOffset(Instruction *I, int64_t Offset) const;
+  
   /// \brief Return true if it's free to truncate a value of type Ty1 to type
   /// Ty2. e.g. On x86 it's free to truncate a i32 value in register EAX to i16
   /// by referencing its sub-register AX.
@@ -389,7 +395,8 @@ public:
   bool isFPVectorizationPotentiallyUnsafe() const;
 
   /// \brief Determine if the target supports unaligned memory accesses.
-  bool allowsMisalignedMemoryAccesses(unsigned BitWidth, unsigned AddressSpace = 0,
+  bool allowsMisalignedMemoryAccesses(LLVMContext &Context,
+                                      unsigned BitWidth, unsigned AddressSpace = 0,
                                       unsigned Alignment = 1,
                                       bool *Fast = nullptr) const;
 
@@ -659,6 +666,7 @@ public:
   virtual int getScalingFactorCost(Type *Ty, GlobalValue *BaseGV,
                                    int64_t BaseOffset, bool HasBaseReg,
                                    int64_t Scale, unsigned AddrSpace) = 0;
+  virtual bool isFoldableMemAccessOffset(Instruction *I, int64_t Offset) = 0;
   virtual bool isTruncateFree(Type *Ty1, Type *Ty2) = 0;
   virtual bool isProfitableToHoist(Instruction *I) = 0;
   virtual bool isTypeLegal(Type *Ty) = 0;
@@ -668,7 +676,8 @@ public:
   virtual bool enableAggressiveInterleaving(bool LoopHasReductions) = 0;
   virtual bool enableInterleavedAccessVectorization() = 0;
   virtual bool isFPVectorizationPotentiallyUnsafe() = 0;
-  virtual bool allowsMisalignedMemoryAccesses(unsigned BitWidth,
+  virtual bool allowsMisalignedMemoryAccesses(LLVMContext &Context,
+                                              unsigned BitWidth,
                                               unsigned AddressSpace,
                                               unsigned Alignment,
                                               bool *Fast) = 0;
@@ -820,6 +829,9 @@ public:
     return Impl.getScalingFactorCost(Ty, BaseGV, BaseOffset, HasBaseReg,
                                      Scale, AddrSpace);
   }
+  bool isFoldableMemAccessOffset(Instruction *I, int64_t Offset) override {
+    return Impl.isFoldableMemAccessOffset(I, Offset);
+  }
   bool isTruncateFree(Type *Ty1, Type *Ty2) override {
     return Impl.isTruncateFree(Ty1, Ty2);
   }
@@ -841,9 +853,10 @@ public:
   bool isFPVectorizationPotentiallyUnsafe() override {
     return Impl.isFPVectorizationPotentiallyUnsafe();
   }
-  bool allowsMisalignedMemoryAccesses(unsigned BitWidth, unsigned AddressSpace,
+  bool allowsMisalignedMemoryAccesses(LLVMContext &Context,
+                                      unsigned BitWidth, unsigned AddressSpace,
                                       unsigned Alignment, bool *Fast) override {
-    return Impl.allowsMisalignedMemoryAccesses(BitWidth, AddressSpace,
+    return Impl.allowsMisalignedMemoryAccesses(Context, BitWidth, AddressSpace,
                                                Alignment, Fast);
   }
   PopcntSupportKind getPopcntSupport(unsigned IntTyWidthInBit) override {
@@ -1025,7 +1038,7 @@ public:
     return *this;
   }
 
-  Result run(const Function &F, AnalysisManager<Function> &);
+  Result run(const Function &F, FunctionAnalysisManager &);
 
 private:
   friend AnalysisInfoMixin<TargetIRAnalysis>;

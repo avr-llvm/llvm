@@ -251,7 +251,7 @@ namespace llvm {
       /// in order to obtain suitable precision.
       FRSQRT, FRCP,
       FRSQRTS, FRCPS,
-   
+
       // Thread Local Storage.
       TLSADDR,
 
@@ -764,6 +764,26 @@ namespace llvm {
       return VT == MVT::f32 || VT == MVT::f64 || VT.isVector();
     }
 
+    bool isMultiStoresCheaperThanBitsMerge(SDValue Lo,
+                                           SDValue Hi) const override {
+      // If the pair to store is a mixture of float and int values, we will
+      // save two bitwise instructions and one float-to-int instruction and
+      // increase one store instruction. There is potentially a more
+      // significant benefit because it avoids the float->int domain switch
+      // for input value. So It is more likely a win.
+      if (Lo.getOpcode() == ISD::BITCAST || Hi.getOpcode() == ISD::BITCAST) {
+        SDValue Opd = (Lo.getOpcode() == ISD::BITCAST) ? Lo.getOperand(0)
+                                                       : Hi.getOperand(0);
+        if (Opd.getValueType().isFloatingPoint())
+          return true;
+      }
+      // If the pair only contains int values, we will save two bitwise
+      // instructions and increase one store instruction (costing one more
+      // store buffer). Since the benefit is more blurred so we leave
+      // such pair out until we get testcase to prove it is a win.
+      return false;
+    }
+
     bool hasAndNotCompare(SDValue Y) const override;
 
     /// Return the value type to use for ISD::SETCC.
@@ -1032,7 +1052,7 @@ namespace llvm {
     SDValue LowerMemArgument(SDValue Chain, CallingConv::ID CallConv,
                              const SmallVectorImpl<ISD::InputArg> &ArgInfo,
                              const SDLoc &dl, SelectionDAG &DAG,
-                             const CCValAssign &VA, MachineFrameInfo *MFI,
+                             const CCValAssign &VA, MachineFrameInfo &MFI,
                              unsigned i) const;
     SDValue LowerMemOpCallTo(SDValue Chain, SDValue StackPtr, SDValue Arg,
                              const SDLoc &dl, SelectionDAG &DAG,
@@ -1218,6 +1238,9 @@ namespace llvm {
 
     /// Convert a comparison if required by the subtarget.
     SDValue ConvertCmpIfNecessary(SDValue Cmp, SelectionDAG &DAG) const;
+
+    /// Check if replacement of SQRT with RSQRT should be disabled.
+    bool isFsqrtCheap(SDValue Operand, SelectionDAG &DAG) const override;
 
     /// Use rsqrt* to speed up sqrt calculations.
     SDValue getRsqrtEstimate(SDValue Operand, DAGCombinerInfo &DCI,

@@ -11,107 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-class DSe_vi <bits<8> op> : Enc64 {
-  bits<8> vdst;
-  bits<1> gds;
-  bits<8> addr;
-  bits<8> data0;
-  bits<8> data1;
-  bits<8> offset0;
-  bits<8> offset1;
-
-  let Inst{7-0} = offset0;
-  let Inst{15-8} = offset1;
-  let Inst{16} = gds;
-  let Inst{24-17} = op;
-  let Inst{31-26} = 0x36; //encoding
-  let Inst{39-32} = addr;
-  let Inst{47-40} = data0;
-  let Inst{55-48} = data1;
-  let Inst{63-56} = vdst;
-}
-
-class MUBUFe_vi <bits<7> op> : Enc64 {
-  bits<12> offset;
-  bits<1> offen;
-  bits<1> idxen;
-  bits<1> glc;
-  bits<1> lds;
-  bits<8> vaddr;
-  bits<8> vdata;
-  bits<7> srsrc;
-  bits<1> slc;
-  bits<1> tfe;
-  bits<8> soffset;
-
-  let Inst{11-0} = offset;
-  let Inst{12} = offen;
-  let Inst{13} = idxen;
-  let Inst{14} = glc;
-  let Inst{16} = lds;
-  let Inst{17} = slc;
-  let Inst{24-18} = op;
-  let Inst{31-26} = 0x38; //encoding
-  let Inst{39-32} = vaddr;
-  let Inst{47-40} = vdata;
-  let Inst{52-48} = srsrc{6-2};
-  let Inst{55} = tfe;
-  let Inst{63-56} = soffset;
-}
-
-class MTBUFe_vi <bits<4> op> : Enc64 {
-  bits<12> offset;
-  bits<1>  offen;
-  bits<1>  idxen;
-  bits<1>  glc;
-  bits<4>  dfmt;
-  bits<3>  nfmt;
-  bits<8>  vaddr;
-  bits<8>  vdata;
-  bits<7>  srsrc;
-  bits<1>  slc;
-  bits<1>  tfe;
-  bits<8>  soffset;
-
-  let Inst{11-0}  = offset;
-  let Inst{12}    = offen;
-  let Inst{13}    = idxen;
-  let Inst{14}    = glc;
-  let Inst{18-15} = op;
-  let Inst{22-19} = dfmt;
-  let Inst{25-23} = nfmt;
-  let Inst{31-26} = 0x3a; //encoding
-  let Inst{39-32} = vaddr;
-  let Inst{47-40} = vdata;
-  let Inst{52-48} = srsrc{6-2};
-  let Inst{54}    = slc;
-  let Inst{55}    = tfe;
-  let Inst{63-56} = soffset;
-}
-
-class SMEMe_vi <bits<8> op, bit imm> : Enc64 {
-  bits<7>  sbase;
-  bits<7>  sdst;
-  bits<1>  glc;
-
-  let Inst{5-0}   = sbase{6-1};
-  let Inst{12-6}  = sdst;
-  let Inst{16}    = glc;
-  let Inst{17}    = imm;
-  let Inst{25-18} = op;
-  let Inst{31-26} = 0x30; //encoding
-}
-
-class SMEM_IMMe_vi <bits<8> op> : SMEMe_vi<op, 1> {
-  bits<20> offset;
-  let Inst{51-32} = offset;
-}
-
-class SMEM_SOFFe_vi <bits<8> op> : SMEMe_vi<op, 0> {
-  bits<20> soff;
-  let Inst{51-32} = soff;
-}
-
 class VOP3a_vi <bits<10> op> : Enc64 {
   bits<2> src0_modifiers;
   bits<9> src0;
@@ -183,6 +82,7 @@ class VOP_DPP <dag outs, dag ins, string asm, list<dag> pattern, bit HasMods = 0
   let Size = 8;
 
   let AsmMatchConverter = !if(!eq(HasMods,1), "cvtDPP", "");
+  let AsmVariantName = AMDGPUAsmVariants.DPP;
 }
 
 class VOP_DPPe : Enc64 {
@@ -229,6 +129,7 @@ class VOP_SDWA <dag outs, dag ins, string asm, list<dag> pattern, bit HasMods = 
     VOPAnyCommon <outs, ins, asm, pattern> {
   let SDWA = 1;
   let Size = 8;
+  let AsmVariantName = AMDGPUAsmVariants.SDWA;
 }
 
 class VOP_SDWAe : Enc64 {

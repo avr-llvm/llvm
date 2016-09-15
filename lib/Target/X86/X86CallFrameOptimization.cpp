@@ -175,7 +175,7 @@ bool X86CallFrameOptimization::isProfitable(MachineFunction &MF,
   // This transformation is always a win when we do not expect to have
   // a reserved call frame. Under other circumstances, it may be either
   // a win or a loss, and requires a heuristic.
-  bool CannotReserveFrame = MF.getFrameInfo()->hasVarSizedObjects();
+  bool CannotReserveFrame = MF.getFrameInfo().hasVarSizedObjects();
   if (CannotReserveFrame)
     return true;
 
@@ -225,7 +225,7 @@ bool X86CallFrameOptimization::runOnMachineFunction(MachineFunction &MF) {
   assert(isPowerOf2_32(SlotSize) && "Expect power of 2 stack slot size");
   Log2SlotSize = Log2_32(SlotSize);
 
-  if (!isLegal(MF))
+  if (skipFunction(*MF.getFunction()) || !isLegal(MF))
     return false;
 
   unsigned FrameSetupOpcode = TII->getCallFrameSetupOpcode();

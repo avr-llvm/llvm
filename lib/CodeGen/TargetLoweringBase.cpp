@@ -488,12 +488,10 @@ static void InitLibcallNames(const char **Names, const Triple &TT) {
   Names[RTLIB::DEOPTIMIZE] = "__llvm_deoptimize";
 }
 
-/// InitLibcallCallingConvs - Set default libcall CallingConvs.
-///
+/// Set default libcall CallingConvs.
 static void InitLibcallCallingConvs(CallingConv::ID *CCs) {
-  for (int i = 0; i < RTLIB::UNKNOWN_LIBCALL; ++i) {
-    CCs[i] = CallingConv::C;
-  }
+  for (int LC = 0; LC < RTLIB::UNKNOWN_LIBCALL; ++LC)
+    CCs[LC] = CallingConv::C;
 }
 
 /// getFPEXT - Return the FPEXT_*_* value for the given types, or
@@ -807,7 +805,6 @@ TargetLoweringBase::TargetLoweringBase(const TargetMachine &tm) : TM(tm) {
   SelectIsExpensive = false;
   HasMultipleConditionRegisters = false;
   HasExtractBitsInsn = false;
-  FsqrtIsCheap = false;
   JumpIsExpensive = JumpIsExpensiveOverride;
   PredictableSelectIsExpensive = false;
   MaskAndBranchFoldingIsLegal = false;
@@ -956,15 +953,11 @@ EVT TargetLoweringBase::getShiftAmountTy(EVT LHSTy,
   return getScalarShiftAmountTy(DL, LHSTy);
 }
 
-/// canOpTrap - Returns true if the operation can trap for the value type.
-/// VT must be a legal type.
 bool TargetLoweringBase::canOpTrap(unsigned Op, EVT VT) const {
   assert(isTypeLegal(VT));
   switch (Op) {
   default:
     return false;
-  case ISD::FDIV:
-  case ISD::FREM:
   case ISD::SDIV:
   case ISD::UDIV:
   case ISD::SREM:
@@ -1177,7 +1170,7 @@ TargetLoweringBase::emitPatchPoint(MachineInstr &InitialMI,
                                    MachineBasicBlock *MBB) const {
   MachineInstr *MI = &InitialMI;
   MachineFunction &MF = *MI->getParent()->getParent();
-  MachineFrameInfo &MFI = *MF.getFrameInfo();
+  MachineFrameInfo &MFI = MF.getFrameInfo();
 
   // We're handling multiple types of operands here:
   // PATCHPOINT MetaArgs - live-in, read only, direct
@@ -1402,7 +1395,7 @@ void TargetLoweringBase::computeRegisterProperties(
         MVT SVT = (MVT::SimpleValueType) nVT;
         // Promote vectors of integers to vectors with the same number
         // of elements, with a wider element type.
-        if (SVT.getVectorElementType().getSizeInBits() > EltVT.getSizeInBits() &&
+        if (SVT.getScalarSizeInBits() > EltVT.getSizeInBits() &&
             SVT.getVectorNumElements() == NElts && isTypeLegal(SVT)) {
           TransformToType[i] = SVT;
           RegisterTypeForVT[i] = SVT;
@@ -1818,9 +1811,7 @@ Value *TargetLoweringBase::getIRStackGuard(IRBuilder<> &IRB) const {
   if (getTargetMachine().getTargetTriple().isOSOpenBSD()) {
     Module &M = *IRB.GetInsertBlock()->getParent()->getParent();
     PointerType *PtrTy = Type::getInt8PtrTy(M.getContext());
-    auto Guard = cast<GlobalValue>(M.getOrInsertGlobal("__guard_local", PtrTy));
-    Guard->setVisibility(GlobalValue::HiddenVisibility);
-    return Guard;
+    return M.getOrInsertGlobal("__guard_local", PtrTy);
   }
   return nullptr;
 }

@@ -15,6 +15,9 @@ function(llvm_update_compile_flags name)
       message(AUTHOR_WARNING "Exception handling requires RTTI. Enabling RTTI for ${name}")
       set(LLVM_REQUIRES_RTTI ON)
     endif()
+    if(MSVC)
+      list(APPEND LLVM_COMPILE_FLAGS "/EHsc")
+    endif()
   else()
     if(LLVM_COMPILER_IS_GCC_COMPATIBLE)
       list(APPEND LLVM_COMPILE_FLAGS "-fno-exceptions")
@@ -35,6 +38,8 @@ function(llvm_update_compile_flags name)
     elseif (MSVC)
       list(APPEND LLVM_COMPILE_FLAGS "/GR-")
     endif ()
+  elseif(MSVC)
+    list(APPEND LLVM_COMPILE_FLAGS "/GR")
   endif()
 
   # Assume that;
@@ -69,6 +74,9 @@ function(add_llvm_symbol_exports target_name export_file)
       COMMENT "Creating export file for ${target_name}")
     set_property(TARGET ${target_name} APPEND_STRING PROPERTY
                  LINK_FLAGS " -Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/${native_export_file}")
+  elseif(${CMAKE_SYSTEM_NAME} MATCHES "AIX")
+    set_property(TARGET ${target_name} APPEND_STRING PROPERTY
+                 LINK_FLAGS " -Wl,-bE:${export_file}")
   elseif(LLVM_HAVE_LINK_VERSION_SCRIPT)
     # Gold and BFD ld require a version script rather than a plain list.
     set(native_export_file "${target_name}.exports")
@@ -156,7 +164,7 @@ function(add_link_opts target_name)
 
     # Pass -O3 to the linker. This enabled different optimizations on different
     # linkers.
-    if(NOT (${CMAKE_SYSTEM_NAME} MATCHES "Darwin|SunOS" OR WIN32))
+    if(NOT (${CMAKE_SYSTEM_NAME} MATCHES "Darwin|SunOS|AIX" OR WIN32))
       set_property(TARGET ${target_name} APPEND_STRING PROPERTY
                    LINK_FLAGS " -Wl,-O3")
     endif()
@@ -525,26 +533,28 @@ endfunction()
 
 macro(add_llvm_library name)
   cmake_parse_arguments(ARG
-    "SHARED"
+    "SHARED;BUILDTREE_ONLY"
     ""
     ""
     ${ARGN})
-  if( BUILD_SHARED_LIBS )
-    llvm_add_library(${name} SHARED ${ARGN})
+  if( BUILD_SHARED_LIBS OR ARG_SHARED )
+    llvm_add_library(${name} SHARED ${ARG_UNPARSED_ARGUMENTS})
   else()
-    llvm_add_library(${name} ${ARGN})
+    llvm_add_library(${name} ${ARG_UNPARSED_ARGUMENTS})
   endif()
-  # The gtest libraries should not be installed or exported as a target
-  if ("${name}" STREQUAL gtest OR "${name}" STREQUAL gtest_main)
-    set(_is_gtest TRUE)
-  else()
-    set(_is_gtest FALSE)
+
+  # Libraries that are meant to only be exposed via the build tree only are
+  # never installed and are only exported as a target in the special build tree
+  # config file.
+  if (NOT ARG_BUILDTREE_ONLY)
     set_property( GLOBAL APPEND PROPERTY LLVM_LIBS ${name} )
   endif()
 
   if( EXCLUDE_FROM_ALL )
     set_target_properties( ${name} PROPERTIES EXCLUDE_FROM_ALL ON)
-  elseif(NOT _is_gtest)
+  elseif(ARG_BUILDTREE_ONLY)
+    set_property(GLOBAL APPEND PROPERTY LLVM_EXPORTS_BUILDTREE_ONLY ${name})
+  else()
     if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "LTO")
       set(install_dir lib${LLVM_LIBDIR_SUFFIX})
       if(ARG_SHARED OR BUILD_SHARED_LIBS)
@@ -994,7 +1004,7 @@ function(llvm_add_go_executable binary pkgpath)
     endforeach(d)
     set(ldflags "${CMAKE_EXE_LINKER_FLAGS}")
     add_custom_command(OUTPUT ${binpath}
-      COMMAND ${CMAKE_BINARY_DIR}/bin/llvm-go "go=${GO_EXECUTABLE}" "cc=${cc}" "cxx=${cxx}" "cppflags=${cppflags}" "ldflags=${ldflags}"
+      COMMAND ${CMAKE_BINARY_DIR}/bin/llvm-go "go=${GO_EXECUTABLE}" "cc=${cc}" "cxx=${cxx}" "cppflags=${cppflags}" "ldflags=${ldflags}" "packages=${LLVM_GO_PACKAGES}"
               ${ARG_GOFLAGS} build -o ${binpath} ${pkgpath}
       DEPENDS llvm-config ${CMAKE_BINARY_DIR}/bin/llvm-go${CMAKE_EXECUTABLE_SUFFIX}
               ${llvmlibs} ${ARG_DEPENDS}
@@ -1135,7 +1145,8 @@ function(add_lit_testsuites project directory)
         continue()
       endif()
       string(FIND ${lit_suite} Inputs is_inputs)
-      if (NOT is_inputs EQUAL -1)
+      string(FIND ${lit_suite} Output is_output)
+      if (NOT (is_inputs EQUAL -1 AND is_output EQUAL -1))
         continue()
       endif()
 

@@ -322,6 +322,22 @@ TEST(StringRefTest, StartsWithLower) {
   EXPECT_FALSE(Str.startswith_lower("hi"));
 }
 
+TEST(StringRefTest, ConsumeFront) {
+  StringRef Str("hello");
+  EXPECT_TRUE(Str.consume_front(""));
+  EXPECT_EQ("hello", Str);
+  EXPECT_TRUE(Str.consume_front("he"));
+  EXPECT_EQ("llo", Str);
+  EXPECT_FALSE(Str.consume_front("lloworld"));
+  EXPECT_EQ("llo", Str);
+  EXPECT_FALSE(Str.consume_front("lol"));
+  EXPECT_EQ("llo", Str);
+  EXPECT_TRUE(Str.consume_front("llo"));
+  EXPECT_EQ("", Str);
+  EXPECT_FALSE(Str.consume_front("o"));
+  EXPECT_TRUE(Str.consume_front(""));
+}
+
 TEST(StringRefTest, EndsWith) {
   StringRef Str("hello");
   EXPECT_TRUE(Str.endswith(""));
@@ -339,6 +355,22 @@ TEST(StringRefTest, EndsWithLower) {
   EXPECT_TRUE(Str.endswith_lower("ELlo"));
   EXPECT_FALSE(Str.endswith_lower("helloworld"));
   EXPECT_FALSE(Str.endswith_lower("hi"));
+}
+
+TEST(StringRefTest, ConsumeBack) {
+  StringRef Str("hello");
+  EXPECT_TRUE(Str.consume_back(""));
+  EXPECT_EQ("hello", Str);
+  EXPECT_TRUE(Str.consume_back("lo"));
+  EXPECT_EQ("hel", Str);
+  EXPECT_FALSE(Str.consume_back("helhel"));
+  EXPECT_EQ("hel", Str);
+  EXPECT_FALSE(Str.consume_back("hle"));
+  EXPECT_EQ("hel", Str);
+  EXPECT_TRUE(Str.consume_back("hel"));
+  EXPECT_EQ("", Str);
+  EXPECT_FALSE(Str.consume_back("h"));
+  EXPECT_TRUE(Str.consume_back(""));
 }
 
 TEST(StringRefTest, Find) {
@@ -608,5 +640,48 @@ TEST(StringRefTest, AllocatorCopy) {
   EXPECT_NE(Str2.data(), Str2c.data());
 }
 
+TEST(StringRefTest, Drop) {
+  StringRef Test("StringRefTest::Drop");
+
+  StringRef Dropped = Test.drop_front(5);
+  EXPECT_EQ(Dropped, "gRefTest::Drop");
+
+  Dropped = Test.drop_back(5);
+  EXPECT_EQ(Dropped, "StringRefTest:");
+
+  Dropped = Test.drop_front(0);
+  EXPECT_EQ(Dropped, Test);
+
+  Dropped = Test.drop_back(0);
+  EXPECT_EQ(Dropped, Test);
+
+  Dropped = Test.drop_front(Test.size());
+  EXPECT_TRUE(Dropped.empty());
+
+  Dropped = Test.drop_back(Test.size());
+  EXPECT_TRUE(Dropped.empty());
+}
+
+TEST(StringRefTest, Take) {
+  StringRef Test("StringRefTest::Take");
+
+  StringRef Taken = Test.take_front(5);
+  EXPECT_EQ(Taken, "Strin");
+
+  Taken = Test.take_back(5);
+  EXPECT_EQ(Taken, ":Take");
+
+  Taken = Test.take_front(Test.size());
+  EXPECT_EQ(Taken, Test);
+
+  Taken = Test.take_back(Test.size());
+  EXPECT_EQ(Taken, Test);
+
+  Taken = Test.take_front(0);
+  EXPECT_TRUE(Taken.empty());
+
+  Taken = Test.take_back(0);
+  EXPECT_TRUE(Taken.empty());
+}
 
 } // end anonymous namespace

@@ -45,10 +45,15 @@ MipsMCAsmInfo::MipsMCAsmInfo(const Triple &TheTriple) {
   ZeroDirective               = "\t.space\t";
   GPRel32Directive            = "\t.gpword\t";
   GPRel64Directive            = "\t.gpdword\t";
+  DTPRel32Directive           = "\t.dtprelword\t";
+  DTPRel64Directive           = "\t.dtpreldword\t";
+  TPRel32Directive            = "\t.tprelword\t";
+  TPRel64Directive            = "\t.tpreldword\t";
   UseAssignmentForEHBegin = true;
   SupportsDebugInformation = true;
   ExceptionsType = ExceptionHandling::DwarfCFI;
   DwarfRegNumForCFI = true;
+  HasMipsExpressions = true;
 
   // Enable IAS by default for O32.
   if (TheTriple.getArch() == Triple::mips ||

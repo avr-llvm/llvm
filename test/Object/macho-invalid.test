@@ -103,3 +103,162 @@ INVALID-FAT: truncated or malformed fat file (fat_arch_64 structs would extend p
 
 RUN: not llvm-objdump -macho -private-headers -arch all %p/Inputs/macho-invalid-fat.obj.elf-x86_64 2>&1 | FileCheck -check-prefix INVALID-FAT-ELF %s
 INVALID-FAT-ELF: Mach-O universal file: {{.*}}/macho-invalid-fat.obj.elf-x86_64 for architecture x86_64 is not a Mach-O file or an archive file
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-segment-fileoff 2>&1 | FileCheck -check-prefix INVALID-SEGMENT-FILEOFF %s
+INVALID-SEGMENT-FILEOFF: macho-invalid-segment-fileoff': truncated or malformed object (load command 0 fileoff field in LC_SEGMENT extends past the end of the file)
+
+RUN: not llvm-nm %p/Inputs/macho-invalid-segment-fileoff 2>&1 | FileCheck -check-prefix INVALID-SEGMENT-FILEOFF-NM %s
+INVALID-SEGMENT-FILEOFF-NM: macho-invalid-segment-fileoff truncated or malformed object (load command 0 fileoff field in LC_SEGMENT extends past the end of the file)
+
+RUN: not llvm-size %p/Inputs/macho-invalid-segment-fileoff 2>&1 | FileCheck -check-prefix INVALID-SEGMENT-FILEOFF-SIZE %s
+INVALID-SEGMENT-FILEOFF-SIZE: macho-invalid-segment-fileoff truncated or malformed object (load command 0 fileoff field in LC_SEGMENT extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-segment-filesize 2>&1 | FileCheck -check-prefix INVALID-SEGMENT-FILESIZE %s
+INVALID-SEGMENT-FILESIZE: macho-invalid-segment-filesize': truncated or malformed object (load command 0 fileoff field plus filesize field in LC_SEGMENT extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-segment-vmsize 2>&1 | FileCheck -check-prefix INVALID-SEGMENT-VMSIZE %s
+INVALID-SEGMENT-VMSIZE: macho-invalid-segment-vmsize': truncated or malformed object (load command 0 fileoff field in LC_SEGMENT greater than vmsize field)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-section-offset 2>&1 | FileCheck -check-prefix INVALID-SECTION-FILEOFF %s
+INVALID-SECTION-FILEOFF: macho-invalid-section-offset': truncated or malformed object (offset field of section 0 in LC_SEGMENT command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-section-offset-in-headers 2>&1 | FileCheck -check-prefix INVALID-SECTION-FILEOFF-IN-HEADERS %s
+INVALID-SECTION-FILEOFF-IN-HEADERS: macho-invalid-section-offset-in-headers': truncated or malformed object (offset field of section 0 in LC_SEGMENT command 0 not past the headers of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-section-offset-size 2>&1 | FileCheck -check-prefix INVALID-SECTION-FILEOFF-SIZE %s
+INVALID-SECTION-FILEOFF-SIZE: macho-invalid-section-offset-size': truncated or malformed object (offset field plus size field of section 0 in LC_SEGMENT command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-section-size-filesize 2>&1 | FileCheck -check-prefix INVALID-SECTION-SIZE-FILESIZE %s
+INVALID-SECTION-SIZE-FILESIZE: macho-invalid-section-size-filesize': truncated or malformed object (size field of section 0 in LC_SEGMENT command 0 greater than the segment)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-section-addr 2>&1 | FileCheck -check-prefix INVALID-SECTION-ADDR %s
+INVALID-SECTION-ADDR: macho-invalid-section-addr': truncated or malformed object (addr field of section 0 in LC_SEGMENT command 0 less than the segment's vmaddr)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-section-addr-size 2>&1 | FileCheck -check-prefix INVALID-SECTION-ADDR-SIZE %s
+INVALID-SECTION-ADDR-SIZE: macho-invalid-section-addr-size': truncated or malformed object (addr field plus size of section 0 in LC_SEGMENT command 0 greater than than the segment's vmaddr plus vmsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-section-reloff 2>&1 | FileCheck -check-prefix INVALID-SECTION-RELOFF %s
+INVALID-SECTION-RELOFF: macho-invalid-section-reloff': truncated or malformed object (reloff field of section 0 in LC_SEGMENT command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-section-reloff-nrelocs 2>&1 | FileCheck -check-prefix INVALID-SECTION-RELOFF-NRELOCS %s
+INVALID-SECTION-RELOFF-NRELOCS: macho-invalid-section-reloff-nrelocs': truncated or malformed object (reloff field plus nreloc field times sizeof(struct relocation_info) of section 0 in LC_SEGMENT command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-symtab-small 2>&1 | FileCheck -check-prefix INVALID-SYMTAB-SMALL %s
+INVALID-SYMTAB-SMALL: macho-invalid-symtab-small': truncated or malformed object (load command 0 LC_SYMTAB cmdsize too small)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-symtab-more-than-one 2>&1 | FileCheck -check-prefix INVALID-SYMTAB-MORE-THAN-ONE %s
+INVALID-SYMTAB-MORE-THAN-ONE: macho-invalid-symtab-more-than-one': truncated or malformed object (more than one LC_SYMTAB command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-symtab-bad-size 2>&1 | FileCheck -check-prefix INVALID-SYMTAB-BAD-SIZE %s
+INVALID-SYMTAB-BAD-SIZE: macho-invalid-symtab-bad-size': truncated or malformed object (LC_SYMTAB command 0 has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-symtab-symoff 2>&1 | FileCheck -check-prefix INVALID-SYMTAB-SYMOFF %s
+INVALID-SYMTAB-SYMOFF: macho-invalid-symtab-symoff': truncated or malformed object (symoff field of LC_SYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-symtab-symoff-nsyms 2>&1 | FileCheck -check-prefix INVALID-SYMTAB-SYMOFF-NSYMS %s
+INVALID-SYMTAB-SYMOFF-NSYMS: macho-invalid-symtab-symoff-nsyms': truncated or malformed object (symoff field plus nsyms field times sizeof(struct nlist) of LC_SYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-symtab-stroff 2>&1 | FileCheck -check-prefix INVALID-SYMTAB-STROFF %s
+INVALID-SYMTAB-STROFF: macho-invalid-symtab-stroff': truncated or malformed object (stroff field of LC_SYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-symtab-stroff-strsize 2>&1 | FileCheck -check-prefix INVALID-SYMTAB-STROFF-STRSIZE %s
+INVALID-SYMTAB-STROFF-STRSIZE: macho-invalid-symtab-stroff-strsize': truncated or malformed object (stroff field plus strsize field of LC_SYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-small 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-SMALL %s
+INVALID-DYSYMTAB-SMALL: macho-invalid-dysymtab-small': truncated or malformed object (load command 0 LC_DYSYMTAB cmdsize too small)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-more-than-one 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-MORE-THAN-ONE %s
+INVALID-DYSYMTAB-MORE-THAN-ONE: macho-invalid-dysymtab-more-than-one': truncated or malformed object (more than one LC_DYSYMTAB command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-bad-size 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-BAD-SIZE %s
+INVALID-DYSYMTAB-BAD-SIZE: macho-invalid-dysymtab-bad-size': truncated or malformed object (LC_DYSYMTAB command 0 has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-tocoff 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF %s
+INVALID-DYSYMTAB-TOCOFF: macho-invalid-dysymtab-tocoff': truncated or malformed object (tocoff field of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-tocoff-ntoc 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF-NTOC %s
+INVALID-DYSYMTAB-TOCOFF-NTOC: macho-invalid-dysymtab-tocoff-ntoc': truncated or malformed object (tocoff field plus ntoc field times sizeof(struct dylib_table_of_contents) of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-modtaboff 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF-MODTABOFF %s
+INVALID-DYSYMTAB-TOCOFF-MODTABOFF: macho-invalid-dysymtab-modtaboff': truncated or malformed object (modtaboff field of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-modtaboff-nmodtab 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF-MODTABOFF-NMODTAB %s
+INVALID-DYSYMTAB-TOCOFF-MODTABOFF-NMODTAB: macho-invalid-dysymtab-modtaboff-nmodtab': truncated or malformed object (modtaboff field plus nmodtab field times sizeof(struct dylib_module) of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-extrefsymoff 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF-EXTREFSYMOFF %s
+INVALID-DYSYMTAB-TOCOFF-EXTREFSYMOFF: macho-invalid-dysymtab-extrefsymoff': truncated or malformed object (extrefsymoff field of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-extrefsymoff-nextrefsyms 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF-EXTREFSYMOFF-NEXTREFSYMS %s
+INVALID-DYSYMTAB-TOCOFF-EXTREFSYMOFF-NEXTREFSYMS: macho-invalid-dysymtab-extrefsymoff-nextrefsyms': truncated or malformed object (extrefsymoff field plus nextrefsyms field times sizeof(struct dylib_reference) of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-indirectsymoff 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF-INDIRECTSYMOFF %s
+INVALID-DYSYMTAB-TOCOFF-INDIRECTSYMOFF: macho-invalid-dysymtab-indirectsymoff': truncated or malformed object (indirectsymoff field of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-indirectsymoff-nindirectsyms 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF-INDIRECTSYMOFF-NINDIRECTSYMS %s
+INVALID-DYSYMTAB-TOCOFF-INDIRECTSYMOFF-NINDIRECTSYMS: macho-invalid-dysymtab-indirectsymoff-nindirectsyms': truncated or malformed object (indirectsymoff field plus nindirectsyms field times sizeof(uint32_t) of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-extreloff 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF-EXTRELOFF %s
+INVALID-DYSYMTAB-TOCOFF-EXTRELOFF: macho-invalid-dysymtab-extreloff': truncated or malformed object (extreloff field of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-extreloff-nextrel 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF-EXTRELOFF-NEXTREL %s
+INVALID-DYSYMTAB-TOCOFF-EXTRELOFF-NEXTREL: macho-invalid-dysymtab-extreloff-nextrel': truncated or malformed object (extreloff field plus nextrel field times sizeof(struct relocation_info) of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-locreloff 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF-LOCRELOFF %s
+INVALID-DYSYMTAB-TOCOFF-LOCRELOFF: macho-invalid-dysymtab-locreloff': truncated or malformed object (locreloff field of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dysymtab-locreloff-nlocrel 2>&1 | FileCheck -check-prefix INVALID-DYSYMTAB-TOCOFF-LOCRELOFF-NLOCREL %s
+INVALID-DYSYMTAB-TOCOFF-LOCRELOFF-NLOCREL: macho-invalid-dysymtab-locreloff-nlocrel': truncated or malformed object (locreloff field plus nlocrel field times sizeof(struct relocation_info) of LC_DYSYMTAB command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dataincode-more-than-one 2>&1 | FileCheck -check-prefix INVALID-DATAINCODE-MORE-THAN-ONE %s
+INVALID-DATAINCODE-MORE-THAN-ONE: macho-invalid-dataincode-more-than-one': truncated or malformed object (more than one LC_DATA_IN_CODE command)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-linkopthint-small 2>&1 | FileCheck -check-prefix INVALID-LINKOPTHINT-SMALL %s
+INVALID-LINKOPTHINT-SMALL: macho-invalid-linkopthint-small': truncated or malformed object (load command 0 LC_LINKER_OPTIMIZATION_HINT cmdsize too small)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dataincode-bad-size 2>&1 | FileCheck -check-prefix INVALID-DATAINCODE-BAD-SIZE %s
+INVALID-DATAINCODE-BAD-SIZE: macho-invalid-dataincode-bad-size': truncated or malformed object (LC_DATA_IN_CODE command 0 has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-linkopthint-dataoff 2>&1 | FileCheck -check-prefix INVALID-LINKOPTHINT-DATAOFF %s
+INVALID-LINKOPTHINT-DATAOFF: macho-invalid-linkopthint-dataoff': truncated or malformed object (dataoff field of LC_LINKER_OPTIMIZATION_HINT command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dataincode-dataoff-datasize 2>&1 | FileCheck -check-prefix INVALID-DATAINCODE-DATAOFF-DATASIZE %s
+INVALID-DATAINCODE-DATAOFF-DATASIZE: macho-invalid-dataincode-dataoff-datasize': truncated or malformed object (dataoff field plus datasize field of LC_DATA_IN_CODE command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-small 2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-SMALL %s
+INVALID-DYLDINFO-SMALL: macho-invalid-dyldinfo-small': truncated or malformed object (load command 0 LC_DYLD_INFO cmdsize too small)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfoonly-bad-size 2>&1 | FileCheck -check-prefix INVALID-DYLDINFOONLY-BAD-SIZE %s
+INVALID-DYLDINFOONLY-BAD-SIZE: macho-invalid-dyldinfoonly-bad-size': truncated or malformed object (LC_DYLD_INFO_ONLY command 0 has incorrect cmdsize)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-rebase_off 2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-REBASE_OFF %s
+INVALID-DYLDINFO-REBASE_OFF: macho-invalid-dyldinfo-rebase_off': truncated or malformed object (rebase_off field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-rebase_off-rebase_size 2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-REBASE_OFF-REBASE_SIZE %s
+INVALID-DYLDINFO-REBASE_OFF-REBASE_SIZE: macho-invalid-dyldinfo-rebase_off-rebase_size': truncated or malformed object (rebase_off field plus rebase_size field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfoonly-bind_off  2>&1 | FileCheck -check-prefix INVALID-DYLDINFOONLY-BIND_OFF %s
+INVALID-DYLDINFOONLY-BIND_OFF: macho-invalid-dyldinfoonly-bind_off': truncated or malformed object (bind_off field of LC_DYLD_INFO_ONLY command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-bind_off-bind_size  2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-BIND_OFF-BIND_SIZE %s
+INVALID-DYLDINFO-BIND_OFF-BIND_SIZE: macho-invalid-dyldinfo-bind_off-bind_size': truncated or malformed object (bind_off field plus bind_size field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfoonly-weak_bind_off  2>&1 | FileCheck -check-prefix INVALID-DYLDINFOONLY-WEAK_BIND_OFF %s
+INVALID-DYLDINFOONLY-WEAK_BIND_OFF: macho-invalid-dyldinfoonly-weak_bind_off': truncated or malformed object (weak_bind_off field of LC_DYLD_INFO_ONLY command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-weak_bind_off-weak_bind_size  2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-WEAK_BIND_OFF-WEAK_BIND_SIZE %s
+INVALID-DYLDINFO-WEAK_BIND_OFF-WEAK_BIND_SIZE: macho-invalid-dyldinfo-weak_bind_off-weak_bind_size': truncated or malformed object (weak_bind_off field plus weak_bind_size field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfoonly-lazy_bind_off  2>&1 | FileCheck -check-prefix INVALID-DYLDINFOONLY-LAZY_BIND_OFF %s
+INVALID-DYLDINFOONLY-LAZY_BIND_OFF: macho-invalid-dyldinfoonly-lazy_bind_off': truncated or malformed object (lazy_bind_off field of LC_DYLD_INFO_ONLY command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-lazy_bind_off-lazy_bind_size  2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-LAZY_BIND_OFF-LAZY_BIND_SIZE %s
+INVALID-DYLDINFO-LAZY_BIND_OFF-LAZY_BIND_SIZE: macho-invalid-dyldinfo-lazy_bind_off-lazy_bind_size': truncated or malformed object (lazy_bind_off field plus lazy_bind_size field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfoonly-export_off  2>&1 | FileCheck -check-prefix INVALID-DYLDINFOONLY-EXPORT_OFF %s
+INVALID-DYLDINFOONLY-EXPORT_OFF: macho-invalid-dyldinfoonly-export_off': truncated or malformed object (export_off field of LC_DYLD_INFO_ONLY command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-export_off-export_size  2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-EXPORT_OFF-EXPORT_SIZE %s
+INVALID-DYLDINFO-EXPORT_OFF-EXPORT_SIZE: macho-invalid-dyldinfo-export_off-export_size': truncated or malformed object (export_off field plus export_size field of LC_DYLD_INFO command 0 extends past the end of the file)
+
+RUN: not llvm-objdump -macho -private-headers %p/Inputs/macho-invalid-dyldinfo-more-than-one  2>&1 | FileCheck -check-prefix INVALID-DYLDINFO-MORE-THAN-ONE %s
+INVALID-DYLDINFO-MORE-THAN-ONE: macho-invalid-dyldinfo-more-than-one': truncated or malformed object (more than one LC_DYLD_INFO and or LC_DYLD_INFO_ONLY command)

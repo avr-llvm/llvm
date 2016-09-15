@@ -15,11 +15,11 @@
 #include "llvm/Analysis/LoopAccessAnalysis.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopPassManager.h"
+#include "llvm/Analysis/OptimizationDiagnosticInfo.h"
 #include "llvm/Analysis/ScalarEvolutionExpander.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Analysis/VectorUtils.h"
-#include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/PassManager.h"
@@ -94,14 +94,15 @@ bool VectorizerParams::isInterleaveForced() {
 }
 
 void LoopAccessReport::emitAnalysis(const LoopAccessReport &Message,
-                                    const Function *TheFunction,
-                                    const Loop *TheLoop,
-                                    const char *PassName) {
+                                    const Loop *TheLoop, const char *PassName,
+                                    OptimizationRemarkEmitter &ORE) {
   DebugLoc DL = TheLoop->getStartLoc();
-  if (const Instruction *I = Message.getInstr())
+  const Value *V = TheLoop->getHeader();
+  if (const Instruction *I = Message.getInstr()) {
     DL = I->getDebugLoc();
-  emitOptimizationRemarkAnalysis(TheFunction->getContext(), PassName,
-                                 *TheFunction, DL, Message.str());
+    V = I->getParent();
+  }
+  ORE.emitOptimizationRemarkAnalysis(PassName, DL, V, Message.str());
 }
 
 Value *llvm::stripIntegerCast(Value *V) {
@@ -148,6 +149,19 @@ const SCEV *llvm::replaceSymbolicStrideSCEV(PredicatedScalarEvolution &PSE,
   return OrigSCEV;
 }
 
+/// Calculate Start and End points of memory access.
+/// Let's assume A is the first access and B is a memory access on N-th loop
+/// iteration. Then B is calculated as:  
+///   B = A + Step*N . 
+/// Step value may be positive or negative.
+/// N is a calculated back-edge taken count:
+///     N = (TripCount > 0) ? RoundDown(TripCount -1 , VF) : 0
+/// Start and End points are calculated in the following way:
+/// Start = UMIN(A, B) ; End = UMAX(A, B) + SizeOfElt,
+/// where SizeOfElt is the size of single memory access in bytes.
+///
+/// There is no conflict when the intervals are disjoint:
+/// NoConflict = (P2.Start >= P1.End) || (P1.Start >= P2.End)
 void RuntimePointerChecking::insert(Loop *Lp, Value *Ptr, bool WritePtr,
                                     unsigned DepSetId, unsigned ASId,
                                     const ValueToValueMap &Strides,
@@ -176,12 +190,17 @@ void RuntimePointerChecking::insert(Loop *Lp, Value *Ptr, bool WritePtr,
       if (CStep->getValue()->isNegative())
         std::swap(ScStart, ScEnd);
     } else {
-      // Fallback case: the step is not constant, but the we can still
+      // Fallback case: the step is not constant, but we can still
       // get the upper and lower bounds of the interval by using min/max
       // expressions.
       ScStart = SE->getUMinExpr(ScStart, ScEnd);
       ScEnd = SE->getUMaxExpr(AR->getStart(), ScEnd);
     }
+    // Add the size of the pointed element to ScEnd.
+    unsigned EltSize =
+      Ptr->getType()->getPointerElementType()->getScalarSizeInBits() / 8;
+    const SCEV *EltSizeSCEV = SE->getConstant(ScEnd->getType(), EltSize);
+    ScEnd = SE->getAddExpr(ScEnd, EltSizeSCEV);
   }
 
   Pointers.emplace_back(Ptr, ScStart, ScEnd, WritePtr, DepSetId, ASId, Sc);
@@ -1010,8 +1029,8 @@ bool llvm::isConsecutiveAccess(Value *A, Value *B, const DataLayout &DL,
     return false;
 
   // Make sure that A and B have the same type if required.
-  if(CheckType && PtrA->getType() != PtrB->getType())
-      return false;
+  if (CheckType && PtrA->getType() != PtrB->getType())
+    return false;
 
   unsigned PtrBitWidth = DL.getPointerSizeInBits(ASA);
   Type *Ty = cast<PointerType>(PtrA->getType())->getElementType();
@@ -1433,7 +1452,7 @@ MemoryDepChecker::getInstructionsForAccess(Value *Ptr, bool isWrite) const {
   auto &IndexVector = Accesses.find(Access)->second;
 
   SmallVector<Instruction *, 4> Insts;
-  std::transform(IndexVector.begin(), IndexVector.end(),
+  transform(IndexVector,
                  std::back_inserter(Insts),
                  [&](unsigned Idx) { return this->InstMap[Idx]; });
   return Insts;
@@ -1751,7 +1770,14 @@ void LoopAccessInfo::emitAnalysis(LoopAccessReport &Message) {
 }
 
 bool LoopAccessInfo::isUniform(Value *V) const {
-  return (PSE->getSE()->isLoopInvariant(PSE->getSE()->getSCEV(V), TheLoop));
+  auto *SE = PSE->getSE();
+  // Since we rely on SCEV for uniformity, if the type is not SCEVable, it is
+  // never considered uniform.
+  // TODO: Is this really what we want? Even without FP SCEV, we may want some
+  // trivially loop-invariant FP values to be considered uniform.
+  if (!SE->isSCEVable(V->getType()))
+    return false;
+  return (SE->isLoopInvariant(SE->getSCEV(V), TheLoop));
 }
 
 // FIXME: this function is currently a duplicate of the one in
@@ -1815,9 +1841,8 @@ static SmallVector<std::pair<PointerBounds, PointerBounds>, 4> expandBounds(
 
   // Here we're relying on the SCEV Expander's cache to only emit code for the
   // same bounds once.
-  std::transform(
-      PointerChecks.begin(), PointerChecks.end(),
-      std::back_inserter(ChecksWithBounds),
+  transform(
+      PointerChecks, std::back_inserter(ChecksWithBounds),
       [&](const RuntimePointerChecking::PointerCheck &Check) {
         PointerBounds
           First = expandBounds(Check.first, L, Loc, Exp, SE, PtrRtChecking),
@@ -1863,9 +1888,17 @@ std::pair<Instruction *, Instruction *> LoopAccessInfo::addRuntimeChecks(
     Value *End0 =   ChkBuilder.CreateBitCast(A.End,   PtrArithTy1, "bc");
     Value *End1 =   ChkBuilder.CreateBitCast(B.End,   PtrArithTy0, "bc");
 
-    Value *Cmp0 = ChkBuilder.CreateICmpULE(Start0, End1, "bound0");
+    // [A|B].Start points to the first accessed byte under base [A|B].
+    // [A|B].End points to the last accessed byte, plus one.
+    // There is no conflict when the intervals are disjoint:
+    // NoConflict = (B.Start >= A.End) || (A.Start >= B.End)
+    //
+    // bound0 = (B.Start < A.End)
+    // bound1 = (A.Start < B.End)
+    //  IsConflict = bound0 & bound1
+    Value *Cmp0 = ChkBuilder.CreateICmpULT(Start0, End1, "bound0");
     FirstInst = getFirstInst(FirstInst, Cmp0, Loc);
-    Value *Cmp1 = ChkBuilder.CreateICmpULE(Start1, End0, "bound1");
+    Value *Cmp1 = ChkBuilder.CreateICmpULT(Start1, End0, "bound1");
     FirstInst = getFirstInst(FirstInst, Cmp1, Loc);
     Value *IsConflict = ChkBuilder.CreateAnd(Cmp0, Cmp1, "found.conflict");
     FirstInst = getFirstInst(FirstInst, IsConflict, Loc);
@@ -2022,8 +2055,8 @@ INITIALIZE_PASS_END(LoopAccessLegacyAnalysis, LAA_NAME, laa_name, false, true)
 
 char LoopAccessAnalysis::PassID;
 
-LoopAccessInfo LoopAccessAnalysis::run(Loop &L, AnalysisManager<Loop> &AM) {
-  const AnalysisManager<Function> &FAM =
+LoopAccessInfo LoopAccessAnalysis::run(Loop &L, LoopAnalysisManager &AM) {
+  const FunctionAnalysisManager &FAM =
       AM.getResult<FunctionAnalysisManagerLoopProxy>(L).getManager();
   Function &F = *L.getHeader()->getParent();
   auto *SE = FAM.getCachedResult<ScalarEvolutionAnalysis>(F);
@@ -2044,7 +2077,7 @@ LoopAccessInfo LoopAccessAnalysis::run(Loop &L, AnalysisManager<Loop> &AM) {
 }
 
 PreservedAnalyses LoopAccessInfoPrinterPass::run(Loop &L,
-                                                 AnalysisManager<Loop> &AM) {
+                                                 LoopAnalysisManager &AM) {
   Function &F = *L.getHeader()->getParent();
   auto &LAI = AM.getResult<LoopAccessAnalysis>(L);
   OS << "Loop access info in function '" << F.getName() << "':\n";

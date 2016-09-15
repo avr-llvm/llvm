@@ -28,9 +28,6 @@
 /* Define to 1 if you have the `closedir' function. */
 #cmakedefine HAVE_CLOSEDIR ${HAVE_CLOSEDIR}
 
-/* Define to 1 if you have the <cxxabi.h> header file. */
-#cmakedefine HAVE_CXXABI_H ${HAVE_CXXABI_H}
-
 /* Define to 1 if you have the <CrashReporterClient.h> header file. */
 #undef HAVE_CRASHREPORTERCLIENT_H
 
@@ -584,5 +581,7 @@
 
 /* Define to 1 if you have the `_chsize_s' function. */
 #cmakedefine HAVE__CHSIZE_S ${HAVE__CHSIZE_S}
+
+#cmakedefine HAVE_POSIX_FALLOCATE ${HAVE_POSIX_FALLOCATE}
 
 #endif

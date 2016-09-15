@@ -130,7 +130,7 @@ static void Query(const MachineInstr &MI, AliasAnalysis &AA, bool &Read,
     return;
 
   // Check for loads.
-  if (MI.mayLoad() && !MI.isInvariantLoad(&AA))
+  if (MI.mayLoad() && !MI.isDereferenceableInvariantLoad(&AA))
     Read = true;
 
   // Check for stores.
@@ -255,7 +255,7 @@ static bool HasOneUse(unsigned Reg, MachineInstr *Def,
   const VNInfo *DefVNI = LI.getVNInfoAt(
       LIS.getInstructionIndex(*Def).getRegSlot());
   assert(DefVNI);
-  for (auto I : MRI.use_nodbg_operands(Reg)) {
+  for (auto &I : MRI.use_nodbg_operands(Reg)) {
     const auto &Result = LI.Query(LIS.getInstructionIndex(*I.getParent()));
     if (Result.valueIn() == DefVNI) {
       if (!Result.isKill())
@@ -303,7 +303,7 @@ static bool IsSafeToMove(const MachineInstr *Def, const MachineInstr *Insert,
 
     // Ask LiveIntervals whether moving this virtual register use or def to
     // Insert will change which value numbers are seen.
-    // 
+    //
     // If the operand is a use of a register that is also defined in the same
     // instruction, test that the newly defined value reaches the insert point,
     // since the operand will be moving along with the def.
@@ -360,7 +360,7 @@ static bool OneUseDominatesOtherUses(unsigned Reg, const MachineOperand &OneUse,
   const MachineInstr *OneUseInst = OneUse.getParent();
   VNInfo *OneUseVNI = LI.getVNInfoBefore(LIS.getInstructionIndex(*OneUseInst));
 
-  for (const MachineOperand &Use : MRI.use_operands(Reg)) {
+  for (const MachineOperand &Use : MRI.use_nodbg_operands(Reg)) {
     if (&Use == &OneUse)
       continue;
 
@@ -384,7 +384,7 @@ static bool OneUseDominatesOtherUses(unsigned Reg, const MachineOperand &OneUse,
         //
         // This is needed as a consequence of using implicit get_locals for
         // uses and implicit set_locals for defs.
-        if (UseInst->getDesc().getNumDefs() == 0) 
+        if (UseInst->getDesc().getNumDefs() == 0)
           return false;
         const MachineOperand &MO = UseInst->getOperand(0);
         if (!MO.isReg())
@@ -418,6 +418,8 @@ static unsigned GetTeeLocalOpcode(const TargetRegisterClass *RC) {
     return WebAssembly::TEE_LOCAL_F32;
   if (RC == &WebAssembly::F64RegClass)
     return WebAssembly::TEE_LOCAL_F64;
+  if (RC == &WebAssembly::V128RegClass)
+    return WebAssembly::TEE_LOCAL_V128;
   llvm_unreachable("Unexpected register class");
 }
 
@@ -765,7 +767,11 @@ bool WebAssemblyRegStackify::runOnMachineFunction(MachineFunction &MF) {
         if (Def->getOpcode() == WebAssembly::ARGUMENT_I32 ||
             Def->getOpcode() == WebAssembly::ARGUMENT_I64 ||
             Def->getOpcode() == WebAssembly::ARGUMENT_F32 ||
-            Def->getOpcode() == WebAssembly::ARGUMENT_F64)
+            Def->getOpcode() == WebAssembly::ARGUMENT_F64 ||
+            Def->getOpcode() == WebAssembly::ARGUMENT_v16i8 ||
+            Def->getOpcode() == WebAssembly::ARGUMENT_v8i16 ||
+            Def->getOpcode() == WebAssembly::ARGUMENT_v4i32 ||
+            Def->getOpcode() == WebAssembly::ARGUMENT_v4f32)
           continue;
 
         // Decide which strategy to take. Prefer to move a single-use value
@@ -806,8 +812,7 @@ bool WebAssemblyRegStackify::runOnMachineFunction(MachineFunction &MF) {
       // the next instruction we can build a tree on.
       if (Insert != &*MII) {
         ImposeStackOrdering(&*MII);
-        MII = std::prev(
-            llvm::make_reverse_iterator(MachineBasicBlock::iterator(Insert)));
+        MII = MachineBasicBlock::iterator(Insert).getReverse();
         Changed = true;
       }
     }

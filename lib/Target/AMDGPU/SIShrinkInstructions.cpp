@@ -134,7 +134,6 @@ static void foldImmediates(MachineInstr &MI, const SIInstrInfo *TII,
 
   assert(TII->isVOP1(MI) || TII->isVOP2(MI) || TII->isVOPC(MI));
 
-  const SIRegisterInfo &TRI = TII->getRegisterInfo();
   int Src0Idx = AMDGPU::getNamedOperandIdx(MI.getOpcode(), AMDGPU::OpName::src0);
   MachineOperand &Src0 = MI.getOperand(Src0Idx);
 
@@ -142,12 +141,6 @@ static void foldImmediates(MachineInstr &MI, const SIInstrInfo *TII,
   // literal constant then we can't do any folding.
   if (Src0.isImm() &&
       TII->isLiteralConstant(Src0, TII->getOpSize(MI, Src0Idx)))
-    return;
-
-  // Literal constants and SGPRs can only be used in Src0, so if Src0 is an
-  // SGPR, we cannot commute the instruction, so we can't fold any literal
-  // constants.
-  if (Src0.isReg() && !isVGPR(&Src0, TRI, MRI))
     return;
 
   // Try to fold Src0
@@ -158,7 +151,8 @@ static void foldImmediates(MachineInstr &MI, const SIInstrInfo *TII,
       MachineOperand &MovSrc = Def->getOperand(1);
       bool ConstantFolded = false;
 
-      if (MovSrc.isImm() && isUInt<32>(MovSrc.getImm())) {
+      if (MovSrc.isImm() && (isInt<32>(MovSrc.getImm()) ||
+                             isUInt<32>(MovSrc.getImm()))) {
         Src0.ChangeToImmediate(MovSrc.getImm());
         ConstantFolded = true;
       }
@@ -192,6 +186,20 @@ static void copyFlagsToImplicitVCC(MachineInstr &MI,
 
 static bool isKImmOperand(const SIInstrInfo *TII, const MachineOperand &Src) {
   return isInt<16>(Src.getImm()) && !TII->isInlineConstant(Src, 4);
+}
+
+/// Copy implicit register operands from specified instruction to this
+/// instruction that are not part of the instruction definition.
+static void copyExtraImplicitOps(MachineInstr &NewMI, MachineFunction &MF,
+                                 const MachineInstr &MI) {
+  for (unsigned i = MI.getDesc().getNumOperands() +
+         MI.getDesc().getNumImplicitUses() +
+         MI.getDesc().getNumImplicitDefs(), e = MI.getNumOperands();
+       i != e; ++i) {
+    const MachineOperand &MO = MI.getOperand(i);
+    if ((MO.isReg() && MO.isImplicit()) || MO.isRegMask())
+      NewMI.addOperand(MF, MO);
+  }
 }
 
 bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
@@ -272,21 +280,27 @@ bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
       // satisfied.
       if (MI.getOpcode() == AMDGPU::S_ADD_I32 ||
           MI.getOpcode() == AMDGPU::S_MUL_I32) {
-        const MachineOperand &Dest = MI.getOperand(0);
-        const MachineOperand &Src0 = MI.getOperand(1);
-        const MachineOperand &Src1 = MI.getOperand(2);
+        const MachineOperand *Dest = &MI.getOperand(0);
+        MachineOperand *Src0 = &MI.getOperand(1);
+        MachineOperand *Src1 = &MI.getOperand(2);
+
+        if (!Src0->isReg() && Src1->isReg()) {
+          if (TII->commuteInstruction(MI, false, 1, 2))
+            std::swap(Src0, Src1);
+        }
 
         // FIXME: This could work better if hints worked with subregisters. If
         // we have a vector add of a constant, we usually don't get the correct
         // allocation due to the subregister usage.
-        if (TargetRegisterInfo::isVirtualRegister(Dest.getReg()) &&
-            Src0.isReg()) {
-          MRI.setRegAllocationHint(Dest.getReg(), 0, Src0.getReg());
+        if (TargetRegisterInfo::isVirtualRegister(Dest->getReg()) &&
+            Src0->isReg()) {
+          MRI.setRegAllocationHint(Dest->getReg(), 0, Src0->getReg());
+          MRI.setRegAllocationHint(Src0->getReg(), 0, Dest->getReg());
           continue;
         }
 
-        if (Src0.isReg() && Src0.getReg() == Dest.getReg()) {
-          if (Src1.isImm() && isKImmOperand(TII, Src1)) {
+        if (Src0->isReg() && Src0->getReg() == Dest->getReg()) {
+          if (Src1->isImm() && isKImmOperand(TII, *Src1)) {
             unsigned Opc = (MI.getOpcode() == AMDGPU::S_ADD_I32) ?
               AMDGPU::S_ADDK_I32 : AMDGPU::S_MULK_I32;
 
@@ -398,9 +412,13 @@ bool SIShrinkInstructions::runOnMachineFunction(MachineFunction &MF) {
       }
 
       ++NumInstructionsShrunk;
-      MI.eraseFromParent();
 
+      // Copy extra operands not present in the instruction definition.
+      copyExtraImplicitOps(*Inst32, MF, MI);
+
+      MI.eraseFromParent();
       foldImmediates(*Inst32, TII, MRI);
+
       DEBUG(dbgs() << "e32 MI = " << *Inst32 << '\n');
 
 

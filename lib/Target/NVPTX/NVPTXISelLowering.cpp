@@ -206,7 +206,7 @@ NVPTXTargetLowering::NVPTXTargetLowering(const NVPTXTargetMachine &TM,
   // intrinsics.
   setOperationAction(ISD::INTRINSIC_W_CHAIN, MVT::Other, Custom);
 
-  // Turn FP extload into load/fextend
+  // Turn FP extload into load/fpextend
   setLoadExtAction(ISD::EXTLOAD, MVT::f32, MVT::f16, Expand);
   setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f16, Expand);
   setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f32, Expand);
@@ -278,6 +278,28 @@ NVPTXTargetLowering::NVPTXTargetLowering(const NVPTXTargetMachine &TM,
   setTargetDAGCombine(ISD::MUL);
   setTargetDAGCombine(ISD::SHL);
   setTargetDAGCombine(ISD::SELECT);
+
+  // Library functions.  These default to Expand, but we have instructions
+  // for them.
+  setOperationAction(ISD::FCEIL,  MVT::f32, Legal);
+  setOperationAction(ISD::FCEIL,  MVT::f64, Legal);
+  setOperationAction(ISD::FFLOOR, MVT::f32, Legal);
+  setOperationAction(ISD::FFLOOR, MVT::f64, Legal);
+  setOperationAction(ISD::FNEARBYINT, MVT::f32, Legal);
+  setOperationAction(ISD::FNEARBYINT, MVT::f64, Legal);
+  setOperationAction(ISD::FRINT,  MVT::f32, Legal);
+  setOperationAction(ISD::FRINT,  MVT::f64, Legal);
+  setOperationAction(ISD::FROUND, MVT::f32, Legal);
+  setOperationAction(ISD::FROUND, MVT::f64, Legal);
+  setOperationAction(ISD::FTRUNC, MVT::f32, Legal);
+  setOperationAction(ISD::FTRUNC, MVT::f64, Legal);
+  setOperationAction(ISD::FMINNUM, MVT::f32, Legal);
+  setOperationAction(ISD::FMINNUM, MVT::f64, Legal);
+  setOperationAction(ISD::FMAXNUM, MVT::f32, Legal);
+  setOperationAction(ISD::FMAXNUM, MVT::f64, Legal);
+
+  // No FEXP2, FLOG2.  The PTX ex2 and log2 functions are always approximate.
+  // No FPOW or FREM in PTX.
 
   // Now deduce the information based on the above mentioned
   // actions
@@ -1337,11 +1359,15 @@ SDValue NVPTXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     // The ByValAlign in the Outs[OIdx].Flags is alway set at this point,
     // so we don't need to worry about natural alignment or not.
     // See TargetLowering::LowerCallTo().
-    SDValue DeclareParamOps[] = {
-      Chain, DAG.getConstant(Outs[OIdx].Flags.getByValAlign(), dl, MVT::i32),
-      DAG.getConstant(paramCount, dl, MVT::i32),
-      DAG.getConstant(sz, dl, MVT::i32), InFlag
-    };
+
+    // Enforce minumum alignment of 4 to work around ptxas miscompile
+    // for sm_50+. See corresponding alignment adjustment in
+    // emitFunctionParamList() for details.
+    if (ArgAlign < 4)
+      ArgAlign = 4;
+    SDValue DeclareParamOps[] = {Chain, DAG.getConstant(ArgAlign, dl, MVT::i32),
+                                 DAG.getConstant(paramCount, dl, MVT::i32),
+                                 DAG.getConstant(sz, dl, MVT::i32), InFlag};
     Chain = DAG.getNode(NVPTXISD::DeclareParam, dl, DeclareParamVTs,
                         DeclareParamOps);
     InFlag = Chain.getValue(1);
@@ -2073,7 +2099,6 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
   SDValue Root = DAG.getRoot();
   std::vector<SDValue> OutChains;
 
-  bool isKernel = llvm::isKernelFunction(*F);
   bool isABI = (STI.getSmVersion() >= 20);
   assert(isABI && "Non-ABI compilation is not supported");
   if (!isABI)
@@ -2107,7 +2132,8 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
             theArgs[i],
             (theArgs[i]->getParent() ? theArgs[i]->getParent()->getParent()
                                      : nullptr))) {
-      assert(isKernel && "Only kernels can have image/sampler params");
+      assert(llvm::isKernelFunction(*F) &&
+             "Only kernels can have image/sampler params");
       InVals.push_back(DAG.getConstant(i + 1, dl, MVT::i32));
       continue;
     }
@@ -2212,7 +2238,8 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
           SDValue P = DAG.getLoad(
               EltVT, dl, Root, Arg, MachinePointerInfo(SrcValue),
               DL.getABITypeAlignment(EltVT.getTypeForEVT(F->getContext())),
-              MachineMemOperand::MOInvariant);
+              MachineMemOperand::MODereferenceable |
+                  MachineMemOperand::MOInvariant);
           if (P.getNode())
             P.getNode()->setIROrder(idx + 1);
 
@@ -2229,7 +2256,8 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
           SDValue P = DAG.getLoad(
               VecVT, dl, Root, Arg, MachinePointerInfo(SrcValue),
               DL.getABITypeAlignment(VecVT.getTypeForEVT(F->getContext())),
-              MachineMemOperand::MOInvariant);
+              MachineMemOperand::MODereferenceable |
+                  MachineMemOperand::MOInvariant);
           if (P.getNode())
             P.getNode()->setIROrder(idx + 1);
 
@@ -2271,7 +2299,8 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
             SDValue P = DAG.getLoad(
                 VecVT, dl, Root, SrcAddr, MachinePointerInfo(SrcValue),
                 DL.getABITypeAlignment(VecVT.getTypeForEVT(F->getContext())),
-                MachineMemOperand::MOInvariant);
+                MachineMemOperand::MODereferenceable |
+                    MachineMemOperand::MOInvariant);
             if (P.getNode())
               P.getNode()->setIROrder(idx + 1);
 
@@ -2332,14 +2361,7 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
     SDValue p = DAG.getNode(NVPTXISD::MoveParam, dl, ObjectVT, Arg);
     if (p.getNode())
       p.getNode()->setIROrder(idx + 1);
-    if (isKernel)
-      InVals.push_back(p);
-    else {
-      SDValue p2 = DAG.getNode(
-          ISD::INTRINSIC_WO_CHAIN, dl, ObjectVT,
-          DAG.getConstant(Intrinsic::nvvm_ptr_local_to_gen, dl, MVT::i32), p);
-      InVals.push_back(p2);
-    }
+    InVals.push_back(p);
   }
 
   // Clang will check explicit VarArg and issue error if any. However, Clang
@@ -2422,7 +2444,7 @@ NVPTXTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
       //      11 elem => 3 st.v4
 
       unsigned VecSize = 4;
-      if (OutVals[0].getValueType().getSizeInBits() == 64)
+      if (OutVals[0].getValueSizeInBits() == 64)
         VecSize = 2;
 
       unsigned Offset = 0;
@@ -2510,7 +2532,7 @@ NVPTXTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
           TmpVal = DAG.getNode(ISD::ZERO_EXTEND, dl, MVT::i32, TmpVal);
           TheStoreType = MVT::i32;
         }
-        else if (TmpVal.getValueType().getSizeInBits() < 16)
+        else if (TmpVal.getValueSizeInBits() < 16)
           TmpVal = DAG.getNode(ISD::ANY_EXTEND, dl, MVT::i16, TmpVal);
 
         SDValue Ops[] = {

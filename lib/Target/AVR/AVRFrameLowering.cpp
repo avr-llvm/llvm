@@ -45,9 +45,9 @@ bool AVRFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
   // - The function does not contain variable sized objects.
   // - MaxCallFrameSize is greater than 63.
   // :TODO: improve the heuristics here to benefit from a wider range of cases.
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
-  return (hasFP(MF) && !MFI->hasVarSizedObjects() &&
-          isUInt<6>(MFI->getMaxCallFrameSize()));
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  return (hasFP(MF) && !MFI.hasVarSizedObjects() &&
+          isUInt<6>(MFI.getMaxCallFrameSize()));
 }
 
 void AVRFrameLowering::emitPrologue(MachineFunction &MF,
@@ -91,9 +91,9 @@ void AVRFrameLowering::emitPrologue(MachineFunction &MF,
     return;
   }
 
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
   const AVRMachineFunctionInfo *AFI = MF.getInfo<AVRMachineFunctionInfo>();
-  unsigned FrameSize = MFI->getStackSize() - AFI->getCalleeSavedFrameSize();
+  unsigned FrameSize = MFI.getStackSize() - AFI->getCalleeSavedFrameSize();
 
   // Skip the callee-saved push instructions.
   while (
@@ -149,9 +149,9 @@ void AVRFrameLowering::emitEpilogue(MachineFunction &MF,
   assert(MBBI->getDesc().isReturn() &&
          "Can only insert epilog into returning blocks");
   DebugLoc dl = MBBI->getDebugLoc();
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
   const AVRMachineFunctionInfo *AFI = MF.getInfo<AVRMachineFunctionInfo>();
-  unsigned FrameSize = MFI->getStackSize() - AFI->getCalleeSavedFrameSize();
+  unsigned FrameSize = MFI.getStackSize() - AFI->getCalleeSavedFrameSize();
   const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
   const AVRInstrInfo &TII =
       *static_cast<const AVRInstrInfo *>(TM.getSubtargetImpl()->getInstrInfo());
@@ -433,18 +433,18 @@ struct AVRFrameAnalyzer : public MachineFunctionPass {
   AVRFrameAnalyzer() : MachineFunctionPass(ID) {}
 
   bool runOnMachineFunction(MachineFunction &MF) {
-    const MachineFrameInfo *MFI = MF.getFrameInfo();
+    const MachineFrameInfo &MFI = MF.getFrameInfo();
     AVRMachineFunctionInfo *FuncInfo = MF.getInfo<AVRMachineFunctionInfo>();
 
     // If there are no fixed frame indexes during this stage it means there
     // are allocas present in the function.
-    if (MFI->getNumObjects() - MFI->getNumFixedObjects()) {
+    if (MFI.getNumObjects() - MFI.getNumFixedObjects()) {
       // Check for the type of allocas present in the function. We only care
       // about fixed size allocas so do not give false positives if only
       // variable sized allocas are present.
-      for (unsigned i = 0, e = MFI->getObjectIndexEnd(); i != e; ++i) {
+      for (unsigned i = 0, e = MFI.getObjectIndexEnd(); i != e; ++i) {
         // Variable sized objects have size 0.
-        if (MFI->getObjectSize(i)) {
+        if (MFI.getObjectSize(i)) {
           FuncInfo->setHasAllocas(true);
           break;
         }
@@ -453,7 +453,7 @@ struct AVRFrameAnalyzer : public MachineFunctionPass {
 
     // If there are fixed frame indexes present, scan the function to see if
     // they are really being used.
-    if (MFI->getNumFixedObjects() == 0) {
+    if (MFI.getNumFixedObjects() == 0) {
       return false;
     }
 
@@ -463,22 +463,22 @@ struct AVRFrameAnalyzer : public MachineFunctionPass {
          BB != BBE; ++BB) {
       for (MachineBasicBlock::const_iterator I = (*BB).begin(), E = (*BB).end();
            I != E; ++I) {
-        const MachineInstr *MI = I;
-        int Opcode = MI->getOpcode();
+        const MachineInstr &MI = *I;
+        int Opcode = MI.getOpcode();
 
         if ((Opcode != AVR::LDDRdPtrQ) && (Opcode != AVR::LDDWRdPtrQ) &&
             (Opcode != AVR::STDPtrQRr) && (Opcode != AVR::STDWPtrQRr)) {
           continue;
         }
 
-        for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
-          const MachineOperand &MO = MI->getOperand(i);
+        for (unsigned i = 0, e = MI.getNumOperands(); i != e; ++i) {
+          const MachineOperand &MO = MI.getOperand(i);
 
           if (!MO.isFI()) {
             continue;
           }
 
-          if (MFI->isFixedObjectIndex(MO.getIndex())) {
+          if (MFI.isFixedObjectIndex(MO.getIndex())) {
             FuncInfo->setHasStackArgs(true);
             return false;
           }
@@ -507,7 +507,7 @@ struct AVRDynAllocaSR : public MachineFunctionPass {
 
   bool runOnMachineFunction(MachineFunction &MF) {
     // Early exit when there are no variable sized objects in the function.
-    if (!MF.getFrameInfo()->hasVarSizedObjects()) {
+    if (!MF.getFrameInfo().hasVarSizedObjects()) {
       return false;
     }
 

@@ -21,11 +21,16 @@
 
 using namespace llvm;
 
+static cl::opt<bool> EnableSubRegLiveness("enable-subreg-liveness", cl::Hidden,
+  cl::init(true), cl::desc("Enable subregister liveness tracking."));
+
 // Pin the vtable to this file.
 void MachineRegisterInfo::Delegate::anchor() {}
 
 MachineRegisterInfo::MachineRegisterInfo(MachineFunction *MF)
-    : MF(MF), TheDelegate(nullptr), TracksSubRegLiveness(false) {
+    : MF(MF), TheDelegate(nullptr),
+      TracksSubRegLiveness(MF->getSubtarget().enableSubRegLiveness() &&
+                           EnableSubRegLiveness) {
   unsigned NumRegs = getTargetRegisterInfo()->getNumRegs();
   VRegInfo.reserve(256);
   RegAllocHints.reserve(256);
@@ -107,30 +112,45 @@ MachineRegisterInfo::createVirtualRegister(const TargetRegisterClass *RegClass){
   return Reg;
 }
 
-unsigned
-MachineRegisterInfo::getSize(unsigned VReg) const {
-  VRegToSizeMap::const_iterator SizeIt = getVRegToSize().find(VReg);
-  return SizeIt != getVRegToSize().end() ? SizeIt->second : 0;
+LLT MachineRegisterInfo::getType(unsigned VReg) const {
+  VRegToTypeMap::const_iterator TypeIt = getVRegToType().find(VReg);
+  return TypeIt != getVRegToType().end() ? TypeIt->second : LLT{};
 }
 
-void MachineRegisterInfo::setSize(unsigned VReg, unsigned Size) {
-  getVRegToSize()[VReg] = Size;
+void MachineRegisterInfo::setType(unsigned VReg, LLT Ty) {
+  // Check that VReg doesn't have a class.
+  assert(!getRegClassOrRegBank(VReg).is<const TargetRegisterClass *>() &&
+         "Can't set the size of a non-generic virtual register");
+  getVRegToType()[VReg] = Ty;
 }
 
 unsigned
-MachineRegisterInfo::createGenericVirtualRegister(unsigned Size) {
-  assert(Size && "Cannot create empty virtual register");
-
+MachineRegisterInfo::createGenericVirtualRegister(LLT Ty) {
   // New virtual register number.
   unsigned Reg = TargetRegisterInfo::index2VirtReg(getNumVirtRegs());
   VRegInfo.grow(Reg);
-  // FIXME: Should we use a dummy register class?
-  VRegInfo[Reg].first = static_cast<TargetRegisterClass *>(nullptr);
-  getVRegToSize()[Reg] = Size;
+  // FIXME: Should we use a dummy register bank?
+  VRegInfo[Reg].first = static_cast<RegisterBank *>(nullptr);
+  getVRegToType()[Reg] = Ty;
   RegAllocHints.grow(Reg);
   if (TheDelegate)
     TheDelegate->MRI_NoteNewVirtualRegister(Reg);
   return Reg;
+}
+
+void MachineRegisterInfo::clearVirtRegTypes() {
+#ifndef NDEBUG
+  // Verify that the size of the now-constrained vreg is unchanged.
+  for (auto &VRegToType : getVRegToType()) {
+    auto *RC = getRegClass(VRegToType.first);
+    if (VRegToType.second.isSized() &&
+        VRegToType.second.getSizeInBits() > (RC->getSize() * 8))
+      llvm_unreachable(
+          "Virtual register has explicit size different from its class size");
+  }
+#endif
+
+  getVRegToType().clear();
 }
 
 /// clearVirtRegs - Remove all virtual registers (after physreg assignment).

@@ -1737,7 +1737,7 @@ static bool isPointerValueDeadOnEntryToFunction(
 
   for (auto *L : Loads) {
     auto *LTy = L->getType();
-    if (!std::any_of(Stores.begin(), Stores.end(), [&](StoreInst *S) {
+    if (none_of(Stores, [&](const StoreInst *S) {
           auto *STy = S->getValueOperand()->getType();
           // The load is only dominated by the store if DomTree says so
           // and the number of bits loaded in L is less than or equal to
@@ -2079,10 +2079,10 @@ OptimizeGlobalVars(Module &M, TargetLibraryInfo *TLI,
       GV->setLinkage(GlobalValue::InternalLinkage);
     // Simplify the initializer.
     if (GV->hasInitializer())
-      if (ConstantExpr *CE = dyn_cast<ConstantExpr>(GV->getInitializer())) {
+      if (auto *C = dyn_cast<Constant>(GV->getInitializer())) {
         auto &DL = M.getDataLayout();
-        Constant *New = ConstantFoldConstantExpression(CE, DL, TLI);
-        if (New && New != CE)
+        Constant *New = ConstantFoldConstant(C, DL, TLI);
+        if (New && New != C)
           GV->setInitializer(New);
       }
 
@@ -2565,7 +2565,7 @@ static bool optimizeGlobalsInModule(
   return Changed;
 }
 
-PreservedAnalyses GlobalOptPass::run(Module &M, AnalysisManager<Module> &AM) {
+PreservedAnalyses GlobalOptPass::run(Module &M, ModuleAnalysisManager &AM) {
     auto &DL = M.getDataLayout();
     auto &TLI = AM.getResult<TargetLibraryAnalysis>(M);
     auto &FAM =

@@ -26,6 +26,7 @@
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InlineAsm.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
@@ -40,6 +41,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
+#include "llvm/Target/TargetIntrinsicInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
@@ -91,6 +93,8 @@ void MachineOperand::substPhysReg(unsigned Reg, const TargetRegisterInfo &TRI) {
     // Note that getSubReg() may return 0 if the sub-register doesn't exist.
     // That won't happen in legal code.
     setSubReg(0);
+    if (isDef())
+      setIsUndef(false);
   }
   setReg(Reg);
 }
@@ -169,6 +173,16 @@ void MachineOperand::ChangeToMCSymbol(MCSymbol *Sym) {
 
   OpKind = MO_MCSymbol;
   Contents.Sym = Sym;
+}
+
+void MachineOperand::ChangeToFrameIndex(int Idx) {
+  assert((!isReg() || !isTied()) &&
+         "Cannot change a tied operand into a FrameIndex");
+
+  removeRegFromUses();
+
+  OpKind = MO_FrameIndex;
+  setIndex(Idx);
 }
 
 /// ChangeToRegister - Replace this operand with a new register operand of
@@ -256,6 +270,10 @@ bool MachineOperand::isIdenticalTo(const MachineOperand &Other) const {
     return getCFIIndex() == Other.getCFIIndex();
   case MachineOperand::MO_Metadata:
     return getMetadata() == Other.getMetadata();
+  case MachineOperand::MO_IntrinsicID:
+    return getIntrinsicID() == Other.getIntrinsicID();
+  case MachineOperand::MO_Predicate:
+    return getPredicate() == Other.getPredicate();
   }
   llvm_unreachable("Invalid machine operand type");
 }
@@ -300,18 +318,23 @@ hash_code llvm::hash_value(const MachineOperand &MO) {
     return hash_combine(MO.getType(), MO.getTargetFlags(), MO.getMCSymbol());
   case MachineOperand::MO_CFIIndex:
     return hash_combine(MO.getType(), MO.getTargetFlags(), MO.getCFIIndex());
+  case MachineOperand::MO_IntrinsicID:
+    return hash_combine(MO.getType(), MO.getTargetFlags(), MO.getIntrinsicID());
+  case MachineOperand::MO_Predicate:
+    return hash_combine(MO.getType(), MO.getTargetFlags(), MO.getPredicate());
   }
   llvm_unreachable("Invalid machine operand type");
 }
 
-void MachineOperand::print(raw_ostream &OS,
-                           const TargetRegisterInfo *TRI) const {
+void MachineOperand::print(raw_ostream &OS, const TargetRegisterInfo *TRI,
+                           const TargetIntrinsicInfo *IntrinsicInfo) const {
   ModuleSlotTracker DummyMST(nullptr);
-  print(OS, DummyMST, TRI);
+  print(OS, DummyMST, TRI, IntrinsicInfo);
 }
 
 void MachineOperand::print(raw_ostream &OS, ModuleSlotTracker &MST,
-                           const TargetRegisterInfo *TRI) const {
+                           const TargetRegisterInfo *TRI,
+                           const TargetIntrinsicInfo *IntrinsicInfo) const {
   switch (getType()) {
   case MachineOperand::MO_Register:
     OS << PrintReg(getReg(), TRI, getSubReg());
@@ -454,8 +477,22 @@ void MachineOperand::print(raw_ostream &OS, ModuleSlotTracker &MST,
   case MachineOperand::MO_CFIIndex:
     OS << "<call frame instruction>";
     break;
+  case MachineOperand::MO_IntrinsicID: {
+    Intrinsic::ID ID = getIntrinsicID();
+    if (ID < Intrinsic::num_intrinsics)
+      OS << "<intrinsic:@" << Intrinsic::getName(ID, None) << '>';
+    else if (IntrinsicInfo)
+      OS << "<intrinsic:@" << IntrinsicInfo->getName(ID) << '>';
+    else
+      OS << "<intrinsic:" << ID << '>';
+    break;
   }
-
+  case MachineOperand::MO_Predicate: {
+    auto Pred = static_cast<CmpInst::Predicate>(getPredicate());
+    OS << '<' << (CmpInst::isIntPredicate(Pred) ? "intpred" : "floatpred")
+       << CmpInst::getPredicateName(Pred) << '>';
+  }
+  }
   if (unsigned TF = getTargetFlags())
     OS << "[TF=" << TF << ']';
 }
@@ -623,10 +660,10 @@ void MachineMemOperand::print(raw_ostream &OS, ModuleSlotTracker &MST) const {
     OS << ")";
   }
 
-  // Print nontemporal info.
   if (isNonTemporal())
     OS << "(nontemporal)";
-
+  if (isDereferenceable())
+    OS << "(dereferenceable)";
   if (isInvariant())
     OS << "(invariant)";
 }
@@ -653,12 +690,7 @@ MachineInstr::MachineInstr(MachineFunction &MF, const MCInstrDesc &tid,
                            DebugLoc dl, bool NoImp)
     : MCID(&tid), Parent(nullptr), Operands(nullptr), NumOperands(0), Flags(0),
       AsmPrinterFlags(0), NumMemRefs(0), MemRefs(nullptr),
-      debugLoc(std::move(dl))
-#ifdef LLVM_BUILD_GLOBAL_ISEL
-      ,
-      Ty(nullptr)
-#endif
-{
+      debugLoc(std::move(dl)) {
   assert(debugLoc.hasTrivialDestructor() && "Expected trivial destructor");
 
   // Reserve space for the expected number of operands.
@@ -677,12 +709,7 @@ MachineInstr::MachineInstr(MachineFunction &MF, const MCInstrDesc &tid,
 MachineInstr::MachineInstr(MachineFunction &MF, const MachineInstr &MI)
     : MCID(&MI.getDesc()), Parent(nullptr), Operands(nullptr), NumOperands(0),
       Flags(0), AsmPrinterFlags(0), NumMemRefs(MI.NumMemRefs),
-      MemRefs(MI.MemRefs), debugLoc(MI.getDebugLoc())
-#ifdef LLVM_BUILD_GLOBAL_ISEL
-      ,
-      Ty(nullptr)
-#endif
-{
+      MemRefs(MI.MemRefs), debugLoc(MI.getDebugLoc()) {
   assert(debugLoc.hasTrivialDestructor() && "Expected trivial destructor");
 
   CapOperands = OperandCapacity::get(MI.getNumOperands());
@@ -704,25 +731,6 @@ MachineRegisterInfo *MachineInstr::getRegInfo() {
     return &MBB->getParent()->getRegInfo();
   return nullptr;
 }
-
-// Implement dummy setter and getter for type when
-// global-isel is not built.
-// The proper implementation is WIP and is tracked here:
-// PR26576.
-#ifndef LLVM_BUILD_GLOBAL_ISEL
-void MachineInstr::setType(Type *Ty) {}
-
-Type *MachineInstr::getType() const { return nullptr; }
-
-#else
-void MachineInstr::setType(Type *Ty) {
-  assert((!Ty || isPreISelGenericOpcode(getOpcode())) &&
-         "Non generic instructions are not supposed to be typed");
-  this->Ty = Ty;
-}
-
-Type *MachineInstr::getType() const { return Ty; }
-#endif // LLVM_BUILD_GLOBAL_ISEL
 
 /// RemoveRegOperandsFromUseLists - Unlink all of the register operands in
 /// this instruction from their respective use lists.  This requires that the
@@ -1533,7 +1541,7 @@ bool MachineInstr::isSafeToMove(AliasAnalysis *AA, bool &SawStore) const {
   // destination. The check for isInvariantLoad gives the targe the chance to
   // classify the load as always returning a constant, e.g. a constant pool
   // load.
-  if (mayLoad() && !isInvariantLoad(AA))
+  if (mayLoad() && !isDereferenceableInvariantLoad(AA))
     // Otherwise, this is a real load.  If there is a store between the load and
     // end of block, we can't move it.
     return !SawStore;
@@ -1564,12 +1572,10 @@ bool MachineInstr::hasOrderedMemoryRef() const {
   });
 }
 
-/// isInvariantLoad - Return true if this instruction is loading from a
-/// location whose value is invariant across the function.  For example,
-/// loading a value from the constant pool or from the argument area
-/// of a function if it does not change.  This should only return true of
-/// *all* loads the instruction does are invariant (if it does multiple loads).
-bool MachineInstr::isInvariantLoad(AliasAnalysis *AA) const {
+/// isDereferenceableInvariantLoad - Return true if this instruction will never
+/// trap and is loading from a location whose value is invariant across a run of
+/// this function.
+bool MachineInstr::isDereferenceableInvariantLoad(AliasAnalysis *AA) const {
   // If the instruction doesn't load at all, it isn't an invariant load.
   if (!mayLoad())
     return false;
@@ -1579,16 +1585,17 @@ bool MachineInstr::isInvariantLoad(AliasAnalysis *AA) const {
   if (memoperands_empty())
     return false;
 
-  const MachineFrameInfo *MFI = getParent()->getParent()->getFrameInfo();
+  const MachineFrameInfo &MFI = getParent()->getParent()->getFrameInfo();
 
   for (MachineMemOperand *MMO : memoperands()) {
     if (MMO->isVolatile()) return false;
     if (MMO->isStore()) return false;
-    if (MMO->isInvariant()) continue;
+    if (MMO->isInvariant() && MMO->isDereferenceable())
+      continue;
 
     // A load from a constant PseudoSourceValue is invariant.
     if (const PseudoSourceValue *PSV = MMO->getPseudoValue())
-      if (PSV->isConstant(MFI))
+      if (PSV->isConstant(&MFI))
         continue;
 
     if (const Value *V = MMO->getValue()) {
@@ -1686,12 +1693,15 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
   const TargetRegisterInfo *TRI = nullptr;
   const MachineRegisterInfo *MRI = nullptr;
   const TargetInstrInfo *TII = nullptr;
+  const TargetIntrinsicInfo *IntrinsicInfo = nullptr;
+
   if (const MachineBasicBlock *MBB = getParent()) {
     MF = MBB->getParent();
     if (MF) {
       MRI = &MF->getRegInfo();
       TRI = MF->getSubtarget().getRegisterInfo();
       TII = MF->getSubtarget().getInstrInfo();
+      IntrinsicInfo = MF->getTarget().getIntrinsicInfo();
     }
   }
 
@@ -1705,13 +1715,13 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
          !getOperand(StartOp).isImplicit();
        ++StartOp) {
     if (StartOp != 0) OS << ", ";
-    getOperand(StartOp).print(OS, MST, TRI);
+    getOperand(StartOp).print(OS, MST, TRI, IntrinsicInfo);
     unsigned Reg = getOperand(StartOp).getReg();
     if (TargetRegisterInfo::isVirtualRegister(Reg)) {
       VirtRegs.push_back(Reg);
-      unsigned Size;
-      if (MRI && (Size = MRI->getSize(Reg)))
-        OS << '(' << Size << ')';
+      LLT Ty = MRI ? MRI->getType(Reg) : LLT{};
+      if (Ty.isValid())
+        OS << '(' << Ty << ')';
     }
   }
 
@@ -1723,12 +1733,6 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
     OS << TII->getName(getOpcode());
   else
     OS << "UNKNOWN";
-
-  if (getType()) {
-    OS << ' ';
-    getType()->print(OS, /*IsForDebug*/ false, /*NoDetails*/ true);
-    OS << ' ';
-  }
 
   if (SkipOpers)
     return;
@@ -2145,8 +2149,8 @@ void MachineInstr::setPhysRegsDeadExcept(ArrayRef<unsigned> UsedRegs,
     unsigned Reg = MO.getReg();
     if (!TargetRegisterInfo::isPhysicalRegister(Reg)) continue;
     // If there are no uses, including partial uses, the def is dead.
-    if (std::none_of(UsedRegs.begin(), UsedRegs.end(),
-                     [&](unsigned Use) { return TRI.regsOverlap(Use, Reg); }))
+    if (none_of(UsedRegs,
+                [&](unsigned Use) { return TRI.regsOverlap(Use, Reg); }))
       MO.setIsDead();
   }
 

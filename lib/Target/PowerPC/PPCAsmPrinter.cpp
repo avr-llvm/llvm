@@ -347,11 +347,10 @@ void PPCAsmPrinter::LowerPATCHPOINT(StackMaps &SM, const MachineInstr &MI) {
   PatchPointOpers Opers(&MI);
 
   unsigned EncodedBytes = 0;
-  const MachineOperand &CalleeMO =
-    Opers.getMetaOper(PatchPointOpers::TargetPos);
+  const MachineOperand &CalleeMO = Opers.getCallTarget();
 
   if (CalleeMO.isImm()) {
-    int64_t CallTarget = Opers.getMetaOper(PatchPointOpers::TargetPos).getImm();
+    int64_t CallTarget = CalleeMO.getImm();
     if (CallTarget) {
       assert((CallTarget & 0xFFFFFFFFFFFF) == CallTarget &&
              "High 16 bits of call target should be zero.");
@@ -430,7 +429,7 @@ void PPCAsmPrinter::LowerPATCHPOINT(StackMaps &SM, const MachineInstr &MI) {
   EncodedBytes *= 4;
 
   // Emit padding.
-  unsigned NumBytes = Opers.getMetaOper(PatchPointOpers::NBytesPos).getImm();
+  unsigned NumBytes = Opers.getNumPatchBytes();
   assert(NumBytes >= EncodedBytes &&
          "Patchpoint can't request size less than the length of a call.");
   assert((NumBytes - EncodedBytes) % 4 == 0 &&
@@ -674,6 +673,13 @@ void PPCAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     const MCExpr *Exp =
       MCSymbolRefExpr::create(MOSymbol, MCSymbolRefExpr::VK_PPC_TOC_HA,
                               OutContext);
+
+    if (!MO.isJTI() && MO.getOffset())
+      Exp = MCBinaryExpr::createAdd(Exp,
+                                    MCConstantExpr::create(MO.getOffset(),
+                                                           OutContext),
+                                    OutContext);
+
     TmpInst.getOperand(2) = MCOperand::createExpr(Exp);
     EmitToStreamer(*OutStreamer, TmpInst);
     return;
@@ -1147,10 +1153,12 @@ bool PPCLinuxAsmPrinter::doFinalization(Module &M) {
          E = TOC.end(); I != E; ++I) {
       OutStreamer->EmitLabel(I->second);
       MCSymbol *S = I->first;
-      if (isPPC64)
+      if (isPPC64) {
         TS.emitTCEntry(*S);
-      else
+      } else {
+        OutStreamer->EmitValueToAlignment(4);
         OutStreamer->EmitSymbolValue(S, 4);
+      }
     }
   }
 

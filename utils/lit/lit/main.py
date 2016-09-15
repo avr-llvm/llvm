@@ -8,6 +8,8 @@ See lit.pod for more information.
 
 from __future__ import absolute_import
 import math, os, platform, random, re, sys, time
+import tempfile
+import shutil
 
 import lit.ProgressBar
 import lit.LitConfig
@@ -132,10 +134,31 @@ def sort_by_incremental_cache(run):
     run.tests.sort(key = lambda t: sortIndex(t))
 
 def main(builtinParameters = {}):
-    # Use processes by default on Unix platforms.
-    isWindows = platform.system() == 'Windows'
-    useProcessesIsDefault = not isWindows
+    # Create a temp directory inside the normal temp directory so that we can
+    # try to avoid temporary test file leaks. The user can avoid this behavior
+    # by setting LIT_PRESERVES_TMP in the environment, so they can easily use
+    # their own temp directory to monitor temporary file leaks or handle them at
+    # the buildbot level.
+    lit_tmp = None
+    if 'LIT_PRESERVES_TMP' not in os.environ:
+        lit_tmp = tempfile.mkdtemp(prefix="lit_tmp_")
+        os.environ.update({
+                'TMPDIR': lit_tmp,
+                'TMP': lit_tmp,
+                'TEMP': lit_tmp,
+                'TEMPDIR': lit_tmp,
+                })
+    # FIXME: If Python does not exit cleanly, this directory will not be cleaned
+    # up. We should consider writing the lit pid into the temp directory,
+    # scanning for stale temp directories, and deleting temp directories whose
+    # lit process has died.
+    try:
+        main_with_tmp(builtinParameters)
+    finally:
+        if lit_tmp:
+            shutil.rmtree(lit_tmp)
 
+def main_with_tmp(builtinParameters):
     global options
     from optparse import OptionParser, OptionGroup
     parser = OptionParser("usage: %prog [options] {file-or-path}")
@@ -243,10 +266,10 @@ def main(builtinParameters = {}):
                       action="store_true", default=False)
     group.add_option("", "--use-processes", dest="useProcesses",
                       help="Run tests in parallel with processes (not threads)",
-                      action="store_true", default=useProcessesIsDefault)
+                      action="store_true", default=True)
     group.add_option("", "--use-threads", dest="useProcesses",
                       help="Run tests in parallel with threads (not processes)",
-                      action="store_false", default=useProcessesIsDefault)
+                      action="store_false", default=True)
     parser.add_option_group(group)
 
     (opts, args) = parser.parse_args()
@@ -286,6 +309,7 @@ def main(builtinParameters = {}):
         # Default is zero
         maxIndividualTestTime = 0
 
+    isWindows = platform.system() == 'Windows'
 
     # Create the global config object.
     litConfig = lit.LitConfig.LitConfig(

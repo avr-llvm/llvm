@@ -360,47 +360,26 @@ define <2 x i64> @mul_v2i64spill(<2 x i64> %i, <2 x i64> %j) nounwind  {
 ; SSE-NEXT:    addq $40, %rsp
 ; SSE-NEXT:    retq
 ;
-; AVX2-LABEL: mul_v2i64spill:
-; AVX2:       # BB#0: # %entry
-; AVX2-NEXT:    subq $40, %rsp
-; AVX2-NEXT:    vmovaps %xmm1, {{[0-9]+}}(%rsp) # 16-byte Spill
-; AVX2-NEXT:    vmovaps %xmm0, (%rsp) # 16-byte Spill
-; AVX2-NEXT:    callq foo
-; AVX2-NEXT:    vmovdqa {{[0-9]+}}(%rsp), %xmm2 # 16-byte Reload
-; AVX2-NEXT:    vmovdqa (%rsp), %xmm4 # 16-byte Reload
-; AVX2-NEXT:    vpmuludq %xmm2, %xmm4, %xmm0
-; AVX2-NEXT:    vpsrlq $32, %xmm2, %xmm1
-; AVX2-NEXT:    vmovdqa %xmm2, %xmm3
-; AVX2-NEXT:    vpmuludq %xmm1, %xmm4, %xmm1
-; AVX2-NEXT:    vpsllq $32, %xmm1, %xmm1
-; AVX2-NEXT:    vpsrlq $32, %xmm4, %xmm2
-; AVX2-NEXT:    vpmuludq %xmm3, %xmm2, %xmm2
-; AVX2-NEXT:    vpsllq $32, %xmm2, %xmm2
-; AVX2-NEXT:    vpaddq %xmm2, %xmm1, %xmm1
-; AVX2-NEXT:    vpaddq %xmm1, %xmm0, %xmm0
-; AVX2-NEXT:    addq $40, %rsp
-; AVX2-NEXT:    retq
-;
-; AVX512-LABEL: mul_v2i64spill:
-; AVX512:       # BB#0: # %entry
-; AVX512-NEXT:    subq $40, %rsp
-; AVX512-NEXT:    vmovaps %xmm1, {{[0-9]+}}(%rsp) # 16-byte Spill
-; AVX512-NEXT:    vmovaps %xmm0, (%rsp) # 16-byte Spill
-; AVX512-NEXT:    callq foo
-; AVX512-NEXT:    vmovdqa {{[0-9]+}}(%rsp), %xmm2 # 16-byte Reload
-; AVX512-NEXT:    vmovdqa (%rsp), %xmm4 # 16-byte Reload
-; AVX512-NEXT:    vpmuludq %xmm2, %xmm4, %xmm0
-; AVX512-NEXT:    vpsrlq $32, %xmm2, %xmm1
-; AVX512-NEXT:    vmovaps %zmm2, %zmm3
-; AVX512-NEXT:    vpmuludq %xmm1, %xmm4, %xmm1
-; AVX512-NEXT:    vpsllq $32, %xmm1, %xmm1
-; AVX512-NEXT:    vpsrlq $32, %xmm4, %xmm2
-; AVX512-NEXT:    vpmuludq %xmm3, %xmm2, %xmm2
-; AVX512-NEXT:    vpsllq $32, %xmm2, %xmm2
-; AVX512-NEXT:    vpaddq %xmm2, %xmm1, %xmm1
-; AVX512-NEXT:    vpaddq %xmm1, %xmm0, %xmm0
-; AVX512-NEXT:    addq $40, %rsp
-; AVX512-NEXT:    retq
+; AVX-LABEL: mul_v2i64spill:
+; AVX:       # BB#0: # %entry
+; AVX-NEXT:    subq $40, %rsp
+; AVX-NEXT:    vmovaps %xmm1, {{[0-9]+}}(%rsp) # 16-byte Spill
+; AVX-NEXT:    vmovaps %xmm0, (%rsp) # 16-byte Spill
+; AVX-NEXT:    callq foo
+; AVX-NEXT:    vmovdqa {{[0-9]+}}(%rsp), %xmm2 # 16-byte Reload
+; AVX-NEXT:    vmovdqa (%rsp), %xmm4 # 16-byte Reload
+; AVX-NEXT:    vpmuludq %xmm2, %xmm4, %xmm0
+; AVX-NEXT:    vpsrlq $32, %xmm2, %xmm1
+; AVX-NEXT:    vmovdqa %xmm2, %xmm3
+; AVX-NEXT:    vpmuludq %xmm1, %xmm4, %xmm1
+; AVX-NEXT:    vpsllq $32, %xmm1, %xmm1
+; AVX-NEXT:    vpsrlq $32, %xmm4, %xmm2
+; AVX-NEXT:    vpmuludq %xmm3, %xmm2, %xmm2
+; AVX-NEXT:    vpsllq $32, %xmm2, %xmm2
+; AVX-NEXT:    vpaddq %xmm2, %xmm1, %xmm1
+; AVX-NEXT:    vpaddq %xmm1, %xmm0, %xmm0
+; AVX-NEXT:    addq $40, %rsp
+; AVX-NEXT:    retq
 entry:
   ; Use a call to force spills.
   call void @foo()
@@ -492,12 +471,12 @@ define <32 x i8> @mul_v32i8c(<32 x i8> %i) nounwind  {
 ; AVX512F-NEXT:    vpmullw %ymm2, %ymm0, %ymm0
 ; AVX512F-NEXT:    vpmovsxwd %ymm0, %zmm0
 ; AVX512F-NEXT:    vpmovdb %zmm0, %xmm0
-; AVX512F-NEXT:    vinsertf128 $1, %xmm0, %ymm1, %ymm0
+; AVX512F-NEXT:    vinserti128 $1, %xmm0, %ymm1, %ymm0
 ; AVX512F-NEXT:    retq
 ;
 ; AVX512BW-LABEL: mul_v32i8c:
 ; AVX512BW:       # BB#0: # %entry
-; AVX512BW-NEXT:    vmovaps {{.*#+}} ymm1 = [117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117]
+; AVX512BW-NEXT:    vmovdqa {{.*#+}} ymm1 = [117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117]
 ; AVX512BW-NEXT:    vpmovsxbw %ymm1, %zmm1
 ; AVX512BW-NEXT:    vpmovsxbw %ymm0, %zmm0
 ; AVX512BW-NEXT:    vpmullw %zmm1, %zmm0, %zmm0
@@ -693,7 +672,7 @@ define <32 x i8> @mul_v32i8(<32 x i8> %i, <32 x i8> %j) nounwind  {
 ; AVX512F-NEXT:    vpmullw %ymm1, %ymm0, %ymm0
 ; AVX512F-NEXT:    vpmovsxwd %ymm0, %zmm0
 ; AVX512F-NEXT:    vpmovdb %zmm0, %xmm0
-; AVX512F-NEXT:    vinsertf128 $1, %xmm0, %ymm2, %ymm0
+; AVX512F-NEXT:    vinserti128 $1, %xmm0, %ymm2, %ymm0
 ; AVX512F-NEXT:    retq
 ;
 ; AVX512BW-LABEL: mul_v32i8:
@@ -938,7 +917,7 @@ define <64 x i8> @mul_v64i8c(<64 x i8> %i) nounwind  {
 ; AVX512F-NEXT:    vpmullw %ymm3, %ymm0, %ymm0
 ; AVX512F-NEXT:    vpmovsxwd %ymm0, %zmm0
 ; AVX512F-NEXT:    vpmovdb %zmm0, %xmm0
-; AVX512F-NEXT:    vinsertf128 $1, %xmm0, %ymm2, %ymm0
+; AVX512F-NEXT:    vinserti128 $1, %xmm0, %ymm2, %ymm0
 ; AVX512F-NEXT:    vpmovsxbw %xmm1, %ymm2
 ; AVX512F-NEXT:    vpmullw %ymm3, %ymm2, %ymm2
 ; AVX512F-NEXT:    vpmovsxwd %ymm2, %zmm2
@@ -948,12 +927,12 @@ define <64 x i8> @mul_v64i8c(<64 x i8> %i) nounwind  {
 ; AVX512F-NEXT:    vpmullw %ymm3, %ymm1, %ymm1
 ; AVX512F-NEXT:    vpmovsxwd %ymm1, %zmm1
 ; AVX512F-NEXT:    vpmovdb %zmm1, %xmm1
-; AVX512F-NEXT:    vinsertf128 $1, %xmm1, %ymm2, %ymm1
+; AVX512F-NEXT:    vinserti128 $1, %xmm1, %ymm2, %ymm1
 ; AVX512F-NEXT:    retq
 ;
 ; AVX512BW-LABEL: mul_v64i8c:
 ; AVX512BW:       # BB#0: # %entry
-; AVX512BW-NEXT:    vmovaps {{.*#+}} ymm1 = [117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117]
+; AVX512BW-NEXT:    vmovdqa {{.*#+}} ymm1 = [117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117,117]
 ; AVX512BW-NEXT:    vpmovsxbw %ymm1, %zmm1
 ; AVX512BW-NEXT:    vpmovsxbw %ymm0, %zmm2
 ; AVX512BW-NEXT:    vpmullw %zmm1, %zmm2, %zmm2
@@ -1141,7 +1120,7 @@ define <64 x i8> @mul_v64i8(<64 x i8> %i, <64 x i8> %j) nounwind  {
 ; AVX512F-NEXT:    vpmullw %ymm2, %ymm0, %ymm0
 ; AVX512F-NEXT:    vpmovsxwd %ymm0, %zmm0
 ; AVX512F-NEXT:    vpmovdb %zmm0, %xmm0
-; AVX512F-NEXT:    vinsertf128 $1, %xmm0, %ymm4, %ymm0
+; AVX512F-NEXT:    vinserti128 $1, %xmm0, %ymm4, %ymm0
 ; AVX512F-NEXT:    vpmovsxbw %xmm3, %ymm2
 ; AVX512F-NEXT:    vpmovsxbw %xmm1, %ymm4
 ; AVX512F-NEXT:    vpmullw %ymm2, %ymm4, %ymm2
@@ -1154,7 +1133,7 @@ define <64 x i8> @mul_v64i8(<64 x i8> %i, <64 x i8> %j) nounwind  {
 ; AVX512F-NEXT:    vpmullw %ymm3, %ymm1, %ymm1
 ; AVX512F-NEXT:    vpmovsxwd %ymm1, %zmm1
 ; AVX512F-NEXT:    vpmovdb %zmm1, %xmm1
-; AVX512F-NEXT:    vinsertf128 $1, %xmm1, %ymm2, %ymm1
+; AVX512F-NEXT:    vinserti128 $1, %xmm1, %ymm2, %ymm1
 ; AVX512F-NEXT:    retq
 ;
 ; AVX512BW-LABEL: mul_v64i8:

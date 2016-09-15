@@ -55,14 +55,6 @@ EVT AMDGPUTargetLowering::getEquivalentMemType(LLVMContext &Ctx, EVT VT) {
   return EVT::getVectorVT(Ctx, MVT::i32, StoreSize / 32);
 }
 
-EVT AMDGPUTargetLowering::getEquivalentBitType(LLVMContext &Ctx, EVT VT) {
-  unsigned StoreSize = VT.getStoreSizeInBits();
-  if (StoreSize <= 32)
-    return EVT::getIntegerVT(Ctx, StoreSize);
-
-  return EVT::getVectorVT(Ctx, MVT::i32, StoreSize / 32);
-}
-
 AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
                                            const AMDGPUSubtarget &STI)
     : TargetLowering(TM), Subtarget(&STI) {
@@ -454,8 +446,6 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
   setSelectIsExpensive(false);
   PredictableSelectIsExpensive = false;
 
-  setFsqrtIsCheap(true);
-
   // We want to find all load dependencies for long chains of stores to enable
   // merging into very wide vectors. The problem is with vectors with > 4
   // elements. MergeConsecutiveStores will attempt to merge these because x8/x16
@@ -472,11 +462,12 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
   MaxStoresPerMemset  = 4096;
 
   setTargetDAGCombine(ISD::BITCAST);
-  setTargetDAGCombine(ISD::AND);
   setTargetDAGCombine(ISD::SHL);
   setTargetDAGCombine(ISD::SRA);
   setTargetDAGCombine(ISD::SRL);
   setTargetDAGCombine(ISD::MUL);
+  setTargetDAGCombine(ISD::MULHU);
+  setTargetDAGCombine(ISD::MULHS);
   setTargetDAGCombine(ISD::SELECT);
   setTargetDAGCombine(ISD::SELECT_CC);
   setTargetDAGCombine(ISD::STORE);
@@ -745,94 +736,6 @@ void AMDGPUTargetLowering::ReplaceNodeResults(SDNode *N,
   }
 }
 
-// FIXME: This implements accesses to initialized globals in the constant
-// address space by copying them to private and accessing that. It does not
-// properly handle illegal types or vectors. The private vector loads are not
-// scalarized, and the illegal scalars hit an assertion. This technique will not
-// work well with large initializers, and this should eventually be
-// removed. Initialized globals should be placed into a data section that the
-// runtime will load into a buffer before the kernel is executed. Uses of the
-// global need to be replaced with a pointer loaded from an implicit kernel
-// argument into this buffer holding the copy of the data, which will remove the
-// need for any of this.
-SDValue AMDGPUTargetLowering::LowerConstantInitializer(const Constant* Init,
-                                                       const GlobalValue *GV,
-                                                       const SDValue &InitPtr,
-                                                       SDValue Chain,
-                                                       SelectionDAG &DAG) const {
-  const DataLayout &TD = DAG.getDataLayout();
-  SDLoc DL(InitPtr);
-  Type *InitTy = Init->getType();
-
-  if (const ConstantInt *CI = dyn_cast<ConstantInt>(Init)) {
-    EVT VT = EVT::getEVT(InitTy);
-    PointerType *PtrTy = PointerType::get(InitTy, AMDGPUAS::PRIVATE_ADDRESS);
-    return DAG.getStore(Chain, DL, DAG.getConstant(*CI, DL, VT), InitPtr,
-                        MachinePointerInfo(UndefValue::get(PtrTy)),
-                        TD.getPrefTypeAlignment(InitTy));
-  }
-
-  if (const ConstantFP *CFP = dyn_cast<ConstantFP>(Init)) {
-    EVT VT = EVT::getEVT(CFP->getType());
-    PointerType *PtrTy = PointerType::get(CFP->getType(), 0);
-    return DAG.getStore(Chain, DL, DAG.getConstantFP(*CFP, DL, VT), InitPtr,
-                        MachinePointerInfo(UndefValue::get(PtrTy)),
-                        TD.getPrefTypeAlignment(CFP->getType()));
-  }
-
-  if (StructType *ST = dyn_cast<StructType>(InitTy)) {
-    const StructLayout *SL = TD.getStructLayout(ST);
-
-    EVT PtrVT = InitPtr.getValueType();
-    SmallVector<SDValue, 8> Chains;
-
-    for (unsigned I = 0, N = ST->getNumElements(); I != N; ++I) {
-      SDValue Offset = DAG.getConstant(SL->getElementOffset(I), DL, PtrVT);
-      SDValue Ptr = DAG.getNode(ISD::ADD, DL, PtrVT, InitPtr, Offset);
-
-      Constant *Elt = Init->getAggregateElement(I);
-      Chains.push_back(LowerConstantInitializer(Elt, GV, Ptr, Chain, DAG));
-    }
-
-    return DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Chains);
-  }
-
-  if (SequentialType *SeqTy = dyn_cast<SequentialType>(InitTy)) {
-    EVT PtrVT = InitPtr.getValueType();
-
-    unsigned NumElements;
-    if (ArrayType *AT = dyn_cast<ArrayType>(SeqTy))
-      NumElements = AT->getNumElements();
-    else if (VectorType *VT = dyn_cast<VectorType>(SeqTy))
-      NumElements = VT->getNumElements();
-    else
-      llvm_unreachable("Unexpected type");
-
-    unsigned EltSize = TD.getTypeAllocSize(SeqTy->getElementType());
-    SmallVector<SDValue, 8> Chains;
-    for (unsigned i = 0; i < NumElements; ++i) {
-      SDValue Offset = DAG.getConstant(i * EltSize, DL, PtrVT);
-      SDValue Ptr = DAG.getNode(ISD::ADD, DL, PtrVT, InitPtr, Offset);
-
-      Constant *Elt = Init->getAggregateElement(i);
-      Chains.push_back(LowerConstantInitializer(Elt, GV, Ptr, Chain, DAG));
-    }
-
-    return DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Chains);
-  }
-
-  if (isa<UndefValue>(Init)) {
-    EVT VT = EVT::getEVT(InitTy);
-    PointerType *PtrTy = PointerType::get(InitTy, AMDGPUAS::PRIVATE_ADDRESS);
-    return DAG.getStore(Chain, DL, DAG.getUNDEF(VT), InitPtr,
-                        MachinePointerInfo(UndefValue::get(PtrTy)),
-                        TD.getPrefTypeAlignment(InitTy));
-  }
-
-  Init->dump();
-  llvm_unreachable("Unhandled constant initializer");
-}
-
 static bool hasDefinedInitializer(const GlobalValue *GV) {
   const GlobalVariable *GVar = dyn_cast<GlobalVariable>(GV);
   if (!GVar || !GVar->hasInitializer())
@@ -850,11 +753,6 @@ SDValue AMDGPUTargetLowering::LowerGlobalAddress(AMDGPUMachineFunction* MFI,
   const GlobalValue *GV = G->getGlobal();
 
   switch (G->getAddressSpace()) {
-  case AMDGPUAS::CONSTANT_ADDRESS: {
-    MVT ConstPtrVT = getPointerTy(DL, AMDGPUAS::CONSTANT_ADDRESS);
-    SDValue GA = DAG.getTargetGlobalAddress(GV, SDLoc(G), ConstPtrVT);
-    return DAG.getNode(AMDGPUISD::CONST_DATA_PTR, SDLoc(G), ConstPtrVT, GA);
-  }
   case AMDGPUAS::LOCAL_ADDRESS: {
     // XXX: What does the value of G->getOffset() mean?
     assert(G->getOffset() == 0 &&
@@ -864,24 +762,8 @@ SDValue AMDGPUTargetLowering::LowerGlobalAddress(AMDGPUMachineFunction* MFI,
     if (hasDefinedInitializer(GV))
       break;
 
-    unsigned Offset;
-    if (MFI->LocalMemoryObjects.count(GV) == 0) {
-      unsigned Align = GV->getAlignment();
-      if (Align == 0)
-        Align = DL.getABITypeAlignment(GV->getValueType());
-
-      /// TODO: We should sort these to minimize wasted space due to alignment
-      /// padding. Currently the padding is decided by the first encountered use
-      /// during lowering.
-      Offset = MFI->LDSSize = alignTo(MFI->LDSSize, Align);
-      MFI->LocalMemoryObjects[GV] = Offset;
-      MFI->LDSSize += DL.getTypeAllocSize(GV->getValueType());
-    } else {
-      Offset = MFI->LocalMemoryObjects[GV];
-    }
-
-    return DAG.getConstant(Offset, SDLoc(Op),
-                           getPointerTy(DL, AMDGPUAS::LOCAL_ADDRESS));
+    unsigned Offset = MFI->allocateLDSGlobal(DL, *GV);
+    return DAG.getConstant(Offset, SDLoc(Op), Op.getValueType());
   }
   }
 
@@ -1095,65 +977,6 @@ SDValue AMDGPUTargetLowering::SplitVectorLoad(const SDValue Op,
   };
 
   return DAG.getMergeValues(Ops, SL);
-}
-
-// FIXME: This isn't doing anything for SI. This should be used in a target
-// combine during type legalization.
-SDValue AMDGPUTargetLowering::MergeVectorStore(const SDValue &Op,
-                                               SelectionDAG &DAG) const {
-  StoreSDNode *Store = cast<StoreSDNode>(Op);
-  EVT MemVT = Store->getMemoryVT();
-  unsigned MemBits = MemVT.getSizeInBits();
-
-  // Byte stores are really expensive, so if possible, try to pack 32-bit vector
-  // truncating store into an i32 store.
-  // XXX: We could also handle optimize other vector bitwidths.
-  if (!MemVT.isVector() || MemBits > 32) {
-    return SDValue();
-  }
-
-  SDLoc DL(Op);
-  SDValue Value = Store->getValue();
-  EVT VT = Value.getValueType();
-  EVT ElemVT = VT.getVectorElementType();
-  SDValue Ptr = Store->getBasePtr();
-  EVT MemEltVT = MemVT.getVectorElementType();
-  unsigned MemEltBits = MemEltVT.getSizeInBits();
-  unsigned MemNumElements = MemVT.getVectorNumElements();
-  unsigned PackedSize = MemVT.getStoreSizeInBits();
-  SDValue Mask = DAG.getConstant((1 << MemEltBits) - 1, DL, MVT::i32);
-
-  assert(Value.getValueType().getScalarSizeInBits() >= 32);
-
-  SDValue PackedValue;
-  for (unsigned i = 0; i < MemNumElements; ++i) {
-    SDValue Elt = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, ElemVT, Value,
-                              DAG.getConstant(i, DL, MVT::i32));
-    Elt = DAG.getZExtOrTrunc(Elt, DL, MVT::i32);
-    Elt = DAG.getNode(ISD::AND, DL, MVT::i32, Elt, Mask); // getZeroExtendInReg
-
-    SDValue Shift = DAG.getConstant(MemEltBits * i, DL, MVT::i32);
-    Elt = DAG.getNode(ISD::SHL, DL, MVT::i32, Elt, Shift);
-
-    if (i == 0) {
-      PackedValue = Elt;
-    } else {
-      PackedValue = DAG.getNode(ISD::OR, DL, MVT::i32, PackedValue, Elt);
-    }
-  }
-
-  if (PackedSize < 32) {
-    EVT PackedVT = EVT::getIntegerVT(*DAG.getContext(), PackedSize);
-    return DAG.getTruncStore(Store->getChain(), DL, PackedValue, Ptr,
-                             Store->getMemOperand()->getPointerInfo(), PackedVT,
-                             Store->getAlignment(),
-                             Store->getMemOperand()->getFlags());
-  }
-
-  return DAG.getStore(Store->getChain(), DL, PackedValue, Ptr,
-                      Store->getMemOperand()->getPointerInfo(),
-                      Store->getAlignment(),
-                      Store->getMemOperand()->getFlags());
 }
 
 SDValue AMDGPUTargetLowering::SplitVectorStore(SDValue Op,
@@ -1989,13 +1812,12 @@ SDValue AMDGPUTargetLowering::LowerUINT_TO_FP(SDValue Op,
          "operation should be legal");
 
   EVT DestVT = Op.getValueType();
-  if (DestVT == MVT::f64)
-    return LowerINT_TO_FP64(Op, DAG, false);
 
   if (DestVT == MVT::f32)
     return LowerINT_TO_FP32(Op, DAG, false);
 
-  return SDValue();
+  assert(DestVT == MVT::f64);
+  return LowerINT_TO_FP64(Op, DAG, false);
 }
 
 SDValue AMDGPUTargetLowering::LowerSINT_TO_FP(SDValue Op,
@@ -2007,10 +1829,8 @@ SDValue AMDGPUTargetLowering::LowerSINT_TO_FP(SDValue Op,
   if (DestVT == MVT::f32)
     return LowerINT_TO_FP32(Op, DAG, true);
 
-  if (DestVT == MVT::f64)
-    return LowerINT_TO_FP64(Op, DAG, true);
-
-  return SDValue();
+  assert(DestVT == MVT::f64);
+  return LowerINT_TO_FP64(Op, DAG, true);
 }
 
 SDValue AMDGPUTargetLowering::LowerFP64_TO_INT(SDValue Op, SelectionDAG &DAG,
@@ -2068,8 +1888,7 @@ SDValue AMDGPUTargetLowering::LowerSIGN_EXTEND_INREG(SDValue Op,
   MVT VT = Op.getSimpleValueType();
   MVT ScalarVT = VT.getScalarType();
 
-  if (!VT.isVector())
-    return SDValue();
+  assert(VT.isVector());
 
   SDValue Src = Op.getOperand(0);
   SDLoc DL(Op);
@@ -2108,7 +1927,7 @@ static bool isI24(SDValue Op, SelectionDAG &DAG) {
          (VT.getSizeInBits() - DAG.ComputeNumSignBits(Op)) < 24;
 }
 
-static void simplifyI24(SDValue Op, TargetLowering::DAGCombinerInfo &DCI) {
+static bool simplifyI24(SDValue Op, TargetLowering::DAGCombinerInfo &DCI) {
 
   SelectionDAG &DAG = DCI.DAG;
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
@@ -2117,8 +1936,12 @@ static void simplifyI24(SDValue Op, TargetLowering::DAGCombinerInfo &DCI) {
   APInt Demanded = APInt::getLowBitsSet(VT.getSizeInBits(), 24);
   APInt KnownZero, KnownOne;
   TargetLowering::TargetLoweringOpt TLO(DAG, true, true);
-  if (TLI.SimplifyDemandedBits(Op, Demanded, KnownZero, KnownOne, TLO))
+  if (TLI.SimplifyDemandedBits(Op, Demanded, KnownZero, KnownOne, TLO)) {
     DCI.CommitTargetLoweringOpt(TLO);
+    return true;
+  }
+
+  return false;
 }
 
 template <typename IntTy>
@@ -2188,6 +2011,9 @@ SDValue AMDGPUTargetLowering::performLoadCombine(SDNode *N,
     // problems during legalization, the emitted instructions to pack and unpack
     // the bytes again are not eliminated in the case of an unaligned copy.
     if (!allowsMisalignedMemoryAccesses(VT, AS, Align, &IsFast)) {
+      if (VT.isVector())
+        return scalarizeVectorLoad(LN, DAG);
+
       SDValue Ops[2];
       std::tie(Ops[0], Ops[1]) = expandUnalignedLoad(LN, DAG);
       return DAG.getMergeValues(Ops, SDLoc(N));
@@ -2236,8 +2062,12 @@ SDValue AMDGPUTargetLowering::performStoreCombine(SDNode *N,
     // order problems during legalization, the emitted instructions to pack and
     // unpack the bytes again are not eliminated in the case of an unaligned
     // copy.
-    if (!allowsMisalignedMemoryAccesses(VT, AS, Align, &IsFast))
+    if (!allowsMisalignedMemoryAccesses(VT, AS, Align, &IsFast)) {
+      if (VT.isVector())
+        return scalarizeVectorStore(SN, DAG);
+
       return expandUnalignedStore(SN, DAG);
+    }
 
     if (!IsFast)
       return SDValue();
@@ -2262,38 +2092,21 @@ SDValue AMDGPUTargetLowering::performStoreCombine(SDNode *N,
                       SN->getBasePtr(), SN->getMemOperand());
 }
 
-// TODO: Should repeat for other bit ops.
-SDValue AMDGPUTargetLowering::performAndCombine(SDNode *N,
-                                                DAGCombinerInfo &DCI) const {
-  if (N->getValueType(0) != MVT::i64)
-    return SDValue();
-
-  // Break up 64-bit and of a constant into two 32-bit ands. This will typically
-  // happen anyway for a VALU 64-bit and. This exposes other 32-bit integer
-  // combine opportunities since most 64-bit operations are decomposed this way.
-  // TODO: We won't want this for SALU especially if it is an inline immediate.
-  const ConstantSDNode *RHS = dyn_cast<ConstantSDNode>(N->getOperand(1));
-  if (!RHS)
-    return SDValue();
-
-  uint64_t Val = RHS->getZExtValue();
-  if (Lo_32(Val) != 0 && Hi_32(Val) != 0 && !RHS->hasOneUse()) {
-    // If either half of the constant is 0, this is really a 32-bit and, so
-    // split it. If we can re-use the full materialized constant, keep it.
-    return SDValue();
-  }
-
-  SDLoc SL(N);
+/// Split the 64-bit value \p LHS into two 32-bit components, and perform the
+/// binary operation \p Opc to it with the corresponding constant operands.
+SDValue AMDGPUTargetLowering::splitBinaryBitConstantOpImpl(
+  DAGCombinerInfo &DCI, const SDLoc &SL,
+  unsigned Opc, SDValue LHS,
+  uint32_t ValLo, uint32_t ValHi) const {
   SelectionDAG &DAG = DCI.DAG;
-
   SDValue Lo, Hi;
-  std::tie(Lo, Hi) = split64BitValue(N->getOperand(0), DAG);
+  std::tie(Lo, Hi) = split64BitValue(LHS, DAG);
 
-  SDValue LoRHS = DAG.getConstant(Lo_32(Val), SL, MVT::i32);
-  SDValue HiRHS = DAG.getConstant(Hi_32(Val), SL, MVT::i32);
+  SDValue LoRHS = DAG.getConstant(ValLo, SL, MVT::i32);
+  SDValue HiRHS = DAG.getConstant(ValHi, SL, MVT::i32);
 
-  SDValue LoAnd = DAG.getNode(ISD::AND, SL, MVT::i32, Lo, LoRHS);
-  SDValue HiAnd = DAG.getNode(ISD::AND, SL, MVT::i32, Hi, HiRHS);
+  SDValue LoAnd = DAG.getNode(Opc, SL, MVT::i32, Lo, LoRHS);
+  SDValue HiAnd = DAG.getNode(Opc, SL, MVT::i32, Hi, HiRHS);
 
   // Re-visit the ands. It's possible we eliminated one of them and it could
   // simplify the vector.
@@ -2408,11 +2221,36 @@ SDValue AMDGPUTargetLowering::performSrlCombine(SDNode *N,
   return DAG.getNode(ISD::BITCAST, SL, MVT::i64, BuildPair);
 }
 
+// We need to specifically handle i64 mul here to avoid unnecessary conversion
+// instructions. If we only match on the legalized i64 mul expansion,
+// SimplifyDemandedBits will be unable to remove them because there will be
+// multiple uses due to the separate mul + mulh[su].
+static SDValue getMul24(SelectionDAG &DAG, const SDLoc &SL,
+                        SDValue N0, SDValue N1, unsigned Size, bool Signed) {
+  if (Size <= 32) {
+    unsigned MulOpc = Signed ? AMDGPUISD::MUL_I24 : AMDGPUISD::MUL_U24;
+    return DAG.getNode(MulOpc, SL, MVT::i32, N0, N1);
+  }
+
+  // Because we want to eliminate extension instructions before the
+  // operation, we need to create a single user here (i.e. not the separate
+  // mul_lo + mul_hi) so that SimplifyDemandedBits will deal with it.
+
+  unsigned MulOpc = Signed ? AMDGPUISD::MUL_LOHI_I24 : AMDGPUISD::MUL_LOHI_U24;
+
+  SDValue Mul = DAG.getNode(MulOpc, SL,
+                            DAG.getVTList(MVT::i32, MVT::i32), N0, N1);
+
+  return DAG.getNode(ISD::BUILD_PAIR, SL, MVT::i64,
+                     Mul.getValue(0), Mul.getValue(1));
+}
+
 SDValue AMDGPUTargetLowering::performMulCombine(SDNode *N,
                                                 DAGCombinerInfo &DCI) const {
   EVT VT = N->getValueType(0);
 
-  if (VT.isVector() || VT.getSizeInBits() > 32)
+  unsigned Size = VT.getSizeInBits();
+  if (VT.isVector() || Size > 64)
     return SDValue();
 
   SelectionDAG &DAG = DCI.DAG;
@@ -2425,11 +2263,11 @@ SDValue AMDGPUTargetLowering::performMulCombine(SDNode *N,
   if (Subtarget->hasMulU24() && isU24(N0, DAG) && isU24(N1, DAG)) {
     N0 = DAG.getZExtOrTrunc(N0, DL, MVT::i32);
     N1 = DAG.getZExtOrTrunc(N1, DL, MVT::i32);
-    Mul = DAG.getNode(AMDGPUISD::MUL_U24, DL, MVT::i32, N0, N1);
+    Mul = getMul24(DAG, DL, N0, N1, Size, false);
   } else if (Subtarget->hasMulI24() && isI24(N0, DAG) && isI24(N1, DAG)) {
     N0 = DAG.getSExtOrTrunc(N0, DL, MVT::i32);
     N1 = DAG.getSExtOrTrunc(N1, DL, MVT::i32);
-    Mul = DAG.getNode(AMDGPUISD::MUL_I24, DL, MVT::i32, N0, N1);
+    Mul = getMul24(DAG, DL, N0, N1, Size, true);
   } else {
     return SDValue();
   }
@@ -2437,6 +2275,77 @@ SDValue AMDGPUTargetLowering::performMulCombine(SDNode *N,
   // We need to use sext even for MUL_U24, because MUL_U24 is used
   // for signed multiply of 8 and 16-bit types.
   return DAG.getSExtOrTrunc(Mul, DL, VT);
+}
+
+SDValue AMDGPUTargetLowering::performMulhsCombine(SDNode *N,
+                                                  DAGCombinerInfo &DCI) const {
+  EVT VT = N->getValueType(0);
+
+  if (!Subtarget->hasMulI24() || VT.isVector())
+    return SDValue();
+
+  SelectionDAG &DAG = DCI.DAG;
+  SDLoc DL(N);
+
+  SDValue N0 = N->getOperand(0);
+  SDValue N1 = N->getOperand(1);
+
+  if (!isI24(N0, DAG) || !isI24(N1, DAG))
+    return SDValue();
+
+  N0 = DAG.getSExtOrTrunc(N0, DL, MVT::i32);
+  N1 = DAG.getSExtOrTrunc(N1, DL, MVT::i32);
+
+  SDValue Mulhi = DAG.getNode(AMDGPUISD::MULHI_I24, DL, MVT::i32, N0, N1);
+  DCI.AddToWorklist(Mulhi.getNode());
+  return DAG.getSExtOrTrunc(Mulhi, DL, VT);
+}
+
+SDValue AMDGPUTargetLowering::performMulhuCombine(SDNode *N,
+                                                  DAGCombinerInfo &DCI) const {
+  EVT VT = N->getValueType(0);
+
+  if (!Subtarget->hasMulU24() || VT.isVector() || VT.getSizeInBits() > 32)
+    return SDValue();
+
+  SelectionDAG &DAG = DCI.DAG;
+  SDLoc DL(N);
+
+  SDValue N0 = N->getOperand(0);
+  SDValue N1 = N->getOperand(1);
+
+  if (!isU24(N0, DAG) || !isU24(N1, DAG))
+    return SDValue();
+
+  N0 = DAG.getZExtOrTrunc(N0, DL, MVT::i32);
+  N1 = DAG.getZExtOrTrunc(N1, DL, MVT::i32);
+
+  SDValue Mulhi = DAG.getNode(AMDGPUISD::MULHI_U24, DL, MVT::i32, N0, N1);
+  DCI.AddToWorklist(Mulhi.getNode());
+  return DAG.getZExtOrTrunc(Mulhi, DL, VT);
+}
+
+SDValue AMDGPUTargetLowering::performMulLoHi24Combine(
+  SDNode *N, DAGCombinerInfo &DCI) const {
+  SelectionDAG &DAG = DCI.DAG;
+
+  SDValue N0 = N->getOperand(0);
+  SDValue N1 = N->getOperand(1);
+
+  // Simplify demanded bits before splitting into multiple users.
+  if (simplifyI24(N0, DCI) || simplifyI24(N1, DCI))
+    return SDValue();
+
+  bool Signed = (N->getOpcode() == AMDGPUISD::MUL_LOHI_I24);
+
+  unsigned MulLoOpc = Signed ? AMDGPUISD::MUL_I24 : AMDGPUISD::MUL_U24;
+  unsigned MulHiOpc = Signed ? AMDGPUISD::MULHI_I24 : AMDGPUISD::MULHI_U24;
+
+  SDLoc SL(N);
+
+  SDValue MulLo = DAG.getNode(MulLoOpc, SL, MVT::i32, N0, N1);
+  SDValue MulHi = DAG.getNode(MulHiOpc, SL, MVT::i32, N0, N1);
+  return DAG.getMergeValues({ MulLo, MulHi }, SL);
 }
 
 static bool isNegativeOne(SDValue Val) {
@@ -2591,22 +2500,25 @@ SDValue AMDGPUTargetLowering::PerformDAGCombine(SDNode *N,
 
     return performSraCombine(N, DCI);
   }
-  case ISD::AND: {
-    if (DCI.getDAGCombineLevel() < AfterLegalizeDAG)
-      break;
-
-    return performAndCombine(N, DCI);
-  }
   case ISD::MUL:
     return performMulCombine(N, DCI);
+  case ISD::MULHS:
+    return performMulhsCombine(N, DCI);
+  case ISD::MULHU:
+    return performMulhuCombine(N, DCI);
   case AMDGPUISD::MUL_I24:
-  case AMDGPUISD::MUL_U24: {
+  case AMDGPUISD::MUL_U24:
+  case AMDGPUISD::MULHI_I24:
+  case AMDGPUISD::MULHI_U24: {
     SDValue N0 = N->getOperand(0);
     SDValue N1 = N->getOperand(1);
     simplifyI24(N0, DCI);
     simplifyI24(N1, DCI);
     return SDValue();
   }
+  case AMDGPUISD::MUL_LOHI_I24:
+  case AMDGPUISD::MUL_LOHI_U24:
+    return performMulLoHi24Combine(N, DCI);
   case ISD::SELECT:
     return performSelectCombine(N, DCI);
   case AMDGPUISD::BFE_I32:
@@ -2754,7 +2666,8 @@ SDValue AMDGPUTargetLowering::CreateLiveInRegister(SelectionDAG &DAG,
 
 uint32_t AMDGPUTargetLowering::getImplicitParameterOffset(
     const AMDGPUMachineFunction *MFI, const ImplicitParameter Param) const {
-  uint64_t ArgOffset = MFI->ABIArgOffset;
+  unsigned Alignment = Subtarget->getAlignmentForImplicitArgPtr();
+  uint64_t ArgOffset = alignTo(MFI->getABIArgOffset(), Alignment);
   switch (Param) {
   case GRID_DIM:
     return ArgOffset;
@@ -2779,6 +2692,7 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(RETURN)
   NODE_NAME_CASE(DWORDADDR)
   NODE_NAME_CASE(FRACT)
+  NODE_NAME_CASE(SETCC)
   NODE_NAME_CASE(CLAMP)
   NODE_NAME_CASE(COS_HW)
   NODE_NAME_CASE(SIN_HW)
@@ -2800,7 +2714,9 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(TRIG_PREOP)
   NODE_NAME_CASE(RCP)
   NODE_NAME_CASE(RSQ)
+  NODE_NAME_CASE(RCP_LEGACY)
   NODE_NAME_CASE(RSQ_LEGACY)
+  NODE_NAME_CASE(FMUL_LEGACY)
   NODE_NAME_CASE(RSQ_CLAMP)
   NODE_NAME_CASE(LDEXP)
   NODE_NAME_CASE(FP_CLASS)
@@ -2812,8 +2728,13 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(BFI)
   NODE_NAME_CASE(BFM)
   NODE_NAME_CASE(FFBH_U32)
+  NODE_NAME_CASE(FFBH_I32)
   NODE_NAME_CASE(MUL_U24)
   NODE_NAME_CASE(MUL_I24)
+  NODE_NAME_CASE(MULHI_U24)
+  NODE_NAME_CASE(MULHI_I24)
+  NODE_NAME_CASE(MUL_LOHI_U24)
+  NODE_NAME_CASE(MUL_LOHI_I24)
   NODE_NAME_CASE(MAD_U24)
   NODE_NAME_CASE(MAD_I24)
   NODE_NAME_CASE(TEXTURE_FETCH)
@@ -2833,6 +2754,7 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(BUILD_VERTICAL_VECTOR)
   NODE_NAME_CASE(CONST_DATA_PTR)
   NODE_NAME_CASE(PC_ADD_REL_OFFSET)
+  NODE_NAME_CASE(KILL)
   case AMDGPUISD::FIRST_MEM_OPCODE_NUMBER: break;
   NODE_NAME_CASE(SENDMSG)
   NODE_NAME_CASE(INTERP_MOV)

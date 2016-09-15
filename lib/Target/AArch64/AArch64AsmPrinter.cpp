@@ -354,7 +354,7 @@ void AArch64AsmPrinter::PrintDebugValueComment(const MachineInstr *MI,
 
 void AArch64AsmPrinter::LowerSTACKMAP(MCStreamer &OutStreamer, StackMaps &SM,
                                       const MachineInstr &MI) {
-  unsigned NumNOPBytes = MI.getOperand(1).getImm();
+  unsigned NumNOPBytes = StackMapOpers(&MI).getNumPatchBytes();
 
   SM.recordStackMap(MI);
   assert(NumNOPBytes % 4 == 0 && "Invalid number of NOP bytes requested!");
@@ -386,7 +386,7 @@ void AArch64AsmPrinter::LowerPATCHPOINT(MCStreamer &OutStreamer, StackMaps &SM,
 
   PatchPointOpers Opers(&MI);
 
-  int64_t CallTarget = Opers.getMetaOper(PatchPointOpers::TargetPos).getImm();
+  int64_t CallTarget = Opers.getCallTarget().getImm();
   unsigned EncodedBytes = 0;
   if (CallTarget) {
     assert((CallTarget & 0xFFFFFFFFFFFF) == CallTarget &&
@@ -411,7 +411,7 @@ void AArch64AsmPrinter::LowerPATCHPOINT(MCStreamer &OutStreamer, StackMaps &SM,
     EmitToStreamer(OutStreamer, MCInstBuilder(AArch64::BLR).addReg(ScratchReg));
   }
   // Emit padding.
-  unsigned NumBytes = Opers.getMetaOper(PatchPointOpers::NBytesPos).getImm();
+  unsigned NumBytes = Opers.getNumPatchBytes();
   assert(NumBytes >= EncodedBytes &&
          "Patchpoint can't request size less than the length of a call.");
   assert((NumBytes - EncodedBytes) % 4 == 0 &&

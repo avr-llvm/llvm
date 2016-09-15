@@ -12,12 +12,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/YAMLParser.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/ADT/ilist.h"
-#include "llvm/ADT/ilist_node.h"
+#include "llvm/ADT/AllocatorList.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
@@ -108,7 +108,7 @@ void SequenceNode::anchor() {}
 void AliasNode::anchor() {}
 
 /// Token - A single YAML token.
-struct Token : ilist_node<Token> {
+struct Token {
   enum TokenKind {
     TK_Error, // Uninitialized token.
     TK_StreamStart,
@@ -147,40 +147,7 @@ struct Token : ilist_node<Token> {
 }
 }
 
-namespace llvm {
-template<>
-struct ilist_sentinel_traits<Token> {
-  Token *createSentinel() const {
-    return &Sentinel;
-  }
-  static void destroySentinel(Token*) {}
-
-  Token *provideInitialHead() const { return createSentinel(); }
-  Token *ensureHead(Token*) const { return createSentinel(); }
-  static void noteHead(Token*, Token*) {}
-
-private:
-  mutable Token Sentinel;
-};
-
-template<>
-struct ilist_node_traits<Token> {
-  Token *createNode(const Token &V) {
-    return new (Alloc.Allocate<Token>()) Token(V);
-  }
-  static void deleteNode(Token *V) { V->~Token(); }
-
-  void addNodeToList(Token *) {}
-  void removeNodeFromList(Token *) {}
-  void transferNodesFromList(ilist_node_traits &    /*SrcTraits*/,
-                             ilist_iterator<Token> /*first*/,
-                             ilist_iterator<Token> /*last*/) {}
-
-  BumpPtrAllocator Alloc;
-};
-}
-
-typedef ilist<Token> TokenQueueT;
+typedef llvm::BumpPtrList<Token> TokenQueueT;
 
 namespace {
 /// @brief This struct is used to track simple keys.
@@ -802,8 +769,7 @@ Token &Scanner::peekNext() {
     removeStaleSimpleKeyCandidates();
     SimpleKey SK;
     SK.Tok = TokenQueue.begin();
-    if (std::find(SimpleKeys.begin(), SimpleKeys.end(), SK)
-        == SimpleKeys.end())
+    if (!is_contained(SimpleKeys, SK))
       break;
     else
       NeedMore = true;
@@ -819,9 +785,8 @@ Token Scanner::getNext() {
 
   // There cannot be any referenced Token's if the TokenQueue is empty. So do a
   // quick deallocation of them all.
-  if (TokenQueue.empty()) {
-    TokenQueue.Alloc.Reset();
-  }
+  if (TokenQueue.empty())
+    TokenQueue.resetAlloc();
 
   return Ret;
 }

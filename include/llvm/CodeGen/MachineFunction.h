@@ -48,29 +48,18 @@ class TargetRegisterClass;
 struct MachinePointerInfo;
 struct WinEHFuncInfo;
 
-template <>
-struct ilist_traits<MachineBasicBlock>
-    : public ilist_default_traits<MachineBasicBlock> {
-  mutable ilist_half_node<MachineBasicBlock> Sentinel;
-public:
-  // FIXME: This downcast is UB. See llvm.org/PR26753.
-  LLVM_NO_SANITIZE("object-size")
-  MachineBasicBlock *createSentinel() const {
-    return static_cast<MachineBasicBlock*>(&Sentinel);
-  }
-  void destroySentinel(MachineBasicBlock *) const {}
+template <> struct ilist_alloc_traits<MachineBasicBlock> {
+  void deleteNode(MachineBasicBlock *MBB);
+};
 
-  MachineBasicBlock *provideInitialHead() const { return createSentinel(); }
-  MachineBasicBlock *ensureHead(MachineBasicBlock*) const {
-    return createSentinel();
-  }
-  static void noteHead(MachineBasicBlock*, MachineBasicBlock*) {}
-
+template <> struct ilist_callback_traits<MachineBasicBlock> {
   void addNodeToList(MachineBasicBlock* MBB);
   void removeNodeFromList(MachineBasicBlock* MBB);
-  void deleteNode(MachineBasicBlock *MBB);
-private:
-  void createNode(const MachineBasicBlock &);
+
+  template <class Iterator>
+  void transferNodesFromList(ilist_callback_traits &OldList, Iterator, Iterator) {
+    llvm_unreachable("Never transfer between lists");
+  }
 };
 
 /// MachineFunctionInfo - This class can be derived from and used by targets to
@@ -94,8 +83,6 @@ struct MachineFunctionInfo {
 /// Each of these has checking code in the MachineVerifier, and passes can
 /// require that a property be set.
 class MachineFunctionProperties {
-  // TODO: Add MachineVerifier checks for AllVRegsAllocated
-  // TODO: Add a way to print the properties and make more useful error messages
   // Possible TODO: Allow targets to extend this (perhaps by allowing the
   // constructor to specify the size of the bit vector)
   // Possible TODO: Allow requiring the negative (e.g. VRegsAllocated could be
@@ -108,6 +95,7 @@ public:
   // Property descriptions:
   // IsSSA: True when the machine function is in SSA form and virtual registers
   //  have a single def.
+  // NoPHIs: The machine function does not contain any PHI instruction.
   // TracksLiveness: True when tracking register liveness accurately.
   //  While this property is set, register liveness information in basic block
   //  live-in lists and machine instruction operands (e.g. kill flags, implicit
@@ -115,13 +103,31 @@ public:
   //  that affect the values in registers, for example by the register
   //  scavenger.
   //  When this property is clear, liveness is no longer reliable.
-  // AllVRegsAllocated: All virtual registers have been allocated; i.e. all
-  //  register operands are physical registers.
+  // NoVRegs: The machine function does not use any virtual registers.
+  // Legalized: In GlobalISel: the MachineLegalizer ran and all pre-isel generic
+  //  instructions have been legalized; i.e., all instructions are now one of:
+  //   - generic and always legal (e.g., COPY)
+  //   - target-specific
+  //   - legal pre-isel generic instructions.
+  // RegBankSelected: In GlobalISel: the RegBankSelect pass ran and all generic
+  //  virtual registers have been assigned to a register bank.
+  // Selected: In GlobalISel: the InstructionSelect pass ran and all pre-isel
+  //  generic instructions have been eliminated; i.e., all instructions are now
+  //  target-specific or non-pre-isel generic instructions (e.g., COPY).
+  //  Since only pre-isel generic instructions can have generic virtual register
+  //  operands, this also means that all generic virtual registers have been
+  //  constrained to virtual registers (assigned to register classes) and that
+  //  all sizes attached to them have been eliminated.
   enum class Property : unsigned {
     IsSSA,
+    NoPHIs,
     TracksLiveness,
-    AllVRegsAllocated,
-    LastProperty,
+    NoVRegs,
+    FailedISel,
+    Legalized,
+    RegBankSelected,
+    Selected,
+    LastProperty = Selected,
   };
 
   bool hasProperty(Property P) const {
@@ -131,15 +137,20 @@ public:
     Properties.set(static_cast<unsigned>(P));
     return *this;
   }
-  MachineFunctionProperties &clear(Property P) {
+  MachineFunctionProperties &reset(Property P) {
     Properties.reset(static_cast<unsigned>(P));
+    return *this;
+  }
+  /// Reset all the properties.
+  MachineFunctionProperties &reset() {
+    Properties.reset();
     return *this;
   }
   MachineFunctionProperties &set(const MachineFunctionProperties &MFP) {
     Properties |= MFP.Properties;
     return *this;
   }
-  MachineFunctionProperties &clear(const MachineFunctionProperties &MFP) {
+  MachineFunctionProperties &reset(const MachineFunctionProperties &MFP) {
     Properties.reset(MFP.Properties);
     return *this;
   }
@@ -149,13 +160,12 @@ public:
     return !V.Properties.test(Properties);
   }
 
-  // Print the MachineFunctionProperties in human-readable form. If OnlySet is
-  // true, only print the properties that are set.
-  void print(raw_ostream &ROS, bool OnlySet=false) const;
+  /// Print the MachineFunctionProperties in human-readable form.
+  void print(raw_ostream &OS) const;
 
 private:
   BitVector Properties =
-      BitVector(static_cast<unsigned>(Property::LastProperty));
+      BitVector(static_cast<unsigned>(Property::LastProperty)+1);
 };
 
 class MachineFunction {
@@ -233,10 +243,27 @@ class MachineFunction {
 
   MachineFunction(const MachineFunction &) = delete;
   void operator=(const MachineFunction&) = delete;
+
+  /// Clear all the members of this MachineFunction, but the ones used
+  /// to initialize again the MachineFunction.
+  /// More specifically, this deallocates all the dynamically allocated
+  /// objects and get rid of all the XXXInfo data structure, but keep
+  /// unchanged the references to Fn, Target, MMI, and FunctionNumber.
+  void clear();
+  /// Allocate and initialize the different members.
+  /// In particular, the XXXInfo data structure.
+  /// \pre Fn, Target, MMI, and FunctionNumber are properly set.
+  void init();
 public:
   MachineFunction(const Function *Fn, const TargetMachine &TM,
                   unsigned FunctionNum, MachineModuleInfo &MMI);
   ~MachineFunction();
+
+  /// Reset the instance as if it was just created.
+  void reset() {
+    clear();
+    init();
+  }
 
   MachineModuleInfo &getMMI() const { return MMI; }
   MCContext &getContext() const { return Ctx; }
@@ -283,8 +310,8 @@ public:
   /// This object contains information about objects allocated on the stack
   /// frame of the current function in an abstract way.
   ///
-  MachineFrameInfo *getFrameInfo() { return FrameInfo; }
-  const MachineFrameInfo *getFrameInfo() const { return FrameInfo; }
+  MachineFrameInfo &getFrameInfo() { return *FrameInfo; }
+  const MachineFrameInfo &getFrameInfo() const { return *FrameInfo; }
 
   /// getJumpTableInfo - Return the jump table info object for the current
   /// function.  This object contains information about jump tables in the
@@ -422,8 +449,8 @@ public:
   // Provide accessors for the MachineBasicBlock list...
   typedef BasicBlockListType::iterator iterator;
   typedef BasicBlockListType::const_iterator const_iterator;
-  typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
-  typedef std::reverse_iterator<iterator>             reverse_iterator;
+  typedef BasicBlockListType::const_reverse_iterator const_reverse_iterator;
+  typedef BasicBlockListType::reverse_iterator reverse_iterator;
 
   /// Support for MachineBasicBlock::getNextNode().
   static BasicBlockListType MachineFunction::*
@@ -614,29 +641,29 @@ public:
 //
 template <> struct GraphTraits<MachineFunction*> :
   public GraphTraits<MachineBasicBlock*> {
-  static NodeType *getEntryNode(MachineFunction *F) {
-    return &F->front();
-  }
+  static NodeRef getEntryNode(MachineFunction *F) { return &F->front(); }
 
   // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
-  typedef MachineFunction::iterator nodes_iterator;
-  static nodes_iterator nodes_begin(MachineFunction *F) { return F->begin(); }
-  static nodes_iterator nodes_end  (MachineFunction *F) { return F->end(); }
+  typedef pointer_iterator<MachineFunction::iterator> nodes_iterator;
+  static nodes_iterator nodes_begin(MachineFunction *F) {
+    return nodes_iterator(F->begin());
+  }
+  static nodes_iterator nodes_end(MachineFunction *F) {
+    return nodes_iterator(F->end());
+  }
   static unsigned       size       (MachineFunction *F) { return F->size(); }
 };
 template <> struct GraphTraits<const MachineFunction*> :
   public GraphTraits<const MachineBasicBlock*> {
-  static NodeType *getEntryNode(const MachineFunction *F) {
-    return &F->front();
-  }
+  static NodeRef getEntryNode(const MachineFunction *F) { return &F->front(); }
 
   // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
-  typedef MachineFunction::const_iterator nodes_iterator;
+  typedef pointer_iterator<MachineFunction::const_iterator> nodes_iterator;
   static nodes_iterator nodes_begin(const MachineFunction *F) {
-    return F->begin();
+    return nodes_iterator(F->begin());
   }
   static nodes_iterator nodes_end  (const MachineFunction *F) {
-    return F->end();
+    return nodes_iterator(F->end());
   }
   static unsigned       size       (const MachineFunction *F)  {
     return F->size();
@@ -651,13 +678,13 @@ template <> struct GraphTraits<const MachineFunction*> :
 //
 template <> struct GraphTraits<Inverse<MachineFunction*> > :
   public GraphTraits<Inverse<MachineBasicBlock*> > {
-  static NodeType *getEntryNode(Inverse<MachineFunction*> G) {
+  static NodeRef getEntryNode(Inverse<MachineFunction *> G) {
     return &G.Graph->front();
   }
 };
 template <> struct GraphTraits<Inverse<const MachineFunction*> > :
   public GraphTraits<Inverse<const MachineBasicBlock*> > {
-  static NodeType *getEntryNode(Inverse<const MachineFunction *> G) {
+  static NodeRef getEntryNode(Inverse<const MachineFunction *> G) {
     return &G.Graph->front();
   }
 };
