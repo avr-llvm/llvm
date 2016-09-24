@@ -12,78 +12,138 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "FuzzerInternal.h"
+#include "FuzzerDefs.h"
+#include "FuzzerTracePC.h"
+#include "FuzzerValueBitMap.h"
 
 namespace fuzzer {
 
 TracePC TPC;
 
-void TracePC::HandleTrace(uint8_t *Guard, uintptr_t PC) {
-  if (UseCounters) {
-    uintptr_t GV = *Guard;
-    if (GV == 0) {
-      size_t Idx = Guard - Start;
-      if (TotalCoverageMap.AddValue(Idx)) {
-        TotalCoverage++;
-        AddNewPC(PC);
-      }
+void TracePC::HandleTrace(uintptr_t *Guard, uintptr_t PC) {
+  uintptr_t Idx = *Guard;
+  if (!Idx) return;
+  uint8_t *CounterPtr = &Counters[Idx % kNumCounters];
+  uint8_t Counter = *CounterPtr;
+  if (Counter == 0) {
+    if (!PCs[Idx]) {
+      AddNewPCID(Idx);
+      TotalPCCoverage++;
+      PCs[Idx] = PC;
     }
-    if (GV < 255)
-      GV++;
-    *Guard = GV;
+  }
+  if (UseCounters) {
+    if (Counter < 128)
+      *CounterPtr = Counter + 1;
+    else
+      *Guard = 0;
   } else {
-    *Guard = 0xff;
-    TotalCoverage++;
-    AddNewPC(PC);
+    *CounterPtr = 1;
+    *Guard = 0;
   }
 }
 
-void TracePC::HandleInit(uint8_t *Start, uint8_t *Stop) {
-  // TODO: this handles only one DSO/binary.
-  this->Start = Start;
-  this->Stop = Stop;
+void TracePC::HandleInit(uintptr_t *Start, uintptr_t *Stop) {
+  if (Start == Stop || *Start) return;
+  assert(NumModules < sizeof(Modules) / sizeof(Modules[0]));
+  for (uintptr_t *P = Start; P < Stop; P++)
+    *P = ++NumGuards;
+  Modules[NumModules].Start = Start;
+  Modules[NumModules].Stop = Stop;
+  NumModules++;
+}
+
+void TracePC::PrintModuleInfo() {
+  Printf("INFO: Loaded %zd modules (%zd guards): ", NumModules, NumGuards);
+  for (size_t i = 0; i < NumModules; i++)
+    Printf("[%p, %p), ", Modules[i].Start, Modules[i].Stop);
+  Printf("\n");
+}
+
+void TracePC::ResetGuards() {
+  uintptr_t N = 0;
+  for (size_t M = 0; M < NumModules; M++)
+    for (uintptr_t *X = Modules[M].Start; X < Modules[M].Stop; X++)
+      *X = ++N;
+  assert(N == NumGuards);
 }
 
 void TracePC::FinalizeTrace() {
-  if (UseCounters && TotalCoverage) {
-    for (uint8_t *X = Start; X < Stop; X++) {
-      uint8_t Value = *X;
-      size_t Idx = X - Start;
-      if (Value >= 1) {
-        unsigned Bit = 0;
-        /**/ if (Value >= 128) Bit = 7;
-        else if (Value >= 32) Bit = 6;
-        else if (Value >= 16) Bit = 5;
-        else if (Value >= 8) Bit = 4;
-        else if (Value >= 4) Bit = 3;
-        else if (Value >= 3) Bit = 2;
-        else if (Value >= 2) Bit = 1;
-        CounterMap.AddValue(Idx * 8 + Bit);
-      }
-      *X = 0;
+  if (TotalPCCoverage) {
+    for (size_t Idx = 1, N = Min(kNumCounters, NumGuards); Idx < N;
+         Idx++) {
+      uint8_t Counter = Counters[Idx];
+      if (!Counter) continue;
+      Counters[Idx] = 0;
+      unsigned Bit = 0;
+      /**/ if (Counter >= 128) Bit = 7;
+      else if (Counter >= 32) Bit = 6;
+      else if (Counter >= 16) Bit = 5;
+      else if (Counter >= 8) Bit = 4;
+      else if (Counter >= 4) Bit = 3;
+      else if (Counter >= 3) Bit = 2;
+      else if (Counter >= 2) Bit = 1;
+      CounterMap.AddValue(Idx * 8 + Bit);
     }
   }
 }
 
-size_t TracePC::UpdateCounterMap(ValueBitMap *Map) {
-  if (!TotalCoverage) return 0;
-  size_t NewTotalCounterBits = Map->MergeFrom(CounterMap);
-  size_t Delta = NewTotalCounterBits - TotalCounterBits;
-  TotalCounterBits = NewTotalCounterBits;
-  return Delta;
+void TracePC::HandleCallerCallee(uintptr_t Caller, uintptr_t Callee) {
+  const uintptr_t kBits = 12;
+  const uintptr_t kMask = (1 << kBits) - 1;
+  CounterMap.AddValue((Caller & kMask) | ((Callee & kMask) << kBits));
+}
+
+void TracePC::PrintCoverage() {
+  Printf("COVERAGE:\n");
+  for (size_t i = 0; i < Min(NumGuards, kNumPCs); i++) {
+    if (PCs[i])
+      PrintPC("COVERED: %p %F %L\n", "COVERED: %p\n", PCs[i]);
+  }
+}
+
+
+void TracePC::UpdateFeatureSet(size_t CurrentElementIdx, size_t CurrentElementSize) {
+  if (!CurrentElementSize) return;
+  for (size_t Idx = 0; Idx < kFeatureSetSize; Idx++) {
+    if (!CounterMap.Get(Idx)) continue;
+    Feature &Fe = FeatureSet[Idx];
+    Fe.Count++;
+    if (!Fe.SmallestElementSize || Fe.SmallestElementSize > CurrentElementSize) {
+      Fe.SmallestElementIdx = CurrentElementIdx;
+      Fe.SmallestElementSize = CurrentElementSize;
+    }
+  }
+}
+
+void TracePC::PrintFeatureSet() {
+  Printf("[id: cnt idx sz] ");
+  for (size_t i = 0; i < kFeatureSetSize; i++) {
+    auto &Fe = FeatureSet[i];
+    if (!Fe.Count) continue;
+    Printf("[%zd: %zd %zd %zd] ", i, Fe.Count, Fe.SmallestElementIdx,
+           Fe.SmallestElementSize);
+  }
+  Printf("\n");
 }
 
 } // namespace fuzzer
 
 extern "C" {
 __attribute__((visibility("default")))
-void __sanitizer_cov_trace_pc_guard(uint8_t *Guard) {
+void __sanitizer_cov_trace_pc_guard(uintptr_t *Guard) {
   uintptr_t PC = (uintptr_t)__builtin_return_address(0);
   fuzzer::TPC.HandleTrace(Guard, PC);
 }
 
 __attribute__((visibility("default")))
-void __sanitizer_cov_trace_pc_guard_init(uint8_t *Start, uint8_t *Stop) {
+void __sanitizer_cov_trace_pc_guard_init(uintptr_t *Start, uintptr_t *Stop) {
   fuzzer::TPC.HandleInit(Start, Stop);
+}
+
+__attribute__((visibility("default")))
+void __sanitizer_cov_trace_pc_indir(uintptr_t Callee) {
+  uintptr_t PC = (uintptr_t)__builtin_return_address(0);
+  fuzzer::TPC.HandleCallerCallee(PC, Callee);
 }
 }

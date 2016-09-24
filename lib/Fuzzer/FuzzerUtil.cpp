@@ -55,15 +55,11 @@ void PrintASCII(const uint8_t *Data, size_t Size, const char *PrintAfter) {
   Printf("%s", PrintAfter);
 }
 
-void PrintASCII(const Word &W, const char *PrintAfter) {
-  PrintASCII(W.data(), W.size(), PrintAfter);
-}
-
 void PrintASCII(const Unit &U, const char *PrintAfter) {
   PrintASCII(U.data(), U.size(), PrintAfter);
 }
 
-std::string Sha1ToString(uint8_t Sha1[kSHA1NumBytes]) {
+std::string Sha1ToString(const uint8_t Sha1[kSHA1NumBytes]) {
   std::stringstream SS;
   for (int i = 0; i < kSHA1NumBytes; i++)
     SS << std::hex << std::setfill('0') << std::setw(2) << (unsigned)Sha1[i];
@@ -246,7 +242,7 @@ bool ParseDictionaryFile(const std::string &Text, std::vector<Unit> *Units) {
 }
 
 void SleepSeconds(int Seconds) {
-  std::this_thread::sleep_for(std::chrono::seconds(Seconds));
+  sleep(Seconds);  // Use C API to avoid coverage from instrumented libc++.
 }
 
 int GetPid() { return getpid(); }
@@ -292,6 +288,18 @@ size_t GetPeakRSSMb() {
   }
   assert(0 && "GetPeakRSSMb() is not implemented for your platform");
   return 0;
+}
+
+void PrintPC(const char *SymbolizedFMT, const char *FallbackFMT, uintptr_t PC) {
+  if (EF->__sanitizer_symbolize_pc) {
+    char PcDescr[1024];
+    EF->__sanitizer_symbolize_pc(reinterpret_cast<void*>(PC),
+                                 SymbolizedFMT, PcDescr, sizeof(PcDescr));
+    PcDescr[sizeof(PcDescr) - 1] = 0;  // Just in case.
+    Printf("%s", PcDescr);
+  } else {
+    Printf(FallbackFMT, PC);
+  }
 }
 
 }  // namespace fuzzer

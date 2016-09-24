@@ -2500,7 +2500,7 @@ void ModuleBitcodeWriter::writeInstruction(const Instruction &I,
 
     // Emit type/value pairs for varargs params.
     if (FTy->isVarArg()) {
-      for (unsigned i = FTy->getNumParams(), e = I.getNumOperands()-3;
+      for (unsigned i = FTy->getNumParams(), e = II->getNumArgOperands();
            i != e; ++i)
         pushValueAndType(I.getOperand(i), InstID, Vals); // vararg
     }
@@ -2999,7 +2999,8 @@ void ModuleBitcodeWriter::writeFunction(
     }
 
   // Emit names for all the instructions etc.
-  writeValueSymbolTable(F.getValueSymbolTable());
+  if (auto *Symtab = F.getValueSymbolTable())
+    writeValueSymbolTable(*Symtab);
 
   if (NeedsMetadataAttachment)
     writeFunctionMetadataAttachment(F);
@@ -3340,12 +3341,14 @@ static const uint64_t INDEX_VERSION = 1;
 /// Emit the per-module summary section alongside the rest of
 /// the module's bitcode.
 void ModuleBitcodeWriter::writePerModuleGlobalValueSummary() {
-  if (Index->begin() == Index->end())
-    return;
-
   Stream.EnterSubblock(bitc::GLOBALVAL_SUMMARY_BLOCK_ID, 4);
 
   Stream.EmitRecord(bitc::FS_VERSION, ArrayRef<uint64_t>{INDEX_VERSION});
+
+  if (Index->begin() == Index->end()) {
+    Stream.ExitBlock();
+    return;
+  }
 
   // Abbrev for FS_PERMODULE.
   BitCodeAbbrev *Abbv = new BitCodeAbbrev();

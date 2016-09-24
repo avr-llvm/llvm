@@ -118,9 +118,11 @@ namespace options {
   static unsigned OptLevel = 2;
   // Default parallelism of 0 used to indicate that user did not specify.
   // Actual parallelism default value depends on implementation.
-  // Currently, code generation defaults to no parallelism, whereas
-  // ThinLTO uses the hardware_concurrency as the default.
+  // Currently only affects ThinLTO, where the default is the
+  // hardware_concurrency.
   static unsigned Parallelism = 0;
+  // Default regular LTO codegen parallelism (number of partitions).
+  static unsigned ParallelCodeGenParallelismLevel = 1;
 #ifdef NDEBUG
   static bool DisableVerify = true;
 #else
@@ -211,6 +213,10 @@ namespace options {
     } else if (opt.startswith("jobs=")) {
       if (StringRef(opt_ + 5).getAsInteger(10, Parallelism))
         message(LDPL_FATAL, "Invalid parallelism level: %s", opt_ + 5);
+    } else if (opt.startswith("lto-partitions=")) {
+      if (opt.substr(strlen("lto-partitions="))
+              .getAsInteger(10, ParallelCodeGenParallelismLevel))
+        message(LDPL_FATAL, "Invalid codegen partition level: %s", opt_ + 5);
     } else if (opt == "disable-verify") {
       DisableVerify = true;
     } else {
@@ -669,28 +675,9 @@ static void getThinLTOOldAndNewPrefix(std::string &OldPrefix,
   NewPrefix = Split.second.str();
 }
 
-namespace {
-// Define the LTOOutput handling
-class LTOOutput : public lto::NativeObjectOutput {
-  StringRef Path;
-
-public:
-  LTOOutput(StringRef Path) : Path(Path) {}
-  // Open the filename \p Path and allocate a stream.
-  std::unique_ptr<raw_pwrite_stream> getStream() override {
-    int FD;
-    std::error_code EC = sys::fs::openFileForWrite(Path, FD, sys::fs::F_None);
-    if (EC)
-      message(LDPL_FATAL, "Could not open file: %s", EC.message().c_str());
-    return llvm::make_unique<llvm::raw_fd_ostream>(FD, true);
-  }
-};
-}
-
 static std::unique_ptr<LTO> createLTO() {
   Config Conf;
   ThinBackend Backend;
-  unsigned ParallelCodeGenParallelismLevel = 1;
 
   Conf.CPU = options::mcpu;
   Conf.Options = InitTargetOptionsFromCodeGenFlags();
@@ -704,12 +691,8 @@ static std::unique_ptr<LTO> createLTO() {
   Conf.CGOptLevel = getCGOptLevel();
   Conf.DisableVerify = options::DisableVerify;
   Conf.OptLevel = options::OptLevel;
-  if (options::Parallelism) {
-    if (options::thinlto)
-      Backend = createInProcessThinBackend(options::Parallelism);
-    else
-      ParallelCodeGenParallelismLevel = options::Parallelism;
-  }
+  if (options::Parallelism)
+    Backend = createInProcessThinBackend(options::Parallelism);
   if (options::thinlto_index_only) {
     std::string OldPrefix, NewPrefix;
     getThinLTOOldAndNewPrefix(OldPrefix, NewPrefix);
@@ -749,7 +732,35 @@ static std::unique_ptr<LTO> createLTO() {
   }
 
   return llvm::make_unique<LTO>(std::move(Conf), Backend,
-                                ParallelCodeGenParallelismLevel);
+                                options::ParallelCodeGenParallelismLevel);
+}
+
+// Write empty files that may be expected by a distributed build
+// system when invoked with thinlto_index_only. This is invoked when
+// the linker has decided not to include the given module in the
+// final link. Frequently the distributed build system will want to
+// confirm that all expected outputs are created based on all of the
+// modules provided to the linker.
+static void writeEmptyDistributedBuildOutputs(std::string &ModulePath,
+                                              std::string &OldPrefix,
+                                              std::string &NewPrefix) {
+  std::string NewModulePath =
+      getThinLTOOutputFile(ModulePath, OldPrefix, NewPrefix);
+  std::error_code EC;
+  {
+    raw_fd_ostream OS(NewModulePath + ".thinlto.bc", EC,
+                      sys::fs::OpenFlags::F_None);
+    if (EC)
+      message(LDPL_FATAL, "Failed to write '%s': %s",
+              (NewModulePath + ".thinlto.bc").c_str(), EC.message().c_str());
+  }
+  if (options::thinlto_emit_imports_files) {
+    raw_fd_ostream OS(NewModulePath + ".imports", EC,
+                      sys::fs::OpenFlags::F_None);
+    if (EC)
+      message(LDPL_FATAL, "Failed to write '%s': %s",
+              (NewModulePath + ".imports").c_str(), EC.message().c_str());
+  }
 }
 
 /// gold informs us that all symbols have been read. At this point, we use
@@ -771,13 +782,22 @@ static ld_plugin_status allSymbolsReadHook() {
 
   std::unique_ptr<LTO> Lto = createLTO();
 
+  std::string OldPrefix, NewPrefix;
+  if (options::thinlto_index_only)
+    getThinLTOOldAndNewPrefix(OldPrefix, NewPrefix);
+
   for (claimed_file &F : Modules) {
     if (options::thinlto && !HandleToInputFile.count(F.leader_handle))
       HandleToInputFile.insert(std::make_pair(
           F.leader_handle, llvm::make_unique<PluginInputFile>(F.handle)));
     const void *View = getSymbolsAndView(F);
-    if (!View)
+    if (!View) {
+      if (options::thinlto_index_only)
+        // Write empty output files that may be expected by the distributed
+        // build system.
+        writeEmptyDistributedBuildOutputs(F.name, OldPrefix, NewPrefix);
       continue;
+    }
     addModule(*Lto, F, View);
   }
 
@@ -793,21 +813,27 @@ static ld_plugin_status allSymbolsReadHook() {
   std::vector<uintptr_t> IsTemporary(MaxTasks);
   std::vector<SmallString<128>> Filenames(MaxTasks);
 
-  auto AddOutput =
-      [&](size_t Task) -> std::unique_ptr<lto::NativeObjectOutput> {
-    auto &OutputName = Filenames[Task];
-    getOutputFileName(Filename, /*TempOutFile=*/!SaveTemps, OutputName,
+  auto AddStream =
+      [&](size_t Task) -> std::unique_ptr<lto::NativeObjectStream> {
+    IsTemporary[Task] = !SaveTemps;
+    getOutputFileName(Filename, /*TempOutFile=*/!SaveTemps, Filenames[Task],
                       MaxTasks > 1 ? Task : -1);
-    IsTemporary[Task] = !SaveTemps && options::cache_dir.empty();
-    if (options::cache_dir.empty())
-      return llvm::make_unique<LTOOutput>(OutputName);
-
-    return llvm::make_unique<CacheObjectOutput>(
-        options::cache_dir,
-        [&OutputName](std::string EntryPath) { OutputName = EntryPath; });
+    int FD;
+    std::error_code EC =
+        sys::fs::openFileForWrite(Filenames[Task], FD, sys::fs::F_None);
+    if (EC)
+      message(LDPL_FATAL, "Could not open file: %s", EC.message().c_str());
+    return llvm::make_unique<lto::NativeObjectStream>(
+        llvm::make_unique<llvm::raw_fd_ostream>(FD, true));
   };
 
-  check(Lto->run(AddOutput));
+  auto AddFile = [&](size_t Task, StringRef Path) { Filenames[Task] = Path; };
+
+  NativeObjectCache Cache;
+  if (!options::cache_dir.empty())
+    Cache = localCache(options::cache_dir, AddFile);
+
+  check(Lto->run(AddStream, Cache));
 
   if (options::TheOutputType == options::OT_DISABLE ||
       options::TheOutputType == options::OT_BC_ONLY)

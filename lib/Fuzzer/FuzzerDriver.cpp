@@ -9,8 +9,11 @@
 // FuzzerDriver and flag parsing.
 //===----------------------------------------------------------------------===//
 
+#include "FuzzerCorpus.h"
 #include "FuzzerInterface.h"
 #include "FuzzerInternal.h"
+#include "FuzzerMutate.h"
+#include "FuzzerRandom.h"
 
 #include <algorithm>
 #include <atomic>
@@ -333,19 +336,15 @@ int MinimizeCrashInput(const std::vector<std::string> &Args) {
   return 0;
 }
 
-int MinimizeCrashInputInternalStep(Fuzzer *F) {
+int MinimizeCrashInputInternalStep(Fuzzer *F, InputCorpus *Corpus) {
   assert(Inputs->size() == 1);
   std::string InputFilePath = Inputs->at(0);
   Unit U = FileToVector(InputFilePath);
   assert(U.size() > 2);
   Printf("INFO: Starting MinimizeCrashInputInternalStep: %zd\n", U.size());
-  Unit X(U.size() - 1);
-  for (size_t I = 0; I < U.size(); I++) {
-    std::copy(U.begin(), U.begin() + I, X.begin());
-    std::copy(U.begin() + I + 1, U.end(), X.begin() + I);
-    F->AddToCorpus(X);
-  }
-  F->SetMaxLen(U.size() - 1);
+  Corpus->AddToCorpus(U);
+  F->SetMaxInputLen(U.size());
+  F->SetMaxMutationLen(U.size() - 1);
   F->Loop();
   Printf("INFO: Done MinimizeCrashInputInternalStep, no crashes found\n");
   exit(0);
@@ -398,6 +397,7 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
   Options.UseIndirCalls = Flags.use_indir_calls;
   Options.UseMemcmp = Flags.use_memcmp;
   Options.UseMemmem = Flags.use_memmem;
+  Options.UseValueProfile = Flags.use_value_profile;
   Options.ShuffleAtStartUp = Flags.shuffle;
   Options.PreferSmall = Flags.prefer_small;
   Options.Reload = Flags.reload;
@@ -425,11 +425,9 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
       !DoPlainRun || Flags.minimize_crash_internal_step;
   Options.PrintNewCovPcs = Flags.print_pcs;
   Options.PrintFinalStats = Flags.print_final_stats;
-  Options.TruncateUnits = Flags.truncate_units;
+  Options.PrintCorpusStats = Flags.print_corpus_stats;
+  Options.PrintCoverage = Flags.print_coverage;
   Options.PruneCorpus = Flags.prune_corpus;
-
-  if (Flags.use_value_profile)
-    EnableValueProfile();
 
   unsigned Seed = Flags.seed;
   // Initialize Seed.
@@ -441,7 +439,8 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
 
   Random Rand(Seed);
   MutationDispatcher MD(Rand, Options);
-  Fuzzer F(Callback, MD, Options);
+  InputCorpus Corpus;
+  Fuzzer F(Callback, Corpus, MD, Options);
 
   for (auto &U: Dictionary)
     if (U.size() <= Word::GetMaxSize())
@@ -461,7 +460,7 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
   if (Flags.handle_term) SetSigTermHandler();
 
   if (Flags.minimize_crash_internal_step)
-    return MinimizeCrashInputInternalStep(&F);
+    return MinimizeCrashInputInternalStep(&F, &Corpus);
 
   if (DoPlainRun) {
     Options.SaveArtifacts = false;
@@ -487,32 +486,33 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
 
   if (Flags.merge) {
     if (Options.MaxLen == 0)
-      F.SetMaxLen(kMaxSaneLen);
+      F.SetMaxInputLen(kMaxSaneLen);
     F.Merge(*Inputs);
     exit(0);
   }
 
   size_t TemporaryMaxLen = Options.MaxLen ? Options.MaxLen : kMaxSaneLen;
 
-  F.RereadOutputCorpus(TemporaryMaxLen);
-  for (auto &inp : *Inputs)
-    if (inp != Options.OutputCorpus)
-      F.ReadDir(inp, nullptr, TemporaryMaxLen);
+  UnitVector InitialCorpus;
+  for (auto &Inp : *Inputs) {
+    Printf("Loading corpus dir: %s\n", Inp.c_str());
+    ReadDirToVectorOfUnits(Inp.c_str(), &InitialCorpus, nullptr, TemporaryMaxLen);
+  }
 
-  if (Options.MaxLen == 0)
-    F.SetMaxLen(
-        std::min(std::max(kMinDefaultLen, F.MaxUnitSizeInCorpus()), kMaxSaneLen));
+  if (Options.MaxLen == 0) {
+    size_t MaxLen = 0;
+    for (auto &U : InitialCorpus)
+      MaxLen = std::max(U.size(), MaxLen);
+    F.SetMaxInputLen(std::min(std::max(kMinDefaultLen, MaxLen), kMaxSaneLen));
+  }
 
-  if (F.CorpusSize() == 0) {
-    F.AddToCorpus(Unit());  // Can't fuzz empty corpus, so add an empty input.
+  if (InitialCorpus.empty()) {
+    InitialCorpus.push_back(Unit());
     if (Options.Verbosity)
       Printf("INFO: A corpus is not provided, starting from an empty corpus\n");
   }
-  F.ShuffleAndMinimize();
-  if (Flags.drill)
-    F.Drill();
-  else
-    F.Loop();
+  F.ShuffleAndMinimize(&InitialCorpus);
+  F.Loop();
 
   if (Flags.verbosity)
     Printf("Done %d runs in %zd second(s)\n", F.getTotalNumberOfRuns(),

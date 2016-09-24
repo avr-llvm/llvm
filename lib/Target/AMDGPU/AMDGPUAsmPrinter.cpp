@@ -123,7 +123,7 @@ void AMDGPUAsmPrinter::EmitStartOfAsmFile(Module &M) {
 void AMDGPUAsmPrinter::EmitFunctionBodyStart() {
   const AMDGPUSubtarget &STM = MF->getSubtarget<AMDGPUSubtarget>();
   SIProgramInfo KernelInfo;
-  if (STM.isAmdHsaOS()) {
+  if (STM.isAmdCodeObjectV2()) {
     getSIProgramInfo(KernelInfo, *MF);
     EmitAmdKernelCodeT(*MF, KernelInfo);
   }
@@ -132,7 +132,7 @@ void AMDGPUAsmPrinter::EmitFunctionBodyStart() {
 void AMDGPUAsmPrinter::EmitFunctionEntryLabel() {
   const SIMachineFunctionInfo *MFI = MF->getInfo<SIMachineFunctionInfo>();
   const AMDGPUSubtarget &STM = MF->getSubtarget<AMDGPUSubtarget>();
-  if (MFI->isKernel() && STM.isAmdHsaOS()) {
+  if (MFI->isKernel() && STM.isAmdCodeObjectV2()) {
     AMDGPUTargetStreamer *TS =
         static_cast<AMDGPUTargetStreamer *>(OutStreamer->getTargetStreamer());
     TS->EmitAMDGPUSymbolType(CurrentFnSym->getName(),
@@ -730,7 +730,8 @@ void AMDGPUAsmPrinter::EmitAmdKernelCodeT(const MachineFunction &MF,
     header.code_properties |= AMD_CODE_PROPERTY_IS_XNACK_SUPPORTED;
 
   // FIXME: Should use getKernArgSize
-  header.kernarg_segment_byte_size = MFI->getABIArgOffset();
+  header.kernarg_segment_byte_size =
+      STM.getKernArgSegmentSize(MFI->getABIArgOffset());
   header.wavefront_sgpr_count = KernelInfo.NumSGPR;
   header.workitem_vgpr_count = KernelInfo.NumVGPR;
   header.workitem_private_segment_byte_size = KernelInfo.ScratchSize;

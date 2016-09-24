@@ -115,8 +115,7 @@ void XCoreAsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
     return;
 
   const DataLayout &DL = getDataLayout();
-  OutStreamer->SwitchSection(
-      getObjFileLowering().SectionForGlobal(GV, *Mang, TM));
+  OutStreamer->SwitchSection(getObjFileLowering().SectionForGlobal(GV, TM));
 
   MCSymbol *GVSym = getSymbol(GV);
   const Constant *C = GV->getInitializer();
@@ -172,7 +171,7 @@ void XCoreAsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
 }
 
 void XCoreAsmPrinter::EmitFunctionBodyStart() {
-  MCInstLowering.Initialize(Mang, &MF->getContext());
+  MCInstLowering.Initialize(&MF->getContext());
 }
 
 /// EmitFunctionBodyEnd - Targets can override this to emit stuff after

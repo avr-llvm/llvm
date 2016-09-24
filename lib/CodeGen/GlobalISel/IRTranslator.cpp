@@ -56,7 +56,7 @@ unsigned IRTranslator::getOrCreateVReg(const Value &Val) {
     // we need to concat together to produce the value.
     assert(Val.getType()->isSized() &&
            "Don't know how to create an empty vreg");
-    unsigned VReg = MRI->createGenericVirtualRegister(LLT{*Val.getType(), DL});
+    unsigned VReg = MRI->createGenericVirtualRegister(LLT{*Val.getType(), *DL});
     ValReg = VReg;
 
     if (auto CV = dyn_cast<Constant>(&Val)) {
@@ -176,7 +176,7 @@ bool IRTranslator::translateLoad(const User &U) {
   MachineFunction &MF = MIRBuilder.getMF();
   unsigned Res = getOrCreateVReg(LI);
   unsigned Addr = getOrCreateVReg(*LI.getPointerOperand());
-  LLT VTy{*LI.getType(), DL}, PTy{*LI.getPointerOperand()->getType()};
+  LLT VTy{*LI.getType(), *DL}, PTy{*LI.getPointerOperand()->getType(), *DL};
 
   MIRBuilder.buildLoad(
       Res, Addr,
@@ -197,8 +197,8 @@ bool IRTranslator::translateStore(const User &U) {
   MachineFunction &MF = MIRBuilder.getMF();
   unsigned Val = getOrCreateVReg(*SI.getValueOperand());
   unsigned Addr = getOrCreateVReg(*SI.getPointerOperand());
-  LLT VTy{*SI.getValueOperand()->getType(), DL},
-      PTy{*SI.getPointerOperand()->getType()};
+  LLT VTy{*SI.getValueOperand()->getType(), *DL},
+      PTy{*SI.getPointerOperand()->getType(), *DL};
 
   MIRBuilder.buildStore(
       Val, Addr,
@@ -270,7 +270,7 @@ bool IRTranslator::translateSelect(const User &U) {
 }
 
 bool IRTranslator::translateBitCast(const User &U) {
-  if (LLT{*U.getOperand(0)->getType()} == LLT{*U.getType()}) {
+  if (LLT{*U.getOperand(0)->getType(), *DL} == LLT{*U.getType(), *DL}) {
     unsigned &Reg = ValToVReg[&U];
     if (Reg)
       MIRBuilder.buildCopy(Reg, getOrCreateVReg(*U.getOperand(0)));
@@ -295,7 +295,7 @@ bool IRTranslator::translateGetElementPtr(const User &U) {
 
   Value &Op0 = *U.getOperand(0);
   unsigned BaseReg = getOrCreateVReg(Op0);
-  LLT PtrTy(*Op0.getType());
+  LLT PtrTy{*Op0.getType(), *DL};
   unsigned PtrSize = DL->getPointerSizeInBits(PtrTy.getAddressSpace());
   LLT OffsetTy = LLT::scalar(PtrSize);
 
@@ -372,7 +372,7 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI,
   case Intrinsic::smul_with_overflow: Op = TargetOpcode::G_SMULO; break;
   }
 
-  LLT Ty{*CI.getOperand(0)->getType()};
+  LLT Ty{*CI.getOperand(0)->getType(), *DL};
   LLT s1 = LLT::scalar(1);
   unsigned Width = Ty.getSizeInBits();
   unsigned Res = MRI->createGenericVirtualRegister(Ty);
@@ -399,7 +399,6 @@ bool IRTranslator::translateCall(const User &U) {
   const Function *F = CI.getCalledFunction();
 
   if (!F || !F->isIntrinsic()) {
-    // FIXME: handle multiple return values.
     unsigned Res = CI.getType()->isVoidTy() ? 0 : getOrCreateVReg(CI);
     SmallVector<unsigned, 8> Args;
     for (auto &Arg: CI.arg_operands())
@@ -557,8 +556,7 @@ bool IRTranslator::runOnMachineFunction(MachineFunction &MF) {
   SmallVector<unsigned, 8> VRegArgs;
   for (const Argument &Arg: F.args())
     VRegArgs.push_back(getOrCreateVReg(Arg));
-  bool Succeeded =
-      CLI->lowerFormalArguments(MIRBuilder, F.getArgumentList(), VRegArgs);
+  bool Succeeded = CLI->lowerFormalArguments(MIRBuilder, F, VRegArgs);
   if (!Succeeded) {
     if (!TPC->isGlobalISelAbortEnabled()) {
       MIRBuilder.getMF().getProperties().set(

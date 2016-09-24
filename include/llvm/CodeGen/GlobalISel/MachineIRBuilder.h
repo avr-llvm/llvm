@@ -111,6 +111,16 @@ public:
   /// \return a MachineInstrBuilder for the newly created instruction.
   MachineInstrBuilder buildInstr(unsigned Opcode);
 
+  /// Build but don't insert <empty> = \p Opcode <empty>.
+  ///
+  /// \pre setMF, setBasicBlock or setMI  must have been called.
+  ///
+  /// \return a MachineInstrBuilder for the newly created instruction.
+  MachineInstrBuilder buildInstrNoInsert(unsigned Opcode);
+
+  /// Insert an existing instruction at the insertion point.
+  MachineInstrBuilder insertInstr(MachineInstrBuilder MIB);
+
   /// Build and insert \p Res<def> = G_FRAME_INDEX \p Idx
   ///
   /// G_FRAME_INDEX materializes the address of an alloca value or other
@@ -363,7 +373,7 @@ public:
   /// \return a MachineInstrBuilder for the newly created instruction.
   MachineInstrBuilder buildSequence(unsigned Res,
                                     ArrayRef<unsigned> Ops,
-                                    ArrayRef<unsigned> Indices);
+                                    ArrayRef<uint64_t> Indices);
 
   void addUsesWithIndices(MachineInstrBuilder MIB) {}
 
@@ -437,8 +447,8 @@ public:
   /// \pre \p Res must be a generic virtual register with scalar or
   ///      vector type. Typically this starts as s1 or <N x s1>.
   /// \pre \p Op0 and Op1 must be generic virtual registers with the
-  ///      same number of elements as \p Res (or scalar, if \p Res is
-  ///      scalar).
+  ///      same number of elements as \p Res. If \p Res is a scalar,
+  ///      \p Op0 must be either a scalar or pointer.
   /// \pre \p Pred must be an integer predicate.
   ///
   /// \return a MachineInstrBuilder for the newly created instruction.

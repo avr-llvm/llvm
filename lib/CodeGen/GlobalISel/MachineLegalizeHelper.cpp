@@ -109,9 +109,10 @@ MachineLegalizeHelper::libcall(MachineInstr &MI) {
     const char *Name =
         TLI.getLibcallName(Size == 64 ? RTLIB::REM_F64 : RTLIB::REM_F32);
 
-    CLI.lowerCall(MIRBuilder, MachineOperand::CreateES(Name), Ty,
-                  MI.getOperand(0).getReg(), {Ty, Ty},
-                  {MI.getOperand(1).getReg(), MI.getOperand(2).getReg()});
+    CLI.lowerCall(
+        MIRBuilder, MachineOperand::CreateES(Name),
+        {MI.getOperand(0).getReg(), Ty},
+        {{MI.getOperand(1).getReg(), Ty}, {MI.getOperand(2).getReg(), Ty}});
     MI.eraseFromParent();
     return Legalized;
   }
@@ -135,7 +136,8 @@ MachineLegalizeHelper::narrowScalar(MachineInstr &MI, unsigned TypeIdx,
 
     MIRBuilder.setInstr(MI);
 
-    SmallVector<unsigned, 2> Src1Regs, Src2Regs, DstRegs, Indexes;
+    SmallVector<unsigned, 2> Src1Regs, Src2Regs, DstRegs;
+    SmallVector<uint64_t, 2> Indexes;
     extractParts(MI.getOperand(1).getReg(), NarrowTy, NumParts, Src1Regs);
     extractParts(MI.getOperand(2).getReg(), NarrowTy, NumParts, Src2Regs);
 
@@ -281,6 +283,13 @@ MachineLegalizeHelper::widenScalar(MachineInstr &MI, unsigned TypeIdx,
     MI.eraseFromParent();
     return Legalized;
   }
+  case TargetOpcode::G_GEP: {
+    assert(TypeIdx == 1 && "unable to legalize pointer of GEP");
+    unsigned OffsetExt = MRI.createGenericVirtualRegister(WideTy);
+    MIRBuilder.buildSExt(OffsetExt, MI.getOperand(2).getReg());
+    MI.getOperand(2).setReg(OffsetExt);
+    return Legalized;
+  }
   }
 }
 
@@ -326,7 +335,8 @@ MachineLegalizeHelper::fewerElementsVector(MachineInstr &MI, unsigned TypeIdx,
 
     MIRBuilder.setInstr(MI);
 
-    SmallVector<unsigned, 2> Src1Regs, Src2Regs, DstRegs, Indexes;
+    SmallVector<unsigned, 2> Src1Regs, Src2Regs, DstRegs;
+    SmallVector<uint64_t, 2> Indexes;
     extractParts(MI.getOperand(1).getReg(), NarrowTy, NumParts, Src1Regs);
     extractParts(MI.getOperand(2).getReg(), NarrowTy, NumParts, Src2Regs);
 

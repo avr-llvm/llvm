@@ -672,6 +672,9 @@ PPCTargetLowering::PPCTargetLowering(const PPCTargetMachine &TM,
       setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v4i32, Custom);
       setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v4f32, Custom);
     }
+
+    if (Subtarget.isISA3_0() && Subtarget.hasDirectMove())
+      setOperationAction(ISD::BUILD_VECTOR, MVT::v2i64, Legal);
   }
 
   if (Subtarget.hasQPX()) {
@@ -7079,6 +7082,16 @@ static SDValue BuildVSLDOI(SDValue LHS, SDValue RHS, unsigned Amt, EVT VT,
   return DAG.getNode(ISD::BITCAST, dl, VT, T);
 }
 
+static bool isNonConstSplatBV(BuildVectorSDNode *BVN, EVT Type) {
+  if (BVN->getValueType(0) != Type)
+    return false;
+  auto OpZero = BVN->getOperand(0);
+  for (int i = 1, e = BVN->getNumOperands(); i < e; i++)
+    if (BVN->getOperand(i) != OpZero)
+      return false;
+  return true;
+}
+
 // If this is a case we can't handle, return null and let the default
 // expansion code take care of it.  If we CAN select this case, and if it
 // selects to a single instruction, return Op.  Otherwise, if we can codegen
@@ -7200,8 +7213,17 @@ SDValue PPCTargetLowering::LowerBUILD_VECTOR(SDValue Op,
   bool HasAnyUndefs;
   if (! BVN->isConstantSplat(APSplatBits, APSplatUndef, SplatBitSize,
                              HasAnyUndefs, 0, !Subtarget.isLittleEndian()) ||
-      SplatBitSize > 32)
+      SplatBitSize > 32) {
+    // We can splat a non-const value on CPU's that implement ISA 3.0
+    // in two ways: LXVWSX (load and splat) and MTVSRWS(move and splat).
+    auto OpZero = BVN->getOperand(0);
+    bool CanLoadAndSplat = OpZero.getOpcode() == ISD::LOAD &&
+      BVN->isOnlyUserOf(OpZero.getNode());
+    if (Subtarget.isISA3_0() &&
+        isNonConstSplatBV(BVN, MVT::v4i32) && !CanLoadAndSplat)
+      return Op;
     return SDValue();
+  }
 
   unsigned SplatBits = APSplatBits.getZExtValue();
   unsigned SplatUndef = APSplatUndef.getZExtValue();
@@ -7218,6 +7240,10 @@ SDValue PPCTargetLowering::LowerBUILD_VECTOR(SDValue Op,
     }
     return Op;
   }
+
+  // We have XXSPLTIB for constant splats one byte wide
+  if (Subtarget.isISA3_0() && Op.getValueType() == MVT::v16i8)
+    return Op;
 
   // If the sign extended value is in the range [-16,15], use VSPLTI[bhw].
   int32_t SextVal= (int32_t(SplatBits << (32-SplatBitSize)) >>
@@ -7462,6 +7488,18 @@ SDValue PPCTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
   if (Subtarget.hasVSX()) {
     if (V2.isUndef() && PPC::isSplatShuffleMask(SVOp, 4)) {
       int SplatIdx = PPC::getVSPLTImmediate(SVOp, 4, DAG);
+
+      // If the source for the shuffle is a scalar_to_vector that came from a
+      // 32-bit load, it will have used LXVWSX so we don't need to splat again.
+      if (Subtarget.isISA3_0() &&
+          ((isLittleEndian && SplatIdx == 3) ||
+           (!isLittleEndian && SplatIdx == 0))) {
+        SDValue Src = V1.getOperand(0);
+        if (Src.getOpcode() == ISD::SCALAR_TO_VECTOR &&
+            Src.getOperand(0).getOpcode() == ISD::LOAD &&
+            Src.getOperand(0).hasOneUse())
+          return V1;
+      }
       SDValue Conv = DAG.getNode(ISD::BITCAST, dl, MVT::v4i32, V1);
       SDValue Splat = DAG.getNode(PPCISD::XXSPLT, dl, MVT::v4i32, Conv,
                                   DAG.getConstant(SplatIdx, dl, MVT::i32));
@@ -8507,8 +8545,17 @@ PPCTargetLowering::EmitAtomicBinary(MachineInstr &MI, MachineBasicBlock *BB,
   if (BinOpcode)
     BuildMI(BB, dl, TII->get(BinOpcode), TmpReg).addReg(incr).addReg(dest);
   if (CmpOpcode) {
-    BuildMI(BB, dl, TII->get(CmpOpcode), PPC::CR0)
-      .addReg(incr).addReg(dest);
+    // Signed comparisons of byte or halfword values must be sign-extended.
+    if (CmpOpcode == PPC::CMPW && AtomicSize < 4) {
+      unsigned ExtReg =  RegInfo.createVirtualRegister(&PPC::GPRCRegClass);
+      BuildMI(BB, dl, TII->get(AtomicSize == 1 ? PPC::EXTSB : PPC::EXTSH),
+              ExtReg).addReg(dest);
+      BuildMI(BB, dl, TII->get(CmpOpcode), PPC::CR0)
+        .addReg(incr).addReg(ExtReg);
+    } else
+      BuildMI(BB, dl, TII->get(CmpOpcode), PPC::CR0)
+        .addReg(incr).addReg(dest);
+
     BuildMI(BB, dl, TII->get(PPC::BCC))
       .addImm(CmpPred).addReg(PPC::CR0).addMBB(exitMBB);
     BB->addSuccessor(loop2MBB);
@@ -10734,10 +10781,11 @@ SDValue PPCTargetLowering::PerformDAGCombine(SDNode *N,
     }
 
     // For little endian, VSX stores require generating xxswapd/lxvd2x.
+    // Not needed on ISA 3.0 based CPUs since we have a non-permuting store.
     EVT VT = N->getOperand(1).getValueType();
     if (VT.isSimple()) {
       MVT StoreVT = VT.getSimpleVT();
-      if (Subtarget.hasVSX() && Subtarget.isLittleEndian() &&
+      if (Subtarget.needsSwapsForVSXMemOps() &&
           (StoreVT == MVT::v2f64 || StoreVT == MVT::v2i64 ||
            StoreVT == MVT::v4f32 || StoreVT == MVT::v4i32))
         return expandVSXStoreForLE(N, DCI);
@@ -10749,9 +10797,10 @@ SDValue PPCTargetLowering::PerformDAGCombine(SDNode *N,
     EVT VT = LD->getValueType(0);
 
     // For little endian, VSX loads require generating lxvd2x/xxswapd.
+    // Not needed on ISA 3.0 based CPUs since we have a non-permuting load.
     if (VT.isSimple()) {
       MVT LoadVT = VT.getSimpleVT();
-      if (Subtarget.hasVSX() && Subtarget.isLittleEndian() &&
+      if (Subtarget.needsSwapsForVSXMemOps() &&
           (LoadVT == MVT::v2f64 || LoadVT == MVT::v2i64 ||
            LoadVT == MVT::v4f32 || LoadVT == MVT::v4i32))
         return expandVSXLoadForLE(N, DCI);
@@ -11066,7 +11115,8 @@ SDValue PPCTargetLowering::PerformDAGCombine(SDNode *N,
     break;
   case ISD::INTRINSIC_W_CHAIN: {
     // For little endian, VSX loads require generating lxvd2x/xxswapd.
-    if (Subtarget.hasVSX() && Subtarget.isLittleEndian()) {
+    // Not needed on ISA 3.0 based CPUs since we have a non-permuting load.
+    if (Subtarget.needsSwapsForVSXMemOps()) {
       switch (cast<ConstantSDNode>(N->getOperand(1))->getZExtValue()) {
       default:
         break;
@@ -11079,7 +11129,8 @@ SDValue PPCTargetLowering::PerformDAGCombine(SDNode *N,
   }
   case ISD::INTRINSIC_VOID: {
     // For little endian, VSX stores require generating xxswapd/stxvd2x.
-    if (Subtarget.hasVSX() && Subtarget.isLittleEndian()) {
+    // Not needed on ISA 3.0 based CPUs since we have a non-permuting store.
+    if (Subtarget.needsSwapsForVSXMemOps()) {
       switch (cast<ConstantSDNode>(N->getOperand(1))->getZExtValue()) {
       default:
         break;

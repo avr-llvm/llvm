@@ -12,6 +12,8 @@
 #ifndef LLVM_FUZZER_VALUE_BIT_MAP_H
 #define LLVM_FUZZER_VALUE_BIT_MAP_H
 
+#include "FuzzerDefs.h"
+
 namespace fuzzer {
 
 // A bit map containing kMapSizeInWords bits.
@@ -21,6 +23,7 @@ struct ValueBitMap {
   static const size_t kBitsInWord = (sizeof(uintptr_t) * 8);
   static const size_t kMapSizeInWords = kMapSizeInBitsAligned / kBitsInWord;
  public:
+  static const size_t kNumberOfItems = kMapSizeInBits;
   // Clears all bits.
   void Reset() { memset(Map, 0, sizeof(Map)); }
 
@@ -36,11 +39,21 @@ struct ValueBitMap {
     return New != Old;
   }
 
-  // Merges 'Other' into 'this', clears 'Other',
-  // returns the number of set bits in 'this'.
+  inline bool Get(uintptr_t Idx) {
+    assert(Idx < kMapSizeInBits);
+    uintptr_t WordIdx = Idx / kBitsInWord;
+    uintptr_t BitIdx = Idx % kBitsInWord;
+    return Map[WordIdx] & (1UL << BitIdx);
+  }
+
+  size_t GetNumBitsSinceLastMerge() const { return NumBits; }
+
+  // Merges 'Other' into 'this', clears 'Other', updates NumBits,
+  // returns true if new bits were added.
   ATTRIBUTE_TARGET_POPCNT
-  size_t MergeFrom(ValueBitMap &Other) {
+  bool MergeFrom(ValueBitMap &Other) {
     uintptr_t Res = 0;
+    size_t OldNumBits = NumBits;
     for (size_t i = 0; i < kMapSizeInWords; i++) {
       auto O = Other.Map[i];
       auto M = Map[i];
@@ -51,10 +64,12 @@ struct ValueBitMap {
       if (M)
         Res += __builtin_popcountl(M);
     }
-    return Res;
+    NumBits = Res;
+    return OldNumBits < NumBits;
   }
 
  private:
+  size_t NumBits;
   uintptr_t Map[kMapSizeInWords] __attribute__((aligned(512)));
 };
 

@@ -847,10 +847,10 @@ bool TargetLibraryInfoImpl::isValidProtoForLibFunc(const FunctionType &FTy,
   case LibFunc::stat64:
   case LibFunc::lstat64:
   case LibFunc::statvfs64:
-    return (NumParams >= 1 && FTy.getParamType(0)->isPointerTy() &&
+    return (NumParams == 2 && FTy.getParamType(0)->isPointerTy() &&
             FTy.getParamType(1)->isPointerTy());
   case LibFunc::dunder_isoc99_sscanf:
-    return (NumParams >= 1 && FTy.getParamType(0)->isPointerTy() &&
+    return (NumParams >= 2 && FTy.getParamType(0)->isPointerTy() &&
             FTy.getParamType(1)->isPointerTy());
   case LibFunc::fopen64:
     return (NumParams == 2 && FTy.getReturnType()->isPointerTy() &&
@@ -957,11 +957,14 @@ bool TargetLibraryInfoImpl::isValidProtoForLibFunc(const FunctionType &FTy,
   case LibFunc::ffs:
   case LibFunc::ffsl:
   case LibFunc::ffsll:
+    return (NumParams == 1 && FTy.getReturnType()->isIntegerTy(32) &&
+            FTy.getParamType(0)->isIntegerTy());
+
   case LibFunc::isdigit:
   case LibFunc::isascii:
   case LibFunc::toascii:
     return (NumParams == 1 && FTy.getReturnType()->isIntegerTy(32) &&
-            FTy.getParamType(0)->isIntegerTy());
+            FTy.getReturnType() == FTy.getParamType(0));
 
   case LibFunc::fls:
   case LibFunc::flsl:

@@ -409,15 +409,19 @@ unsigned LTO::getMaxTasks() const {
   return RegularLTO.ParallelCodeGenParallelismLevel + ThinLTO.ModuleMap.size();
 }
 
-Error LTO::run(AddOutputFn AddOutput) {
+Error LTO::run(AddStreamFn AddStream, NativeObjectCache Cache) {
+  // Save the status of having a regularLTO combined module, as
+  // this is needed for generating the ThinLTO Task ID, and
+  // the CombinedModule will be moved at the end of runRegularLTO.
+  bool HasRegularLTO = RegularLTO.CombinedModule != nullptr;
   // Invoke regular LTO if there was a regular LTO module to start with.
-  if (RegularLTO.CombinedModule)
-    if (auto E = runRegularLTO(AddOutput))
+  if (HasRegularLTO)
+    if (auto E = runRegularLTO(AddStream))
       return E;
-  return runThinLTO(AddOutput);
+  return runThinLTO(AddStream, Cache, HasRegularLTO);
 }
 
-Error LTO::runRegularLTO(AddOutputFn AddOutput) {
+Error LTO::runRegularLTO(AddStreamFn AddStream) {
   // Make sure commons have the right size/alignment: we kept the largest from
   // all the prevailing when adding the inputs, and we apply it here.
   const DataLayout &DL = RegularLTO.CombinedModule->getDataLayout();
@@ -474,7 +478,7 @@ Error LTO::runRegularLTO(AddOutputFn AddOutput) {
         !Conf.PostInternalizeModuleHook(0, *RegularLTO.CombinedModule))
       return Error();
   }
-  return backend(Conf, AddOutput, RegularLTO.ParallelCodeGenParallelismLevel,
+  return backend(Conf, AddStream, RegularLTO.ParallelCodeGenParallelismLevel,
                  std::move(RegularLTO.CombinedModule));
 }
 
@@ -503,7 +507,8 @@ public:
 
 class InProcessThinBackend : public ThinBackendProc {
   ThreadPool BackendThreadPool;
-  AddOutputFn AddOutput;
+  AddStreamFn AddStream;
+  NativeObjectCache Cache;
 
   Optional<Error> Err;
   std::mutex ErrMu;
@@ -513,42 +518,40 @@ public:
       Config &Conf, ModuleSummaryIndex &CombinedIndex,
       unsigned ThinLTOParallelismLevel,
       const StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries,
-      AddOutputFn AddOutput)
+      AddStreamFn AddStream, NativeObjectCache Cache)
       : ThinBackendProc(Conf, CombinedIndex, ModuleToDefinedGVSummaries),
         BackendThreadPool(ThinLTOParallelismLevel),
-        AddOutput(std::move(AddOutput)) {}
+        AddStream(std::move(AddStream)), Cache(std::move(Cache)) {}
 
   Error runThinLTOBackendThread(
-      AddOutputFn AddOutput, unsigned Task, MemoryBufferRef MBRef,
-      ModuleSummaryIndex &CombinedIndex,
+      AddStreamFn AddStream, NativeObjectCache Cache, unsigned Task,
+      MemoryBufferRef MBRef, ModuleSummaryIndex &CombinedIndex,
       const FunctionImporter::ImportMapTy &ImportList,
       const FunctionImporter::ExportSetTy &ExportList,
       const std::map<GlobalValue::GUID, GlobalValue::LinkageTypes> &ResolvedODR,
       const GVSummaryMapTy &DefinedGlobals,
       MapVector<StringRef, MemoryBufferRef> &ModuleMap) {
+    auto RunThinBackend = [&](AddStreamFn AddStream) {
+      LTOLLVMContext BackendContext(Conf);
+      ErrorOr<std::unique_ptr<Module>> MOrErr =
+          parseBitcodeFile(MBRef, BackendContext);
+      assert(MOrErr && "Unable to load module in thread?");
 
-    auto ModuleIdentifier = MBRef.getBufferIdentifier();
-    auto Output = AddOutput(Task);
-    if (Output->isCachingEnabled()) {
-      SmallString<40> Key;
-      // The module may be cached, this helps handling it.
-      computeCacheKey(Key, CombinedIndex, ModuleIdentifier, ImportList,
-                      ExportList, ResolvedODR, DefinedGlobals);
-      if (Output->tryLoadFromCache(Key))
-        return Error();
-    }
-
-    LTOLLVMContext BackendContext(Conf);
-    ErrorOr<std::unique_ptr<Module>> MOrErr =
-        parseBitcodeFile(MBRef, BackendContext);
-    assert(MOrErr && "Unable to load module in thread?");
-
-    auto AddOutputWrapper = [&](unsigned TaskId) {
-      assert(Task == TaskId && "Unexpexted TaskId mismatch");
-      return std::move(Output);
+      return thinBackend(Conf, Task, AddStream, **MOrErr, CombinedIndex,
+                         ImportList, DefinedGlobals, ModuleMap);
     };
-    return thinBackend(Conf, Task, AddOutputWrapper, **MOrErr, CombinedIndex,
-                       ImportList, DefinedGlobals, ModuleMap);
+
+    if (!Cache)
+      return RunThinBackend(AddStream);
+
+    SmallString<40> Key;
+    // The module may be cached, this helps handling it.
+    computeCacheKey(Key, CombinedIndex, MBRef.getBufferIdentifier(),
+                    ImportList, ExportList, ResolvedODR, DefinedGlobals);
+    if (AddStreamFn CacheAddStream = Cache(Task, Key))
+      return RunThinBackend(CacheAddStream);
+
+    return Error();
   }
 
   Error start(
@@ -570,8 +573,8 @@ public:
             const GVSummaryMapTy &DefinedGlobals,
             MapVector<StringRef, MemoryBufferRef> &ModuleMap) {
           Error E = runThinLTOBackendThread(
-              AddOutput, Task, MBRef, CombinedIndex, ImportList, ExportList,
-              ResolvedODR, DefinedGlobals, ModuleMap);
+              AddStream, Cache, Task, MBRef, CombinedIndex, ImportList,
+              ExportList, ResolvedODR, DefinedGlobals, ModuleMap);
           if (E) {
             std::unique_lock<std::mutex> L(ErrMu);
             if (Err)
@@ -598,11 +601,31 @@ public:
 ThinBackend lto::createInProcessThinBackend(unsigned ParallelismLevel) {
   return [=](Config &Conf, ModuleSummaryIndex &CombinedIndex,
              const StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries,
-             AddOutputFn AddOutput) {
+             AddStreamFn AddStream, NativeObjectCache Cache) {
     return llvm::make_unique<InProcessThinBackend>(
         Conf, CombinedIndex, ParallelismLevel, ModuleToDefinedGVSummaries,
-        AddOutput);
+        AddStream, Cache);
   };
+}
+
+// Given the original \p Path to an output file, replace any path
+// prefix matching \p OldPrefix with \p NewPrefix. Also, create the
+// resulting directory if it does not yet exist.
+std::string lto::getThinLTOOutputFile(const std::string &Path,
+                                      const std::string &OldPrefix,
+                                      const std::string &NewPrefix) {
+  if (OldPrefix.empty() && NewPrefix.empty())
+    return Path;
+  SmallString<128> NewPath(Path);
+  llvm::sys::path::replace_path_prefix(NewPath, OldPrefix, NewPrefix);
+  StringRef ParentPath = llvm::sys::path::parent_path(NewPath.str());
+  if (!ParentPath.empty()) {
+    // Make sure the new directory exists, creating it if necessary.
+    if (std::error_code EC = llvm::sys::fs::create_directories(ParentPath))
+      llvm::errs() << "warning: could not create directory '" << ParentPath
+                   << "': " << EC.message() << '\n';
+  }
+  return NewPath.str();
 }
 
 class WriteIndexesThinBackend : public ThinBackendProc {
@@ -622,26 +645,6 @@ public:
         OldPrefix(OldPrefix), NewPrefix(NewPrefix),
         ShouldEmitImportsFiles(ShouldEmitImportsFiles),
         LinkedObjectsFileName(LinkedObjectsFileName) {}
-
-  /// Given the original \p Path to an output file, replace any path
-  /// prefix matching \p OldPrefix with \p NewPrefix. Also, create the
-  /// resulting directory if it does not yet exist.
-  std::string getThinLTOOutputFile(const std::string &Path,
-                                   const std::string &OldPrefix,
-                                   const std::string &NewPrefix) {
-    if (OldPrefix.empty() && NewPrefix.empty())
-      return Path;
-    SmallString<128> NewPath(Path);
-    llvm::sys::path::replace_path_prefix(NewPath, OldPrefix, NewPrefix);
-    StringRef ParentPath = llvm::sys::path::parent_path(NewPath.str());
-    if (!ParentPath.empty()) {
-      // Make sure the new directory exists, creating it if necessary.
-      if (std::error_code EC = llvm::sys::fs::create_directories(ParentPath))
-        llvm::errs() << "warning: could not create directory '" << ParentPath
-                     << "': " << EC.message() << '\n';
-    }
-    return NewPath.str();
-  }
 
   Error start(
       unsigned Task, MemoryBufferRef MBRef,
@@ -689,14 +692,15 @@ ThinBackend lto::createWriteIndexesThinBackend(std::string OldPrefix,
                                                std::string LinkedObjectsFile) {
   return [=](Config &Conf, ModuleSummaryIndex &CombinedIndex,
              const StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries,
-             AddOutputFn AddOutput) {
+             AddStreamFn AddStream, NativeObjectCache Cache) {
     return llvm::make_unique<WriteIndexesThinBackend>(
         Conf, CombinedIndex, ModuleToDefinedGVSummaries, OldPrefix, NewPrefix,
         ShouldEmitImportsFiles, LinkedObjectsFile);
   };
 }
 
-Error LTO::runThinLTO(AddOutputFn AddOutput) {
+Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
+                      bool HasRegularLTO) {
   if (ThinLTO.ModuleMap.empty())
     return Error();
 
@@ -709,6 +713,16 @@ Error LTO::runThinLTO(AddOutputFn AddOutput) {
       ModuleToDefinedGVSummaries(ThinLTO.ModuleMap.size());
   ThinLTO.CombinedIndex.collectDefinedGVSummariesPerModule(
       ModuleToDefinedGVSummaries);
+  // Create entries for any modules that didn't have any GV summaries
+  // (either they didn't have any GVs to start with, or we suppressed
+  // generation of the summaries because they e.g. had inline assembly
+  // uses that couldn't be promoted/renamed on export). This is so
+  // InProcessThinBackend::start can still launch a backend thread, which
+  // is passed the map of summaries for the module, without any special
+  // handling for this case.
+  for (auto &Mod : ThinLTO.ModuleMap)
+    if (!ModuleToDefinedGVSummaries.count(Mod.first))
+      ModuleToDefinedGVSummaries.try_emplace(Mod.first);
 
   StringMap<FunctionImporter::ImportMapTy> ImportLists(
       ThinLTO.ModuleMap.size());
@@ -745,17 +759,17 @@ Error LTO::runThinLTO(AddOutputFn AddOutput) {
   thinLTOResolveWeakForLinkerInIndex(ThinLTO.CombinedIndex, isPrevailing,
                                      recordNewLinkage);
 
-  std::unique_ptr<ThinBackendProc> BackendProc = ThinLTO.Backend(
-      Conf, ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries, AddOutput);
+  std::unique_ptr<ThinBackendProc> BackendProc =
+      ThinLTO.Backend(Conf, ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries,
+                      AddStream, Cache);
 
   // Partition numbers for ThinLTO jobs start at 1 (see comments for
   // GlobalResolution in LTO.h). Task numbers, however, start at
   // ParallelCodeGenParallelismLevel if an LTO module is present, as tasks 0
   // through ParallelCodeGenParallelismLevel-1 are reserved for parallel code
   // generation partitions.
-  unsigned Task = RegularLTO.CombinedModule
-                      ? RegularLTO.ParallelCodeGenParallelismLevel
-                      : 0;
+  unsigned Task =
+      HasRegularLTO ? RegularLTO.ParallelCodeGenParallelismLevel : 0;
   unsigned Partition = 1;
 
   for (auto &Mod : ThinLTO.ModuleMap) {

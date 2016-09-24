@@ -138,6 +138,14 @@ public:
     return TargetTriple.getOS() == Triple::AMDHSA;
   }
 
+  bool isMesa3DOS() const {
+    return TargetTriple.getOS() == Triple::Mesa3D;
+  }
+
+  bool isOpenCLEnv() const {
+    return TargetTriple.getEnvironment() == Triple::OpenCL;
+  }
+
   Generation getGeneration() const {
     return Gen;
   }
@@ -270,14 +278,26 @@ public:
     return EnableXNACK;
   }
 
+  bool isAmdCodeObjectV2() const {
+    return isAmdHsaOS() || isMesa3DOS();
+  }
+
   /// \brief Returns the offset in bytes from the start of the input buffer
   ///        of the first explicit kernel argument.
   unsigned getExplicitKernelArgOffset() const {
-    return isAmdHsaOS() ? 0 : 36;
+    return isAmdCodeObjectV2() ? 0 : 36;
   }
 
   unsigned getAlignmentForImplicitArgPtr() const {
     return isAmdHsaOS() ? 8 : 4;
+  }
+
+  unsigned getImplicitArgNumBytes() const {
+    if (isMesa3DOS())
+      return 16;
+    if (isAmdHsaOS() && isOpenCLEnv())
+      return 32;
+    return 0;
   }
 
   unsigned getStackAlignment() const {
@@ -480,6 +500,10 @@ public:
     return Has16BitInsts;
   }
 
+  bool hasScalarCompareEq64() const {
+    return getGeneration() >= VOLCANIC_ISLANDS;
+  }
+
   bool enableSIScheduler() const {
     return EnableSIScheduler;
   }
@@ -508,6 +532,8 @@ public:
   bool hasSGPRInitBug() const {
     return SGPRInitBug;
   }
+
+  unsigned getKernArgSegmentSize(unsigned ExplictArgBytes) const;
 
   /// Return the maximum number of waves per SIMD for kernels using \p SGPRs SGPRs
   unsigned getOccupancyWithNumSGPRs(unsigned SGPRs) const;

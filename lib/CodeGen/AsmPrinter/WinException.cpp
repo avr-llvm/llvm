@@ -90,7 +90,7 @@ void WinException::beginFunction(const MachineFunction *MF) {
 
   // If we're not using CFI, we don't want the CFI or the personality, but we
   // might want EH tables if we had EH pads.
-  if (!Asm->MAI->usesWindowsCFI()) {
+  if (!Asm->MAI->usesWindowsCFI() || (!MF->hasWinCFI() && !Per)) {
     shouldEmitLSDA = hasEHFunclets;
     shouldEmitPersonality = false;
     return;
@@ -204,7 +204,7 @@ void WinException::beginFunclet(const MachineBasicBlock &MBB,
     if (F->hasPersonalityFn())
       PerFn = dyn_cast<Function>(F->getPersonalityFn()->stripPointerCasts());
     const MCSymbol *PersHandlerSym =
-        TLOF.getCFIPersonalitySymbol(PerFn, *Asm->Mang, Asm->TM, MMI);
+        TLOF.getCFIPersonalitySymbol(PerFn, Asm->TM, MMI);
 
     // Classify the personality routine so that we may reason about it.
     EHPersonality Per = EHPersonality::Unknown;
