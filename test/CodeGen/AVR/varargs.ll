@@ -27,8 +27,8 @@ define i16 @varargs1(i8* nocapture %x, ...) {
 
 define i16 @varargs2(i8* nocapture %x, ...) {
 ; CHECK-LABEL: varargs2:
-; CHECK: ldd r24, Y+9
-; CHECK: ldd r25, Y+10
+; CHECK: ld r24, Z
+; CHECK: ldd r25, Z+1
   %ap = alloca i8*
   %ap1 = bitcast i8** %ap to i8*
   call void @llvm.va_start(i8* %ap1)
