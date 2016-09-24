@@ -19,3 +19,13 @@ define i16 @zext2(i8 %x, i8 %y) {
   %1 = zext i8 %y to i16
   ret i16 %1
 }
+
+; zext R25:R24, R24
+; eor R25, R25
+define i16 @zext_i1(i1 %x) {
+; CHECK-LABEL: zext_i1:
+; CHECK: eor r25, r25
+  %1 = zext i1 %x to i16
+  ret i16 %1
+}
+
