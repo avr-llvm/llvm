@@ -1639,9 +1639,9 @@ AVRTargetLowering::getConstraintType(StringRef Constraint) const {
     case 'w': // Special upper register pairs
       return C_RegisterClass;
     case 't': // Temporary register
-    case 'x': // Pointer register pair X
-    case 'y': // Pointer register pair Y
-    case 'z': // Pointer register pair Z
+    case 'x': case 'X': // Pointer register pair X
+    case 'y': case 'Y': // Pointer register pair Y
+    case 'z': case 'Z': // Pointer register pair Z
       return C_Register;
     case 'Q': // A memory address based on Y or Z pointer with displacement.
       return C_Memory;
@@ -1704,9 +1704,9 @@ AVRTargetLowering::getSingleConstraintMatchWeight(
   case 'q':
   case 't':
   case 'w':
-  case 'x':
-  case 'y':
-  case 'z':
+  case 'x': case 'X':
+  case 'y': case 'Y':
+  case 'z': case 'Z':
     weight = CW_SpecificReg;
     break;
   case 'G':
@@ -1825,10 +1825,13 @@ AVRTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
     case 'w': // Special upper register pairs: r24, r26, r28, r30.
       return std::make_pair(0U, &AVR::IWREGSRegClass);
     case 'x': // Pointer register pair X: r27:r26.
+    case 'X':
       return std::make_pair(unsigned(AVR::R27R26), &AVR::PTRREGSRegClass);
     case 'y': // Pointer register pair Y: r29:r28.
+    case 'Y':
       return std::make_pair(unsigned(AVR::R29R28), &AVR::PTRREGSRegClass);
     case 'z': // Pointer register pair Z: r31:r30.
+    case 'Z':
       return std::make_pair(unsigned(AVR::R31R30), &AVR::PTRREGSRegClass);
     default:
       break;
