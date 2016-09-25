@@ -1242,7 +1242,7 @@ class AtomicLoad<PatFrag Op, RegisterClass DRC> :
          [(set DRC:$rd, (Op i16:$rr))]>;
 
 class AtomicStore<PatFrag Op, RegisterClass DRC> :
-  Pseudo<(outs), (ins LDSTPtrReg:$rd, DRC:$rr), "atomic_op",
+  Pseudo<(outs), (ins PTRDISPREGS:$rd, DRC:$rr), "atomic_op",
          [(Op i16:$rd, DRC:$rr)]>;
 
 class AtomicLoadOp<PatFrag Op, RegisterClass DRC> :

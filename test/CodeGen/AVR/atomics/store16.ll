@@ -11,3 +11,15 @@ define void @atomic_store16(i16* %foo) {
   ret void
 }
 
+; CHECK-LABEL: monotonic
+; CHECK:      in r0, 63
+; CHECK-NEXT: cli
+; CHECK-NEXT: st Z, r24
+; CHECK-NEXT: std Z+1, r25
+; CHECK-NEXT: out 63, r0
+define void @monotonic(i16) {
+entry-block:
+  store atomic i16 %0, i16* undef monotonic, align 2
+  ret void
+}
+
