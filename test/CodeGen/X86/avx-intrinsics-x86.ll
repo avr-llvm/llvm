@@ -4549,7 +4549,7 @@ define void @movnt_dq(i8* %p, <2 x i64> %a1) nounwind {
 ; AVX-LABEL: movnt_dq:
 ; AVX:       ## BB#0:
 ; AVX-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; AVX-NEXT:    vpaddq LCPI256_0, %xmm0, %xmm0
+; AVX-NEXT:    vpaddq LCPI254_0, %xmm0, %xmm0
 ; AVX-NEXT:    vmovntdq %ymm0, (%eax)
 ; AVX-NEXT:    vzeroupper
 ; AVX-NEXT:    retl
@@ -4557,7 +4557,7 @@ define void @movnt_dq(i8* %p, <2 x i64> %a1) nounwind {
 ; AVX512VL-LABEL: movnt_dq:
 ; AVX512VL:       ## BB#0:
 ; AVX512VL-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; AVX512VL-NEXT:    vpaddq LCPI256_0, %xmm0, %xmm0
+; AVX512VL-NEXT:    vpaddq LCPI254_0, %xmm0, %xmm0
 ; AVX512VL-NEXT:    vmovntdq %ymm0, (%eax)
 ; AVX512VL-NEXT:    retl
   %a2 = add <2 x i64> %a1, <i64 1, i64 1>

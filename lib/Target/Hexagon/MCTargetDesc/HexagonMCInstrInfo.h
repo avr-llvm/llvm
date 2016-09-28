@@ -89,16 +89,6 @@ MCInst deriveSubInst(MCInst const &Inst);
 // Return the extender for instruction at Index or nullptr if none
 MCInst const *extenderForIndex(MCInst const &MCB, size_t Index);
 
-// Return the extender for instruction at Index or nullptr if none
-MCInst const *extenderForIndex(MCInst const &MCB, size_t Index);
-
-// Create a duplex instruction given the two subinsts
-MCInst *deriveDuplex(MCContext &Context, unsigned iClass, MCInst const &inst0,
-                     MCInst const &inst1);
-
-// Convert this instruction in to a duplex subinst
-MCInst deriveSubInst(MCInst const &Inst);
-
 // Return memory access size
 HexagonII::MemAccessSize getAccessSize(MCInstrInfo const &MCII,
                                        MCInst const &MCI);

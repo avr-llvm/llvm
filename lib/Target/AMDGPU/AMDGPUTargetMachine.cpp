@@ -521,13 +521,6 @@ void GCNPassConfig::addIRPasses() {
   AMDGPUPassConfig::addIRPasses();
 }
 
-void GCNPassConfig::addIRPasses() {
-  // TODO: May want to move later or split into an early and late one.
-  addPass(createAMDGPUCodeGenPreparePass(&getGCNTargetMachine()));
-
-  AMDGPUPassConfig::addIRPasses();
-}
-
 bool GCNPassConfig::addInstSelector() {
   AMDGPUPassConfig::addInstSelector();
   addPass(createSILowerI1CopiesPass());
