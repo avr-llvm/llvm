@@ -41,7 +41,7 @@ public:
   /// Gets the type of the expression.
   VariantKind getKind() const { return Kind; }
   /// Gets the name of the expression.
-  char const *getName() const;
+  const char *getName() const;
   const MCExpr *getSubExpr() const { return SubExpr; }
   /// Gets the fixup which corresponds to the expression.
   AVR::Fixups getFixupKind() const;
@@ -51,7 +51,6 @@ public:
   bool isNegated() const { return Negated; }
   void setNegated(bool negated = true) { Negated = negated; }
 
-public: // MCTargetExpr
   void printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const override;
   bool evaluateAsRelocatableImpl(MCValue &Res, const MCAsmLayout *Layout,
                                  const MCFixup *Fixup) const override;
@@ -79,8 +78,8 @@ private:
   bool Negated;
 
 private:
-  explicit AVRMCExpr(VariantKind _Kind, const MCExpr *_Expr, bool Negated)
-      : Kind(_Kind), SubExpr(_Expr), Negated(Negated) {}
+  explicit AVRMCExpr(VariantKind Kind, const MCExpr *Expr, bool Negated)
+      : Kind(Kind), SubExpr(Expr), Negated(Negated) {}
   ~AVRMCExpr() {}
 };
 

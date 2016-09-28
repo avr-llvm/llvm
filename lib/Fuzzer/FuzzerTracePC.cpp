@@ -70,20 +70,27 @@ void TracePC::ResetGuards() {
 
 void TracePC::FinalizeTrace() {
   if (TotalPCCoverage) {
-    for (size_t Idx = 1, N = Min(kNumCounters, NumGuards); Idx < N;
-         Idx++) {
-      uint8_t Counter = Counters[Idx];
-      if (!Counter) continue;
-      Counters[Idx] = 0;
-      unsigned Bit = 0;
-      /**/ if (Counter >= 128) Bit = 7;
-      else if (Counter >= 32) Bit = 6;
-      else if (Counter >= 16) Bit = 5;
-      else if (Counter >= 8) Bit = 4;
-      else if (Counter >= 4) Bit = 3;
-      else if (Counter >= 3) Bit = 2;
-      else if (Counter >= 2) Bit = 1;
-      CounterMap.AddValue(Idx * 8 + Bit);
+    const size_t Step = 8;
+    assert(reinterpret_cast<uintptr_t>(Counters) % Step == 0);
+    size_t N = Min(kNumCounters, NumGuards + 1);
+    N = (N + Step - 1) & ~(Step - 1);  // Round up.
+    for (size_t Idx = 0; Idx < N; Idx += Step) {
+      uint64_t Bundle = *reinterpret_cast<uint64_t*>(&Counters[Idx]);
+      if (!Bundle) continue;
+      for (size_t i = Idx; i < Idx + Step; i++) {
+        uint8_t Counter = (Bundle >> (i * 8)) & 0xff;
+        if (!Counter) continue;
+        Counters[i] = 0;
+        unsigned Bit = 0;
+        /**/ if (Counter >= 128) Bit = 7;
+        else if (Counter >= 32) Bit = 6;
+        else if (Counter >= 16) Bit = 5;
+        else if (Counter >= 8) Bit = 4;
+        else if (Counter >= 4) Bit = 3;
+        else if (Counter >= 3) Bit = 2;
+        else if (Counter >= 2) Bit = 1;
+        CounterMap.AddValue(i * 8 + Bit);
+      }
     }
   }
 }
@@ -96,7 +103,7 @@ void TracePC::HandleCallerCallee(uintptr_t Caller, uintptr_t Callee) {
 
 void TracePC::PrintCoverage() {
   Printf("COVERAGE:\n");
-  for (size_t i = 0; i < Min(NumGuards, kNumPCs); i++) {
+  for (size_t i = 0; i < Min(NumGuards + 1, kNumPCs); i++) {
     if (PCs[i])
       PrintPC("COVERED: %p %F %L\n", "COVERED: %p\n", PCs[i]);
   }

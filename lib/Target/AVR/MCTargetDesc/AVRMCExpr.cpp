@@ -20,7 +20,7 @@ namespace llvm {
 namespace {
 
 const struct ModifierEntry {
-  char const *Spelling;
+  const char * const Spelling;
   AVRMCExpr::VariantKind VariantKind;
 } ModifierNames[] = {
     {"lo8", AVRMCExpr::VK_AVR_LO8},       {"hi8", AVRMCExpr::VK_AVR_HI8},
@@ -42,15 +42,16 @@ void AVRMCExpr::printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const {
   assert(Kind != VK_AVR_None);
 
   if (isNegated())
-    OS << "-";
+    OS << '-';
 
-  OS << getName() << "(";
+  OS << getName() << '(';
   getSubExpr()->print(OS, MAI);
   OS << ')';
 }
 
 bool AVRMCExpr::evaluateAsConstant(int64_t &Result) const {
   MCValue Value;
+
   bool isRelocatable =
       getSubExpr()->evaluateAsRelocatable(Value, nullptr, nullptr);
 
@@ -60,9 +61,9 @@ bool AVRMCExpr::evaluateAsConstant(int64_t &Result) const {
   if (Value.isAbsolute()) {
     Result = evaluateAsInt64(Value.getConstant());
     return true;
-  } else {
-    return false;
   }
+
+  return false;
 }
 
 bool AVRMCExpr::evaluateAsRelocatableImpl(MCValue &Result,
@@ -77,111 +78,107 @@ bool AVRMCExpr::evaluateAsRelocatableImpl(MCValue &Result,
   if (Value.isAbsolute()) {
     Result = MCValue::get(evaluateAsInt64(Value.getConstant()));
   } else {
-    if (!Layout)
-      return false;
+    if (!Layout) return false;
 
     MCContext &Context = Layout->getAssembler().getContext();
     const MCSymbolRefExpr *Sym = Value.getSymA();
     MCSymbolRefExpr::VariantKind Modifier = Sym->getKind();
     if (Modifier != MCSymbolRefExpr::VK_None)
       return false;
-#if 0
-    switch (Kind) {
-      case VK_AVR_LO8: Modifier = MCSymbolRefExpr::VK_AVR_LO; break;
-      case VK_AVR_HI8: Modifier = MCSymbolRefExpr::VK_AVR_HI; break;
-    }
-#endif
+
     Sym = MCSymbolRefExpr::create(&Sym->getSymbol(), Modifier, Context);
     Result = MCValue::get(Sym, Value.getSymB(), Value.getConstant());
   }
+
   return true;
 }
 
 int64_t AVRMCExpr::evaluateAsInt64(int64_t Value) const {
-  uint64_t v = static_cast<uint64_t>(Value);
-
   if (Negated)
-    v *= -1;
+    Value *= -1;
 
   switch (Kind) {
   case AVRMCExpr::VK_AVR_LO8:
     break;
   case AVRMCExpr::VK_AVR_HI8:
-    v >>= 8;
+    Value >>= 8;
     break;
   case AVRMCExpr::VK_AVR_HH8:
-    v >>= 16;
+    Value >>= 16;
     break;
   case AVRMCExpr::VK_AVR_HHI8:
-    v >>= 24;
+    Value >>= 24;
     break;
   case AVRMCExpr::VK_AVR_PM_LO8:
-    v >>= 1;
+    Value >>= 1;
     break;
   case AVRMCExpr::VK_AVR_PM_HI8:
-    v >>= 9;
+    Value >>= 9;
     break;
   case AVRMCExpr::VK_AVR_PM_HH8:
-    v >>= 17;
+    Value >>= 17;
     break;
 
   case AVRMCExpr::VK_AVR_None:
     llvm_unreachable("Uninitialized expression.");
   }
-  return v & 0xff;
+  return static_cast<uint64_t>(Value) & 0xff;
 }
 
 AVR::Fixups AVRMCExpr::getFixupKind() const {
-  auto kind = AVR::Fixups(-1);
+  AVR::Fixups Kind = AVR::Fixups::LastTargetFixupKind;
 
   switch (getKind()) {
   case VK_AVR_LO8:
-    kind = isNegated() ? AVR::fixup_lo8_ldi_neg : AVR::fixup_lo8_ldi;
+    Kind = isNegated() ? AVR::fixup_lo8_ldi_neg : AVR::fixup_lo8_ldi;
     break;
   case VK_AVR_HI8:
-    kind = isNegated() ? AVR::fixup_hi8_ldi_neg : AVR::fixup_hi8_ldi;
+    Kind = isNegated() ? AVR::fixup_hi8_ldi_neg : AVR::fixup_hi8_ldi;
     break;
   case VK_AVR_HH8:
-    kind = isNegated() ? AVR::fixup_hh8_ldi_neg : AVR::fixup_hh8_ldi;
+    Kind = isNegated() ? AVR::fixup_hh8_ldi_neg : AVR::fixup_hh8_ldi;
     break;
   case VK_AVR_HHI8:
-    kind = isNegated() ? AVR::fixup_ms8_ldi_neg : AVR::fixup_ms8_ldi;
+    Kind = isNegated() ? AVR::fixup_ms8_ldi_neg : AVR::fixup_ms8_ldi;
     break;
 
   case VK_AVR_PM_LO8:
-    kind = isNegated() ? AVR::fixup_lo8_ldi_pm_neg : AVR::fixup_lo8_ldi_pm;
+    Kind = isNegated() ? AVR::fixup_lo8_ldi_pm_neg : AVR::fixup_lo8_ldi_pm;
     break;
   case VK_AVR_PM_HI8:
-    kind = isNegated() ? AVR::fixup_hi8_ldi_pm_neg : AVR::fixup_hi8_ldi_pm;
+    Kind = isNegated() ? AVR::fixup_hi8_ldi_pm_neg : AVR::fixup_hi8_ldi_pm;
     break;
   case VK_AVR_PM_HH8:
-    kind = isNegated() ? AVR::fixup_hh8_ldi_pm_neg : AVR::fixup_hh8_ldi_pm;
+    Kind = isNegated() ? AVR::fixup_hh8_ldi_pm_neg : AVR::fixup_hh8_ldi_pm;
     break;
 
   case VK_AVR_None:
     llvm_unreachable("Uninitialized expression");
   }
-  return kind;
+
+  return Kind;
 }
 
 void AVRMCExpr::visitUsedExpr(MCStreamer &Streamer) const {
   Streamer.visitUsedExpr(*getSubExpr());
 }
 
-char const *AVRMCExpr::getName() const {
+const char *AVRMCExpr::getName() const {
   const auto &Modifier = std::find_if(
       std::begin(ModifierNames), std::end(ModifierNames),
       [this](ModifierEntry const &Mod) { return Mod.VariantKind == Kind; });
+
   if (Modifier != std::end(ModifierNames)) {
     return Modifier->Spelling;
   }
-  return 0;
+  return nullptr;
 }
 
 AVRMCExpr::VariantKind AVRMCExpr::getKindByName(StringRef Name) {
   const auto &Modifier = std::find_if(
       std::begin(ModifierNames), std::end(ModifierNames),
       [&Name](ModifierEntry const &Mod) { return Mod.Spelling == Name; });
+
   if (Modifier != std::end(ModifierNames)) {
     return Modifier->VariantKind;
   }
@@ -189,3 +186,4 @@ AVRMCExpr::VariantKind AVRMCExpr::getKindByName(StringRef Name) {
 }
 
 } // end of namespace llvm
+

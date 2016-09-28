@@ -40,7 +40,6 @@ class TracePC {
     return Min(kMaxNewPCIDs, NumNewPCIDs);
   }
 
-  void ResetNewPCIDs() { NumNewPCIDs = 0; }
   uintptr_t GetPCbyPCID(uintptr_t PCID) { return PCs[PCID]; }
 
   void ResetMaps() {
@@ -64,7 +63,7 @@ private:
   bool UseValueProfile = false;
   size_t TotalPCCoverage = 0;
 
-  static const size_t kMaxNewPCIDs = 64;
+  static const size_t kMaxNewPCIDs = 1024;
   uintptr_t NewPCIDs[kMaxNewPCIDs];
   size_t NumNewPCIDs = 0;
   void AddNewPCID(uintptr_t PCID) {
@@ -80,7 +79,7 @@ private:
   size_t NumGuards = 0;
 
   static const size_t kNumCounters = 1 << 14;
-  uint8_t Counters[kNumCounters];
+  alignas(8) uint8_t Counters[kNumCounters];
 
   static const size_t kNumPCs = 1 << 20;
   uintptr_t PCs[kNumPCs];

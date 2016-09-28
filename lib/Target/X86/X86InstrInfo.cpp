@@ -4816,8 +4816,11 @@ void X86InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
       // If this an extended register and we don't have VLX we need to use a
       // 512-bit move.
       Opc = X86::VMOVAPSZrr;
-      DestReg = get512BitSuperRegister(DestReg);
-      SrcReg = get512BitSuperRegister(SrcReg);
+      const TargetRegisterInfo *TRI = &getRegisterInfo();
+      DestReg = TRI->getMatchingSuperReg(DestReg, X86::sub_xmm,
+                                         &X86::VR512RegClass);
+      SrcReg = TRI->getMatchingSuperReg(SrcReg, X86::sub_xmm,
+                                        &X86::VR512RegClass);
     }
   } else if (X86::VR256XRegClass.contains(DestReg, SrcReg)) {
     if (HasVLX)
@@ -4828,8 +4831,11 @@ void X86InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
       // If this an extended register and we don't have VLX we need to use a
       // 512-bit move.
       Opc = X86::VMOVAPSZrr;
-      DestReg = get512BitSuperRegister(DestReg);
-      SrcReg = get512BitSuperRegister(SrcReg);
+      const TargetRegisterInfo *TRI = &getRegisterInfo();
+      DestReg = TRI->getMatchingSuperReg(DestReg, X86::sub_ymm,
+                                         &X86::VR512RegClass);
+      SrcReg = TRI->getMatchingSuperReg(SrcReg, X86::sub_ymm,
+                                        &X86::VR512RegClass);
     }
   } else if (X86::VR512RegClass.contains(DestReg, SrcReg))
     Opc = X86::VMOVAPSZrr;
@@ -6383,35 +6389,54 @@ static bool hasUndefRegUpdate(unsigned Opcode) {
   // AVX-512
   case X86::VCVTSI2SSZrr:
   case X86::VCVTSI2SSZrm:
-  case X86::Int_VCVTSI2SSZrr:
-  case X86::Int_VCVTSI2SSZrm:
   case X86::VCVTSI2SSZrr_Int:
+  case X86::VCVTSI2SSZrrb_Int:
   case X86::VCVTSI2SSZrm_Int:
   case X86::VCVTSI642SSZrr:
   case X86::VCVTSI642SSZrm:
-  case X86::Int_VCVTSI2SS64Zrr:
-  case X86::Int_VCVTSI2SS64Zrm:
   case X86::VCVTSI642SSZrr_Int:
+  case X86::VCVTSI642SSZrrb_Int:
   case X86::VCVTSI642SSZrm_Int:
   case X86::VCVTSI2SDZrr:
   case X86::VCVTSI2SDZrm:
-  case X86::Int_VCVTSI2SDZrr:
-  case X86::Int_VCVTSI2SDZrm:
   case X86::VCVTSI2SDZrr_Int:
+  case X86::VCVTSI2SDZrrb_Int:
   case X86::VCVTSI2SDZrm_Int:
   case X86::VCVTSI642SDZrr:
   case X86::VCVTSI642SDZrm:
-  case X86::Int_VCVTSI2SD64Zrr:
-  case X86::Int_VCVTSI2SD64Zrm:
   case X86::VCVTSI642SDZrr_Int:
+  case X86::VCVTSI642SDZrrb_Int:
   case X86::VCVTSI642SDZrm_Int:
+  case X86::VCVTUSI2SSZrr:
+  case X86::VCVTUSI2SSZrm:
+  case X86::VCVTUSI2SSZrr_Int:
+  case X86::VCVTUSI2SSZrrb_Int:
+  case X86::VCVTUSI2SSZrm_Int:
+  case X86::VCVTUSI642SSZrr:
+  case X86::VCVTUSI642SSZrm:
+  case X86::VCVTUSI642SSZrr_Int:
+  case X86::VCVTUSI642SSZrrb_Int:
+  case X86::VCVTUSI642SSZrm_Int:
+  case X86::VCVTUSI2SDZrr:
+  case X86::VCVTUSI2SDZrm:
+  case X86::VCVTUSI2SDZrr_Int:
+  case X86::VCVTUSI2SDZrm_Int:
+  case X86::VCVTUSI642SDZrr:
+  case X86::VCVTUSI642SDZrm:
+  case X86::VCVTUSI642SDZrr_Int:
+  case X86::VCVTUSI642SDZrrb_Int:
+  case X86::VCVTUSI642SDZrm_Int:
   case X86::VCVTSD2SSZrr:
+  case X86::VCVTSD2SSZrrb:
   case X86::VCVTSD2SSZrm:
   case X86::VCVTSS2SDZrr:
+  case X86::VCVTSS2SDZrrb:
   case X86::VCVTSS2SDZrm:
   case X86::VRNDSCALESDr:
+  case X86::VRNDSCALESDrb:
   case X86::VRNDSCALESDm:
   case X86::VRNDSCALESSr:
+  case X86::VRNDSCALESSrb:
   case X86::VRNDSCALESSm:
   case X86::VRCP14SSrr:
   case X86::VRCP14SSrm:
@@ -6419,10 +6444,12 @@ static bool hasUndefRegUpdate(unsigned Opcode) {
   case X86::VRSQRT14SSrm:
   case X86::VSQRTSSZr:
   case X86::VSQRTSSZr_Int:
+  case X86::VSQRTSSZrb_Int:
   case X86::VSQRTSSZm:
   case X86::VSQRTSSZm_Int:
   case X86::VSQRTSDZr:
   case X86::VSQRTSDZr_Int:
+  case X86::VSQRTSDZrb_Int:
   case X86::VSQRTSDZm:
   case X86::VSQRTSDZm_Int:
     return true;
@@ -6936,7 +6963,7 @@ X86InstrInfo::unfoldMemoryOperand(SelectionDAG &DAG, SDNode *N,
       return false;
     // FIXME: If a VR128 can have size 32, we should be checking if a 32-byte
     // memory access is slow above.
-    unsigned Alignment = RC->getSize() == 32 ? 32 : 16;
+    unsigned Alignment = std::max<uint32_t>(RC->getSize(), 16);
     bool isAligned = (*MMOs.first) &&
                      (*MMOs.first)->getAlignment() >= Alignment;
     Load = DAG.getMachineNode(getLoadRegOpcode(0, RC, isAligned, Subtarget), dl,
@@ -6981,7 +7008,7 @@ X86InstrInfo::unfoldMemoryOperand(SelectionDAG &DAG, SDNode *N,
       return false;
     // FIXME: If a VR128 can have size 32, we should be checking if a 32-byte
     // memory access is slow above.
-    unsigned Alignment = RC->getSize() == 32 ? 32 : 16;
+    unsigned Alignment = std::max<uint32_t>(RC->getSize(), 16);
     bool isAligned = (*MMOs.first) &&
                      (*MMOs.first)->getAlignment() >= Alignment;
     SDNode *Store =

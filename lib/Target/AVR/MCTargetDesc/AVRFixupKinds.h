@@ -24,8 +24,6 @@ namespace AVR {
 /// \note This table *must* be in the same order of
 ///       MCFixupKindInfo Infos[AVR::NumTargetFixupKinds]
 ///       in `AVRAsmBackend.cpp`.
-///
-// TODO: Document each fixup
 enum Fixups {
   /// A 32-bit AVR fixup.
   fixup_32 = FirstTargetFixupKind,
@@ -43,7 +41,9 @@ enum Fixups {
   ///       This way there is 13-bits of precision.
   fixup_13_pcrel,
 
+  /// A 16-bit address.
   fixup_16,
+  /// A 16-bit program memory address.
   fixup_16_pm,
 
   /// Replaces the 8-bit immediate with another value.
@@ -104,6 +104,7 @@ enum Fixups {
   fixup_call,
 
   fixup_6,
+  /// A symbol+addr fixup for the `LDD <x>+<n>, <r>" family of instructions.
   fixup_6_adiw,
 
   fixup_lo8_ldi_gs,
@@ -114,12 +115,16 @@ enum Fixups {
   fixup_8_hi8,
   fixup_8_hlo8,
 
+  /// Fixup to calculate the difference between two symbols.
+  /// Is the only stateful fixup. We do not support it yet.
   fixup_sym_diff,
   fixup_16_ldst,
 
   fixup_lds_sts_16,
 
+  /// A 6-bit port address.
   fixup_port6,
+  /// A 5-bit port address.
   fixup_port5,
 
   // Marker
