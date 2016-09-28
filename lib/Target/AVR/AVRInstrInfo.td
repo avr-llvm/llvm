@@ -1226,8 +1226,6 @@ isReMaterializable = 1 in
                           [(set i16:$dst, (load addr:$memri))]>,
                    Requires<[HasSRAM]>;
 
-  //:FIXME: remove this once PR13375 gets fixed
-  // Bug report: https://llvm.org/bugs/show_bug.cgi?id=13375
   let mayLoad = 1,
   hasSideEffects = 0 in
   def LDDWRdYQ : Pseudo<(outs DREGS:$dst),
@@ -1318,7 +1316,6 @@ let Constraints = "$ptrreg = $base_wb,@earlyclobber $base_wb" in
   // ST P+, Rr
   // Stores the value of Rr into the location addressed by pointer P.
   // Post increments P.
-  // FIXME: what is `$offs` and is it needed?
   def STPtrPiRr : FSTLD<1,
                         0b01,
                         (outs LDSTPtrReg:$base_wb),
