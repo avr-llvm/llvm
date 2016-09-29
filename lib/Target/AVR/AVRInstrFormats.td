@@ -377,6 +377,19 @@ class FIOBIT<bits<2> t, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{2-0} = b{2-0};
 }
 
+class FIO16<bit type, dag outs, dag ins, string asmstr, list<dag> pattern>
+  : AVRInst16<outs, ins, asmstr, pattern>
+{
+  bits<7> k;
+  bits<4> d;
+
+  let Inst{15-12} = 0b1010;
+  let Inst{11} = type;
+  let Inst{10-8} = k{6-4};
+  let Inst{7-4} = d;
+  let Inst{3-0} = k{3-0};
+}
+
 //===----------------------------------------------------------------------===//
 // BST/BLD instruction.
 // <|1111|1ttd|dddd|0bbb>
