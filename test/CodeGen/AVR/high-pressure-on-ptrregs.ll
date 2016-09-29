@@ -10,10 +10,6 @@
 ;
 ; There is an existing bug filed for this issue - PR14879.
 ;
-; LLVM should be able to handle this elegantly, because PTRREGS is a
-; subset of DREGS, so we should be able to do cross-class copies in
-; order to complete register allocation.
-;
 ; The specific failure:
 ; LLVM ERROR: ran out of registers during register allocation
 ;
