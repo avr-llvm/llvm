@@ -36,13 +36,6 @@
 
 namespace llvm {
 
-// External variable defined inside the register allocator to indicate if
-// we should reserve REG_Y if it is going to be used as the frame pointer.
-extern bool RA_ReserveREG_Y;
-// External variable defined inside the register allocator to indicate if
-// the register allocator is executing code inside the spiller.
-extern bool RA_InSpillerCode;
-
 AVRInstrInfo::AVRInstrInfo()
     : AVRGenInstrInfo(AVR::ADJCALLSTACKDOWN, AVR::ADJCALLSTACKUP), RI() {}
 
@@ -134,10 +127,7 @@ void AVRInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
   MachineFunction &MF = *MBB.getParent();
   AVRMachineFunctionInfo *AFI = MF.getInfo<AVRMachineFunctionInfo>();
 
-  if (RA_InSpillerCode && !AFI->getHasSpills()) {
-    AFI->setHasSpills(true);
-    RA_ReserveREG_Y = true;
-  }
+  AFI->setHasSpills(true);
 
   DebugLoc DL;
   if (MI != MBB.end()) {
