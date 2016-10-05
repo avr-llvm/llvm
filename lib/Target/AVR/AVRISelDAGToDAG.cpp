@@ -11,20 +11,16 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AVR.h"
+#include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
+
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "AVR.h"
-#include "AVRTargetMachine.h"
-#include "MCTargetDesc/AVRMCTargetDesc.h"
-
 #define DEBUG_TYPE "avr-isel"
-
-//===----------------------------------------------------------------------===//
-// Instruction Selector Implementation
-//===----------------------------------------------------------------------===//
 
 namespace llvm {
 
