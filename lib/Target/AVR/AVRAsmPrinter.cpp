@@ -35,14 +35,10 @@ namespace llvm {
 
 /// An AVR assembly code printer.
 class AVRAsmPrinter : public AsmPrinter {
-  const MCRegisterInfo *MRI;
-
 public:
-  explicit AVRAsmPrinter(TargetMachine &TM,
-                         std::unique_ptr<MCStreamer> Streamer)
-      : AsmPrinter(TM, std::move(Streamer)) {
-    MRI = TM.getMCRegisterInfo();
-  }
+  AVRAsmPrinter(TargetMachine &TM,
+                std::unique_ptr<MCStreamer> Streamer)
+      : AsmPrinter(TM, std::move(Streamer)), MRI(TM.getMCRegisterInfo()) { }
 
   StringRef getPassName() const override { return "AVR Assembly Printer"; }
 
@@ -57,8 +53,10 @@ public:
                              unsigned AsmVariant, const char *ExtraCode,
                              raw_ostream &O) override;
 
-public:
   void EmitInstruction(const MachineInstr *MI) override;
+
+private:
+  const MCRegisterInfo *MRI;
 };
 
 void AVRAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
