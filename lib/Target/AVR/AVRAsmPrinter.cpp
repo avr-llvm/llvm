@@ -12,22 +12,22 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AVR.h"
+#include "AVRMCInstLower.h"
+#include "InstPrinter/AVRInstPrinter.h"
+
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/IR/Mangler.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/IR/Mangler.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
-
-#include "AVR.h"
-#include "AVRMCInstLower.h"
-#include "InstPrinter/AVRInstPrinter.h"
 
 #define DEBUG_TYPE "avr-asm-printer"
 
@@ -35,14 +35,10 @@ namespace llvm {
 
 /// An AVR assembly code printer.
 class AVRAsmPrinter : public AsmPrinter {
-  const MCRegisterInfo *MRI;
-
 public:
-  explicit AVRAsmPrinter(TargetMachine &TM,
-                         std::unique_ptr<MCStreamer> Streamer)
-      : AsmPrinter(TM, std::move(Streamer)) {
-    MRI = TM.getMCRegisterInfo();
-  }
+  AVRAsmPrinter(TargetMachine &TM,
+                std::unique_ptr<MCStreamer> Streamer)
+      : AsmPrinter(TM, std::move(Streamer)), MRI(*TM.getMCRegisterInfo()) { }
 
   StringRef getPassName() const override { return "AVR Assembly Printer"; }
 
@@ -57,8 +53,10 @@ public:
                              unsigned AsmVariant, const char *ExtraCode,
                              raw_ostream &O) override;
 
-public:
   void EmitInstruction(const MachineInstr *MI) override;
+
+private:
+  const MCRegisterInfo &MRI;
 };
 
 void AVRAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
@@ -67,7 +65,7 @@ void AVRAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
 
   switch (MO.getType()) {
   case MachineOperand::MO_Register:
-    O << AVRInstPrinter::getPrettyRegisterName(MO.getReg(), *MRI);
+    O << AVRInstPrinter::getPrettyRegisterName(MO.getReg(), MRI);
     break;
   case MachineOperand::MO_Immediate:
     O << MO.getImm();
@@ -109,10 +107,10 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
       unsigned OpFlags = MI->getOperand(OpNum - 1).getImm();
       unsigned NumOpRegs = InlineAsm::getNumOperandRegisters(OpFlags);
 
-      const TargetRegisterInfo *TRI = MF->getSubtarget().getRegisterInfo();
+      const AVRSubtarget &TRI = MF->getSubtarget<AVRSubtarget>();
+      const TargetRegisterInfo &TRI = TRI.getRegisterInfo();
 
-      unsigned BytesPerReg = TRI->getMinimalPhysRegClass(Reg)->getSize();
-
+      unsigned BytesPerReg = TRI.getMinimalPhysRegClass(Reg)->getSize();
       assert(BytesPerReg <= 2 && "Only 8 and 16 bit regs are supported.");
 
       unsigned RegIdx = ByteNumber / BytesPerReg;
@@ -125,7 +123,7 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
                                                            : AVR::sub_lo);
       }
 
-      O << AVRInstPrinter::getPrettyRegisterName(Reg, *MRI);
+      O << AVRInstPrinter::getPrettyRegisterName(Reg, MRI);
       return false;
     }
   }
@@ -146,9 +144,7 @@ bool AVRAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   const MachineOperand &MO = MI->getOperand(OpNum);
   assert(MO.isReg() && "Unexpected inline asm memory operand");
 
-  // :FIXME: This fixme is related with another one in AVRInstPrinter, line 29:
-  // this should be done somewhere else
-  // check out the new feature about alternative reg names
+  // TODO: We can look up the alternative name for the register if it's given.
   if (MI->getOperand(OpNum).getReg() == AVR::R31R30) {
     O << "Z";
   } else {
@@ -159,7 +155,6 @@ bool AVRAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
 
   // If NumOpRegs == 2, then we assume it is product of a FrameIndex expansion
   // and the second operand is an Imm.
-  // Though it is weird that imm is counted as register too.
   unsigned OpFlags = MI->getOperand(OpNum - 1).getImm();
   unsigned NumOpRegs = InlineAsm::getNumOperandRegisters(OpFlags);
 
@@ -183,3 +178,4 @@ void AVRAsmPrinter::EmitInstruction(const MachineInstr *MI) {
 extern "C" void LLVMInitializeAVRAsmPrinter() {
   llvm::RegisterAsmPrinter<llvm::AVRAsmPrinter> X(llvm::TheAVRTarget);
 }
+
