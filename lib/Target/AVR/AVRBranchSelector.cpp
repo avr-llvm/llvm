@@ -40,7 +40,7 @@ class AVRBSel : public MachineFunctionPass {
 public:
   static char ID;
 
-  AVRBSel() : MachineFunctionPass(ID) {}
+  explicit AVRBSel() : MachineFunctionPass(ID) {}
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
@@ -118,7 +118,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
   // For each conditional branch, if the offset to its destination is larger
   // than the offset field allows, transform it into a long or a huge branch
   // sequence like this:
-  //   short branch:
+  //  -short branch:
   //     brCC MBB
   //  -long branch:
   //     br!CC $PC+2
@@ -132,9 +132,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
     // Iteratively expand branches until we reach a fixed point.
     MadeChange = false;
 
-    for (MachineFunction::iterator MFI = MF.begin(), MFE = MF.end(); MFI != MFE;
-         ++MFI) {
-      MachineBasicBlock &MBB = *MFI;
+    for (MachineBasicBlock &MBB : MF) {
       unsigned MBBStartOffset = 0;
 
       for (MachineBasicBlock::iterator I = MBB.begin(), E = MBB.end(); I != E;
@@ -148,18 +146,19 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
 
         // Determine the offset from the current branch to the destination
         // block.
-        MachineBasicBlock *Dest = I->getOperand(0).getMBB();
+        MachineBasicBlock &Dest = *I->getOperand(0).getMBB();
 
-        assert(Dest->getNumber() >= 0 && "Destination basic block isn't in a function");
+        assert(Dest.getNumber() >= 0 &&
+            "Destination basic block isn't in a function");
 
         int BranchSize;
-        if (Dest->getNumber() <= MBB.getNumber()) {
+        if (Dest.getNumber() <= MBB.getNumber()) {
           // If this is a backwards branch, the delta is the offset from the
           // start of this block to this branch, plus the sizes of all blocks
           // from this block to the dest.
           BranchSize = MBBStartOffset;
 
-          for (unsigned i = Dest->getNumber(), e = MBB.getNumber(); i != e;
+          for (unsigned i = Dest.getNumber(), e = MBB.getNumber(); i != e;
                ++i) {
             BranchSize += BlockSizes[i];
           }
@@ -171,7 +170,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
           // dest to the number of bytes left in this block.
           BranchSize = -MBBStartOffset;
 
-          for (unsigned i = MBB.getNumber(), e = Dest->getNumber(); i != e;
+          for (unsigned i = MBB.getNumber(), e = Dest.getNumber(); i != e;
                ++i) {
             BranchSize += BlockSizes[i];
           }
@@ -180,7 +179,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
         if (isConditionalBranch(Opc))
           BranchSize -= 2; // take the size of the current instruction.
 
-        assert(!(BranchSize & 1) &&
+        assert(BranchSize % 2 == 0 &&
                "BranchSize should have an even number of bytes");
 
         // If this branch is in range, ignore it.
@@ -194,7 +193,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
         unsigned NewSize;
         int UncondOpc;
         MachineInstr &OldBranch = *I;
-        DebugLoc dl = OldBranch.getDebugLoc();
+        DebugLoc DL = OldBranch.getDebugLoc();
 
         if (Opc == AVR::RJMPk) {
           // Replace this instruction with a jmp which has a size of 4 bytes.
@@ -205,15 +204,17 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
           // is the case, update the $PC+2 operand in brCC to $PC+4.
           // Skip the check when this instruction is the first inside the BB.
           if (I != MBB.begin()) {
-            MachineInstr *PI = &*std::prev(I);
-            if (isConditionalBranch(PI->getOpcode()) && PI->getOperand(0).isImm() &&
-                PI->getOperand(0).getImm() == 2) {
-              PI->getOperand(0).setImm(4);
+            MachineInstr &PI = *std::prev(I);
+
+            if (isConditionalBranch(PI.getOpcode()) &&
+                PI.getOperand(0).isImm() &&
+                PI.getOperand(0).getImm() == 2) {
+              PI.getOperand(0).setImm(4);
             }
           }
         } else {
-
-          assert(isConditionalBranch(Opc) && "opcode should be a conditional branch");
+          assert(isConditionalBranch(Opc) &&
+              "opcode should be a conditional branch");
 
           unsigned BrCCOffs;
           // Determine if we can reach the destination block with a rjmp,
@@ -231,11 +232,11 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
           AVRCC::CondCodes OCC =
               TII.getOppositeCondition(TII.getCondFromBranchOpc(Opc));
           // Jump over the uncond branch inst (i.e. $+2) on opposite condition.
-          BuildMI(MBB, I, dl, TII.getBrCond(OCC)).addImm(BrCCOffs);
+          BuildMI(MBB, I, DL, TII.getBrCond(OCC)).addImm(BrCCOffs);
         }
 
         // Uncond branch to the real destination.
-        I = BuildMI(MBB, I, dl, TII.get(UncondOpc)).addMBB(Dest);
+        I = BuildMI(MBB, I, DL, TII.get(UncondOpc)).addMBB(&Dest);
 
         // Remove the old branch from the function.
         OldBranch.eraseFromParent();
