@@ -38,7 +38,7 @@ class AVRAsmPrinter : public AsmPrinter {
 public:
   AVRAsmPrinter(TargetMachine &TM,
                 std::unique_ptr<MCStreamer> Streamer)
-      : AsmPrinter(TM, std::move(Streamer)), MRI(TM.getMCRegisterInfo()) { }
+      : AsmPrinter(TM, std::move(Streamer)), MRI(*TM.getMCRegisterInfo()) { }
 
   StringRef getPassName() const override { return "AVR Assembly Printer"; }
 
@@ -56,7 +56,7 @@ public:
   void EmitInstruction(const MachineInstr *MI) override;
 
 private:
-  const MCRegisterInfo *MRI;
+  const MCRegisterInfo &MRI;
 };
 
 void AVRAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
@@ -65,7 +65,7 @@ void AVRAsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
 
   switch (MO.getType()) {
   case MachineOperand::MO_Register:
-    O << AVRInstPrinter::getPrettyRegisterName(MO.getReg(), *MRI);
+    O << AVRInstPrinter::getPrettyRegisterName(MO.getReg(), MRI);
     break;
   case MachineOperand::MO_Immediate:
     O << MO.getImm();
@@ -123,7 +123,7 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
                                                            : AVR::sub_lo);
       }
 
-      O << AVRInstPrinter::getPrettyRegisterName(Reg, *MRI);
+      O << AVRInstPrinter::getPrettyRegisterName(Reg, MRI);
       return false;
     }
   }
