@@ -71,10 +71,8 @@ static bool isConditionalBranch(int Opcode) {
 }
 
 bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
-  const AVRInstrInfo *TII =
-      static_cast<const AVRTargetMachine &>(MF.getTarget())
-          .getSubtargetImpl()
-          ->getInstrInfo();
+  const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
+  const AVRInstrInfo &TII = *STI.getInstrInfo();
 
   // Give the blocks of the function a dense, in-order, numbering.
   MF.RenumberBlocks();
@@ -90,7 +88,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
     for (MachineBasicBlock::const_iterator MBBI = MBB.begin(),
                                            MBBE = MBB.end();
          MBBI != MBBE; ++MBBI) {
-      BlockSize += TII->getInstSizeInBytes(*MBBI);
+      BlockSize += TII.getInstSizeInBytes(*MBBI);
     }
 
     BlockSizes[MBB.getNumber()] = BlockSize;
@@ -134,7 +132,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
         int Opc = I->getOpcode();
         if ((!isConditionalBranch(Opc) || I->getOperand(0).isImm()) &&
             (Opc != AVR::RJMPk)) {
-          MBBStartOffset += TII->getInstSizeInBytes(*I);
+          MBBStartOffset += TII.getInstSizeInBytes(*I);
           continue;
         }
 
@@ -221,13 +219,13 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
           }
 
           AVRCC::CondCodes OCC =
-              TII->getOppositeCondition(TII->getCondFromBranchOpc(Opc));
+              TII.getOppositeCondition(TII.getCondFromBranchOpc(Opc));
           // Jump over the uncond branch inst (i.e. $+2) on opposite condition.
-          BuildMI(MBB, I, dl, TII->getBrCond(OCC)).addImm(BrCCOffs);
+          BuildMI(MBB, I, dl, TII.getBrCond(OCC)).addImm(BrCCOffs);
         }
 
         // Uncond branch to the real destination.
-        I = BuildMI(MBB, I, dl, TII->get(UncondOpc)).addMBB(Dest);
+        I = BuildMI(MBB, I, dl, TII.get(UncondOpc)).addMBB(Dest);
 
         // Remove the old branch from the function.
         OldBranch.eraseFromParent();
