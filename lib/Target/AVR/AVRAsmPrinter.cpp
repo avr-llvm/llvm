@@ -170,7 +170,7 @@ void AVRAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   AVRMCInstLower MCInstLowering(OutContext, *this);
 
   MCInst I;
-  MCInstLowering.Lower(MI, I);
+  MCInstLowering.lowerInstruction(*MI, I);
   EmitToStreamer(*OutStreamer, I);
 }
 

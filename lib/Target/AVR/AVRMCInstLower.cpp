@@ -14,26 +14,23 @@
 
 #include "AVRMCInstLower.h"
 
-#include "llvm/CodeGen/AsmPrinter.h"
-#include "llvm/MC/MCInst.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/IR/Mangler.h"
-
 #include "AVRInstrInfo.h"
 #include "MCTargetDesc/AVRMCExpr.h"
 
+#include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/IR/Mangler.h"
+#include "llvm/MC/MCInst.h"
+#include "llvm/Support/ErrorHandling.h"
+
 namespace llvm {
 
-MCOperand AVRMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
+MCOperand AVRMCInstLower::lowerSymbolOperand(const MachineOperand &MO,
                                              MCSymbol *Sym) const {
   unsigned char TF = MO.getTargetFlags();
   const MCExpr *Expr = MCSymbolRefExpr::create(Sym, Ctx);
 
   bool IsNegated = false;
-
-  if (TF & AVRII::MO_NEG) {
-    IsNegated = true;
-  }
+  if (TF & AVRII::MO_NEG) { IsNegated = true; }
 
   if (!MO.isJTI() && MO.getOffset()) {
     Expr = MCBinaryExpr::createAdd(
@@ -51,15 +48,15 @@ MCOperand AVRMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
   return MCOperand::createExpr(Expr);
 }
 
-void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
-  OutMI.setOpcode(MI->getOpcode());
+void AVRMCInstLower::lowerInstruction(const MachineInstr &MI, MCInst &OutMI) const {
+  OutMI.setOpcode(MI.getOpcode());
 
-  for (MachineOperand const &MO : MI->operands()) {
+  for (MachineOperand const &MO : MI.operands()) {
     MCOperand MCOp;
 
     switch (MO.getType()) {
     default:
-      MI->dump();
+      MI.dump();
       llvm_unreachable("unknown operand type");
     case MachineOperand::MO_Register:
       // Ignore all implicit register operands.
@@ -71,10 +68,10 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
       MCOp = MCOperand::createImm(MO.getImm());
       break;
     case MachineOperand::MO_GlobalAddress:
-      MCOp = LowerSymbolOperand(MO, Printer.getSymbol(MO.getGlobal()));
+      MCOp = lowerSymbolOperand(MO, Printer.getSymbol(MO.getGlobal()));
       break;
     case MachineOperand::MO_ExternalSymbol:
-      MCOp = LowerSymbolOperand(
+      MCOp = lowerSymbolOperand(
           MO, Printer.GetExternalSymbolSymbol(MO.getSymbolName()));
       break;
     case MachineOperand::MO_MachineBasicBlock:
@@ -84,14 +81,14 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
     case MachineOperand::MO_RegisterMask:
       continue;
     case MachineOperand::MO_BlockAddress:
-      MCOp = LowerSymbolOperand(
+      MCOp = lowerSymbolOperand(
           MO, Printer.GetBlockAddressSymbol(MO.getBlockAddress()));
       break;
     case MachineOperand::MO_JumpTableIndex:
-      MCOp = LowerSymbolOperand(MO, Printer.GetJTISymbol(MO.getIndex()));
+      MCOp = lowerSymbolOperand(MO, Printer.GetJTISymbol(MO.getIndex()));
       break;
     case MachineOperand::MO_ConstantPoolIndex:
-      MCOp = LowerSymbolOperand(MO, Printer.GetCPISymbol(MO.getIndex()));
+      MCOp = lowerSymbolOperand(MO, Printer.GetCPISymbol(MO.getIndex()));
       break;
     }
 
@@ -100,3 +97,4 @@ void AVRMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
 }
 
 } // end of namespace llvm
+

@@ -25,11 +25,12 @@ class MCSymbol;
 /// Lowers `MachineInstr` objects into `MCInst` objects.
 class AVRMCInstLower {
 public:
-  AVRMCInstLower(MCContext &ctx, AsmPrinter &printer)
-      : Ctx(ctx), Printer(printer) {}
+  AVRMCInstLower(MCContext &Ctx, AsmPrinter &Printer)
+      : Ctx(Ctx), Printer(Printer) {}
 
-  void Lower(const MachineInstr *MI, MCInst &OutMI) const;
-  MCOperand LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const;
+  /// Lowers a `MachineInstr` into a `MCInst`.
+  void lowerInstruction(const MachineInstr &MI, MCInst &OutMI) const;
+  MCOperand lowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const;
 
 private:
   MCContext &Ctx;
