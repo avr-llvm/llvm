@@ -46,6 +46,11 @@ public:
 
   StringRef getPassName() const override { return "AVR Branch Selector"; }
 
+protected:
+
+  /// Measure and sum the size of all basic blocks in a function.
+  unsigned calculateFunctionSize(const MachineFunction &MF);
+
 private:
   /// The sizes of the basic blocks in the function.
   std::vector<unsigned> BlockSizes;
@@ -70,6 +75,28 @@ static bool isConditionalBranch(int Opcode) {
   }
 }
 
+unsigned AVRBSel::calculateFunctionSize(const MachineFunction &MF) {
+  const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
+  const AVRInstrInfo &TII = *STI.getInstrInfo();
+
+  unsigned FuncSize = 0;
+
+  for (const MachineBasicBlock &MBB : MF) {
+    unsigned BlockSize = 0;
+
+    for (const MachineInstr &MI : MBB) {
+      BlockSize += TII.getInstSizeInBytes(MI);
+    }
+
+    BlockSizes[MBB.getNumber()] = BlockSize;
+    FuncSize += BlockSize;
+  }
+
+  assert(FuncSize % 2 == 0 && "function should have an even number of bytes");
+
+  return FuncSize;
+}
+
 bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
   const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
   const AVRInstrInfo &TII = *STI.getInstrInfo();
@@ -78,24 +105,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
   MF.RenumberBlocks();
   BlockSizes.resize(MF.getNumBlockIDs());
 
-  // Measure each MBB and compute a size for the entire function.
-  unsigned FuncSize = 0;
-  for (MachineFunction::const_iterator MFI = MF.begin(), MFE = MF.end();
-       MFI != MFE; ++MFI) {
-    unsigned BlockSize = 0;
-    const MachineBasicBlock &MBB = *MFI;
-
-    for (MachineBasicBlock::const_iterator MBBI = MBB.begin(),
-                                           MBBE = MBB.end();
-         MBBI != MBBE; ++MBBI) {
-      BlockSize += TII.getInstSizeInBytes(*MBBI);
-    }
-
-    BlockSizes[MBB.getNumber()] = BlockSize;
-    FuncSize += BlockSize;
-  }
-
-  assert(!(FuncSize & 1) && "FuncSize should have an even number of bytes");
+  unsigned FuncSize = calculateFunctionSize(MF);
 
   // If the entire function is smaller than the displacement of a branch field,
   // we know we don't need to shrink any branches in this function.  This is a
