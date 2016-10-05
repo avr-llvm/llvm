@@ -70,19 +70,19 @@ static bool isConditionalBranch(int Opcode) {
   }
 }
 
-bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
+bool AVRBSel::runOnMachineFunction(MachineFunction &MF) {
   const AVRInstrInfo *TII =
-      static_cast<const AVRTargetMachine &>(Fn.getTarget())
+      static_cast<const AVRTargetMachine &>(MF.getTarget())
           .getSubtargetImpl()
           ->getInstrInfo();
 
   // Give the blocks of the function a dense, in-order, numbering.
-  Fn.RenumberBlocks();
-  BlockSizes.resize(Fn.getNumBlockIDs());
+  MF.RenumberBlocks();
+  BlockSizes.resize(MF.getNumBlockIDs());
 
   // Measure each MBB and compute a size for the entire function.
   unsigned FuncSize = 0;
-  for (MachineFunction::const_iterator MFI = Fn.begin(), MFE = Fn.end();
+  for (MachineFunction::const_iterator MFI = MF.begin(), MFE = MF.end();
        MFI != MFE; ++MFI) {
     unsigned BlockSize = 0;
     const MachineBasicBlock &MBB = *MFI;
@@ -124,7 +124,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
     // Iteratively expand branches until we reach a fixed point.
     MadeChange = false;
 
-    for (MachineFunction::iterator MFI = Fn.begin(), MFE = Fn.end(); MFI != MFE;
+    for (MachineFunction::iterator MFI = MF.begin(), MFE = MF.end(); MFI != MFE;
          ++MFI) {
       MachineBasicBlock &MBB = *MFI;
       unsigned MBBStartOffset = 0;
