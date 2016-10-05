@@ -37,8 +37,9 @@ public:
   bool runOnMachineFunction(MachineFunction &MF) override;
 
   bool SelectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp);
-  SDNode *SelectIndexedLoad(SDNode *N);
-  unsigned SelectIndexedProgMemLoad(const LoadSDNode *LD, MVT VT);
+
+  SDNode *selectIndexedLoad(SDNode *N);
+  unsigned selectIndexedProgMemLoad(const LoadSDNode *LD, MVT VT);
 
   bool SelectInlineAsmMemoryOperand(const SDValue &Op, unsigned ConstraintCode,
                                     std::vector<SDValue> &OutOps) override;
@@ -48,7 +49,7 @@ public:
 
 private:
   void Select(SDNode *N) override;
-  SDNode *SelectImpl(SDNode *N);
+  SDNode *selectImpl(SDNode *N);
 
   template <unsigned NodeType> SDNode *select(SDNode *N);
   SDNode *selectMultiplication(SDNode *N);
@@ -117,7 +118,7 @@ bool AVRDAGToDAGISel::SelectAddr(SDNode *Op, SDValue N, SDValue &Base,
   return false;
 }
 
-SDNode *AVRDAGToDAGISel::SelectIndexedLoad(SDNode *N) {
+SDNode *AVRDAGToDAGISel::selectIndexedLoad(SDNode *N) {
   const LoadSDNode *LD = cast<LoadSDNode>(N);
   ISD::MemIndexedMode AM = LD->getAddressingMode();
   MVT VT = LD->getMemoryVT().getSimpleVT();
@@ -158,7 +159,7 @@ SDNode *AVRDAGToDAGISel::SelectIndexedLoad(SDNode *N) {
                                 LD->getBasePtr(), LD->getChain());
 }
 
-unsigned AVRDAGToDAGISel::SelectIndexedProgMemLoad(const LoadSDNode *LD,
+unsigned AVRDAGToDAGISel::selectIndexedProgMemLoad(const LoadSDNode *LD,
                                                    MVT VT) {
   ISD::MemIndexedMode AM = LD->getAddressingMode();
 
@@ -357,7 +358,7 @@ template <> SDNode *AVRDAGToDAGISel::select<ISD::LOAD>(SDNode *N) {
   const LoadSDNode *LD = cast<LoadSDNode>(N);
   if (!AVR::isProgramMemoryAccess(LD)) {
     // Check if the opcode can be converted into an indexed load.
-    return SelectIndexedLoad(N);
+    return selectIndexedLoad(N);
   }
 
   // This is a flash memory load, move the pointer into R31R30 and emit
@@ -375,7 +376,7 @@ template <> SDNode *AVRDAGToDAGISel::select<ISD::LOAD>(SDNode *N) {
   SDValue RegZ = CurDAG->getRegister(AVR::R31R30, MVT::i16);
 
   // Check if the opcode can be converted into an indexed load.
-  if (unsigned LPMOpc = SelectIndexedProgMemLoad(LD, VT)) {
+  if (unsigned LPMOpc = selectIndexedProgMemLoad(LD, VT)) {
     // It is legal to fold the load into an indexed load.
     ResNode = CurDAG->getMachineNode(LPMOpc, DL, VT, MVT::i16, MVT::Other, Ptr,
                                      RegZ);
@@ -500,14 +501,14 @@ SDNode *AVRDAGToDAGISel::selectMultiplication(llvm::SDNode *N) {
 }
 
 void AVRDAGToDAGISel::Select(SDNode *N) {
-  SDNode *New = SelectImpl(N);
+  SDNode *New = selectImpl(N);
   // TODO: Checking DELETED_NODE here is undefined behaviour, which will be
   // fixed by migrating backends to implement the void Select interface
   // instead or returning a node.
   if (New == N || N->getOpcode() == ISD::DELETED_NODE)
     // If we ask to replace the node with itself or if we deleted the original
     // node, just move on to the next one. This case will go away once
-    // everyone migrates to stop implementing SelectImpl.
+    // everyone migrates to stop implementing selectImpl.
     return;
   if (New) {
     // Replace the node with the returned node. Originally, Select would
@@ -522,7 +523,7 @@ void AVRDAGToDAGISel::Select(SDNode *N) {
     CurDAG->RemoveDeadNode(N);
 }
 
-SDNode *AVRDAGToDAGISel::SelectImpl(SDNode *N) {
+SDNode *AVRDAGToDAGISel::selectImpl(SDNode *N) {
   unsigned Opcode = N->getOpcode();
   SDLoc DL(N);
 
