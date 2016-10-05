@@ -80,7 +80,6 @@ set(Tests
   LeakTest
   LeakTimeoutTest
   LoadTest
-  MinimizeCorpusTest
   NullDerefTest
   NullDerefOnEmptyTest
   NthRunCrashTest
@@ -98,6 +97,8 @@ set(Tests
   SingleStrcmpTest
   SingleStrncmpTest
   SpamyTest
+  ShrinkControlFlowTest
+  ShrinkValueProfileTest
   StrcmpTest
   StrncmpTest
   StrstrTest
@@ -151,16 +152,6 @@ set_target_properties(LLVMFuzzer-Unittest
 ###############################################################################
 
 include_directories(..)
-
-if(APPLE)
-  message(WARNING "DataflowSanitizer is not supported on Apple platforms."
-    " Building and running LibFuzzer DataflowSanitizer tests is disabled."
-    )
-  set(HAS_DFSAN 0)
-else()
-  set(HAS_DFSAN 1)
-  add_subdirectory(dfsan)
-endif()
 
 add_subdirectory(uninstrumented)
 add_subdirectory(no-coverage)

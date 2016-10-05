@@ -7,7 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <list>
+#include "MCTargetDesc/AVRFixupKinds.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCELFObjectWriter.h"
@@ -16,12 +17,9 @@
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/ErrorHandling.h"
 
-#include "MCTargetDesc/AVRFixupKinds.h"
-#include "MCTargetDesc/AVRMCTargetDesc.h"
-
 namespace llvm {
 
-/// Writes AVR machine code as an ELF32 object file.
+/// Writes AVR machine code into an ELF32 object file.
 class AVRELFObjectWriter : public MCELFObjectTargetWriter {
 public:
   AVRELFObjectWriter(uint8_t OSABI);
@@ -32,9 +30,6 @@ public:
                         const MCValue &Target,
                         const MCFixup &Fixup,
                         bool IsPCRel) const override;
-
-  bool needsRelocateWithSymbol(const MCSymbol &Sym,
-                               unsigned Type) const override;
 };
 
 AVRELFObjectWriter::AVRELFObjectWriter(uint8_t OSABI)
@@ -44,10 +39,10 @@ unsigned AVRELFObjectWriter::getRelocType(MCContext &Ctx,
                                           const MCValue &Target,
                                           const MCFixup &Fixup,
                                           bool IsPCRel) const {
-  switch ((unsigned)Fixup.getKind()) {
+  switch ((unsigned) Fixup.getKind()) {
   case FK_Data_1:
   case FK_Data_4:
-    llvm_unreachable("unsupported relocation size");
+    llvm_unreachable("unsupported relocation type");
   case FK_Data_2:
     return ELF::R_AVR_16_PM;
   case AVR::fixup_32:
@@ -120,13 +115,7 @@ unsigned AVRELFObjectWriter::getRelocType(MCContext &Ctx,
     return ELF::R_AVR_PORT5;
   default:
     llvm_unreachable("invalid fixup kind!");
-    return ELF::R_AVR_NONE;
   }
-}
-
-bool AVRELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
-                                                 unsigned Type) const {
-  return false;
 }
 
 MCObjectWriter *createAVRELFObjectWriter(raw_pwrite_stream &OS, uint8_t OSABI) {
@@ -135,3 +124,4 @@ MCObjectWriter *createAVRELFObjectWriter(raw_pwrite_stream &OS, uint8_t OSABI) {
 }
 
 } // end of namespace llvm
+

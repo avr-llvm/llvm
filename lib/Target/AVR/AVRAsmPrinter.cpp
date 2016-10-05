@@ -44,7 +44,7 @@ public:
     MRI = TM.getMCRegisterInfo();
   }
 
-  const char *getPassName() const override { return "AVR Assembly Printer"; }
+  StringRef getPassName() const override { return "AVR Assembly Printer"; }
 
   void printOperand(const MachineInstr *MI, unsigned OpNo, raw_ostream &O,
                     const char *Modifier = 0);

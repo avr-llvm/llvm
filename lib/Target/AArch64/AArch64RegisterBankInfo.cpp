@@ -111,6 +111,7 @@ AArch64RegisterBankInfo::AArch64RegisterBankInfo(const TargetRegisterInfo &TRI)
              AArch64::PartialMappingIdx::FPR512 &&
          "FPR indices not properly ordered");
 // Now, the content.
+// Check partial mapping.
 #define CHECK_PARTIALMAP(Idx, ValStartIdx, ValLength, RB)                      \
   do {                                                                         \
     const PartialMapping &Map =                                                \
@@ -127,6 +128,47 @@ AArch64RegisterBankInfo::AArch64RegisterBankInfo(const TargetRegisterInfo &TRI)
   CHECK_PARTIALMAP(FPR128, 0, 128, RBFPR);
   CHECK_PARTIALMAP(FPR256, 0, 256, RBFPR);
   CHECK_PARTIALMAP(FPR512, 0, 512, RBFPR);
+
+// Check value mapping.
+#define CHECK_VALUEMAP_IMPL(RBName, Size, Offset)                              \
+  do {                                                                         \
+    AArch64::PartialMappingIdx PartialMapBaseIdx =                             \
+        AArch64::PartialMappingIdx::RBName##Size;                              \
+    (void) PartialMapBaseIdx;                                                  \
+    const ValueMapping &Map =                                                  \
+        AArch64::getValueMapping(AArch64::First##RBName, Size)[Offset];        \
+    (void) Map;                                                                \
+    assert(Map.BreakDown == &AArch64::PartMappings[PartialMapBaseIdx] &&       \
+           Map.NumBreakDowns == 1 && #RBName #Size                             \
+           " " #Offset " is incorrectly initialized");                         \
+  } while (0)
+
+#define CHECK_VALUEMAP(RBName, Size) CHECK_VALUEMAP_IMPL(RBName, Size, 0)
+
+  CHECK_VALUEMAP(GPR, 32);
+  CHECK_VALUEMAP(GPR, 64);
+  CHECK_VALUEMAP(FPR, 32);
+  CHECK_VALUEMAP(FPR, 64);
+  CHECK_VALUEMAP(FPR, 128);
+  CHECK_VALUEMAP(FPR, 256);
+  CHECK_VALUEMAP(FPR, 512);
+
+// Check the value mapping for 3-operands instructions where all the operands
+// map to the same value mapping.
+#define CHECK_VALUEMAP_3OPS(RBName, Size)                                      \
+  do {                                                                         \
+    CHECK_VALUEMAP_IMPL(RBName, Size, 0);                                      \
+    CHECK_VALUEMAP_IMPL(RBName, Size, 1);                                      \
+    CHECK_VALUEMAP_IMPL(RBName, Size, 2);                                      \
+  } while (0)
+
+  CHECK_VALUEMAP_3OPS(GPR, 32);
+  CHECK_VALUEMAP_3OPS(GPR, 64);
+  CHECK_VALUEMAP_3OPS(FPR, 32);
+  CHECK_VALUEMAP_3OPS(FPR, 64);
+  CHECK_VALUEMAP_3OPS(FPR, 128);
+  CHECK_VALUEMAP_3OPS(FPR, 256);
+  CHECK_VALUEMAP_3OPS(FPR, 512);
 
   assert(verify(TRI) && "Invalid register bank information");
 }
@@ -201,16 +243,13 @@ AArch64RegisterBankInfo::getInstrAlternativeMappings(
     if (MI.getNumOperands() != 3)
       break;
     InstructionMappings AltMappings;
-    InstructionMapping GPRMapping(/*ID*/ 1, /*Cost*/ 1, /*NumOperands*/ 3);
-    InstructionMapping FPRMapping(/*ID*/ 2, /*Cost*/ 1, /*NumOperands*/ 3);
-    for (unsigned Idx = 0; Idx != 3; ++Idx) {
-      GPRMapping.setOperandMapping(
-          Idx, AArch64::ValMappings[AArch64::getRegBankBaseIdx(Size) +
-                                    AArch64::FirstGPR]);
-      FPRMapping.setOperandMapping(
-          Idx, AArch64::ValMappings[AArch64::getRegBankBaseIdx(Size) +
-                                    AArch64::FirstFPR]);
-    }
+    InstructionMapping GPRMapping(
+        /*ID*/ 1, /*Cost*/ 1, AArch64::getValueMapping(AArch64::FirstGPR, Size),
+        /*NumOperands*/ 3);
+    InstructionMapping FPRMapping(
+        /*ID*/ 2, /*Cost*/ 1, AArch64::getValueMapping(AArch64::FirstFPR, Size),
+        /*NumOperands*/ 3);
+
     AltMappings.emplace_back(std::move(GPRMapping));
     AltMappings.emplace_back(std::move(FPRMapping));
     return AltMappings;
@@ -253,6 +292,47 @@ static bool isPreISelGenericFloatingPointOpcode(unsigned Opc) {
 }
 
 RegisterBankInfo::InstructionMapping
+AArch64RegisterBankInfo::getSameKindOfOperandsMapping(const MachineInstr &MI) {
+  const unsigned Opc = MI.getOpcode();
+  const MachineFunction &MF = *MI.getParent()->getParent();
+  const MachineRegisterInfo &MRI = MF.getRegInfo();
+
+  unsigned NumOperands = MI.getNumOperands();
+  assert(NumOperands <= 3 &&
+         "This code is for instructions with 3 or less operands");
+
+  LLT Ty = MRI.getType(MI.getOperand(0).getReg());
+  unsigned Size = Ty.getSizeInBits();
+  bool IsFPR = Ty.isVector() || isPreISelGenericFloatingPointOpcode(Opc);
+
+#ifndef NDEBUG
+  // Make sure all the operands are using similar size and type.
+  // Should probably be checked by the machine verifier.
+  // This code won't catch cases where the number of lanes is
+  // different between the operands.
+  // If we want to go to that level of details, it is probably
+  // best to check that the types are the same, period.
+  // Currently, we just check that the register banks are the same
+  // for each types.
+  for (unsigned Idx = 1; Idx != NumOperands; ++Idx) {
+    LLT OpTy = MRI.getType(MI.getOperand(Idx).getReg());
+    assert(AArch64::getRegBankBaseIdxOffset(OpTy.getSizeInBits()) ==
+               AArch64::getRegBankBaseIdxOffset(Size) &&
+           "Operand has incompatible size");
+    bool OpIsFPR = OpTy.isVector() || isPreISelGenericFloatingPointOpcode(Opc);
+    (void)OpIsFPR;
+    assert(IsFPR == OpIsFPR && "Operand has incompatible type");
+  }
+#endif // End NDEBUG.
+
+  AArch64::PartialMappingIdx RBIdx =
+      IsFPR ? AArch64::FirstFPR : AArch64::FirstGPR;
+
+  return InstructionMapping{DefaultMappingID, 1,
+                            AArch64::getValueMapping(RBIdx, Size), NumOperands};
+}
+
+RegisterBankInfo::InstructionMapping
 AArch64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   const unsigned Opc = MI.getOpcode();
   const MachineFunction &MF = *MI.getParent()->getParent();
@@ -266,32 +346,54 @@ AArch64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
       return Mapping;
   }
 
+  switch (Opc) {
+    // G_{F|S|U}REM are not listed because they are not legal.
+    // Arithmetic ops.
+  case TargetOpcode::G_ADD:
+  case TargetOpcode::G_SUB:
+  case TargetOpcode::G_GEP:
+  case TargetOpcode::G_MUL:
+  case TargetOpcode::G_SDIV:
+  case TargetOpcode::G_UDIV:
+    // Bitwise ops.
+  case TargetOpcode::G_AND:
+  case TargetOpcode::G_OR:
+  case TargetOpcode::G_XOR:
+    // Shifts.
+  case TargetOpcode::G_SHL:
+  case TargetOpcode::G_LSHR:
+  case TargetOpcode::G_ASHR:
+    // Floating point ops.
+  case TargetOpcode::G_FADD:
+  case TargetOpcode::G_FSUB:
+  case TargetOpcode::G_FMUL:
+  case TargetOpcode::G_FDIV:
+    return getSameKindOfOperandsMapping(MI);
+  default:
+    break;
+  }
+
+  unsigned NumOperands = MI.getNumOperands();
   RegisterBankInfo::InstructionMapping Mapping =
-      InstructionMapping{DefaultMappingID, 1, MI.getNumOperands()};
+      InstructionMapping{DefaultMappingID, 1, nullptr, NumOperands};
 
   // Track the size and bank of each register.  We don't do partial mappings.
-  SmallVector<unsigned, 4> OpBaseIdx(MI.getNumOperands());
-  SmallVector<unsigned, 4> OpFinalIdx(MI.getNumOperands());
-  for (unsigned Idx = 0; Idx < MI.getNumOperands(); ++Idx) {
+  SmallVector<unsigned, 4> OpSize(NumOperands);
+  SmallVector<AArch64::PartialMappingIdx, 4> OpRegBankIdx(NumOperands);
+  for (unsigned Idx = 0; Idx < NumOperands; ++Idx) {
     auto &MO = MI.getOperand(Idx);
     if (!MO.isReg())
       continue;
 
     LLT Ty = MRI.getType(MO.getReg());
-    unsigned RBIdx = AArch64::getRegBankBaseIdx(Ty.getSizeInBits());
-    OpBaseIdx[Idx] = RBIdx;
+    OpSize[Idx] = Ty.getSizeInBits();
 
     // As a top-level guess, vectors go in FPRs, scalars and pointers in GPRs.
     // For floating-point instructions, scalars go in FPRs.
-    if (Ty.isVector() || isPreISelGenericFloatingPointOpcode(Opc)) {
-      assert(RBIdx < (AArch64::LastFPR - AArch64::FirstFPR) + 1 &&
-             "Index out of bound");
-      OpFinalIdx[Idx] = AArch64::FirstFPR + RBIdx;
-    } else {
-      assert(RBIdx < (AArch64::LastGPR - AArch64::FirstGPR) + 1 &&
-             "Index out of bound");
-      OpFinalIdx[Idx] = AArch64::FirstGPR + RBIdx;
-    }
+    if (Ty.isVector() || isPreISelGenericFloatingPointOpcode(Opc))
+      OpRegBankIdx[Idx] = AArch64::FirstFPR;
+    else
+      OpRegBankIdx[Idx] = AArch64::FirstGPR;
   }
 
   // Some of the floating-point instructions have mixed GPR and FPR operands:
@@ -299,28 +401,29 @@ AArch64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   switch (Opc) {
   case TargetOpcode::G_SITOFP:
   case TargetOpcode::G_UITOFP: {
-    OpFinalIdx = {OpBaseIdx[0] + AArch64::FirstFPR,
-                  OpBaseIdx[1] + AArch64::FirstGPR};
+    OpRegBankIdx = {AArch64::FirstFPR, AArch64::FirstGPR};
     break;
   }
   case TargetOpcode::G_FPTOSI:
   case TargetOpcode::G_FPTOUI: {
-    OpFinalIdx = {OpBaseIdx[0] + AArch64::FirstGPR,
-                  OpBaseIdx[1] + AArch64::FirstFPR};
+    OpRegBankIdx = {AArch64::FirstGPR, AArch64::FirstFPR};
     break;
   }
   case TargetOpcode::G_FCMP: {
-    OpFinalIdx = {OpBaseIdx[0] + AArch64::FirstGPR, /* Predicate */ 0,
-                  OpBaseIdx[2] + AArch64::FirstFPR,
-                  OpBaseIdx[3] + AArch64::FirstFPR};
+    OpRegBankIdx = {AArch64::FirstGPR,
+                    /* Predicate */ AArch64::PartialMappingIdx::None,
+                    AArch64::FirstFPR, AArch64::FirstFPR};
     break;
   }
   }
 
   // Finally construct the computed mapping.
-  for (unsigned Idx = 0; Idx < MI.getNumOperands(); ++Idx)
+  SmallVector<const ValueMapping *, 8> OpdsMapping(NumOperands);
+  for (unsigned Idx = 0; Idx < NumOperands; ++Idx)
     if (MI.getOperand(Idx).isReg())
-      Mapping.setOperandMapping(Idx, AArch64::ValMappings[OpFinalIdx[Idx]]);
+      OpdsMapping[Idx] =
+          AArch64::getValueMapping(OpRegBankIdx[Idx], OpSize[Idx]);
 
+  Mapping.setOperandsMapping(getOperandsMapping(OpdsMapping));
   return Mapping;
 }

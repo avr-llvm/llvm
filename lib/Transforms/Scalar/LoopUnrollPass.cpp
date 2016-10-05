@@ -102,10 +102,6 @@ static cl::opt<unsigned> PragmaUnrollThreshold(
 /// code expansion would result.
 static const unsigned NoThreshold = UINT_MAX;
 
-/// Default unroll count for loops with run-time trip count if
-/// -unroll-count is not set
-static const unsigned DefaultUnrollRuntimeCount = 8;
-
 /// Gather the various unrolling parameters based on the defaults, compiler
 /// flags, TTI overrides and user specified parameters.
 static TargetTransformInfo::UnrollingPreferences gatherUnrollingPreferences(
@@ -122,6 +118,7 @@ static TargetTransformInfo::UnrollingPreferences gatherUnrollingPreferences(
   UP.PartialThreshold = UP.Threshold;
   UP.PartialOptSizeThreshold = 0;
   UP.Count = 0;
+  UP.DefaultUnrollRuntimeCount = 8;
   UP.MaxCount = UINT_MAX;
   UP.FullUnrollMaxCount = UINT_MAX;
   UP.Partial = false;
@@ -414,6 +411,9 @@ analyzeLoopUnrollCost(const Loop *L, unsigned TripCount, DominatorTree &DT,
       // it.  We don't change the actual IR, just count optimization
       // opportunities.
       for (Instruction &I : *BB) {
+        if (isa<DbgInfoIntrinsic>(I))
+          continue;
+
         // Track this instruction's expected baseline cost when executing the
         // rolled loop form.
         RolledDynamicCost += TTI.getUserCost(&I);
@@ -803,7 +803,7 @@ static bool computeUnrollCount(Loop *L, const TargetTransformInfo &TTI,
         // largest power-of-two factor that satisfies the threshold limit.
         // As we'll create fixup loop, do the type of unrolling only if
         // remainder loop is allowed.
-        UP.Count = DefaultUnrollRuntimeCount;
+        UP.Count = UP.DefaultUnrollRuntimeCount;
         UnrolledSize = (LoopSize - BEInsns) * UP.Count + BEInsns;
         while (UP.Count != 0 && UnrolledSize > UP.PartialThreshold) {
           UP.Count >>= 1;
@@ -812,10 +812,11 @@ static bool computeUnrollCount(Loop *L, const TargetTransformInfo &TTI,
       }
       if (UP.Count < 2) {
         if (PragmaEnableUnroll)
-          ORE->emitOptimizationRemarkMissed(
-              DEBUG_TYPE, L,
-              "Unable to unroll loop as directed by unroll(enable) pragma "
-              "because unrolled size is too large.");
+          ORE->emit(
+              OptimizationRemarkMissed(DEBUG_TYPE, "UnrollAsDirectedTooLarge",
+                                       L->getStartLoc(), L->getHeader())
+              << "Unable to unroll loop as directed by unroll(enable) pragma "
+                 "because unrolled size is too large.");
         UP.Count = 0;
       }
     } else {
@@ -823,19 +824,22 @@ static bool computeUnrollCount(Loop *L, const TargetTransformInfo &TTI,
     }
     if ((PragmaFullUnroll || PragmaEnableUnroll) && TripCount &&
         UP.Count != TripCount)
-      ORE->emitOptimizationRemarkMissed(
-          DEBUG_TYPE, L,
-          "Unable to fully unroll loop as directed by unroll pragma because "
-          "unrolled size is too large.");
+      ORE->emit(
+          OptimizationRemarkMissed(DEBUG_TYPE, "FullUnrollAsDirectedTooLarge",
+                                   L->getStartLoc(), L->getHeader())
+          << "Unable to fully unroll loop as directed by unroll pragma because "
+             "unrolled size is too large.");
     return ExplicitUnroll;
   }
   assert(TripCount == 0 &&
          "All cases when TripCount is constant should be covered here.");
   if (PragmaFullUnroll)
-    ORE->emitOptimizationRemarkMissed(
-        DEBUG_TYPE, L,
-        "Unable to fully unroll loop as directed by unroll(full) pragma "
-        "because loop has a runtime trip count.");
+    ORE->emit(
+        OptimizationRemarkMissed(DEBUG_TYPE,
+                                 "CantFullUnrollAsDirectedRuntimeTripCount",
+                                 L->getStartLoc(), L->getHeader())
+        << "Unable to fully unroll loop as directed by unroll(full) pragma "
+           "because loop has a runtime trip count.");
 
   // 5th priority is runtime unrolling.
   // Don't unroll a runtime trip count loop when it is disabled.
@@ -852,7 +856,7 @@ static bool computeUnrollCount(Loop *L, const TargetTransformInfo &TTI,
     return false;
   }
   if (UP.Count == 0)
-    UP.Count = DefaultUnrollRuntimeCount;
+    UP.Count = UP.DefaultUnrollRuntimeCount;
   UnrolledSize = (LoopSize - BEInsns) * UP.Count + BEInsns;
 
   // Reduce unroll count to be the largest power-of-two factor of
@@ -875,16 +879,19 @@ static bool computeUnrollCount(Loop *L, const TargetTransformInfo &TTI,
                     "multiple, "
                  << TripMultiple << ".  Reducing unroll count from "
                  << OrigCount << " to " << UP.Count << ".\n");
+    using namespace ore;
     if (PragmaCount > 0 && !UP.AllowRemainder)
-      ORE->emitOptimizationRemarkMissed(
-          DEBUG_TYPE, L,
-          Twine("Unable to unroll loop the number of times directed by "
-                "unroll_count pragma because remainder loop is restricted "
-                "(that could architecture specific or because the loop "
-                "contains a convergent instruction) and so must have an unroll "
-                "count that divides the loop trip multiple of ") +
-              Twine(TripMultiple) + ".  Unrolling instead " + Twine(UP.Count) +
-              " time(s).");
+      ORE->emit(
+          OptimizationRemarkMissed(DEBUG_TYPE,
+                                   "DifferentUnrollCountFromDirected",
+                                   L->getStartLoc(), L->getHeader())
+          << "Unable to unroll loop the number of times directed by "
+             "unroll_count pragma because remainder loop is restricted "
+             "(that could architecture specific or because the loop "
+             "contains a convergent instruction) and so must have an unroll "
+             "count that divides the loop trip multiple of "
+          << NV("TripMultiple", TripMultiple) << ".  Unrolling instead "
+          << NV("UnrollCount", UP.Count) << " time(s).");
   }
 
   if (UP.Count > UP.MaxCount)

@@ -63,9 +63,9 @@ void ProfileSummaryInfo::computeSummary() {
   Summary.reset(ProfileSummary::getFromMD(SummaryMD));
 }
 
-// Returns true if the function is a hot function. If it returns false, it
-// either means it is not hot or it is unknown whether F is hot or not (for
-// example, no profile data is available).
+/// Returns true if the function is a hot function. If it returns false, it
+/// either means it is not hot or it is unknown whether F is hot or not (for
+/// example, no profile data is available).
 bool ProfileSummaryInfo::isHotFunction(const Function *F) {
   computeSummary();
   if (!F || !Summary)
@@ -79,9 +79,9 @@ bool ProfileSummaryInfo::isHotFunction(const Function *F) {
               (uint64_t)(0.3 * (double)Summary->getMaxFunctionCount()));
 }
 
-// Returns true if the function is a cold function. If it returns false, it
-// either means it is not cold or it is unknown whether F is cold or not (for
-// example, no profile data is available).
+/// Returns true if the function is a cold function. If it returns false, it
+/// either means it is not cold or it is unknown whether F is cold or not (for
+/// example, no profile data is available).
 bool ProfileSummaryInfo::isColdFunction(const Function *F) {
   computeSummary();
   if (!F)
@@ -100,7 +100,7 @@ bool ProfileSummaryInfo::isColdFunction(const Function *F) {
               (uint64_t)(0.01 * (double)Summary->getMaxFunctionCount()));
 }
 
-// Compute the hot and cold thresholds.
+/// Compute the hot and cold thresholds.
 void ProfileSummaryInfo::computeThresholds() {
   if (!Summary)
     computeSummary();
@@ -125,18 +125,22 @@ bool ProfileSummaryInfo::isColdCount(uint64_t C) {
   return ColdCountThreshold && C <= ColdCountThreshold.getValue();
 }
 
-ProfileSummaryInfo *ProfileSummaryInfoWrapperPass::getPSI(Module &M) {
-  if (!PSI)
-    PSI.reset(new ProfileSummaryInfo(M));
-  return PSI.get();
-}
-
 INITIALIZE_PASS(ProfileSummaryInfoWrapperPass, "profile-summary-info",
                 "Profile summary info", false, true)
 
 ProfileSummaryInfoWrapperPass::ProfileSummaryInfoWrapperPass()
     : ImmutablePass(ID) {
   initializeProfileSummaryInfoWrapperPassPass(*PassRegistry::getPassRegistry());
+}
+
+bool ProfileSummaryInfoWrapperPass::doInitialization(Module &M) {
+  PSI.reset(new ProfileSummaryInfo(M));
+  return false;
+}
+
+bool ProfileSummaryInfoWrapperPass::doFinalization(Module &M) {
+  PSI.reset();
+  return false;
 }
 
 char ProfileSummaryAnalysis::PassID;

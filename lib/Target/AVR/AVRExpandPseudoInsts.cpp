@@ -44,7 +44,7 @@ public:
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
-  const char *getPassName() const override {
+  StringRef getPassName() const override {
     return "AVR pseudo instruction expansion pass";
   }
 

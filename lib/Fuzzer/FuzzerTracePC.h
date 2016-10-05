@@ -19,8 +19,10 @@ namespace fuzzer {
 
 class TracePC {
  public:
-  void HandleTrace(uintptr_t *guard, uintptr_t PC);
-  void HandleInit(uintptr_t *start, uintptr_t *stop);
+  static const size_t kFeatureSetSize = ValueBitMap::kNumberOfItems;
+
+  void HandleTrace(uint32_t *guard, uintptr_t PC);
+  void HandleInit(uint32_t *start, uint32_t *stop);
   void HandleCallerCallee(uintptr_t Caller, uintptr_t Callee);
   void HandleValueProfile(size_t Value) { ValueProfileMap.AddValue(Value); }
   size_t GetTotalPCCoverage() { return TotalPCCoverage; }
@@ -33,7 +35,7 @@ class TracePC {
   bool UpdateValueProfileMap(ValueBitMap *MaxValueProfileMap) {
     return UseValueProfile && MaxValueProfileMap->MergeFrom(ValueProfileMap);
   }
-  void FinalizeTrace();
+  bool FinalizeTrace(size_t InputSize);
 
   size_t GetNewPCIDs(uintptr_t **NewPCIDsPtr) {
     *NewPCIDsPtr = NewPCIDs;
@@ -58,6 +60,13 @@ class TracePC {
 
   void PrintCoverage();
 
+  bool HasFeature(size_t Idx) { return CounterMap.Get(Idx); }
+
+  void AddValueForMemcmp(void *caller_pc, const void *s1, const void *s2,
+                         size_t n);
+  void AddValueForStrcmp(void *caller_pc, const char *s1, const char *s2,
+                         size_t n);
+
 private:
   bool UseCounters = false;
   bool UseValueProfile = false;
@@ -71,7 +80,7 @@ private:
   }
 
   struct Module {
-    uintptr_t *Start, *Stop;
+    uint32_t *Start, *Stop;
   };
 
   Module Modules[4096];
@@ -86,15 +95,7 @@ private:
 
   ValueBitMap CounterMap;
   ValueBitMap ValueProfileMap;
-
-  struct Feature {
-    size_t Count;
-    size_t SmallestElementIdx;
-    size_t SmallestElementSize;
-  };
-
-  static const size_t kFeatureSetSize = ValueBitMap::kNumberOfItems;
-  Feature FeatureSet[kFeatureSetSize];
+  uint32_t InputSizesPerFeature[kFeatureSetSize];
 };
 
 extern TracePC TPC;

@@ -5656,11 +5656,14 @@ ScalarEvolution::BackedgeTakenInfo::BackedgeTakenInfo(
       [&](const EdgeExitInfo &EEI) {
         BasicBlock *ExitBB = EEI.first;
         const ExitLimit &EL = EEI.second;
-        if (EL.Predicate.isAlwaysTrue())
+        if (EL.Predicates.empty())
           return ExitNotTakenInfo(ExitBB, EL.ExactNotTaken, nullptr);
-        return ExitNotTakenInfo(
-            ExitBB, EL.ExactNotTaken,
-            llvm::make_unique<SCEVUnionPredicate>(std::move(EL.Predicate)));
+
+        std::unique_ptr<SCEVUnionPredicate> Predicate(new SCEVUnionPredicate);
+        for (auto *Pred : EL.Predicates)
+          Predicate->add(Pred);
+
+        return ExitNotTakenInfo(ExitBB, EL.ExactNotTaken, std::move(Predicate));
       });
 }
 
@@ -5691,7 +5694,7 @@ ScalarEvolution::computeBackedgeTakenCount(const Loop *L,
     BasicBlock *ExitBB = ExitingBlocks[i];
     ExitLimit EL = computeExitLimit(L, ExitBB, AllowPredicates);
 
-    assert((AllowPredicates || EL.Predicate.isAlwaysTrue()) &&
+    assert((AllowPredicates || EL.Predicates.empty()) &&
            "Predicated exit limit when predicates are not allowed!");
 
     // 1. For each exit that can be computed, add an entry to ExitCounts.
@@ -5861,9 +5864,6 @@ ScalarEvolution::computeExitLimitFromCond(const Loop *L,
           BECount = EL0.ExactNotTaken;
       }
 
-      SCEVUnionPredicate NP;
-      NP.add(&EL0.Predicate);
-      NP.add(&EL1.Predicate);
       // There are cases (e.g. PR26207) where computeExitLimitFromCond is able
       // to be more aggressive when computing BECount than when computing
       // MaxBECount.  In these cases it is possible for EL0.ExactNotTaken and
@@ -5873,7 +5873,7 @@ ScalarEvolution::computeExitLimitFromCond(const Loop *L,
           !isa<SCEVCouldNotCompute>(BECount))
         MaxBECount = BECount;
 
-      return ExitLimit(BECount, MaxBECount, NP);
+      return ExitLimit(BECount, MaxBECount, {&EL0.Predicates, &EL1.Predicates});
     }
     if (BO->getOpcode() == Instruction::Or) {
       // Recurse on the operands of the or.
@@ -5912,10 +5912,7 @@ ScalarEvolution::computeExitLimitFromCond(const Loop *L,
           BECount = EL0.ExactNotTaken;
       }
 
-      SCEVUnionPredicate NP;
-      NP.add(&EL0.Predicate);
-      NP.add(&EL1.Predicate);
-      return ExitLimit(BECount, MaxBECount, NP);
+      return ExitLimit(BECount, MaxBECount, {&EL0.Predicates, &EL1.Predicates});
     }
   }
 
@@ -5997,8 +5994,8 @@ ScalarEvolution::computeExitLimitFromICmp(const Loop *L,
     if (const SCEVAddRecExpr *AddRec = dyn_cast<SCEVAddRecExpr>(LHS))
       if (AddRec->getLoop() == L) {
         // Form the constant range.
-        ConstantRange CompRange(
-            ICmpInst::makeConstantRange(Cond, RHSC->getAPInt()));
+        ConstantRange CompRange =
+            ConstantRange::makeExactICmpRegion(Cond, RHSC->getAPInt());
 
         const SCEV *Ret = AddRec->getNumIterationsInRange(CompRange, *this);
         if (!isa<SCEVCouldNotCompute>(Ret)) return Ret;
@@ -6300,8 +6297,7 @@ ScalarEvolution::ExitLimit ScalarEvolution::computeShiftCompareExitLimit(
     unsigned BitWidth = getTypeSizeInBits(RHS->getType());
     const SCEV *UpperBound =
         getConstant(getEffectiveSCEVType(RHS->getType()), BitWidth);
-    SCEVUnionPredicate P;
-    return ExitLimit(getCouldNotCompute(), UpperBound, P);
+    return ExitLimit(getCouldNotCompute(), UpperBound);
   }
 
   return getCouldNotCompute();
@@ -7062,7 +7058,7 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
   // effectively V != 0.  We know and take advantage of the fact that this
   // expression only being used in a comparison by zero context.
 
-  SCEVUnionPredicate P;
+  SmallPtrSet<const SCEVPredicate *, 4> Predicates;
   // If the value is a constant
   if (const SCEVConstant *C = dyn_cast<SCEVConstant>(V)) {
     // If the value is already zero, the branch will execute zero times.
@@ -7075,7 +7071,7 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
     // Try to make this an AddRec using runtime tests, in the first X
     // iterations of this loop, where X is the SCEV expression found by the
     // algorithm below.
-    AddRec = convertSCEVToAddRecWithPredicates(V, L, P);
+    AddRec = convertSCEVToAddRecWithPredicates(V, L, Predicates);
 
   if (!AddRec || AddRec->getLoop() != L)
     return getCouldNotCompute();
@@ -7097,7 +7093,7 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
         // should not accept a root of 2.
         const SCEV *Val = AddRec->evaluateAtIteration(R1, *this);
         if (Val->isZero())
-          return ExitLimit(R1, R1, P); // We found a quadratic root!
+          return ExitLimit(R1, R1, Predicates); // We found a quadratic root!
       }
     }
     return getCouldNotCompute();
@@ -7154,7 +7150,7 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
     else
       MaxBECount = getConstant(CountDown ? CR.getUnsignedMax()
                                          : -CR.getUnsignedMin());
-    return ExitLimit(Distance, MaxBECount, P);
+    return ExitLimit(Distance, MaxBECount, Predicates);
   }
 
   // As a special case, handle the instance where Step is a positive power of
@@ -7209,7 +7205,7 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
 
       const SCEV *Limit =
           getZeroExtendExpr(getTruncateExpr(ModuloResult, NarrowTy), WideTy);
-      return ExitLimit(Limit, Limit, P);
+      return ExitLimit(Limit, Limit, Predicates);
     }
   }
 
@@ -7222,14 +7218,14 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
       loopHasNoAbnormalExits(AddRec->getLoop())) {
     const SCEV *Exact =
         getUDivExpr(Distance, CountDown ? getNegativeSCEV(Step) : Step);
-    return ExitLimit(Exact, Exact, P);
+    return ExitLimit(Exact, Exact, Predicates);
   }
 
   // Then, try to solve the above equation provided that Start is constant.
   if (const SCEVConstant *StartC = dyn_cast<SCEVConstant>(Start)) {
     const SCEV *E = SolveLinEquationWithOverflow(
         StepC->getValue()->getValue(), -StartC->getValue()->getValue(), *this);
-    return ExitLimit(E, E, P);
+    return ExitLimit(E, E, Predicates);
   }
   return getCouldNotCompute();
 }
@@ -7341,149 +7337,77 @@ bool ScalarEvolution::SimplifyICmpOperands(ICmpInst::Predicate &Pred,
   // cases, and canonicalize *-or-equal comparisons to regular comparisons.
   if (const SCEVConstant *RC = dyn_cast<SCEVConstant>(RHS)) {
     const APInt &RA = RC->getAPInt();
-    switch (Pred) {
-    default: llvm_unreachable("Unexpected ICmpInst::Predicate value!");
-    case ICmpInst::ICMP_EQ:
-    case ICmpInst::ICMP_NE:
-      // Fold ((-1) * %a) + %b == 0 (equivalent to %b-%a == 0) into %a == %b.
-      if (!RA)
-        if (const SCEVAddExpr *AE = dyn_cast<SCEVAddExpr>(LHS))
-          if (const SCEVMulExpr *ME = dyn_cast<SCEVMulExpr>(AE->getOperand(0)))
-            if (AE->getNumOperands() == 2 && ME->getNumOperands() == 2 &&
-                ME->getOperand(0)->isAllOnesValue()) {
-              RHS = AE->getOperand(1);
-              LHS = ME->getOperand(1);
-              Changed = true;
-            }
-      break;
-    case ICmpInst::ICMP_UGE:
-      if ((RA - 1).isMinValue()) {
-        Pred = ICmpInst::ICMP_NE;
+
+    bool SimplifiedByConstantRange = false;
+
+    if (!ICmpInst::isEquality(Pred)) {
+      ConstantRange ExactCR = ConstantRange::makeExactICmpRegion(Pred, RA);
+      if (ExactCR.isFullSet())
+        goto trivially_true;
+      else if (ExactCR.isEmptySet())
+        goto trivially_false;
+
+      APInt NewRHS;
+      CmpInst::Predicate NewPred;
+      if (ExactCR.getEquivalentICmp(NewPred, NewRHS) &&
+          ICmpInst::isEquality(NewPred)) {
+        // We were able to convert an inequality to an equality.
+        Pred = NewPred;
+        RHS = getConstant(NewRHS);
+        Changed = SimplifiedByConstantRange = true;
+      }
+    }
+
+    if (!SimplifiedByConstantRange) {
+      switch (Pred) {
+      default:
+        break;
+      case ICmpInst::ICMP_EQ:
+      case ICmpInst::ICMP_NE:
+        // Fold ((-1) * %a) + %b == 0 (equivalent to %b-%a == 0) into %a == %b.
+        if (!RA)
+          if (const SCEVAddExpr *AE = dyn_cast<SCEVAddExpr>(LHS))
+            if (const SCEVMulExpr *ME =
+                    dyn_cast<SCEVMulExpr>(AE->getOperand(0)))
+              if (AE->getNumOperands() == 2 && ME->getNumOperands() == 2 &&
+                  ME->getOperand(0)->isAllOnesValue()) {
+                RHS = AE->getOperand(1);
+                LHS = ME->getOperand(1);
+                Changed = true;
+              }
+        break;
+
+
+        // The "Should have been caught earlier!" messages refer to the fact
+        // that the ExactCR.isFullSet() or ExactCR.isEmptySet() check above
+        // should have fired on the corresponding cases, and canonicalized the
+        // check to trivially_true or trivially_false.
+
+      case ICmpInst::ICMP_UGE:
+        assert(!RA.isMinValue() && "Should have been caught earlier!");
+        Pred = ICmpInst::ICMP_UGT;
         RHS = getConstant(RA - 1);
         Changed = true;
         break;
-      }
-      if (RA.isMaxValue()) {
-        Pred = ICmpInst::ICMP_EQ;
-        Changed = true;
-        break;
-      }
-      if (RA.isMinValue()) goto trivially_true;
-
-      Pred = ICmpInst::ICMP_UGT;
-      RHS = getConstant(RA - 1);
-      Changed = true;
-      break;
-    case ICmpInst::ICMP_ULE:
-      if ((RA + 1).isMaxValue()) {
-        Pred = ICmpInst::ICMP_NE;
+      case ICmpInst::ICMP_ULE:
+        assert(!RA.isMaxValue() && "Should have been caught earlier!");
+        Pred = ICmpInst::ICMP_ULT;
         RHS = getConstant(RA + 1);
         Changed = true;
         break;
-      }
-      if (RA.isMinValue()) {
-        Pred = ICmpInst::ICMP_EQ;
-        Changed = true;
-        break;
-      }
-      if (RA.isMaxValue()) goto trivially_true;
-
-      Pred = ICmpInst::ICMP_ULT;
-      RHS = getConstant(RA + 1);
-      Changed = true;
-      break;
-    case ICmpInst::ICMP_SGE:
-      if ((RA - 1).isMinSignedValue()) {
-        Pred = ICmpInst::ICMP_NE;
+      case ICmpInst::ICMP_SGE:
+        assert(!RA.isMinSignedValue() && "Should have been caught earlier!");
+        Pred = ICmpInst::ICMP_SGT;
         RHS = getConstant(RA - 1);
         Changed = true;
         break;
-      }
-      if (RA.isMaxSignedValue()) {
-        Pred = ICmpInst::ICMP_EQ;
-        Changed = true;
-        break;
-      }
-      if (RA.isMinSignedValue()) goto trivially_true;
-
-      Pred = ICmpInst::ICMP_SGT;
-      RHS = getConstant(RA - 1);
-      Changed = true;
-      break;
-    case ICmpInst::ICMP_SLE:
-      if ((RA + 1).isMaxSignedValue()) {
-        Pred = ICmpInst::ICMP_NE;
+      case ICmpInst::ICMP_SLE:
+        assert(!RA.isMaxSignedValue() && "Should have been caught earlier!");
+        Pred = ICmpInst::ICMP_SLT;
         RHS = getConstant(RA + 1);
         Changed = true;
         break;
       }
-      if (RA.isMinSignedValue()) {
-        Pred = ICmpInst::ICMP_EQ;
-        Changed = true;
-        break;
-      }
-      if (RA.isMaxSignedValue()) goto trivially_true;
-
-      Pred = ICmpInst::ICMP_SLT;
-      RHS = getConstant(RA + 1);
-      Changed = true;
-      break;
-    case ICmpInst::ICMP_UGT:
-      if (RA.isMinValue()) {
-        Pred = ICmpInst::ICMP_NE;
-        Changed = true;
-        break;
-      }
-      if ((RA + 1).isMaxValue()) {
-        Pred = ICmpInst::ICMP_EQ;
-        RHS = getConstant(RA + 1);
-        Changed = true;
-        break;
-      }
-      if (RA.isMaxValue()) goto trivially_false;
-      break;
-    case ICmpInst::ICMP_ULT:
-      if (RA.isMaxValue()) {
-        Pred = ICmpInst::ICMP_NE;
-        Changed = true;
-        break;
-      }
-      if ((RA - 1).isMinValue()) {
-        Pred = ICmpInst::ICMP_EQ;
-        RHS = getConstant(RA - 1);
-        Changed = true;
-        break;
-      }
-      if (RA.isMinValue()) goto trivially_false;
-      break;
-    case ICmpInst::ICMP_SGT:
-      if (RA.isMinSignedValue()) {
-        Pred = ICmpInst::ICMP_NE;
-        Changed = true;
-        break;
-      }
-      if ((RA + 1).isMaxSignedValue()) {
-        Pred = ICmpInst::ICMP_EQ;
-        RHS = getConstant(RA + 1);
-        Changed = true;
-        break;
-      }
-      if (RA.isMaxSignedValue()) goto trivially_false;
-      break;
-    case ICmpInst::ICMP_SLT:
-      if (RA.isMaxSignedValue()) {
-        Pred = ICmpInst::ICMP_NE;
-        Changed = true;
-        break;
-      }
-      if ((RA - 1).isMinSignedValue()) {
-       Pred = ICmpInst::ICMP_EQ;
-       RHS = getConstant(RA - 1);
-        Changed = true;
-       break;
-      }
-      if (RA.isMinSignedValue()) goto trivially_false;
-      break;
     }
   }
 
@@ -8634,7 +8558,7 @@ ScalarEvolution::ExitLimit
 ScalarEvolution::howManyLessThans(const SCEV *LHS, const SCEV *RHS,
                                   const Loop *L, bool IsSigned,
                                   bool ControlsExit, bool AllowPredicates) {
-  SCEVUnionPredicate P;
+  SmallPtrSet<const SCEVPredicate *, 4> Predicates;
   // We handle only IV < Invariant
   if (!isLoopInvariant(RHS, L))
     return getCouldNotCompute();
@@ -8646,7 +8570,7 @@ ScalarEvolution::howManyLessThans(const SCEV *LHS, const SCEV *RHS,
     // Try to make this an AddRec using runtime tests, in the first X
     // iterations of this loop, where X is the SCEV expression found by the
     // algorithm below.
-    IV = convertSCEVToAddRecWithPredicates(LHS, L, P);
+    IV = convertSCEVToAddRecWithPredicates(LHS, L, Predicates);
     PredicatedIV = true;
   }
 
@@ -8762,14 +8686,14 @@ ScalarEvolution::howManyLessThans(const SCEV *LHS, const SCEV *RHS,
   if (isa<SCEVCouldNotCompute>(MaxBECount))
     MaxBECount = BECount;
 
-  return ExitLimit(BECount, MaxBECount, P);
+  return ExitLimit(BECount, MaxBECount, Predicates);
 }
 
 ScalarEvolution::ExitLimit
 ScalarEvolution::howManyGreaterThans(const SCEV *LHS, const SCEV *RHS,
                                      const Loop *L, bool IsSigned,
                                      bool ControlsExit, bool AllowPredicates) {
-  SCEVUnionPredicate P;
+  SmallPtrSet<const SCEVPredicate *, 4> Predicates;
   // We handle only IV > Invariant
   if (!isLoopInvariant(RHS, L))
     return getCouldNotCompute();
@@ -8779,7 +8703,7 @@ ScalarEvolution::howManyGreaterThans(const SCEV *LHS, const SCEV *RHS,
     // Try to make this an AddRec using runtime tests, in the first X
     // iterations of this loop, where X is the SCEV expression found by the
     // algorithm below.
-    IV = convertSCEVToAddRecWithPredicates(LHS, L, P);
+    IV = convertSCEVToAddRecWithPredicates(LHS, L, Predicates);
 
   // Avoid weird loops
   if (!IV || IV->getLoop() != L || !IV->isAffine())
@@ -8839,7 +8763,7 @@ ScalarEvolution::howManyGreaterThans(const SCEV *LHS, const SCEV *RHS,
   if (isa<SCEVCouldNotCompute>(MaxBECount))
     MaxBECount = BECount;
 
-  return ExitLimit(BECount, MaxBECount, P);
+  return ExitLimit(BECount, MaxBECount, Predicates);
 }
 
 const SCEV *SCEVAddRecExpr::getNumIterationsInRange(const ConstantRange &Range,
@@ -8911,9 +8835,7 @@ const SCEV *SCEVAddRecExpr::getNumIterationsInRange(const ConstantRange &Range,
     // Range.getUpper() is crossed.
     SmallVector<const SCEV *, 4> NewOps(op_begin(), op_end());
     NewOps[0] = SE.getNegativeSCEV(SE.getConstant(Range.getUpper()));
-    const SCEV *NewAddRec = SE.getAddRecExpr(NewOps, getLoop(),
-                                             // getNoWrapFlags(FlagNW)
-                                             FlagAnyWrap);
+    const SCEV *NewAddRec = SE.getAddRecExpr(NewOps, getLoop(), FlagAnyWrap);
 
     // Next, solve the constructed addrec
     if (auto Roots =
@@ -10161,25 +10083,34 @@ namespace {
 
 class SCEVPredicateRewriter : public SCEVRewriteVisitor<SCEVPredicateRewriter> {
 public:
-  // Rewrites \p S in the context of a loop L and the predicate A.
-  // If Assume is true, rewrite is free to add further predicates to A
-  // such that the result will be an AddRecExpr.
+  /// Rewrites \p S in the context of a loop L and the SCEV predication
+  /// infrastructure.
+  ///
+  /// If \p Pred is non-null, the SCEV expression is rewritten to respect the
+  /// equivalences present in \p Pred.
+  ///
+  /// If \p NewPreds is non-null, rewrite is free to add further predicates to
+  /// \p NewPreds such that the result will be an AddRecExpr.
   static const SCEV *rewrite(const SCEV *S, const Loop *L, ScalarEvolution &SE,
-                             SCEVUnionPredicate &A, bool Assume) {
-    SCEVPredicateRewriter Rewriter(L, SE, A, Assume);
+                             SmallPtrSetImpl<const SCEVPredicate *> *NewPreds,
+                             SCEVUnionPredicate *Pred) {
+    SCEVPredicateRewriter Rewriter(L, SE, NewPreds, Pred);
     return Rewriter.visit(S);
   }
 
   SCEVPredicateRewriter(const Loop *L, ScalarEvolution &SE,
-                        SCEVUnionPredicate &P, bool Assume)
-      : SCEVRewriteVisitor(SE), P(P), L(L), Assume(Assume) {}
+                        SmallPtrSetImpl<const SCEVPredicate *> *NewPreds,
+                        SCEVUnionPredicate *Pred)
+      : SCEVRewriteVisitor(SE), NewPreds(NewPreds), Pred(Pred), L(L) {}
 
   const SCEV *visitUnknown(const SCEVUnknown *Expr) {
-    auto ExprPreds = P.getPredicatesForExpr(Expr);
-    for (auto *Pred : ExprPreds)
-      if (const auto *IPred = dyn_cast<SCEVEqualPredicate>(Pred))
-        if (IPred->getLHS() == Expr)
-          return IPred->getRHS();
+    if (Pred) {
+      auto ExprPreds = Pred->getPredicatesForExpr(Expr);
+      for (auto *Pred : ExprPreds)
+        if (const auto *IPred = dyn_cast<SCEVEqualPredicate>(Pred))
+          if (IPred->getLHS() == Expr)
+            return IPred->getRHS();
+    }
 
     return Expr;
   }
@@ -10220,32 +10151,31 @@ private:
   bool addOverflowAssumption(const SCEVAddRecExpr *AR,
                              SCEVWrapPredicate::IncrementWrapFlags AddedFlags) {
     auto *A = SE.getWrapPredicate(AR, AddedFlags);
-    if (!Assume) {
+    if (!NewPreds) {
       // Check if we've already made this assumption.
-      if (P.implies(A))
-        return true;
-      return false;
+      return Pred && Pred->implies(A);
     }
-    P.add(A);
+    NewPreds->insert(A);
     return true;
   }
 
-  SCEVUnionPredicate &P;
+  SmallPtrSetImpl<const SCEVPredicate *> *NewPreds;
+  SCEVUnionPredicate *Pred;
   const Loop *L;
-  bool Assume;
 };
 } // end anonymous namespace
 
 const SCEV *ScalarEvolution::rewriteUsingPredicate(const SCEV *S, const Loop *L,
                                                    SCEVUnionPredicate &Preds) {
-  return SCEVPredicateRewriter::rewrite(S, L, *this, Preds, false);
+  return SCEVPredicateRewriter::rewrite(S, L, *this, nullptr, &Preds);
 }
 
-const SCEVAddRecExpr *
-ScalarEvolution::convertSCEVToAddRecWithPredicates(const SCEV *S, const Loop *L,
-                                                   SCEVUnionPredicate &Preds) {
-  SCEVUnionPredicate TransformPreds;
-  S = SCEVPredicateRewriter::rewrite(S, L, *this, TransformPreds, true);
+const SCEVAddRecExpr *ScalarEvolution::convertSCEVToAddRecWithPredicates(
+    const SCEV *S, const Loop *L,
+    SmallPtrSetImpl<const SCEVPredicate *> &Preds) {
+
+  SmallPtrSet<const SCEVPredicate *, 4> TransformPreds;
+  S = SCEVPredicateRewriter::rewrite(S, L, *this, &TransformPreds, nullptr);
   auto *AddRec = dyn_cast<SCEVAddRecExpr>(S);
 
   if (!AddRec)
@@ -10253,7 +10183,9 @@ ScalarEvolution::convertSCEVToAddRecWithPredicates(const SCEV *S, const Loop *L,
 
   // Since the transformation was successful, we can now transfer the SCEV
   // predicates.
-  Preds.add(&TransformPreds);
+  for (auto *P : TransformPreds)
+    Preds.insert(P);
+
   return AddRec;
 }
 
@@ -10480,10 +10412,14 @@ bool PredicatedScalarEvolution::hasNoOverflow(
 
 const SCEVAddRecExpr *PredicatedScalarEvolution::getAsAddRec(Value *V) {
   const SCEV *Expr = this->getSCEV(V);
-  auto *New = SE.convertSCEVToAddRecWithPredicates(Expr, &L, Preds);
+  SmallPtrSet<const SCEVPredicate *, 4> NewPreds;
+  auto *New = SE.convertSCEVToAddRecWithPredicates(Expr, &L, NewPreds);
 
   if (!New)
     return nullptr;
+
+  for (auto *P : NewPreds)
+    Preds.add(P);
 
   updateGeneration();
   RewriteMap[SE.getSCEV(V)] = {Generation, New};

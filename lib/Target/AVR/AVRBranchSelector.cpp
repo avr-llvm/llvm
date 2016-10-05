@@ -43,7 +43,7 @@ public:
 
   bool runOnMachineFunction(MachineFunction &Fn) override;
 
-  const char *getPassName() const override { return "AVR Branch Selector"; }
+  StringRef getPassName() const override { return "AVR Branch Selector"; }
 
 private:
   /// The sizes of the basic blocks in the function.

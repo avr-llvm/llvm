@@ -489,7 +489,7 @@ struct AVRFrameAnalyzer : public MachineFunctionPass {
     return false;
   }
 
-  const char *getPassName() const { return "AVR Frame Analyzer"; }
+  StringRef getPassName() const { return "AVR Frame Analyzer"; }
 };
 
 char AVRFrameAnalyzer::ID = 0;
@@ -539,7 +539,7 @@ struct AVRDynAllocaSR : public MachineFunctionPass {
     return true;
   }
 
-  const char *getPassName() const {
+  StringRef getPassName() const {
     return "AVR dynalloca stack pointer save/restore";
   }
 };

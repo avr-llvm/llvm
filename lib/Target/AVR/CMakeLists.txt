@@ -1,5 +1,6 @@
 set(LLVM_TARGET_DEFINITIONS AVR.td)
 
+tablegen(LLVM AVRGenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM AVRGenRegisterInfo.inc -gen-register-info)
 tablegen(LLVM AVRGenInstrInfo.inc -gen-instr-info)
 tablegen(LLVM AVRGenDisassemblerTables.inc -gen-disassembler)

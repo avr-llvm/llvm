@@ -11,18 +11,17 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AVRELFStreamer.h"
+#include "AVRMCAsmInfo.h"
 #include "AVRMCTargetDesc.h"
+#include "AVRTargetStreamer.h"
+#include "InstPrinter/AVRInstPrinter.h"
 
+#include "llvm/MC/MCELFStreamer.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/MC/MCELFStreamer.h"
 #include "llvm/Support/TargetRegistry.h"
-
-#include "AVRMCAsmInfo.h"
-#include "AVRTargetStreamer.h"
-#include "AVRELFStreamer.h"
-#include "InstPrinter/AVRInstPrinter.h"
 
 #define GET_INSTRINFO_MC_DESC
 #include "AVRGenInstrInfo.inc"
@@ -33,7 +32,7 @@
 #define GET_REGINFO_MC_DESC
 #include "AVRGenRegisterInfo.inc"
 
-namespace llvm {
+using namespace llvm;
 
 static MCInstrInfo *createAVRMCInstrInfo() {
   MCInstrInfo *X = new MCInstrInfo();
@@ -103,6 +102,7 @@ extern "C" void LLVMInitializeAVRTargetMC() {
 
   // Register the MC Code Emitter
   TargetRegistry::RegisterMCCodeEmitter(TheAVRTarget, createAVRMCCodeEmitter);
+
   // Register the ELF streamer
   TargetRegistry::RegisterELFStreamer(TheAVRTarget, createMCStreamer);
 
@@ -118,4 +118,3 @@ extern "C" void LLVMInitializeAVRTargetMC() {
   TargetRegistry::RegisterMCAsmBackend(TheAVRTarget, createAVRAsmBackend);
 }
 
-} // end of namespace llvm

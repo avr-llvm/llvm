@@ -450,6 +450,18 @@ function(llvm_add_library name)
         PREFIX ""
         )
     endif()
+
+    # Set SOVERSION on shared libraries that lack explicit SONAME
+    # specifier, on *nix systems that are not Darwin.
+    if(UNIX AND NOT APPLE AND NOT ARG_SONAME)
+      set_target_properties(${name}
+        PROPERTIES
+		# Concatenate the version numbers since ldconfig expects exactly
+		# one component indicating the ABI version, while LLVM uses
+		# major+minor for that.
+        SOVERSION ${LLVM_VERSION_MAJOR}${LLVM_VERSION_MINOR}
+        VERSION ${LLVM_VERSION_MAJOR}${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH}${LLVM_VERSION_SUFFIX})
+    endif()
   endif()
 
   if(ARG_MODULE OR ARG_SHARED)
@@ -1083,10 +1095,16 @@ function(add_lit_target target comment)
   if (NOT CMAKE_CFG_INTDIR STREQUAL ".")
     list(APPEND LIT_ARGS --param build_mode=${CMAKE_CFG_INTDIR})
   endif ()
-  if (LLVM_MAIN_SRC_DIR)
-    set (LIT_COMMAND ${PYTHON_EXECUTABLE} ${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py)
+  if (EXISTS ${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py)
+    # reset cache after erraneous r283029
+    # TODO: remove this once all buildbots run
+    if (LIT_COMMAND STREQUAL "${PYTHON_EXECUTABLE} ${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py")
+      unset(LIT_COMMAND CACHE)
+    endif()
+    set (LIT_COMMAND "${PYTHON_EXECUTABLE};${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py"
+         CACHE STRING "Command used to spawn llvm-lit")
   else()
-    find_program(LIT_COMMAND llvm-lit)
+    find_program(LIT_COMMAND NAMES llvm-lit lit.py lit)
   endif ()
   list(APPEND LIT_COMMAND ${LIT_ARGS})
   foreach(param ${ARG_PARAMS})
@@ -1264,11 +1282,11 @@ function(add_llvm_tool_symlink name dest)
     set_target_properties(${target_name} PROPERTIES FOLDER Tools)
 
     # Make sure both the link and target are toolchain tools
-    if (NOT ${name} IN_LIST LLVM_TOOLCHAIN_TOOLS OR NOT ${dest} IN_LIST LLVM_TOOLCHAIN_TOOLS)
-      return()
+    if (${name} IN_LIST LLVM_TOOLCHAIN_TOOLS AND ${dest} IN_LIST LLVM_TOOLCHAIN_TOOLS)
+      set(TOOL_IS_TOOLCHAIN ON)
     endif()
 
-    if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY AND LLVM_BUILD_TOOLS )
+    if ((TOOL_IS_TOOLCHAIN OR NOT LLVM_INSTALL_TOOLCHAIN_ONLY) AND LLVM_BUILD_TOOLS)
       llvm_install_symlink(${name} ${dest})
     endif()
   endif()

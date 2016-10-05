@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file defines the AVRAsmBackend class.
+// \file The AVR assembly backend implementation.
 //
 //===----------------------------------------------------------------------===//
 //
@@ -15,10 +15,10 @@
 #ifndef LLVM_AVR_ASM_BACKEND_H
 #define LLVM_AVR_ASM_BACKEND_H
 
-#include "llvm/MC/MCAsmBackend.h"
-#include "llvm/ADT/Triple.h"
-
 #include "MCTargetDesc/AVRFixupKinds.h"
+
+#include "llvm/ADT/Triple.h"
+#include "llvm/MC/MCAsmBackend.h"
 
 namespace llvm {
 
@@ -30,9 +30,9 @@ struct MCFixupKindInfo;
 
 /// Utilities for manipulating generated AVR machine code.
 class AVRAsmBackend : public MCAsmBackend {
-
 public:
-  AVRAsmBackend(const Target &T, Triple::OSType OSType)
+
+  AVRAsmBackend(Triple::OSType OSType)
       : MCAsmBackend(), OSType(OSType) {}
 
   void adjustFixupValue(const MCFixup &Fixup, uint64_t &Value,
@@ -75,3 +75,4 @@ private:
 } // end namespace llvm
 
 #endif // LLVM_AVR_ASM_BACKEND_H
+

@@ -13,10 +13,10 @@
 /// This pass reorders instructions to put register uses and defs in an order
 /// such that they form single-use expression trees. Registers fitting this form
 /// are then marked as "stackified", meaning references to them are replaced by
-/// "push" and "pop" from the stack.
+/// "push" and "pop" from the value stack.
 ///
 /// This is primarily a code size optimization, since temporary values on the
-/// expression don't need to be named.
+/// value stack don't need to be named.
 ///
 //===----------------------------------------------------------------------===//
 
@@ -39,7 +39,7 @@ using namespace llvm;
 
 namespace {
 class WebAssemblyRegStackify final : public MachineFunctionPass {
-  const char *getPassName() const override {
+  StringRef getPassName() const override {
     return "WebAssembly Register Stackify";
   }
 
@@ -73,15 +73,15 @@ FunctionPass *llvm::createWebAssemblyRegStackify() {
 // expression stack ordering constraints for an instruction which is on
 // the expression stack.
 static void ImposeStackOrdering(MachineInstr *MI) {
-  // Write the opaque EXPR_STACK register.
-  if (!MI->definesRegister(WebAssembly::EXPR_STACK))
-    MI->addOperand(MachineOperand::CreateReg(WebAssembly::EXPR_STACK,
+  // Write the opaque VALUE_STACK register.
+  if (!MI->definesRegister(WebAssembly::VALUE_STACK))
+    MI->addOperand(MachineOperand::CreateReg(WebAssembly::VALUE_STACK,
                                              /*isDef=*/true,
                                              /*isImp=*/true));
 
-  // Also read the opaque EXPR_STACK register.
-  if (!MI->readsRegister(WebAssembly::EXPR_STACK))
-    MI->addOperand(MachineOperand::CreateReg(WebAssembly::EXPR_STACK,
+  // Also read the opaque VALUE_STACK register.
+  if (!MI->readsRegister(WebAssembly::VALUE_STACK))
+    MI->addOperand(MachineOperand::CreateReg(WebAssembly::VALUE_STACK,
                                              /*isDef=*/false,
                                              /*isImp=*/true));
 }
@@ -274,11 +274,11 @@ static bool HasOneUse(unsigned Reg, MachineInstr *Def,
 // TODO: Compute memory dependencies in a way that uses AliasAnalysis to be
 // more precise.
 static bool IsSafeToMove(const MachineInstr *Def, const MachineInstr *Insert,
-                         AliasAnalysis &AA, const LiveIntervals &LIS,
-                         const MachineRegisterInfo &MRI) {
+                         AliasAnalysis &AA, const MachineRegisterInfo &MRI) {
   assert(Def->getParent() == Insert->getParent());
 
   // Check for register dependencies.
+  SmallVector<unsigned, 4> MutableRegisters;
   for (const MachineOperand &MO : Def->operands()) {
     if (!MO.isReg() || MO.isUndef())
       continue;
@@ -301,21 +301,11 @@ static bool IsSafeToMove(const MachineInstr *Def, const MachineInstr *Insert,
       return false;
     }
 
-    // Ask LiveIntervals whether moving this virtual register use or def to
-    // Insert will change which value numbers are seen.
-    //
-    // If the operand is a use of a register that is also defined in the same
-    // instruction, test that the newly defined value reaches the insert point,
-    // since the operand will be moving along with the def.
-    const LiveInterval &LI = LIS.getInterval(Reg);
-    VNInfo *DefVNI =
-        (MO.isDef() || Def->definesRegister(Reg)) ?
-        LI.getVNInfoAt(LIS.getInstructionIndex(*Def).getRegSlot()) :
-        LI.getVNInfoBefore(LIS.getInstructionIndex(*Def));
-    assert(DefVNI && "Instruction input missing value number");
-    VNInfo *InsVNI = LI.getVNInfoBefore(LIS.getInstructionIndex(*Insert));
-    if (InsVNI && DefVNI != InsVNI)
-      return false;
+    // If one of the operands isn't in SSA form, it has different values at
+    // different times, and we need to make sure we don't move our use across
+    // a different def.
+    if (!MO.isDef() && !MRI.hasOneDef(Reg))
+      MutableRegisters.push_back(Reg);
   }
 
   bool Read = false, Write = false, Effects = false, StackPointer = false;
@@ -323,7 +313,8 @@ static bool IsSafeToMove(const MachineInstr *Def, const MachineInstr *Insert,
 
   // If the instruction does not access memory and has no side effects, it has
   // no additional dependencies.
-  if (!Read && !Write && !Effects && !StackPointer)
+  bool HasMutableRegisters = !MutableRegisters.empty();
+  if (!Read && !Write && !Effects && !StackPointer && !HasMutableRegisters)
     return true;
 
   // Scan through the intervening instructions between Def and Insert.
@@ -343,6 +334,11 @@ static bool IsSafeToMove(const MachineInstr *Def, const MachineInstr *Insert,
       return false;
     if (StackPointer && InterveningStackPointer)
       return false;
+
+    for (unsigned Reg : MutableRegisters)
+      for (const MachineOperand &MO : I->operands())
+        if (MO.isReg() && MO.isDef() && MO.getReg() == Reg)
+          return false;
   }
 
   return true;
@@ -751,8 +747,7 @@ bool WebAssemblyRegStackify::runOnMachineFunction(MachineFunction &MF) {
         if (TargetRegisterInfo::isPhysicalRegister(Reg))
           continue;
 
-        // Identify the definition for this register at this point. Most
-        // registers are in SSA form here so we try a quick MRI query first.
+        // Identify the definition for this register at this point.
         MachineInstr *Def = GetVRegDef(Reg, Insert, MRI, LIS);
         if (!Def)
           continue;
@@ -781,7 +776,7 @@ bool WebAssemblyRegStackify::runOnMachineFunction(MachineFunction &MF) {
         // supports intra-block moves) and it's MachineSink's job to catch all
         // the sinking opportunities anyway.
         bool SameBlock = Def->getParent() == &MBB;
-        bool CanMove = SameBlock && IsSafeToMove(Def, Insert, AA, LIS, MRI) &&
+        bool CanMove = SameBlock && IsSafeToMove(Def, Insert, AA, MRI) &&
                        !TreeWalker.IsOnStack(Reg);
         if (CanMove && HasOneUse(Reg, Def, MRI, MDT, LIS)) {
           Insert = MoveForSingleUse(Reg, Op, Def, MBB, Insert, LIS, MFI, MRI);
@@ -818,12 +813,12 @@ bool WebAssemblyRegStackify::runOnMachineFunction(MachineFunction &MF) {
     }
   }
 
-  // If we used EXPR_STACK anywhere, add it to the live-in sets everywhere so
+  // If we used VALUE_STACK anywhere, add it to the live-in sets everywhere so
   // that it never looks like a use-before-def.
   if (Changed) {
-    MF.getRegInfo().addLiveIn(WebAssembly::EXPR_STACK);
+    MF.getRegInfo().addLiveIn(WebAssembly::VALUE_STACK);
     for (MachineBasicBlock &MBB : MF)
-      MBB.addLiveIn(WebAssembly::EXPR_STACK);
+      MBB.addLiveIn(WebAssembly::VALUE_STACK);
   }
 
 #ifndef NDEBUG

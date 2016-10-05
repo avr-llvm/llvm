@@ -44,10 +44,10 @@ def ArgCC_AVR_Vararg : CallingConv
 
 // Special argument calling convention for
 // multiplication runtime functions.
-// def ArgCC_AVR_BUILTIN_MUL : CallingConv
-// <[
-//   CCIfType<[i16], CCAssignToReg<[R27R26,R19R18]>>
-// ]>;
+def ArgCC_AVR_BUILTIN_MUL : CallingConv
+<[
+  CCIfType<[i16], CCAssignToReg<[R27R26,R19R18]>>
+]>;
 
 // Special argument calling convention for
 // division runtime functions.

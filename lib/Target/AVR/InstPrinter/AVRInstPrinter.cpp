@@ -13,7 +13,7 @@
 
 #include "AVRInstPrinter.h"
 
-#include <cstring>
+#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
@@ -23,7 +23,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
 
-#include "MCTargetDesc/AVRMCTargetDesc.h"
+#include <cstring>
 
 #define DEBUG_TYPE "asm-printer"
 
@@ -39,8 +39,7 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
 
   // First handle load and store instructions with postinc or predec
   // of the form "ld reg, X+".
-  // TODO: is this necessary anymore now that we encode this into
-  // AVRInstrInfo.td
+  // TODO: We should be able to rewrite this using TableGen data.
   switch (Opcode) {
   case AVR::LDRdPtr:
   case AVR::LDRdPtrPi:
@@ -48,35 +47,43 @@ void AVRInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
     O << "\tld\t";
     printOperand(MI, 0, O);
     O << ", ";
+
     if (Opcode == AVR::LDRdPtrPd)
       O << '-';
+
     printOperand(MI, 1, O);
+
     if (Opcode == AVR::LDRdPtrPi)
       O << '+';
-    return;
+    break;
   case AVR::STPtrRr:
     O << "\tst\t";
     printOperand(MI, 0, O);
     O << ", ";
     printOperand(MI, 1, O);
-    return;
+    break;
   case AVR::STPtrPiRr:
   case AVR::STPtrPdRr:
     O << "\tst\t";
+
     if (Opcode == AVR::STPtrPdRr)
       O << '-';
+
     printOperand(MI, 1, O);
+
     if (Opcode == AVR::STPtrPiRr)
       O << '+';
+
     O << ", ";
     printOperand(MI, 2, O);
-    return;
+    break;
+  default:
+    if (!printAliasInstr(MI, O))
+      printInstruction(MI, O);
+
+    printAnnotation(O, Annot);
+    break;
   }
-
-  if (!printAliasInstr(MI, O))
-    printInstruction(MI, O);
-
-  printAnnotation(O, Annot);
 }
 
 const char *AVRInstPrinter::getPrettyRegisterName(unsigned RegNum,
@@ -84,7 +91,7 @@ const char *AVRInstPrinter::getPrettyRegisterName(unsigned RegNum,
   // GCC prints register pairs by just printing the lower register
   // If the register contains a subregister, print it instead
   if (MRI.getNumSubRegIndices() > 0) {
-    auto RegLoNum = MRI.getSubReg(RegNum, AVR::sub_lo);
+    unsigned RegLoNum = MRI.getSubReg(RegNum, AVR::sub_lo);
     RegNum = (RegLoNum != AVR::NoRegister) ? RegLoNum : RegNum;
   }
 
@@ -97,7 +104,6 @@ void AVRInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   const MCOperandInfo &MOI = this->MII.get(MI->getOpcode()).OpInfo[OpNo];
 
   if (Op.isReg()) {
-    //.RegClass == AVR::GPR8RegClassID
     bool isPtrReg = (MOI.RegClass == AVR::PTRREGSRegClassID) ||
                     (MOI.RegClass == AVR::PTRDISPREGSRegClassID) ||
                     (MOI.RegClass == AVR::ZREGSRegClassID);
@@ -131,11 +137,10 @@ void AVRInstPrinter::printPCRelImm(const MCInst *MI, unsigned OpNo,
       O << '+';
 
     O << Imm;
-    return;
+  } else {
+    assert(Op.isExpr() && "Unknown pcrel immediate operand");
+    O << *Op.getExpr();
   }
-
-  assert(Op.isExpr() && "Unknown pcrel immediate operand");
-  O << *Op.getExpr();
 }
 
 void AVRInstPrinter::printMemri(const MCInst *MI, unsigned OpNo,
@@ -148,21 +153,20 @@ void AVRInstPrinter::printMemri(const MCInst *MI, unsigned OpNo,
   // Print the register.
   printOperand(MI, OpNo, O);
 
-  // Print the offset.
-  {
-    if (OffsetOp.isImm()) {
-      auto Offset = OffsetOp.getImm();
+  // Print the {+,-}offset.
+  if (OffsetOp.isImm()) {
+    int64_t Offset = OffsetOp.getImm();
 
-      if (Offset >= 0)
-        O << '+';
+    if (Offset >= 0)
+      O << '+';
 
-      O << Offset;
-    } else if (OffsetOp.isExpr()) {
-      O << *OffsetOp.getExpr();
-    } else {
-      llvm_unreachable("unknown type for offset");
-    }
+    O << Offset;
+  } else if (OffsetOp.isExpr()) {
+    O << *OffsetOp.getExpr();
+  } else {
+    llvm_unreachable("unknown type for offset");
   }
 }
 
 } // end of namespace llvm
+

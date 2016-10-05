@@ -34,7 +34,7 @@ public:
   AVRDAGToDAGISel(AVRTargetMachine &tm, CodeGenOpt::Level OptLevel)
       : SelectionDAGISel(tm, OptLevel), Subtarget(nullptr) {}
 
-  const char *getPassName() const override {
+  StringRef getPassName() const override {
     return "AVR DAG->DAG Instruction Selection";
   }
 

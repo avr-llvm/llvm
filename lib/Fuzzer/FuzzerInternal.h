@@ -62,7 +62,6 @@ public:
   void Loop();
   void ShuffleAndMinimize(UnitVector *V);
   void InitializeTraceState();
-  void AssignTaintLabels(uint8_t *Data, size_t Size);
   void RereadOutputCorpus(size_t MaxSize);
 
   size_t secondsSinceProcessStartUp() {
@@ -115,10 +114,9 @@ private:
   void ShuffleCorpus(UnitVector *V);
   void TryDetectingAMemoryLeak(const uint8_t *Data, size_t Size,
                                bool DuringInitialCorpusExecution);
-  void AddToCorpusAndMaybeRerun(const Unit &U);
+  void AddToCorpus(const Unit &U);
   void CheckExitOnSrcPos();
-
-  bool UpdateMaxCoverage();
+  void CheckExitOnItem();
 
   // Trace-based fuzzing: we run a unit with some kind of tracing
   // enabled and record potentially useful mutations. Then
@@ -165,11 +163,6 @@ private:
 
   size_t MaxInputLen = 0;
   size_t MaxMutationLen = 0;
-
-  // For -print_pcs
-  uintptr_t* PcBuffer = nullptr;
-  size_t PcBufferLen = 0;
-  size_t PcBufferPos = 0, PrevPcBufferPos = 0;
 
   // Need to know our own thread.
   static thread_local bool IsMyThread;
