@@ -14,6 +14,7 @@
 
 #include "AVR.h"
 #include "AVRMCInstLower.h"
+#include "AVRSubtarget.h"
 #include "InstPrinter/AVRInstPrinter.h"
 
 #include "llvm/CodeGen/AsmPrinter.h"
@@ -107,8 +108,8 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
       unsigned OpFlags = MI->getOperand(OpNum - 1).getImm();
       unsigned NumOpRegs = InlineAsm::getNumOperandRegisters(OpFlags);
 
-      const AVRSubtarget &TRI = MF->getSubtarget<AVRSubtarget>();
-      const TargetRegisterInfo &TRI = TRI.getRegisterInfo();
+      const AVRSubtarget &STI = MF->getSubtarget<AVRSubtarget>();
+      const TargetRegisterInfo &TRI = *STI.getRegisterInfo();
 
       unsigned BytesPerReg = TRI.getMinimalPhysRegClass(Reg)->getSize();
       assert(BytesPerReg <= 2 && "Only 8 and 16 bit regs are supported.");
@@ -119,8 +120,8 @@ bool AVRAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
       Reg = MI->getOperand(OpNum + RegIdx).getReg();
 
       if (BytesPerReg == 2) {
-        Reg = TRI->getSubReg(Reg, ByteNumber % BytesPerReg ? AVR::sub_hi
-                                                           : AVR::sub_lo);
+        Reg = TRI.getSubReg(Reg, ByteNumber % BytesPerReg ? AVR::sub_hi
+                                                          : AVR::sub_lo);
       }
 
       O << AVRInstPrinter::getPrettyRegisterName(Reg, MRI);
