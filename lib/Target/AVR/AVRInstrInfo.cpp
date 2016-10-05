@@ -43,13 +43,13 @@ void AVRInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                MachineBasicBlock::iterator MI,
                                const DebugLoc &DL, unsigned DestReg,
                                unsigned SrcReg, bool KillSrc) const {
-  const auto &Subtarget = static_cast<const AVRSubtarget&>(MBB.getParent()->getSubtarget());
-  const auto &TRI = *Subtarget.getRegisterInfo();
+  const AVRSubtarget &STI = MBB.getParent()->getSubtarget<AVRSubtarget>();
+  const AVRRegisterInfo &TRI = *STI.getRegisterInfo();
   unsigned Opc;
 
   // Not all AVR devices support the 16-bit `MOVW` instruction.
   if (AVR::DREGSRegClass.contains(DestReg, SrcReg)) {
-    if (Subtarget.hasMOVW()) {
+    if (STI.hasMOVW()) {
       BuildMI(MBB, MI, DL, get(AVR::MOVWRdRr), DestReg)
           .addReg(SrcReg, getKillRegState(KillSrc));
     } else {
@@ -483,9 +483,11 @@ unsigned AVRInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   case TargetOpcode::DBG_VALUE:
     return 0;
   case TargetOpcode::INLINEASM: {
-    const MachineFunction *MF = MI.getParent()->getParent();
-    const AVRTargetMachine &TM = static_cast<const AVRTargetMachine&>(MF->getTarget());
-    const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
+    const MachineFunction &MF = *MI.getParent()->getParent();
+    const AVRTargetMachine &TM = static_cast<const AVRTargetMachine&>(MF.getTarget());
+    const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
+    const TargetInstrInfo &TII = *STI.getInstrInfo();
+
     return TII.getInlineAsmLength(MI.getOperand(0).getSymbolName(),
                                   *TM.getMCAsmInfo());
   }
@@ -493,3 +495,4 @@ unsigned AVRInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
 }
 
 } // end of namespace llvm
+
