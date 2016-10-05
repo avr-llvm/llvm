@@ -54,7 +54,7 @@ private:
 char AVRBSel::ID = 0;
 
 /// Checks whether the passed opcode is a conditional branch.
-static bool isCondBranch(int Opcode) {
+static bool isConditionalBranch(int Opcode) {
   switch (Opcode) {
   default:
     return false;
@@ -132,7 +132,7 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
       for (MachineBasicBlock::iterator I = MBB.begin(), E = MBB.end(); I != E;
            ++I) {
         int Opc = I->getOpcode();
-        if ((!isCondBranch(Opc) || I->getOperand(0).isImm()) &&
+        if ((!isConditionalBranch(Opc) || I->getOperand(0).isImm()) &&
             (Opc != AVR::RJMPk)) {
           MBBStartOffset += TII->getInstSizeInBytes(*I);
           continue;
@@ -169,14 +169,14 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
           }
         }
 
-        if (isCondBranch(Opc))
+        if (isConditionalBranch(Opc))
           BranchSize -= 2; // take the size of the current instruction.
 
         assert(!(BranchSize & 1) &&
                "BranchSize should have an even number of bytes");
 
         // If this branch is in range, ignore it.
-        if ((isCondBranch(Opc) && isInt<8>(BranchSize)) ||
+        if ((isConditionalBranch(Opc) && isInt<8>(BranchSize)) ||
             (Opc == AVR::RJMPk && isInt<13>(BranchSize))) {
           MBBStartOffset += 2;
           continue;
@@ -198,14 +198,14 @@ bool AVRBSel::runOnMachineFunction(MachineFunction &Fn) {
           // Skip the check when this instruction is the first inside the BB.
           if (I != MBB.begin()) {
             MachineInstr *PI = &*std::prev(I);
-            if (isCondBranch(PI->getOpcode()) && PI->getOperand(0).isImm() &&
+            if (isConditionalBranch(PI->getOpcode()) && PI->getOperand(0).isImm() &&
                 PI->getOperand(0).getImm() == 2) {
               PI->getOperand(0).setImm(4);
             }
           }
         } else {
 
-          assert(isCondBranch(Opc) && "opcode should be a conditional branch");
+          assert(isConditionalBranch(Opc) && "opcode should be a conditional branch");
 
           unsigned BrCCOffs;
           // Determine if we can reach the destination block with a rjmp,
