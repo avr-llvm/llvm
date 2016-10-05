@@ -10,8 +10,6 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Support/TargetRegistry.h"
 
-#include "AVR.h"
-
 namespace llvm {
 Target TheAVRTarget;
 }
