@@ -27,8 +27,8 @@ namespace llvm {
 /// Lowers LLVM IR (in DAG form) to AVR MC instructions (in DAG form).
 class AVRDAGToDAGISel : public SelectionDAGISel {
 public:
-  AVRDAGToDAGISel(AVRTargetMachine &tm, CodeGenOpt::Level OptLevel)
-      : SelectionDAGISel(tm, OptLevel), Subtarget(nullptr) {}
+  AVRDAGToDAGISel(AVRTargetMachine &TM, CodeGenOpt::Level OptLevel)
+      : SelectionDAGISel(TM, OptLevel), Subtarget(nullptr) {}
 
   StringRef getPassName() const override {
     return "AVR DAG->DAG Instruction Selection";
@@ -57,11 +57,8 @@ private:
 };
 
 bool AVRDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
-
-  Subtarget = &static_cast<const AVRSubtarget &>(MF.getSubtarget());
-  bool Ret = SelectionDAGISel::runOnMachineFunction(MF);
-
-  return Ret;
+  Subtarget = &MF.getSubtarget<AVRSubtarget>();
+  return SelectionDAGISel::runOnMachineFunction(MF);
 }
 
 bool AVRDAGToDAGISel::SelectAddr(SDNode *Op, SDValue N, SDValue &Base,
@@ -567,12 +564,10 @@ SDNode *AVRDAGToDAGISel::SelectImpl(SDNode *N) {
   return ResNode;
 }
 
-/// createAVRISelDag - This pass converts a legalized DAG into a
-/// AVR-specific DAG, ready for instruction scheduling.
-///
 FunctionPass *createAVRISelDag(AVRTargetMachine &TM,
                                CodeGenOpt::Level OptLevel) {
   return new AVRDAGToDAGISel(TM, OptLevel);
 }
 
 } // end of namespace llvm
+
