@@ -13,18 +13,18 @@
 
 #include "AVRFrameLowering.h"
 
+#include "AVR.h"
+#include "AVRInstrInfo.h"
+#include "AVRMachineFunctionInfo.h"
+#include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
+
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/IR/Function.h"
-
-#include "AVR.h"
-#include "AVRInstrInfo.h"
-#include "AVRMachineFunctionInfo.h"
-#include "AVRTargetMachine.h"
-#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 namespace llvm {
 
@@ -43,25 +43,23 @@ bool AVRFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
   // conditions:
   // - Y pointer is reserved to be the frame pointer.
   // - The function does not contain variable sized objects.
-  // - MaxCallFrameSize is greater than 63.
-  // :TODO: improve the heuristics here to benefit from a wider range of cases.
+  // - MaxCallFrameSize doesn't fit into 6-bits (when it's greater than 63).
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   return (hasFP(MF) && !MFI.hasVarSizedObjects() &&
-          isUInt<6>(MFI.getMaxCallFrameSize()));
+          !isUInt<6>(MFI.getMaxCallFrameSize()));
 }
 
 void AVRFrameLowering::emitPrologue(MachineFunction &MF,
                                     MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.begin();
   CallingConv::ID CallConv = MF.getFunction()->getCallingConv();
-  DebugLoc dl = (MBBI != MBB.end()) ? MBBI->getDebugLoc() : DebugLoc();
-  const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
-  const AVRInstrInfo &TII =
-      *static_cast<const AVRInstrInfo *>(TM.getSubtargetImpl()->getInstrInfo());
+  DebugLoc DL = (MBBI != MBB.end()) ? MBBI->getDebugLoc() : DebugLoc();
+  const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
+  const AVRInstrInfo &TII = *STI.getInstrInfo();
 
   // Interrupt handlers re-enable interrupts in function entry.
   if (CallConv == CallingConv::AVR_INTR) {
-    BuildMI(MBB, MBBI, dl, TII.get(AVR::BSETs))
+    BuildMI(MBB, MBBI, DL, TII.get(AVR::BSETs))
         .addImm(0x07)
         .setMIFlag(MachineInstr::FrameSetup);
   }
@@ -70,16 +68,16 @@ void AVRFrameLowering::emitPrologue(MachineFunction &MF,
   // handlers before saving any other registers.
   if (CallConv == CallingConv::AVR_INTR ||
       CallConv == CallingConv::AVR_SIGNAL) {
-    BuildMI(MBB, MBBI, dl, TII.get(AVR::PUSHWRr))
+    BuildMI(MBB, MBBI, DL, TII.get(AVR::PUSHWRr))
         .addReg(AVR::R1R0, RegState::Kill)
         .setMIFlag(MachineInstr::FrameSetup);
-    BuildMI(MBB, MBBI, dl, TII.get(AVR::INRdA), AVR::R0)
+    BuildMI(MBB, MBBI, DL, TII.get(AVR::INRdA), AVR::R0)
         .addImm(0x3f)
         .setMIFlag(MachineInstr::FrameSetup);
-    BuildMI(MBB, MBBI, dl, TII.get(AVR::PUSHRr))
+    BuildMI(MBB, MBBI, DL, TII.get(AVR::PUSHRr))
         .addReg(AVR::R0, RegState::Kill)
         .setMIFlag(MachineInstr::FrameSetup);
-    BuildMI(MBB, MBBI, dl, TII.get(AVR::EORRdRr))
+    BuildMI(MBB, MBBI, DL, TII.get(AVR::EORRdRr))
         .addReg(AVR::R0, RegState::Define)
         .addReg(AVR::R0, RegState::Kill)
         .addReg(AVR::R0, RegState::Kill)
@@ -103,7 +101,7 @@ void AVRFrameLowering::emitPrologue(MachineFunction &MF,
   }
 
   // Update Y with the new base value.
-  BuildMI(MBB, MBBI, dl, TII.get(AVR::SPREAD), AVR::R29R28)
+  BuildMI(MBB, MBBI, DL, TII.get(AVR::SPREAD), AVR::R29R28)
       .addReg(AVR::SP)
       .setMIFlag(MachineInstr::FrameSetup);
 
@@ -120,7 +118,7 @@ void AVRFrameLowering::emitPrologue(MachineFunction &MF,
   // Reserve the necessary frame memory by doing FP -= <size>.
   unsigned Opcode = (isUInt<6>(FrameSize)) ? AVR::SBIWRdK : AVR::SUBIWRdK;
 
-  MachineInstr *MI = BuildMI(MBB, MBBI, dl, TII.get(Opcode), AVR::R29R28)
+  MachineInstr *MI = BuildMI(MBB, MBBI, DL, TII.get(Opcode), AVR::R29R28)
                          .addReg(AVR::R29R28, RegState::Kill)
                          .addImm(FrameSize)
                          .setMIFlag(MachineInstr::FrameSetup);
@@ -128,7 +126,7 @@ void AVRFrameLowering::emitPrologue(MachineFunction &MF,
   MI->getOperand(3).setIsDead();
 
   // Write back R29R28 to SP and temporarily disable interrupts.
-  BuildMI(MBB, MBBI, dl, TII.get(AVR::SPWRITE), AVR::SP)
+  BuildMI(MBB, MBBI, DL, TII.get(AVR::SPWRITE), AVR::SP)
       .addReg(AVR::R29R28)
       .setMIFlag(MachineInstr::FrameSetup);
 }
@@ -146,27 +144,23 @@ void AVRFrameLowering::emitEpilogue(MachineFunction &MF,
   }
 
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
-  assert(MBBI->getDesc().isReturn() &&
+  assert(MBBI == MBB.end() &&
          "Can only insert epilog into returning blocks");
-  DebugLoc dl = MBBI->getDebugLoc();
+  DebugLoc DL = MBBI->getDebugLoc();
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   const AVRMachineFunctionInfo *AFI = MF.getInfo<AVRMachineFunctionInfo>();
   unsigned FrameSize = MFI.getStackSize() - AFI->getCalleeSavedFrameSize();
-  const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
-  const AVRInstrInfo &TII =
-      *static_cast<const AVRInstrInfo *>(TM.getSubtargetImpl()->getInstrInfo());
+  const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
+  const AVRInstrInfo &TII = *STI.getInstrInfo();
 
   // Emit special epilogue code to restore R1, R0 and SREG in interrupt/signal
   // handlers at the very end of the function, just before reti.
   if (isHandler) {
-    // Don't modify the MBBI iterator so that in the loop below we start
-    // searching just before the point where these instructions are inserted.
-    MachineBasicBlock::iterator MBBI2 = MBBI;
-    BuildMI(MBB, MBBI2, dl, TII.get(AVR::POPRd), AVR::R0);
-    BuildMI(MBB, MBBI2, dl, TII.get(AVR::OUTARr))
+    BuildMI(MBB, MBBI, DL, TII.get(AVR::POPRd), AVR::R0);
+    BuildMI(MBB, MBBI, DL, TII.get(AVR::OUTARr))
         .addImm(0x3f)
         .addReg(AVR::R0, RegState::Kill);
-    BuildMI(MBB, MBBI2, dl, TII.get(AVR::POPWRd), AVR::R1R0);
+    BuildMI(MBB, MBBI, DL, TII.get(AVR::POPWRd), AVR::R1R0);
   }
 
   // Early exit if there is no need to restore the frame pointer.
@@ -179,8 +173,7 @@ void AVRFrameLowering::emitEpilogue(MachineFunction &MF,
     MachineBasicBlock::iterator PI = std::prev(MBBI);
     int Opc = PI->getOpcode();
 
-    if (((Opc != AVR::POPRd) && (Opc != AVR::POPWRd)) &&
-        !(PI->isTerminator())) {
+    if (Opc != AVR::POPRd && Opc != AVR::POPWRd && !PI->isTerminator()) {
       break;
     }
 
@@ -198,23 +191,24 @@ void AVRFrameLowering::emitEpilogue(MachineFunction &MF,
   }
 
   // Restore the frame pointer by doing FP += <size>.
-  MachineInstr *MI = BuildMI(MBB, MBBI, dl, TII.get(Opcode), AVR::R29R28)
+  MachineInstr *MI = BuildMI(MBB, MBBI, DL, TII.get(Opcode), AVR::R29R28)
                          .addReg(AVR::R29R28, RegState::Kill)
                          .addImm(FrameSize);
   // The SREG implicit def is dead.
   MI->getOperand(3).setIsDead();
 
   // Write back R29R28 to SP and temporarily disable interrupts.
-  BuildMI(MBB, MBBI, dl, TII.get(AVR::SPWRITE), AVR::SP)
+  BuildMI(MBB, MBBI, DL, TII.get(AVR::SPWRITE), AVR::SP)
       .addReg(AVR::R29R28, RegState::Kill);
 }
 
-// hasFP - Return true if the specified function should have a dedicated frame
+// Return true if the specified function should have a dedicated frame
 // pointer register. This is true if the function meets any of the following
 // conditions:
 //  - a register has been spilled
 //  - has allocas
 //  - input arguments are passed using the stack
+//
 // Notice that strictly this is not a frame pointer because it contains SP after
 // frame allocation instead of having the original SP in function entry.
 bool AVRFrameLowering::hasFP(const MachineFunction &MF) const {
@@ -235,8 +229,8 @@ bool AVRFrameLowering::spillCalleeSavedRegisters(
   unsigned CalleeFrameSize = 0;
   DebugLoc DL = MBB.findDebugLoc(MI);
   MachineFunction &MF = *MBB.getParent();
-  const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
-  const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
+  const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
+  const TargetInstrInfo &TII = *STI.getInstrInfo();
   AVRMachineFunctionInfo *AVRFI = MF.getInfo<AVRMachineFunctionInfo>();
 
   for (unsigned i = CSI.size(); i != 0; --i) {
@@ -275,11 +269,11 @@ bool AVRFrameLowering::restoreCalleeSavedRegisters(
 
   DebugLoc DL = MBB.findDebugLoc(MI);
   const MachineFunction &MF = *MBB.getParent();
-  const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
-  const TargetInstrInfo &TII = *TM.getSubtargetImpl()->getInstrInfo();
+  const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
+  const TargetInstrInfo &TII = *STI.getInstrInfo();
 
-  for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
-    unsigned Reg = CSI[i].getReg();
+  for (const CalleeSavedInfo &CSI : CSI) {
+    unsigned Reg = CSI.getReg();
 
     assert(TRI->getMinimalPhysRegClass(Reg)->getSize() == 1 &&
            "Invalid register size");
@@ -297,22 +291,23 @@ bool AVRFrameLowering::restoreCalleeSavedRegisters(
 static void fixStackStores(MachineBasicBlock &MBB,
                            MachineBasicBlock::iterator MI,
                            const TargetInstrInfo &TII, bool insertPushes) {
+  const AVRSubtarget &STI = MBB.getParent()->getSubtarget<AVRSubtarget>();
+  const TargetRegisterInfo &TRI = *STI.getRegisterInfo();
+
   // Iterate through the BB until we hit a call instruction or we reach the end.
-  for (MachineBasicBlock::iterator I = MI, E = MBB.end();
-       I != E && !I->isCall();) {
+  for (auto I = MI, E = MBB.end(); I != E && !I->isCall();) {
     MachineBasicBlock::iterator NextMI = std::next(I);
     MachineInstr &MI = *I;
-    int Opcode = I->getOpcode();
+    unsigned Opcode = I->getOpcode();
 
     // Only care of pseudo store instructions where SP is the base pointer.
-    if ((Opcode != AVR::STDSPQRr) && (Opcode != AVR::STDWSPQRr)) {
+    if (Opcode != AVR::STDSPQRr && Opcode != AVR::STDWSPQRr) {
       I = NextMI;
       continue;
     }
 
     assert(MI.getOperand(0).getReg() == AVR::SP &&
            "Invalid register, should be SP!");
-
     if (insertPushes) {
       // Replace this instruction with a push.
       unsigned SrcReg = MI.getOperand(2).getReg();
@@ -321,16 +316,11 @@ static void fixStackStores(MachineBasicBlock &MBB,
       // We can't use PUSHWRr here because when expanded the order of the new
       // instructions are reversed from what we need. Perform the expansion now.
       if (Opcode == AVR::STDWSPQRr) {
-        const AVRTargetMachine &TM =
-            (const AVRTargetMachine &)MBB.getParent()->getTarget();
-        const TargetRegisterInfo *TRI =
-            TM.getSubtargetImpl()->getRegisterInfo();
-
         BuildMI(MBB, I, MI.getDebugLoc(), TII.get(AVR::PUSHRr))
-            .addReg(TRI->getSubReg(SrcReg, AVR::sub_hi),
+            .addReg(TRI.getSubReg(SrcReg, AVR::sub_hi),
                     getKillRegState(SrcIsKill));
         BuildMI(MBB, I, MI.getDebugLoc(), TII.get(AVR::PUSHRr))
-            .addReg(TRI->getSubReg(SrcReg, AVR::sub_lo),
+            .addReg(TRI.getSubReg(SrcReg, AVR::sub_lo),
                     getKillRegState(SrcIsKill));
       } else {
         BuildMI(MBB, I, MI.getDebugLoc(), TII.get(AVR::PUSHRr))
@@ -358,20 +348,19 @@ static void fixStackStores(MachineBasicBlock &MBB,
 MachineBasicBlock::iterator AVRFrameLowering::eliminateCallFramePseudoInstr(
     MachineFunction &MF, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator MI) const {
-  const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
-  const TargetFrameLowering *TFI = TM.getSubtargetImpl()->getFrameLowering();
-  const AVRInstrInfo &TII =
-      *static_cast<const AVRInstrInfo *>(TM.getSubtargetImpl()->getInstrInfo());
+  const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
+  const TargetFrameLowering &TFI = *STI.getFrameLowering();
+  const AVRInstrInfo &TII = *STI.getInstrInfo();
 
   // There is nothing to insert when the call frame memory is allocated during
   // function entry. Delete the call frame pseudo and replace all pseudo stores
   // with real store instructions.
-  if (TFI->hasReservedCallFrame(MF)) {
+  if (TFI.hasReservedCallFrame(MF)) {
     fixStackStores(MBB, MI, TII, false);
     return MBB.erase(MI);
   }
 
-  DebugLoc dl = MI->getDebugLoc();
+  DebugLoc DL = MI->getDebugLoc();
   unsigned int Opcode = MI->getOpcode();
   int Amount = MI->getOperand(0).getImm();
 
@@ -380,7 +369,7 @@ MachineBasicBlock::iterator AVRFrameLowering::eliminateCallFramePseudoInstr(
   // For adjcallstackdown we convert it into an 'adiw reg, <amt>' handling
   // the read and write of SP in I/O space.
   if (Amount != 0) {
-    assert(TFI->getStackAlignment() == 1 && "Unsupported stack alignment");
+    assert(TFI.getStackAlignment() == 1 && "Unsupported stack alignment");
 
     if (Opcode == TII.getCallFrameSetupOpcode()) {
       fixStackStores(MBB, MI, TII, true);
@@ -397,14 +386,14 @@ MachineBasicBlock::iterator AVRFrameLowering::eliminateCallFramePseudoInstr(
       }
 
       // Build the instruction sequence.
-      BuildMI(MBB, MI, dl, TII.get(AVR::SPREAD), AVR::R31R30).addReg(AVR::SP);
+      BuildMI(MBB, MI, DL, TII.get(AVR::SPREAD), AVR::R31R30).addReg(AVR::SP);
 
-      MachineInstr *New = BuildMI(MBB, MI, dl, TII.get(addOpcode), AVR::R31R30)
+      MachineInstr *New = BuildMI(MBB, MI, DL, TII.get(addOpcode), AVR::R31R30)
                               .addReg(AVR::R31R30, RegState::Kill)
                               .addImm(Amount);
       New->getOperand(3).setIsDead();
 
-      BuildMI(MBB, MI, dl, TII.get(AVR::SPWRITE), AVR::SP)
+      BuildMI(MBB, MI, DL, TII.get(AVR::SPWRITE), AVR::SP)
           .addReg(AVR::R31R30, RegState::Kill);
     }
   }
@@ -438,7 +427,7 @@ struct AVRFrameAnalyzer : public MachineFunctionPass {
 
     // If there are no fixed frame indexes during this stage it means there
     // are allocas present in the function.
-    if (MFI.getNumObjects() - MFI.getNumFixedObjects()) {
+    if (MFI.getNumObjects() != MFI.getNumFixedObjects()) {
       // Check for the type of allocas present in the function. We only care
       // about fixed size allocas so do not give false positives if only
       // variable sized allocas are present.
@@ -459,11 +448,8 @@ struct AVRFrameAnalyzer : public MachineFunctionPass {
 
     // Ok fixed frame indexes present, now scan the function to see if they
     // are really being used, otherwise we can ignore them.
-    for (MachineFunction::const_iterator BB = MF.begin(), BBE = MF.end();
-         BB != BBE; ++BB) {
-      for (MachineBasicBlock::const_iterator I = (*BB).begin(), E = (*BB).end();
-           I != E; ++I) {
-        const MachineInstr &MI = *I;
+    for (const MachineBasicBlock &BB : MF) {
+      for (const MachineInstr &MI : BB) {
         int Opcode = MI.getOpcode();
 
         if ((Opcode != AVR::LDDRdPtrQ) && (Opcode != AVR::LDDWRdPtrQ) &&
@@ -471,9 +457,7 @@ struct AVRFrameAnalyzer : public MachineFunctionPass {
           continue;
         }
 
-        for (unsigned i = 0, e = MI.getNumOperands(); i != e; ++i) {
-          const MachineOperand &MO = MI.getOperand(i);
-
+        for (const MachineOperand &MO : MI.operands()) {
           if (!MO.isFI()) {
             continue;
           }
@@ -511,8 +495,8 @@ struct AVRDynAllocaSR : public MachineFunctionPass {
       return false;
     }
 
-    const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
-    const TargetInstrInfo *TII = TM.getSubtargetImpl()->getInstrInfo();
+    const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
+    const TargetInstrInfo &TII = *STI.getInstrInfo();
     MachineBasicBlock &EntryMBB = MF.front();
     MachineBasicBlock::iterator MBBI = EntryMBB.begin();
     DebugLoc DL = EntryMBB.findDebugLoc(MBBI);
@@ -522,16 +506,15 @@ struct AVRDynAllocaSR : public MachineFunctionPass {
 
     // Create a copy of SP in function entry before any dynallocas are
     // inserted.
-    BuildMI(EntryMBB, MBBI, DL, TII->get(AVR::COPY), SPCopy).addReg(AVR::SP);
+    BuildMI(EntryMBB, MBBI, DL, TII.get(AVR::COPY), SPCopy).addReg(AVR::SP);
 
     // Restore SP in all exit basic blocks.
-    for (MachineFunction::iterator MFI = MF.begin(), MFE = MF.end(); MFI != MFE;
-         ++MFI) {
+    for (MachineBasicBlock &MBB : MF) {
       // If last instruction is a return instruction, add a restore copy.
-      if (!MFI->empty() && MFI->back().isReturn()) {
-        MBBI = MFI->getLastNonDebugInstr();
+      if (!MBB.empty() && MBB.back().isReturn()) {
+        MBBI = MBB.getLastNonDebugInstr();
         DL = MBBI->getDebugLoc();
-        BuildMI(*MFI, MBBI, DL, TII->get(AVR::COPY), AVR::SP)
+        BuildMI(MBB, MBBI, DL, TII.get(AVR::COPY), AVR::SP)
             .addReg(SPCopy, RegState::Kill);
       }
     }
@@ -551,3 +534,4 @@ char AVRDynAllocaSR::ID = 0;
 FunctionPass *createAVRDynAllocaSRPass() { return new AVRDynAllocaSR(); }
 
 } // end of namespace llvm
+
