@@ -274,8 +274,8 @@ bool AVRFrameLowering::restoreCalleeSavedRegisters(
   const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
   const TargetInstrInfo &TII = *STI.getInstrInfo();
 
-  for (const CalleeSavedInfo &CSI : CSI) {
-    unsigned Reg = CSI.getReg();
+  for (const CalleeSavedInfo &CCSI : CSI) {
+    unsigned Reg = CCSI.getReg();
 
     assert(TRI->getMinimalPhysRegClass(Reg)->getSize() == 1 &&
            "Invalid register size");
