@@ -15,10 +15,10 @@
 #ifndef LLVM_AVR_CODE_EMITTER_H
 #define LLVM_AVR_CODE_EMITTER_H
 
+#include "AVRFixupKinds.h"
+
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/Support/DataTypes.h"
-
-#include "AVRFixupKinds.h"
 
 #define GET_INSTRINFO_OPERAND_TYPES_ENUM
 #include "AVRGenInstrInfo.inc"
@@ -37,22 +37,23 @@ class raw_ostream;
 /// Writes AVR machine code to a stream.
 class AVRMCCodeEmitter : public MCCodeEmitter {
 public:
-  AVRMCCodeEmitter(const MCInstrInfo &mcii, MCContext &Ctx_)
-      : MCII(mcii), Ctx(Ctx_) {}
+  AVRMCCodeEmitter(const MCInstrInfo &MCII, MCContext &Ctx)
+      : MCII(MCII), Ctx(Ctx) {}
 
 private:
-  ///Finishes up encoding an LD/ST instruction.
+  /// Finishes up encoding an LD/ST instruction.
   /// The purpose of this function is to set an bit in the instruction
   /// which follows no logical pattern. See the implementation for details.
   unsigned loadStorePostEncoder(const MCInst &MI, unsigned EncodedValue,
                                 const MCSubtargetInfo &STI) const;
 
-  /// Gets the encoding for a break target.
+  /// Gets the encoding for a conditional branch target.
   template <AVR::Fixups Fixup>
   unsigned encodeRelCondBrTarget(const MCInst &MI, unsigned OpNo,
                                  SmallVectorImpl<MCFixup> &Fixups,
                                  const MCSubtargetInfo &STI) const;
 
+  /// Encodes the `PTRREGS` operand to a load or store instruction.
   unsigned encodeLDSTPtrReg(const MCInst &MI, unsigned OpNo,
                             SmallVectorImpl<MCFixup> &Fixups,
                             const MCSubtargetInfo &STI) const;
@@ -67,6 +68,7 @@ private:
                             SmallVectorImpl<MCFixup> &Fixups,
                             const MCSubtargetInfo &STI) const;
 
+  /// Encodes an immediate value with a given fixup.
   template <AVR::Fixups Fixup>
   unsigned encodeImm(const MCInst &MI, unsigned OpNo,
                      SmallVectorImpl<MCFixup> &Fixups,
@@ -93,11 +95,6 @@ private:
                              SmallVectorImpl<MCFixup> &Fixups,
                              const MCSubtargetInfo &STI) const;
 
-  inline void emitByte(unsigned char C, raw_ostream &OS) const;
-  inline void emitWord(uint16_t word, raw_ostream &OS) const;
-
-  void emitWords(uint16_t const *words, size_t count, raw_ostream &OS) const;
-
   void emitInstruction(uint64_t Val, unsigned Size, const MCSubtargetInfo &STI,
                        raw_ostream &OS) const;
 
@@ -110,7 +107,7 @@ private:
 
   const MCInstrInfo &MCII;
   MCContext &Ctx;
-}; // class AVRMCCodeEmitter
+};
 
 } // end namespace of llvm.
 
