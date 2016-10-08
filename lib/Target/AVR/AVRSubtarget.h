@@ -117,4 +117,3 @@ private:
 } // end namespace llvm
 
 #endif // LLVM_AVR_SUBTARGET_H
-
