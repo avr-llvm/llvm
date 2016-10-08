@@ -62,7 +62,7 @@ static MCInstPrinter *createAVRMCInstPrinter(const Triple &T,
     return new AVRInstPrinter(MAI, MII, MRI);
   }
 
-  return 0;
+  return nullptr;
 }
 
 static MCStreamer *createMCStreamer(const Triple &T, MCContext &Context,
