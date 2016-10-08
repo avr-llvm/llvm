@@ -13,7 +13,6 @@
 
 #include "AVRMCAsmInfo.h"
 
-#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
 
 namespace llvm {
