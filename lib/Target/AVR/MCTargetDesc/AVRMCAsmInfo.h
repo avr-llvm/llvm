@@ -18,7 +18,6 @@
 
 namespace llvm {
 
-class StringRef;
 class Triple;
 
 /// Specifies the format of AVR assembly files.
