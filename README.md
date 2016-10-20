@@ -57,7 +57,7 @@ It is useful to submit small testcases (generally LLVM IR files) that reproduce 
 C/C++ sources for several reasons:
 
 * They often require headers or libraries that we must also install (e.g. Arduino)
-* They require building clang (which we don't often due, as it takes a long time)
+* They require building clang (which we don't often do, as it takes a long time)
 * They are smaller and self-contained
 
 If you want to submit a C/C++ testcase, please convert into IR form first.
