@@ -45,10 +45,6 @@ public:
 };
 }
 
-namespace llvm {
-extern Target TheAVRTarget;
-}
-
 static MCDisassembler *createAVRDisassembler(const Target &T,
                                              const MCSubtargetInfo &STI,
                                              MCContext &Ctx) {
