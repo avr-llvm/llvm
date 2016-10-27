@@ -29,6 +29,7 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/Threading.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
@@ -217,7 +218,35 @@ Expected<std::unique_ptr<InputFile>> InputFile::create(MemoryBufferRef Object) {
 
   File->Ctx.setDiagnosticHandler(nullptr, nullptr);
 
+  for (const auto &C : File->Obj->getModule().getComdatSymbolTable()) {
+    auto P =
+        File->ComdatMap.insert(std::make_pair(&C.second, File->Comdats.size()));
+    assert(P.second);
+    (void)P;
+    File->Comdats.push_back(C.first());
+  }
+
   return std::move(File);
+}
+
+Expected<int> InputFile::Symbol::getComdatIndex() const {
+  if (!GV)
+    return -1;
+  const GlobalObject *GO;
+  if (auto *GA = dyn_cast<GlobalAlias>(GV)) {
+    GO = GA->getBaseObject();
+    if (!GO)
+      return make_error<StringError>("Unable to determine comdat of alias!",
+                                     inconvertibleErrorCode());
+  } else {
+    GO = cast<GlobalObject>(GV);
+  }
+  if (const Comdat *C = GO->getComdat()) {
+    auto I = File->ComdatMap.find(C);
+    assert(I != File->ComdatMap.end());
+    return I->second;
+  }
+  return -1;
 }
 
 LTO::RegularLTOState::RegularLTOState(unsigned ParallelCodeGenParallelismLevel,
@@ -227,7 +256,8 @@ LTO::RegularLTOState::RegularLTOState(unsigned ParallelCodeGenParallelismLevel,
 
 LTO::ThinLTOState::ThinLTOState(ThinBackend Backend) : Backend(Backend) {
   if (!Backend)
-    this->Backend = createInProcessThinBackend(thread::hardware_concurrency());
+    this->Backend =
+        createInProcessThinBackend(llvm::heavyweight_hardware_concurrency());
 }
 
 LTO::LTO(Config Conf, ThinBackend Backend,
@@ -330,8 +360,8 @@ Error LTO::addRegularLTO(std::unique_ptr<InputFile> Input,
 
   auto ResI = Res.begin();
   for (const InputFile::Symbol &Sym :
-       make_range(InputFile::symbol_iterator(Obj->symbol_begin()),
-                  InputFile::symbol_iterator(Obj->symbol_end()))) {
+       make_range(InputFile::symbol_iterator(Obj->symbol_begin(), nullptr),
+                  InputFile::symbol_iterator(Obj->symbol_end(), nullptr))) {
     assert(ResI != Res.end());
     SymbolResolution Res = *ResI++;
     addSymbolToGlobalRes(Obj.get(), Used, Sym, Res, 0);
@@ -367,7 +397,8 @@ Error LTO::addRegularLTO(std::unique_ptr<InputFile> Input,
   assert(ResI == Res.end());
 
   return RegularLTO.Mover->move(Obj->takeModule(), Keep,
-                                [](GlobalValue &, IRMover::ValueAdder) {});
+                                [](GlobalValue &, IRMover::ValueAdder) {},
+                                /* LinkModuleInlineAsm */ true);
 }
 
 // Add a ThinLTO object to the link.
@@ -541,13 +572,19 @@ public:
                          ImportList, DefinedGlobals, ModuleMap);
     };
 
-    if (!Cache)
+    auto ModuleID = MBRef.getBufferIdentifier();
+
+    if (!Cache || !CombinedIndex.modulePaths().count(ModuleID) ||
+        all_of(CombinedIndex.getModuleHash(ModuleID),
+               [](uint32_t V) { return V == 0; }))
+      // Cache disabled or no entry for this module in the combined index or
+      // no module hash.
       return RunThinBackend(AddStream);
 
     SmallString<40> Key;
     // The module may be cached, this helps handling it.
-    computeCacheKey(Key, CombinedIndex, MBRef.getBufferIdentifier(),
-                    ImportList, ExportList, ResolvedODR, DefinedGlobals);
+    computeCacheKey(Key, CombinedIndex, ModuleID, ImportList, ExportList,
+                    ResolvedODR, DefinedGlobals);
     if (AddStreamFn CacheAddStream = Cache(Task, Key))
       return RunThinBackend(CacheAddStream);
 

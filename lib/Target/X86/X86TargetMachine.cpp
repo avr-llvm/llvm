@@ -35,8 +35,8 @@ void initializeWinEHStatePassPass(PassRegistry &);
 
 extern "C" void LLVMInitializeX86Target() {
   // Register the target.
-  RegisterTargetMachine<X86TargetMachine> X(TheX86_32Target);
-  RegisterTargetMachine<X86TargetMachine> Y(TheX86_64Target);
+  RegisterTargetMachine<X86TargetMachine> X(getTheX86_32Target());
+  RegisterTargetMachine<X86TargetMachine> Y(getTheX86_64Target());
 
   PassRegistry &PR = *PassRegistry::getPassRegistry();
   initializeWinEHStatePassPass(PR);
@@ -269,6 +269,9 @@ void X86PassConfig::addIRPasses() {
   addPass(createAtomicExpandPass(&getX86TargetMachine()));
 
   TargetPassConfig::addIRPasses();
+
+  if (TM->getOptLevel() != CodeGenOpt::None)
+    addPass(createInterleavedAccessPass(TM));
 }
 
 bool X86PassConfig::addInstSelector() {

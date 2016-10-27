@@ -20,6 +20,7 @@
 #include "llvm/LTO/LTO.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/Threading.h"
 
 using namespace llvm;
 using namespace lto;
@@ -52,7 +53,7 @@ static cl::opt<bool>
                                        "distributed backend case"));
 
 static cl::opt<int> Threads("-thinlto-threads",
-                            cl::init(thread::hardware_concurrency()));
+                            cl::init(llvm::heavyweight_hardware_concurrency()));
 
 static cl::list<std::string> SymbolResolutions(
     "r",
@@ -158,6 +159,12 @@ int main(int argc, char **argv) {
         check(InputFile::create(MB->getMemBufferRef()), F);
 
     std::vector<SymbolResolution> Res;
+    // FIXME: Workaround PR30396 which means that a symbol can appear
+    // more than once if it is defined in module-level assembly and
+    // has a GV declaration. Keep track of the resolutions found in this
+    // file and remove them from the CommandLineResolutions map afterwards,
+    // so that we don't flag the second one as missing.
+    std::map<std::string, SymbolResolution> CurrentFileSymResolutions;
     for (const InputFile::Symbol &Sym : Input->symbols()) {
       auto I = CommandLineResolutions.find({F, Sym.getName()});
       if (I == CommandLineResolutions.end()) {
@@ -166,8 +173,15 @@ int main(int argc, char **argv) {
         HasErrors = true;
       } else {
         Res.push_back(I->second);
-        CommandLineResolutions.erase(I);
+        CurrentFileSymResolutions[Sym.getName()] = I->second;
       }
+    }
+    for (auto I : CurrentFileSymResolutions) {
+#ifndef NDEBUG
+      auto NumErased =
+#endif
+          CommandLineResolutions.erase({F, I.first});
+      assert(NumErased > 0);
     }
 
     if (HasErrors)

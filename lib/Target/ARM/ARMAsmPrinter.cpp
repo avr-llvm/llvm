@@ -605,9 +605,11 @@ static ARMBuildAttrs::CPUArch getArchForCPU(StringRef CPU,
   if (CPU == "xscale")
     return ARMBuildAttrs::v5TEJ;
 
-  if (Subtarget->hasV8Ops())
+  if (Subtarget->hasV8Ops()) {
+    if (Subtarget->isRClass())
+      return ARMBuildAttrs::v8_R;
     return ARMBuildAttrs::v8_A;
-  else if (Subtarget->hasV8MMainlineOps())
+  } else if (Subtarget->hasV8MMainlineOps())
     return ARMBuildAttrs::v8_M_Main;
   else if (Subtarget->hasV7Ops()) {
     if (Subtarget->isMClass() && Subtarget->hasDSP())
@@ -631,16 +633,14 @@ static ARMBuildAttrs::CPUArch getArchForCPU(StringRef CPU,
     return ARMBuildAttrs::v4;
 }
 
-// Returns true if all functions have the same function attribute value
-static bool haveAllFunctionsAttribute(const Module &M, StringRef Attr,
-                                      StringRef Value) {
-  for (auto &F : M)
-    if (F.getFnAttribute(Attr).getValueAsString() != Value)
-      return false;
-
-  return true;
+// Returns true if all functions have the same function attribute value.
+// It also returns true when the module has no functions.
+static bool checkFunctionsAttributeConsistency(const Module &M, StringRef Attr,
+                                               StringRef Value) {
+  return !any_of(M, [&](const Function &F) {
+    return F.getFnAttribute(Attr).getValueAsString() != Value;
+  });
 }
-
 
 void ARMAsmPrinter::emitAttributes() {
   MCTargetStreamer &TS = *OutStreamer->getTargetStreamer();
@@ -779,13 +779,15 @@ void ARMAsmPrinter::emitAttributes() {
   }
 
   // Set FP Denormals.
-  if (haveAllFunctionsAttribute(*MMI->getModule(), "denormal-fp-math",
-                                "preserve-sign") ||
+  if (checkFunctionsAttributeConsistency(*MMI->getModule(),
+                                         "denormal-fp-math",
+                                         "preserve-sign") ||
       TM.Options.FPDenormalMode == FPDenormal::PreserveSign)
     ATS.emitAttribute(ARMBuildAttrs::ABI_FP_denormal,
                       ARMBuildAttrs::PreserveFPSign);
-  else if (haveAllFunctionsAttribute(*MMI->getModule(), "denormal-fp-math",
-                                     "positive-zero") ||
+  else if (checkFunctionsAttributeConsistency(*MMI->getModule(),
+                                              "denormal-fp-math",
+                                              "positive-zero") ||
            TM.Options.FPDenormalMode == FPDenormal::PositiveZero)
     ATS.emitAttribute(ARMBuildAttrs::ABI_FP_denormal,
                       ARMBuildAttrs::PositiveZero);
@@ -819,7 +821,8 @@ void ARMAsmPrinter::emitAttributes() {
   }
 
   // Set FP exceptions and rounding
-  if (haveAllFunctionsAttribute(*MMI->getModule(), "no-trapping-math", "true") ||
+  if (checkFunctionsAttributeConsistency(*MMI->getModule(),
+                                         "no-trapping-math", "true") ||
       TM.Options.NoTrappingFPMath)
     ATS.emitAttribute(ARMBuildAttrs::ABI_FP_exceptions,
                       ARMBuildAttrs::Not_Allowed);
@@ -2048,6 +2051,9 @@ void ARMAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   case ARM::PATCHABLE_FUNCTION_EXIT:
     LowerPATCHABLE_FUNCTION_EXIT(*MI);
     return;
+  case ARM::PATCHABLE_TAIL_CALL:
+    LowerPATCHABLE_TAIL_CALL(*MI);
+    return;
   }
 
   MCInst TmpInst;
@@ -2062,8 +2068,8 @@ void ARMAsmPrinter::EmitInstruction(const MachineInstr *MI) {
 
 // Force static initialization.
 extern "C" void LLVMInitializeARMAsmPrinter() {
-  RegisterAsmPrinter<ARMAsmPrinter> X(TheARMLETarget);
-  RegisterAsmPrinter<ARMAsmPrinter> Y(TheARMBETarget);
-  RegisterAsmPrinter<ARMAsmPrinter> A(TheThumbLETarget);
-  RegisterAsmPrinter<ARMAsmPrinter> B(TheThumbBETarget);
+  RegisterAsmPrinter<ARMAsmPrinter> X(getTheARMLETarget());
+  RegisterAsmPrinter<ARMAsmPrinter> Y(getTheARMBETarget());
+  RegisterAsmPrinter<ARMAsmPrinter> A(getTheThumbLETarget());
+  RegisterAsmPrinter<ARMAsmPrinter> B(getTheThumbBETarget());
 }

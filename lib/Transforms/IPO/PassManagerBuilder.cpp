@@ -92,8 +92,7 @@ static cl::opt<CFLAAType>
                         clEnumValN(CFLAAType::Andersen, "anders",
                                    "Enable inclusion-based CFL-AA"),
                         clEnumValN(CFLAAType::Both, "both",
-                                   "Enable both variants of CFL-AA"),
-                        clEnumValEnd));
+                                   "Enable both variants of CFL-AA")));
 
 static cl::opt<bool>
 EnableMLSM("mlsm", cl::init(true), cl::Hidden,
@@ -145,6 +144,11 @@ static cl::opt<int> PreInlineThreshold(
 static cl::opt<bool> EnableGVNHoist(
     "enable-gvn-hoist", cl::init(true), cl::Hidden,
     cl::desc("Enable the GVN hoisting pass (default = on)"));
+
+static cl::opt<bool>
+    DisableLibCallsShrinkWrap("disable-libcalls-shrinkwrap", cl::init(false),
+                              cl::Hidden,
+                              cl::desc("Disable shrink-wrap library calls"));
 
 PassManagerBuilder::PassManagerBuilder() {
     OptLevel = 2;
@@ -298,6 +302,8 @@ void PassManagerBuilder::addFunctionSimplificationPasses(
   MPM.add(createCFGSimplificationPass());     // Merge & remove BBs
   // Combine silly seq's
   addInstructionCombiningPass(MPM);
+  if (SizeLevel == 0 && !DisableLibCallsShrinkWrap)
+    MPM.add(createLibCallsShrinkWrapPass());
   addExtensionsToPM(EP_Peephole, MPM);
 
   MPM.add(createTailCallEliminationPass()); // Eliminate tail calls

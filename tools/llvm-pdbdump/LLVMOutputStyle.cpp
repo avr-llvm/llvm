@@ -18,6 +18,7 @@
 #include "llvm/DebugInfo/PDB/PDBExtras.h"
 #include "llvm/DebugInfo/PDB/Raw/DbiStream.h"
 #include "llvm/DebugInfo/PDB/Raw/EnumTables.h"
+#include "llvm/DebugInfo/PDB/Raw/GlobalsStream.h"
 #include "llvm/DebugInfo/PDB/Raw/ISectionContribVisitor.h"
 #include "llvm/DebugInfo/PDB/Raw/InfoStream.h"
 #include "llvm/DebugInfo/PDB/Raw/ModInfo.h"
@@ -120,6 +121,9 @@ Error LLVMOutputStyle::dump() {
     return EC;
 
   if (auto EC = dumpSectionMap())
+    return EC;
+
+  if (auto EC = dumpGlobalsStream())
     return EC;
 
   if (auto EC = dumpPublicsStream())
@@ -341,6 +345,26 @@ void LLVMOutputStyle::dumpBitVector(StringRef Name, const BitVector &V) {
     if (V[I])
       Vec.push_back(I);
   P.printList(Name, Vec);
+}
+
+Error LLVMOutputStyle::dumpGlobalsStream() {
+  if (!opts::raw::DumpGlobals)
+    return Error::success();
+
+  DictScope D(P, "Globals Stream");
+  auto Globals = File.getPDBGlobalsStream();
+  if (!Globals)
+    return Globals.takeError();
+
+  auto Dbi = File.getPDBDbiStream();
+  if (!Dbi)
+    return Dbi.takeError();
+
+  P.printNumber("Stream number", Dbi->getGlobalSymbolStreamIndex());
+  P.printNumber("Number of buckets", Globals->getNumBuckets());
+  P.printList("Hash Buckets", Globals->getHashBuckets());
+
+  return Error::success();
 }
 
 Error LLVMOutputStyle::dumpStreamBlocks() {
@@ -598,11 +622,15 @@ Error LLVMOutputStyle::dumpDbiStream() {
           ListScope SS(P, "Symbols");
           codeview::CVSymbolDumper SD(P, Dumper, nullptr, false);
           bool HadError = false;
-          for (const auto &S : ModS.symbols(&HadError)) {
-            DictScope DD(P, "");
-
-            if (opts::raw::DumpModuleSyms)
-              SD.dump(S);
+          for (auto S : ModS.symbols(&HadError)) {
+            DictScope LL(P, "");
+            if (opts::raw::DumpModuleSyms) {
+              if (auto EC = SD.dump(S)) {
+                llvm::consumeError(std::move(EC));
+                HadError = true;
+                break;
+              }
+            }
             if (opts::raw::DumpSymRecordBytes)
               P.printBinaryBlock("Bytes", S.content());
           }
@@ -811,7 +839,10 @@ Error LLVMOutputStyle::dumpPublicsStream() {
   for (auto S : Publics->getSymbols(&HadError)) {
     DictScope DD(P, "");
 
-    SD.dump(S);
+    if (auto EC = SD.dump(S)) {
+      HadError = true;
+      break;
+    }
     if (opts::raw::DumpSymRecordBytes)
       P.printBinaryBlock("Bytes", S.content());
   }

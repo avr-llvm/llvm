@@ -513,19 +513,19 @@ class DIType : public DIScope {
   unsigned Line;
   DIFlags Flags;
   uint64_t SizeInBits;
-  uint64_t AlignInBits;
   uint64_t OffsetInBits;
+  uint32_t AlignInBits;
 
 protected:
   DIType(LLVMContext &C, unsigned ID, StorageType Storage, unsigned Tag,
-         unsigned Line, uint64_t SizeInBits, uint64_t AlignInBits,
+         unsigned Line, uint64_t SizeInBits, uint32_t AlignInBits,
          uint64_t OffsetInBits, DIFlags Flags, ArrayRef<Metadata *> Ops)
       : DIScope(C, ID, Storage, Tag, Ops) {
     init(Line, SizeInBits, AlignInBits, OffsetInBits, Flags);
   }
   ~DIType() = default;
 
-  void init(unsigned Line, uint64_t SizeInBits, uint64_t AlignInBits,
+  void init(unsigned Line, uint64_t SizeInBits, uint32_t AlignInBits,
             uint64_t OffsetInBits, DIFlags Flags) {
     this->Line = Line;
     this->Flags = Flags;
@@ -536,7 +536,7 @@ protected:
 
   /// Change fields in place.
   void mutate(unsigned Tag, unsigned Line, uint64_t SizeInBits,
-              uint64_t AlignInBits, uint64_t OffsetInBits, DIFlags Flags) {
+              uint32_t AlignInBits, uint64_t OffsetInBits, DIFlags Flags) {
     assert(isDistinct() && "Only distinct nodes can mutate");
     setTag(Tag);
     init(Line, SizeInBits, AlignInBits, OffsetInBits, Flags);
@@ -549,7 +549,8 @@ public:
 
   unsigned getLine() const { return Line; }
   uint64_t getSizeInBits() const { return SizeInBits; }
-  uint64_t getAlignInBits() const { return AlignInBits; }
+  uint32_t getAlignInBits() const { return AlignInBits; }
+  uint32_t getAlignInBytes() const { return getAlignInBits() / CHAR_BIT; }
   uint64_t getOffsetInBits() const { return OffsetInBits; }
   DIFlags getFlags() const { return Flags; }
 
@@ -614,7 +615,7 @@ class DIBasicType : public DIType {
   unsigned Encoding;
 
   DIBasicType(LLVMContext &C, StorageType Storage, unsigned Tag,
-              uint64_t SizeInBits, uint64_t AlignInBits, unsigned Encoding,
+              uint64_t SizeInBits, uint32_t AlignInBits, unsigned Encoding,
               ArrayRef<Metadata *> Ops)
       : DIType(C, DIBasicTypeKind, Storage, Tag, 0, SizeInBits, AlignInBits, 0,
                FlagZero, Ops),
@@ -623,14 +624,14 @@ class DIBasicType : public DIType {
 
   static DIBasicType *getImpl(LLVMContext &Context, unsigned Tag,
                               StringRef Name, uint64_t SizeInBits,
-                              uint64_t AlignInBits, unsigned Encoding,
+                              uint32_t AlignInBits, unsigned Encoding,
                               StorageType Storage, bool ShouldCreate = true) {
     return getImpl(Context, Tag, getCanonicalMDString(Context, Name),
                    SizeInBits, AlignInBits, Encoding, Storage, ShouldCreate);
   }
   static DIBasicType *getImpl(LLVMContext &Context, unsigned Tag,
                               MDString *Name, uint64_t SizeInBits,
-                              uint64_t AlignInBits, unsigned Encoding,
+                              uint32_t AlignInBits, unsigned Encoding,
                               StorageType Storage, bool ShouldCreate = true);
 
   TempDIBasicType cloneImpl() const {
@@ -643,11 +644,11 @@ public:
                     (Tag, Name, 0, 0, 0))
   DEFINE_MDNODE_GET(DIBasicType,
                     (unsigned Tag, StringRef Name, uint64_t SizeInBits,
-                     uint64_t AlignInBits, unsigned Encoding),
+                     uint32_t AlignInBits, unsigned Encoding),
                     (Tag, Name, SizeInBits, AlignInBits, Encoding))
   DEFINE_MDNODE_GET(DIBasicType,
                     (unsigned Tag, MDString *Name, uint64_t SizeInBits,
-                     uint64_t AlignInBits, unsigned Encoding),
+                     uint32_t AlignInBits, unsigned Encoding),
                     (Tag, Name, SizeInBits, AlignInBits, Encoding))
 
   TempDIBasicType clone() const { return cloneImpl(); }
@@ -670,7 +671,7 @@ class DIDerivedType : public DIType {
   friend class MDNode;
 
   DIDerivedType(LLVMContext &C, StorageType Storage, unsigned Tag,
-                unsigned Line, uint64_t SizeInBits, uint64_t AlignInBits,
+                unsigned Line, uint64_t SizeInBits, uint32_t AlignInBits,
                 uint64_t OffsetInBits, DIFlags Flags, ArrayRef<Metadata *> Ops)
       : DIType(C, DIDerivedTypeKind, Storage, Tag, Line, SizeInBits,
                AlignInBits, OffsetInBits, Flags, Ops) {}
@@ -679,7 +680,7 @@ class DIDerivedType : public DIType {
   static DIDerivedType *getImpl(LLVMContext &Context, unsigned Tag,
                                 StringRef Name, DIFile *File, unsigned Line,
                                 DIScopeRef Scope, DITypeRef BaseType,
-                                uint64_t SizeInBits, uint64_t AlignInBits,
+                                uint64_t SizeInBits, uint32_t AlignInBits,
                                 uint64_t OffsetInBits, DIFlags Flags,
                                 Metadata *ExtraData, StorageType Storage,
                                 bool ShouldCreate = true) {
@@ -690,7 +691,7 @@ class DIDerivedType : public DIType {
   static DIDerivedType *getImpl(LLVMContext &Context, unsigned Tag,
                                 MDString *Name, Metadata *File, unsigned Line,
                                 Metadata *Scope, Metadata *BaseType,
-                                uint64_t SizeInBits, uint64_t AlignInBits,
+                                uint64_t SizeInBits, uint32_t AlignInBits,
                                 uint64_t OffsetInBits, DIFlags Flags,
                                 Metadata *ExtraData, StorageType Storage,
                                 bool ShouldCreate = true);
@@ -706,7 +707,7 @@ public:
   DEFINE_MDNODE_GET(DIDerivedType,
                     (unsigned Tag, MDString *Name, Metadata *File,
                      unsigned Line, Metadata *Scope, Metadata *BaseType,
-                     uint64_t SizeInBits, uint64_t AlignInBits,
+                     uint64_t SizeInBits, uint32_t AlignInBits,
                      uint64_t OffsetInBits, DIFlags Flags,
                      Metadata *ExtraData = nullptr),
                     (Tag, Name, File, Line, Scope, BaseType, SizeInBits,
@@ -714,8 +715,8 @@ public:
   DEFINE_MDNODE_GET(DIDerivedType,
                     (unsigned Tag, StringRef Name, DIFile *File, unsigned Line,
                      DIScopeRef Scope, DITypeRef BaseType, uint64_t SizeInBits,
-                     uint64_t AlignInBits, uint64_t OffsetInBits, DIFlags Flags,
-                     Metadata *ExtraData = nullptr),
+                     uint32_t AlignInBits, uint64_t OffsetInBits,
+                     DIFlags Flags, Metadata *ExtraData = nullptr),
                     (Tag, Name, File, Line, Scope, BaseType, SizeInBits,
                      AlignInBits, OffsetInBits, Flags, ExtraData))
 
@@ -775,7 +776,7 @@ class DICompositeType : public DIType {
 
   DICompositeType(LLVMContext &C, StorageType Storage, unsigned Tag,
                   unsigned Line, unsigned RuntimeLang, uint64_t SizeInBits,
-                  uint64_t AlignInBits, uint64_t OffsetInBits, DIFlags Flags,
+                  uint32_t AlignInBits, uint64_t OffsetInBits, DIFlags Flags,
                   ArrayRef<Metadata *> Ops)
       : DIType(C, DICompositeTypeKind, Storage, Tag, Line, SizeInBits,
                AlignInBits, OffsetInBits, Flags, Ops),
@@ -784,8 +785,8 @@ class DICompositeType : public DIType {
 
   /// Change fields in place.
   void mutate(unsigned Tag, unsigned Line, unsigned RuntimeLang,
-              uint64_t SizeInBits, uint64_t AlignInBits, uint64_t OffsetInBits,
-              DIFlags Flags) {
+              uint64_t SizeInBits, uint32_t AlignInBits,
+              uint64_t OffsetInBits, DIFlags Flags) {
     assert(isDistinct() && "Only distinct nodes can mutate");
     assert(getRawIdentifier() && "Only ODR-uniqued nodes should mutate");
     this->RuntimeLang = RuntimeLang;
@@ -795,7 +796,7 @@ class DICompositeType : public DIType {
   static DICompositeType *
   getImpl(LLVMContext &Context, unsigned Tag, StringRef Name, Metadata *File,
           unsigned Line, DIScopeRef Scope, DITypeRef BaseType,
-          uint64_t SizeInBits, uint64_t AlignInBits, uint64_t OffsetInBits,
+          uint64_t SizeInBits, uint32_t AlignInBits, uint64_t OffsetInBits,
           DIFlags Flags, DINodeArray Elements, unsigned RuntimeLang,
           DITypeRef VTableHolder, DITemplateParameterArray TemplateParams,
           StringRef Identifier, StorageType Storage, bool ShouldCreate = true) {
@@ -808,7 +809,7 @@ class DICompositeType : public DIType {
   static DICompositeType *
   getImpl(LLVMContext &Context, unsigned Tag, MDString *Name, Metadata *File,
           unsigned Line, Metadata *Scope, Metadata *BaseType,
-          uint64_t SizeInBits, uint64_t AlignInBits, uint64_t OffsetInBits,
+          uint64_t SizeInBits, uint32_t AlignInBits, uint64_t OffsetInBits,
           DIFlags Flags, Metadata *Elements, unsigned RuntimeLang,
           Metadata *VTableHolder, Metadata *TemplateParams,
           MDString *Identifier, StorageType Storage, bool ShouldCreate = true);
@@ -825,8 +826,8 @@ public:
   DEFINE_MDNODE_GET(DICompositeType,
                     (unsigned Tag, StringRef Name, DIFile *File, unsigned Line,
                      DIScopeRef Scope, DITypeRef BaseType, uint64_t SizeInBits,
-                     uint64_t AlignInBits, uint64_t OffsetInBits, DIFlags Flags,
-                     DINodeArray Elements, unsigned RuntimeLang,
+                     uint32_t AlignInBits, uint64_t OffsetInBits,
+                     DIFlags Flags, DINodeArray Elements, unsigned RuntimeLang,
                      DITypeRef VTableHolder,
                      DITemplateParameterArray TemplateParams = nullptr,
                      StringRef Identifier = ""),
@@ -836,7 +837,7 @@ public:
   DEFINE_MDNODE_GET(DICompositeType,
                     (unsigned Tag, MDString *Name, Metadata *File,
                      unsigned Line, Metadata *Scope, Metadata *BaseType,
-                     uint64_t SizeInBits, uint64_t AlignInBits,
+                     uint64_t SizeInBits, uint32_t AlignInBits,
                      uint64_t OffsetInBits, DIFlags Flags, Metadata *Elements,
                      unsigned RuntimeLang, Metadata *VTableHolder,
                      Metadata *TemplateParams = nullptr,
@@ -857,7 +858,7 @@ public:
   static DICompositeType *
   getODRType(LLVMContext &Context, MDString &Identifier, unsigned Tag,
              MDString *Name, Metadata *File, unsigned Line, Metadata *Scope,
-             Metadata *BaseType, uint64_t SizeInBits, uint64_t AlignInBits,
+             Metadata *BaseType, uint64_t SizeInBits, uint32_t AlignInBits,
              uint64_t OffsetInBits, DIFlags Flags, Metadata *Elements,
              unsigned RuntimeLang, Metadata *VTableHolder,
              Metadata *TemplateParams);
@@ -876,7 +877,7 @@ public:
   static DICompositeType *
   buildODRType(LLVMContext &Context, MDString &Identifier, unsigned Tag,
                MDString *Name, Metadata *File, unsigned Line, Metadata *Scope,
-               Metadata *BaseType, uint64_t SizeInBits, uint64_t AlignInBits,
+               Metadata *BaseType, uint64_t SizeInBits, uint32_t AlignInBits,
                uint64_t OffsetInBits, DIFlags Flags, Metadata *Elements,
                unsigned RuntimeLang, Metadata *VTableHolder,
                Metadata *TemplateParams);
@@ -1269,6 +1270,9 @@ public:
   /// instructions that are on different basic blocks.
   inline unsigned getDiscriminator() const;
 
+  /// Returns a new DILocation with updated \p Discriminator.
+  inline DILocation *cloneWithDiscriminator(unsigned Discriminator) const;
+
   Metadata *getRawScope() const { return getOperand(0); }
   Metadata *getRawInlinedAt() const {
     if (getNumOperands() == 2)
@@ -1611,6 +1615,22 @@ unsigned DILocation::getDiscriminator() const {
   return 0;
 }
 
+DILocation *DILocation::cloneWithDiscriminator(unsigned Discriminator) const {
+  DIScope *Scope = getScope();
+  // Skip all parent DILexicalBlockFile that already have a discriminator
+  // assigned. We do not want to have nested DILexicalBlockFiles that have
+  // mutliple discriminators because only the leaf DILexicalBlockFile's
+  // dominator will be used.
+  for (auto *LBF = dyn_cast<DILexicalBlockFile>(Scope);
+       LBF && LBF->getDiscriminator() != 0;
+       LBF = dyn_cast<DILexicalBlockFile>(Scope))
+    Scope = LBF->getScope();
+  DILexicalBlockFile *NewScope =
+      DILexicalBlockFile::get(getContext(), Scope, getFile(), Discriminator);
+  return DILocation::get(getContext(), getLine(), getColumn(), NewScope,
+                         getInlinedAt());
+}
+
 class DINamespace : public DIScope {
   friend class LLVMContextImpl;
   friend class MDNode;
@@ -1826,11 +1846,13 @@ public:
 /// \brief Base class for variables.
 class DIVariable : public DINode {
   unsigned Line;
+  uint32_t AlignInBits;
 
 protected:
   DIVariable(LLVMContext &C, unsigned ID, StorageType Storage, unsigned Line,
-             ArrayRef<Metadata *> Ops)
-      : DINode(C, ID, Storage, dwarf::DW_TAG_variable, Ops), Line(Line) {}
+             ArrayRef<Metadata *> Ops, uint32_t AlignInBits = 0)
+      : DINode(C, ID, Storage, dwarf::DW_TAG_variable, Ops), Line(Line),
+	      AlignInBits(AlignInBits) {}
   ~DIVariable() = default;
 
 public:
@@ -1839,6 +1861,8 @@ public:
   StringRef getName() const { return getStringOperand(1); }
   DIFile *getFile() const { return cast_or_null<DIFile>(getRawFile()); }
   DITypeRef getType() const { return DITypeRef(getRawType()); }
+  uint32_t getAlignInBits() const { return AlignInBits; }
+  uint32_t getAlignInBytes() const { return getAlignInBits() / CHAR_BIT; }
 
   StringRef getFilename() const {
     if (auto *F = getFile())
@@ -2026,9 +2050,9 @@ class DIGlobalVariable : public DIVariable {
   bool IsDefinition;
 
   DIGlobalVariable(LLVMContext &C, StorageType Storage, unsigned Line,
-                   bool IsLocalToUnit, bool IsDefinition,
+                   bool IsLocalToUnit, bool IsDefinition, uint32_t AlignInBits,
                    ArrayRef<Metadata *> Ops)
-      : DIVariable(C, DIGlobalVariableKind, Storage, Line, Ops),
+      : DIVariable(C, DIGlobalVariableKind, Storage, Line, Ops, AlignInBits),
         IsLocalToUnit(IsLocalToUnit), IsDefinition(IsDefinition) {}
   ~DIGlobalVariable() = default;
 
@@ -2036,42 +2060,48 @@ class DIGlobalVariable : public DIVariable {
   getImpl(LLVMContext &Context, DIScope *Scope, StringRef Name,
           StringRef LinkageName, DIFile *File, unsigned Line, DITypeRef Type,
           bool IsLocalToUnit, bool IsDefinition, DIExpression *Expr,
-          DIDerivedType *StaticDataMemberDeclaration, StorageType Storage,
-          bool ShouldCreate = true) {
+          DIDerivedType *StaticDataMemberDeclaration, uint32_t AlignInBits,
+          StorageType Storage, bool ShouldCreate = true) {
     return getImpl(Context, Scope, getCanonicalMDString(Context, Name),
                    getCanonicalMDString(Context, LinkageName), File, Line, Type,
                    IsLocalToUnit, IsDefinition, Expr,
-                   StaticDataMemberDeclaration, Storage, ShouldCreate);
+                   StaticDataMemberDeclaration, AlignInBits, Storage,
+                   ShouldCreate);
   }
   static DIGlobalVariable *
   getImpl(LLVMContext &Context, Metadata *Scope, MDString *Name,
           MDString *LinkageName, Metadata *File, unsigned Line, Metadata *Type,
           bool IsLocalToUnit, bool IsDefinition, Metadata *Expr,
-          Metadata *StaticDataMemberDeclaration, StorageType Storage,
-          bool ShouldCreate = true);
+          Metadata *StaticDataMemberDeclaration, uint32_t AlignInBits,
+          StorageType Storage, bool ShouldCreate = true);
 
   TempDIGlobalVariable cloneImpl() const {
     return getTemporary(getContext(), getScope(), getName(), getLinkageName(),
                         getFile(), getLine(), getType(), isLocalToUnit(),
                         isDefinition(), getExpr(),
-                        getStaticDataMemberDeclaration());
+                        getStaticDataMemberDeclaration(), getAlignInBits());
   }
 
 public:
   DEFINE_MDNODE_GET(DIGlobalVariable,
                     (DIScope * Scope, StringRef Name, StringRef LinkageName,
                      DIFile *File, unsigned Line, DITypeRef Type,
-                     bool IsLocalToUnit, bool IsDefinition, DIExpression *Expr,
-                     DIDerivedType *StaticDataMemberDeclaration),
+                     bool IsLocalToUnit, bool IsDefinition,
+                     DIExpression *Expr,
+                     DIDerivedType *StaticDataMemberDeclaration,
+                     uint32_t AlignInBits),
                     (Scope, Name, LinkageName, File, Line, Type, IsLocalToUnit,
-                     IsDefinition, Expr, StaticDataMemberDeclaration))
+                     IsDefinition, Expr, StaticDataMemberDeclaration,
+                     AlignInBits))
   DEFINE_MDNODE_GET(DIGlobalVariable,
                     (Metadata * Scope, MDString *Name, MDString *LinkageName,
                      Metadata *File, unsigned Line, Metadata *Type,
-                     bool IsLocalToUnit, bool IsDefinition, Metadata *Expr,
-                     Metadata *StaticDataMemberDeclaration),
+                     bool IsLocalToUnit, bool IsDefinition,
+                     Metadata *Expr, Metadata *StaticDataMemberDeclaration,
+                     uint32_t AlignInBits),
                     (Scope, Name, LinkageName, File, Line, Type, IsLocalToUnit,
-                     IsDefinition, Expr, StaticDataMemberDeclaration))
+                     IsDefinition, Expr, StaticDataMemberDeclaration,
+                     AlignInBits))
 
   TempDIGlobalVariable clone() const { return cloneImpl(); }
 
@@ -2109,9 +2139,10 @@ class DILocalVariable : public DIVariable {
   DIFlags Flags;
 
   DILocalVariable(LLVMContext &C, StorageType Storage, unsigned Line,
-                  unsigned Arg, DIFlags Flags, ArrayRef<Metadata *> Ops)
-      : DIVariable(C, DILocalVariableKind, Storage, Line, Ops), Arg(Arg),
-        Flags(Flags) {
+                  unsigned Arg, DIFlags Flags, uint32_t AlignInBits,
+                  ArrayRef<Metadata *> Ops)
+      : DIVariable(C, DILocalVariableKind, Storage, Line, Ops, AlignInBits),
+        Arg(Arg), Flags(Flags) {
     assert(Arg < (1 << 16) && "DILocalVariable: Arg out of range");
   }
   ~DILocalVariable() = default;
@@ -2119,33 +2150,34 @@ class DILocalVariable : public DIVariable {
   static DILocalVariable *getImpl(LLVMContext &Context, DIScope *Scope,
                                   StringRef Name, DIFile *File, unsigned Line,
                                   DITypeRef Type, unsigned Arg, DIFlags Flags,
-                                  StorageType Storage,
+                                  uint32_t AlignInBits, StorageType Storage,
                                   bool ShouldCreate = true) {
     return getImpl(Context, Scope, getCanonicalMDString(Context, Name), File,
-                   Line, Type, Arg, Flags, Storage, ShouldCreate);
+                   Line, Type, Arg, Flags, AlignInBits, Storage, ShouldCreate);
   }
   static DILocalVariable *getImpl(LLVMContext &Context, Metadata *Scope,
                                   MDString *Name, Metadata *File, unsigned Line,
                                   Metadata *Type, unsigned Arg, DIFlags Flags,
-                                  StorageType Storage,
+                                  uint32_t AlignInBits, StorageType Storage,
                                   bool ShouldCreate = true);
 
   TempDILocalVariable cloneImpl() const {
     return getTemporary(getContext(), getScope(), getName(), getFile(),
-                        getLine(), getType(), getArg(), getFlags());
+                        getLine(), getType(), getArg(), getFlags(),
+                        getAlignInBits());
   }
 
 public:
   DEFINE_MDNODE_GET(DILocalVariable,
                     (DILocalScope * Scope, StringRef Name, DIFile *File,
                      unsigned Line, DITypeRef Type, unsigned Arg,
-                     DIFlags Flags),
-                    (Scope, Name, File, Line, Type, Arg, Flags))
+                     DIFlags Flags, uint32_t AlignInBits),
+                    (Scope, Name, File, Line, Type, Arg, Flags, AlignInBits))
   DEFINE_MDNODE_GET(DILocalVariable,
                     (Metadata * Scope, MDString *Name, Metadata *File,
                      unsigned Line, Metadata *Type, unsigned Arg,
-                     DIFlags Flags),
-                    (Scope, Name, File, Line, Type, Arg, Flags))
+                     DIFlags Flags, uint32_t AlignInBits),
+                    (Scope, Name, File, Line, Type, Arg, Flags, AlignInBits))
 
   TempDILocalVariable clone() const { return cloneImpl(); }
 

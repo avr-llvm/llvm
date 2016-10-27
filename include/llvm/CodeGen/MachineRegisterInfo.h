@@ -657,6 +657,13 @@ public:
   /// selection and constraining of all generic virtual registers).
   void clearVirtRegTypes();
 
+  /// Creates a new virtual register that has no register class, register bank
+  /// or size assigned yet. This is only allowed to be used
+  /// temporarily while constructing machine instructions. Most operations are
+  /// undefined on an incomplete register until one of setRegClass(),
+  /// setRegBank() or setSize() has been called on it.
+  unsigned createIncompleteVirtualRegister();
+
   /// getNumVirtRegs - Return the number of virtual registers created.
   ///
   unsigned getNumVirtRegs() const { return VRegInfo.size(); }
@@ -891,10 +898,11 @@ public:
           advance();
         } while (Op && Op->getParent() == P);
       } else if (ByBundle) {
-        MachineInstr &P = getBundleStart(*Op->getParent());
+        MachineBasicBlock::instr_iterator P =
+            getBundleStart(Op->getParent()->getIterator());
         do {
           advance();
-        } while (Op && &getBundleStart(*Op->getParent()) == &P);
+        } while (Op && getBundleStart(Op->getParent()->getIterator()) == P);
       }
 
       return *this;
@@ -993,10 +1001,11 @@ public:
           advance();
         } while (Op && Op->getParent() == P);
       } else if (ByBundle) {
-        MachineInstr &P = getBundleStart(*Op->getParent());
+        MachineBasicBlock::instr_iterator P =
+            getBundleStart(Op->getParent()->getIterator());
         do {
           advance();
-        } while (Op && &getBundleStart(*Op->getParent()) == &P);
+        } while (Op && getBundleStart(Op->getParent()->getIterator()) == P);
       }
 
       return *this;
@@ -1009,7 +1018,7 @@ public:
     MachineInstr &operator*() const {
       assert(Op && "Cannot dereference end iterator!");
       if (ByBundle)
-        return getBundleStart(*Op->getParent());
+        return *getBundleStart(Op->getParent()->getIterator());
       return *Op->getParent();
     }
 

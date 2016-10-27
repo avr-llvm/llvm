@@ -122,22 +122,24 @@ TEST(Support, Path) {
     }
     ASSERT_TRUE(ComponentStack.empty());
 
-    path::has_root_path(*i);
-    path::root_path(*i);
-    path::has_root_name(*i);
-    path::root_name(*i);
-    path::has_root_directory(*i);
-    path::root_directory(*i);
-    path::has_parent_path(*i);
-    path::parent_path(*i);
-    path::has_filename(*i);
-    path::filename(*i);
-    path::has_stem(*i);
-    path::stem(*i);
-    path::has_extension(*i);
-    path::extension(*i);
-    path::is_absolute(*i);
-    path::is_relative(*i);
+    // Crash test most of the API - since we're iterating over all of our paths
+    // here there isn't really anything reasonable to assert on in the results.
+    (void)path::has_root_path(*i);
+    (void)path::root_path(*i);
+    (void)path::has_root_name(*i);
+    (void)path::root_name(*i);
+    (void)path::has_root_directory(*i);
+    (void)path::root_directory(*i);
+    (void)path::has_parent_path(*i);
+    (void)path::parent_path(*i);
+    (void)path::has_filename(*i);
+    (void)path::filename(*i);
+    (void)path::has_stem(*i);
+    (void)path::stem(*i);
+    (void)path::has_extension(*i);
+    (void)path::extension(*i);
+    (void)path::is_absolute(*i);
+    (void)path::is_relative(*i);
 
     SmallString<128> temp_store;
     temp_store = *i;
@@ -965,6 +967,8 @@ TEST(Support, RemoveDots) {
   EXPECT_EQ("a\\..\\b\\c", remove_dots(".\\a\\..\\b\\c", false));
   EXPECT_EQ("b\\c", remove_dots(".\\a\\..\\b\\c", true));
   EXPECT_EQ("c", remove_dots(".\\.\\c", true));
+  EXPECT_EQ("..\\a\\c", remove_dots("..\\a\\b\\..\\c", true));
+  EXPECT_EQ("..\\..\\a\\c", remove_dots("..\\..\\a\\b\\..\\c", true));
 
   SmallString<64> Path1(".\\.\\c");
   EXPECT_TRUE(path::remove_dots(Path1, true));
@@ -976,6 +980,10 @@ TEST(Support, RemoveDots) {
   EXPECT_EQ("a/../b/c", remove_dots("./a/../b/c", false));
   EXPECT_EQ("b/c", remove_dots("./a/../b/c", true));
   EXPECT_EQ("c", remove_dots("././c", true));
+  EXPECT_EQ("../a/c", remove_dots("../a/b/../c", true));
+  EXPECT_EQ("../../a/c", remove_dots("../../a/b/../c", true));
+  EXPECT_EQ("/a/c", remove_dots("/../../a/c", true));
+  EXPECT_EQ("/a/c", remove_dots("/../a/b//../././/c", true));
 
   SmallString<64> Path1("././c");
   EXPECT_TRUE(path::remove_dots(Path1, true));

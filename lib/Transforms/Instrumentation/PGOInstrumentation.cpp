@@ -439,9 +439,11 @@ template <class Edge, class BBInfo>
 void FuncPGOInstrumentation<Edge, BBInfo>::renameComdatFunction() {
   if (!canRenameComdat(F, ComdatMembers))
     return;
+  std::string OrigName = F.getName().str();
   std::string NewFuncName =
       Twine(F.getName() + "." + Twine(FunctionHash)).str();
   F.setName(Twine(NewFuncName));
+  GlobalAlias::create(GlobalValue::WeakAnyLinkage, OrigName, &F);
   FuncName = Twine(FuncName + "." + Twine(FunctionHash)).str();
   Comdat *NewComdat;
   Module *M = F.getParent();
@@ -467,7 +469,9 @@ void FuncPGOInstrumentation<Edge, BBInfo>::renameComdatFunction() {
     if (GlobalAlias *GA = dyn_cast<GlobalAlias>(CM.second)) {
       // For aliases, change the name directly.
       assert(dyn_cast<Function>(GA->getAliasee()->stripPointerCasts()) == &F);
+      std::string OrigGAName = GA->getName().str();
       GA->setName(Twine(GA->getName() + "." + Twine(FunctionHash)));
+      GlobalAlias::create(GlobalValue::WeakAnyLinkage, OrigGAName, GA);
       continue;
     }
     // Must be a function.
@@ -638,7 +642,7 @@ public:
              BranchProbabilityInfo *BPI = nullptr,
              BlockFrequencyInfo *BFI = nullptr)
       : F(Func), M(Modu), FuncInfo(Func, ComdatMembers, false, BPI, BFI),
-        FreqAttr(FFA_Normal) {}
+        CountPosition(0), ProfileCountSize(0), FreqAttr(FFA_Normal) {}
 
   // Read counts for the instrumented BB from profile.
   bool readCounters(IndexedInstrProfReader *PGOReader);
@@ -677,6 +681,12 @@ private:
   // The maximum count value in the profile. This is only used in PGO use
   // compilation.
   uint64_t ProgramMaxCount;
+
+  // Position of counter that remains to be read.
+  uint32_t CountPosition;
+
+  // Total size of the profile count for this function.
+  uint32_t ProfileCountSize;
 
   // ProfileRecord for this function.
   InstrProfRecord ProfileRecord;
@@ -746,9 +756,8 @@ void PGOUseFunc::setInstrumentedCounts(
     NewEdge1.InMST = true;
     getBBInfo(InstrBB).setBBInfoCount(CountValue);
   }
-  // Now annotate select instructions
-  FuncInfo.SIVisitor.annotateSelects(F, this, &I);
-  assert(I == CountFromProfile.size());
+  ProfileCountSize =  CountFromProfile.size();
+  CountPosition = I;
 }
 
 // Set the count value for the unknown edge. There should be one and only one
@@ -887,6 +896,10 @@ void PGOUseFunc::populateCounters() {
   for (auto &BB : F)
     FuncMaxCount = std::max(FuncMaxCount, getBBInfo(&BB).CountValue);
   markFunctionAttributes(FuncEntryCount, FuncMaxCount);
+
+  // Now annotate select instructions
+  FuncInfo.SIVisitor.annotateSelects(F, this, &CountPosition);
+  assert(CountPosition == ProfileCountSize);
 
   DEBUG(FuncInfo.dumpInfo("after reading profile."));
 }

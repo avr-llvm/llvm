@@ -424,10 +424,8 @@ protected:
     uint16_t IsNonTemporal : 1;
     uint16_t IsDereferenceable : 1;
     uint16_t IsInvariant : 1;
-    uint16_t SynchScope : 1; // enum SynchronizationScope
-    uint16_t Ordering : 4;   // enum AtomicOrdering
   };
-  enum { NumMemSDNodeBits = NumSDNodeBits + 9 };
+  enum { NumMemSDNodeBits = NumSDNodeBits + 4 };
 
   class LSBaseSDNodeBitfields {
     friend class LSBaseSDNode;
@@ -444,6 +442,7 @@ protected:
     uint16_t : NumLSBaseSDNodeBits;
 
     uint16_t ExtTy : 2; // enum ISD::LoadExtType
+    uint16_t IsExpanding : 1;
   };
 
   class StoreSDNodeBitfields {
@@ -473,7 +472,7 @@ protected:
   static_assert(sizeof(ConstantSDNodeBitfields) <= 2, "field too wide");
   static_assert(sizeof(MemSDNodeBitfields) <= 2, "field too wide");
   static_assert(sizeof(LSBaseSDNodeBitfields) <= 2, "field too wide");
-  static_assert(sizeof(LoadSDNodeBitfields) <= 2, "field too wide");
+  static_assert(sizeof(LoadSDNodeBitfields) <= 4, "field too wide");
   static_assert(sizeof(StoreSDNodeBitfields) <= 2, "field too wide");
 
 private:
@@ -923,7 +922,10 @@ public:
 
 inline SDValue::SDValue(SDNode *node, unsigned resno)
     : Node(node), ResNo(resno) {
-  assert((!Node || ResNo < Node->getNumValues()) &&
+  // Explicitly check for !ResNo to avoid use-after-free, because there are
+  // callers that use SDValue(N, 0) with a deleted N to indicate successful
+  // combines.
+  assert((!Node || !ResNo || ResNo < Node->getNumValues()) &&
          "Invalid result number for the given node!");
   assert(ResNo < -2U && "Cannot use result numbers reserved for DenseMaps.");
 }
@@ -1109,13 +1111,6 @@ public:
   bool isDereferenceable() const { return MemSDNodeBits.IsDereferenceable; }
   bool isInvariant() const { return MemSDNodeBits.IsInvariant; }
 
-  AtomicOrdering getOrdering() const {
-    return static_cast<AtomicOrdering>(MemSDNodeBits.Ordering);
-  }
-  SynchronizationScope getSynchScope() const {
-    return static_cast<SynchronizationScope>(MemSDNodeBits.SynchScope);
-  }
-
   // Returns the offset from the location of the access.
   int64_t getSrcValueOffset() const { return MMO->getOffset(); }
 
@@ -1124,6 +1119,14 @@ public:
 
   /// Returns the Ranges that describes the dereference.
   const MDNode *getRanges() const { return MMO->getRanges(); }
+
+  /// Return the synchronization scope for this memory operation.
+  SynchronizationScope getSynchScope() const { return MMO->getSynchScope(); }
+
+  /// Return the atomic ordering requirements for this memory operation. For
+  /// cmpxchg atomic operations, return the atomic ordering requirements when
+  /// store occurs.
+  AtomicOrdering getOrdering() const { return MMO->getOrdering(); }
 
   /// Return the type of the in-memory value.
   EVT getMemoryVT() const { return MemoryVT; }
@@ -1187,45 +1190,27 @@ public:
 
 /// This is an SDNode representing atomic operations.
 class AtomicSDNode : public MemSDNode {
-  /// For cmpxchg instructions, the ordering requirements when a store does not
-  /// occur.
-  AtomicOrdering FailureOrdering;
-
-  void InitAtomic(AtomicOrdering SuccessOrdering,
-                  AtomicOrdering FailureOrdering,
-                  SynchronizationScope SynchScope) {
-    MemSDNodeBits.Ordering = static_cast<uint16_t>(SuccessOrdering);
-    assert(getOrdering() == SuccessOrdering && "Value truncated");
-    MemSDNodeBits.SynchScope = static_cast<uint16_t>(SynchScope);
-    assert(getSynchScope() == SynchScope && "Value truncated");
-    this->FailureOrdering = FailureOrdering;
-  }
-
 public:
   AtomicSDNode(unsigned Opc, unsigned Order, const DebugLoc &dl, SDVTList VTL,
-               EVT MemVT, MachineMemOperand *MMO,
-               AtomicOrdering SuccessOrdering, AtomicOrdering FailureOrdering,
-               SynchronizationScope SynchScope)
-      : MemSDNode(Opc, Order, dl, VTL, MemVT, MMO) {
-    InitAtomic(SuccessOrdering, FailureOrdering, SynchScope);
-  }
+               EVT MemVT, MachineMemOperand *MMO)
+      : MemSDNode(Opc, Order, dl, VTL, MemVT, MMO) {}
 
   const SDValue &getBasePtr() const { return getOperand(1); }
   const SDValue &getVal() const { return getOperand(2); }
 
-  AtomicOrdering getSuccessOrdering() const {
-    return getOrdering();
-  }
-
-  // Not quite enough room in SubclassData for everything, so failure gets its
-  // own field.
-  AtomicOrdering getFailureOrdering() const {
-    return FailureOrdering;
-  }
-
+  /// Returns true if this SDNode represents cmpxchg atomic operation, false
+  /// otherwise.
   bool isCompareAndSwap() const {
     unsigned Op = getOpcode();
-    return Op == ISD::ATOMIC_CMP_SWAP || Op == ISD::ATOMIC_CMP_SWAP_WITH_SUCCESS;
+    return Op == ISD::ATOMIC_CMP_SWAP ||
+           Op == ISD::ATOMIC_CMP_SWAP_WITH_SUCCESS;
+  }
+
+  /// For cmpxchg atomic operations, return the atomic ordering requirements
+  /// when store does not occur.
+  AtomicOrdering getFailureOrdering() const {
+    assert(isCompareAndSwap() && "Must be cmpxchg operation");
+    return MMO->getFailureOrdering();
   }
 
   // Methods to support isa and dyn_cast
@@ -1411,15 +1396,26 @@ public:
 
 /// Returns true if \p V is a constant integer zero.
 bool isNullConstant(SDValue V);
+
 /// Returns true if \p V is an FP constant with a value of positive zero.
 bool isNullFPConstant(SDValue V);
+
 /// Returns true if \p V is an integer constant with all bits set.
 bool isAllOnesConstant(SDValue V);
+
 /// Returns true if \p V is a constant integer one.
 bool isOneConstant(SDValue V);
+
 /// Returns true if \p V is a bitwise not operation. Assumes that an all ones
 /// constant is canonicalized to be operand 1.
 bool isBitwiseNot(SDValue V);
+
+/// Returns the SDNode if it is a constant splat BuildVector or constant int.
+ConstantSDNode *isConstOrConstSplat(SDValue V);
+
+/// Returns the SDNode if it is a constant splat BuildVector or constant float.
+ConstantFPSDNode *isConstOrConstSplatFP(SDValue V);
+
 
 class GlobalAddressSDNode : public SDNode {
   const GlobalValue *TheGlobal;
@@ -1939,9 +1935,11 @@ class MaskedLoadSDNode : public MaskedLoadStoreSDNode {
 public:
   friend class SelectionDAG;
   MaskedLoadSDNode(unsigned Order, const DebugLoc &dl, SDVTList VTs,
-                   ISD::LoadExtType ETy, EVT MemVT, MachineMemOperand *MMO)
+                   ISD::LoadExtType ETy, bool IsExpanding, EVT MemVT,
+                   MachineMemOperand *MMO)
       : MaskedLoadStoreSDNode(ISD::MLOAD, Order, dl, VTs, MemVT, MMO) {
     LoadSDNodeBits.ExtTy = ETy;
+    LoadSDNodeBits.IsExpanding = IsExpanding;
   }
 
   ISD::LoadExtType getExtensionType() const {
@@ -1952,6 +1950,8 @@ public:
   static bool classof(const SDNode *N) {
     return N->getOpcode() == ISD::MLOAD;
   }
+
+  bool isExpandingLoad() const { return LoadSDNodeBits.IsExpanding; }
 };
 
 /// This class is used to represent an MSTORE node

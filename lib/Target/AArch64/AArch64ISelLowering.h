@@ -187,6 +187,10 @@ enum NodeType : unsigned {
   SMULL,
   UMULL,
 
+  // Reciprocal estimates.
+  FRECPE,
+  FRSQRTE,
+
   // NEON Load/Store with post-increment base updates
   LD2post = ISD::FIRST_TARGET_MEMORY_OPCODE,
   LD3post,
@@ -309,8 +313,6 @@ public:
   bool isZExtFree(EVT VT1, EVT VT2) const override;
   bool isZExtFree(SDValue Val, EVT VT2) const override;
 
-  bool hasPairedLoad(Type *LoadedType,
-                     unsigned &RequiredAligment) const override;
   bool hasPairedLoad(EVT LoadedType, unsigned &RequiredAligment) const override;
 
   unsigned getMaxSupportedInterleaveFactor() const override { return 4; }
@@ -532,6 +534,10 @@ private:
 
   SDValue BuildSDIVPow2(SDNode *N, const APInt &Divisor, SelectionDAG &DAG,
                         std::vector<SDNode *> *Created) const override;
+  SDValue getRsqrtEstimate(SDValue Operand, SelectionDAG &DAG, int Enabled,
+                           int &ExtraSteps, bool &UseOneConst) const override;
+  SDValue getRecipEstimate(SDValue Operand, SelectionDAG &DAG, int Enabled,
+                           int &ExtraSteps) const override;
   unsigned combineRepeatedFPDivisors() const override;
 
   ConstraintType getConstraintType(StringRef Constraint) const override;

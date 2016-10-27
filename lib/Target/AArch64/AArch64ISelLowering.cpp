@@ -959,6 +959,8 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case AArch64ISD::ST4LANEpost:       return "AArch64ISD::ST4LANEpost";
   case AArch64ISD::SMULL:             return "AArch64ISD::SMULL";
   case AArch64ISD::UMULL:             return "AArch64ISD::UMULL";
+  case AArch64ISD::FRSQRTE:           return "AArch64ISD::FRSQRTE";
+  case AArch64ISD::FRECPE:            return "AArch64ISD::FRECPE";
   }
   return nullptr;
 }
@@ -4052,8 +4054,9 @@ SDValue AArch64TargetLowering::LowerSELECT_CC(ISD::CondCode CC, SDValue LHS,
 
     // Avoid materializing a constant when possible by reusing a known value in
     // a register.  However, don't perform this optimization if the known value
-    // is one, zero or negative one.  We can always materialize these values
-    // using CSINC, CSEL and CSINV with wzr/xzr as the FVal, respectively.
+    // is one, zero or negative one in the case of a CSEL.  We can always
+    // materialize these values using CSINC, CSEL and CSINV with wzr/xzr as the
+    // FVal, respectively.
     ConstantSDNode *RHSVal = dyn_cast<ConstantSDNode>(RHS);
     if (Opcode == AArch64ISD::CSEL && RHSVal && !RHSVal->isOne() &&
         !RHSVal->isNullValue() && !RHSVal->isAllOnesValue()) {
@@ -4064,6 +4067,16 @@ SDValue AArch64TargetLowering::LowerSELECT_CC(ISD::CondCode CC, SDValue LHS,
         TVal = LHS;
       else if (CFVal && CFVal == RHSVal && AArch64CC == AArch64CC::NE)
         FVal = LHS;
+    } else if (Opcode == AArch64ISD::CSNEG && RHSVal && RHSVal->isOne()) {
+      assert (CTVal && CFVal && "Expected constant operands for CSNEG.");
+      // Use a CSINV to transform "a == C ? 1 : -1" to "a == C ? a : -1" to
+      // avoid materializing C.
+      AArch64CC::CondCode AArch64CC = changeIntCCToAArch64CC(CC);
+      if (CTVal == RHSVal && AArch64CC == AArch64CC::EQ) {
+        Opcode = AArch64ISD::CSINV;
+        TVal = LHS;
+        FVal = DAG.getConstant(0, dl, FVal.getValueType());
+      }
     }
 
     SDValue CCVal;
@@ -4083,6 +4096,25 @@ SDValue AArch64TargetLowering::LowerSELECT_CC(ISD::CondCode CC, SDValue LHS,
   // clean.  Some of them require two CSELs to implement.
   AArch64CC::CondCode CC1, CC2;
   changeFPCCToAArch64CC(CC, CC1, CC2);
+
+  if (DAG.getTarget().Options.UnsafeFPMath) {
+    // Transform "a == 0.0 ? 0.0 : x" to "a == 0.0 ? a : x" and
+    // "a != 0.0 ? x : 0.0" to "a != 0.0 ? x : a" to avoid materializing 0.0.
+    ConstantFPSDNode *RHSVal = dyn_cast<ConstantFPSDNode>(RHS);
+    if (RHSVal && RHSVal->isZero()) {
+      ConstantFPSDNode *CFVal = dyn_cast<ConstantFPSDNode>(FVal);
+      ConstantFPSDNode *CTVal = dyn_cast<ConstantFPSDNode>(TVal);
+
+      if ((CC == ISD::SETEQ || CC == ISD::SETOEQ || CC == ISD::SETUEQ) &&
+          CTVal && CTVal->isZero())
+        TVal = LHS;
+      else if ((CC == ISD::SETNE || CC == ISD::SETONE || CC == ISD::SETUNE) &&
+               CFVal && CFVal->isZero())
+        FVal = LHS;
+    }
+  }
+
+  // Emit first, and possibly only, CSEL.
   SDValue CC1Val = DAG.getConstant(CC1, dl, MVT::i32);
   SDValue CS1 = DAG.getNode(AArch64ISD::CSEL, dl, VT, TVal, FVal, CC1Val, Cmp);
 
@@ -4588,6 +4620,54 @@ bool AArch64TargetLowering::isFPImmLegal(const APFloat &Imm, EVT VT) const {
 //===----------------------------------------------------------------------===//
 //                          AArch64 Optimization Hooks
 //===----------------------------------------------------------------------===//
+
+static SDValue getEstimate(const AArch64Subtarget *ST, unsigned Opcode,
+                           SDValue Operand, SelectionDAG &DAG,
+                           int &ExtraSteps) {
+  EVT VT = Operand.getValueType();
+  if (ST->hasNEON() &&
+      (VT == MVT::f64 || VT == MVT::v1f64 || VT == MVT::v2f64 ||
+       VT == MVT::f32 || VT == MVT::v1f32 ||
+       VT == MVT::v2f32 || VT == MVT::v4f32)) {
+    if (ExtraSteps == TargetLoweringBase::ReciprocalEstimate::Unspecified)
+      // For the reciprocal estimates, convergence is quadratic, so the number
+      // of digits is doubled after each iteration.  In ARMv8, the accuracy of
+      // the initial estimate is 2^-8.  Thus the number of extra steps to refine
+      // the result for float (23 mantissa bits) is 2 and for double (52
+      // mantissa bits) is 3.
+      ExtraSteps = VT == MVT::f64 ? 3 : 2;
+
+    return DAG.getNode(Opcode, SDLoc(Operand), VT, Operand);
+  }
+
+  return SDValue();
+}
+
+SDValue AArch64TargetLowering::getRsqrtEstimate(SDValue Operand,
+                                                SelectionDAG &DAG, int Enabled,
+                                                int &ExtraSteps,
+                                                bool &UseOneConst) const {
+  if (Enabled == ReciprocalEstimate::Enabled ||
+      (Enabled == ReciprocalEstimate::Unspecified && Subtarget->useRSqrt()))
+    if (SDValue Estimate = getEstimate(Subtarget, AArch64ISD::FRSQRTE, Operand,
+                                       DAG, ExtraSteps)) {
+      UseOneConst = true;
+      return Estimate;
+    }
+
+  return SDValue();
+}
+
+SDValue AArch64TargetLowering::getRecipEstimate(SDValue Operand,
+                                                SelectionDAG &DAG, int Enabled,
+                                                int &ExtraSteps) const {
+  if (Enabled == ReciprocalEstimate::Enabled)
+    if (SDValue Estimate = getEstimate(Subtarget, AArch64ISD::FRECPE, Operand,
+                                       DAG, ExtraSteps))
+      return Estimate;
+
+  return SDValue();
+}
 
 //===----------------------------------------------------------------------===//
 //                          AArch64 Inline Assembly Support
@@ -7056,16 +7136,6 @@ bool AArch64TargetLowering::isExtFreeImpl(const Instruction *Ext) const {
     // for that use.
   }
   return true;
-}
-
-bool AArch64TargetLowering::hasPairedLoad(Type *LoadedType,
-                                          unsigned &RequiredAligment) const {
-  if (!LoadedType->isIntegerTy() && !LoadedType->isFloatTy())
-    return false;
-  // Cyclone supports unaligned accesses.
-  RequiredAligment = 0;
-  unsigned NumBits = LoadedType->getPrimitiveSizeInBits();
-  return NumBits == 32 || NumBits == 64;
 }
 
 bool AArch64TargetLowering::hasPairedLoad(EVT LoadedType,

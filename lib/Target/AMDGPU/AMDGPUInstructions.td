@@ -362,11 +362,6 @@ multiclass AtomicCmpSwapLocal <SDNode cmp_swap_node> {
 
 defm atomic_cmp_swap : AtomicCmpSwapLocal <atomic_cmp_swap>;
 
-def mskor_flat : PatFrag<(ops node:$val, node:$ptr),
-                            (AMDGPUstore_mskor node:$val, node:$ptr), [{
-  return cast<MemSDNode>(N)->getAddressSpace() == AMDGPUAS::FLAT_ADDRESS;
-}]>;
-
 class global_binary_atomic_op<SDNode atomic_op> : PatFrag<
   (ops node:$ptr, node:$value),
   (atomic_op node:$ptr, node:$value),
@@ -385,11 +380,6 @@ def atomic_umin_global : global_binary_atomic_op<atomic_load_umin>;
 def atomic_xor_global : global_binary_atomic_op<atomic_load_xor>;
 
 def atomic_cmp_swap_global : global_binary_atomic_op<AMDGPUatomic_cmp_swap>;
-def atomic_cmp_swap_global_nortn : PatFrag<
-  (ops node:$ptr, node:$value),
-  (atomic_cmp_swap_global node:$ptr, node:$value),
-  [{ return SDValue(N, 0).use_empty(); }]
->;
 
 //===----------------------------------------------------------------------===//
 // Misc Pattern Fragments
@@ -550,6 +540,15 @@ multiclass BFIPatterns <Instruction BFI_INT,
                (i32 (EXTRACT_SUBREG $src0, sub1)),
                (i32 (EXTRACT_SUBREG $src1, sub1))), sub1)
   >;
+
+  def : Pat <
+    (f64 (fcopysign f64:$src0, f32:$src1)),
+    (REG_SEQUENCE RC64,
+      (i32 (EXTRACT_SUBREG $src0, sub0)), sub0,
+      (BFI_INT (LoadImm32 0x7fffffff),
+               (i32 (EXTRACT_SUBREG $src0, sub1)),
+               $src1), sub1)
+  >;
 }
 
 // SHA-256 Ma patterns
@@ -602,9 +601,6 @@ def sub_oneuse : HasOneUseBinOp<sub>;
 } // Properties = [SDNPCommutative, SDNPAssociative]
 
 def select_oneuse : HasOneUseTernaryOp<select>;
-
-// 24-bit arithmetic patterns
-def umul24 : PatFrag <(ops node:$x, node:$y), (mul node:$x, node:$y)>;
 
 // Special conversion patterns
 

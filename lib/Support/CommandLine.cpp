@@ -1756,10 +1756,12 @@ public:
     if (!GlobalParser->ProgramOverview.empty())
       outs() << "OVERVIEW: " << GlobalParser->ProgramOverview << "\n";
 
-    if (Sub == &*TopLevelSubCommand)
-      outs() << "USAGE: " << GlobalParser->ProgramName
-             << " [subcommand] [options]";
-    else {
+    if (Sub == &*TopLevelSubCommand) {
+      outs() << "USAGE: " << GlobalParser->ProgramName;
+      if (Subs.size() > 2)
+        outs() << " [subcommand]";
+      outs() << " [options]";
+    } else {
       if (!Sub->getDescription().empty()) {
         outs() << "SUBCOMMAND '" << Sub->getName()
                << "': " << Sub->getDescription() << "\n\n";
@@ -1778,7 +1780,7 @@ public:
     if (ConsumeAfterOpt)
       outs() << " " << ConsumeAfterOpt->HelpStr;
 
-    if (Sub == &*TopLevelSubCommand && Subs.size() > 2) {
+    if (Sub == &*TopLevelSubCommand && !Subs.empty()) {
       // Compute the maximum subcommand length...
       size_t MaxSubLen = 0;
       for (size_t i = 0, e = Subs.size(); i != e; ++i)

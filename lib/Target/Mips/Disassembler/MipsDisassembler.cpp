@@ -447,6 +447,14 @@ static DecodeStatus DecodeDAHIDATI(MCInst &MI, InsnType insn, uint64_t Address,
                                    const void *Decoder);
 
 template <typename InsnType>
+static DecodeStatus DecodeDAHIDATIMMR6(MCInst &MI, InsnType insn, uint64_t Address,
+                                   const void *Decoder);
+
+template <typename InsnType>
+static DecodeStatus DecodeDAHIDATI(MCInst &MI, InsnType insn, uint64_t Address,
+                                   const void *Decoder);
+
+template <typename InsnType>
 static DecodeStatus
 DecodeAddiGroupBranch(MCInst &MI, InsnType insn, uint64_t Address,
                       const void *Decoder);
@@ -519,8 +527,10 @@ static DecodeStatus DecodeMovePRegPair(MCInst &Inst, unsigned Insn,
                                        const void *Decoder);
 
 namespace llvm {
-extern Target TheMipselTarget, TheMipsTarget, TheMips64Target,
-              TheMips64elTarget;
+Target &getTheMipselTarget();
+Target &getTheMipsTarget();
+Target &getTheMips64Target();
+Target &getTheMips64elTarget();
 }
 
 static MCDisassembler *createMipsDisassembler(
@@ -539,13 +549,13 @@ static MCDisassembler *createMipselDisassembler(
 
 extern "C" void LLVMInitializeMipsDisassembler() {
   // Register the disassembler.
-  TargetRegistry::RegisterMCDisassembler(TheMipsTarget,
+  TargetRegistry::RegisterMCDisassembler(getTheMipsTarget(),
                                          createMipsDisassembler);
-  TargetRegistry::RegisterMCDisassembler(TheMipselTarget,
+  TargetRegistry::RegisterMCDisassembler(getTheMipselTarget(),
                                          createMipselDisassembler);
-  TargetRegistry::RegisterMCDisassembler(TheMips64Target,
+  TargetRegistry::RegisterMCDisassembler(getTheMips64Target(),
                                          createMipsDisassembler);
-  TargetRegistry::RegisterMCDisassembler(TheMips64elTarget,
+  TargetRegistry::RegisterMCDisassembler(getTheMips64elTarget(),
                                          createMipselDisassembler);
 }
 
@@ -606,12 +616,12 @@ static DecodeStatus DecodeINSVE_DF(MCInst &MI, InsnType insn, uint64_t Address,
 template <typename InsnType>
 static DecodeStatus DecodeDAHIDATIMMR6(MCInst &MI, InsnType insn, uint64_t Address,
                                const void *Decoder) {
-  InsnType Rt = fieldFromInstruction(insn, 16, 5);
+  InsnType Rs = fieldFromInstruction(insn, 16, 5);
   InsnType Imm = fieldFromInstruction(insn, 0, 16);
   MI.addOperand(MCOperand::createReg(getReg(Decoder, Mips::GPR64RegClassID,
-                                       Rt)));
+                                       Rs)));
   MI.addOperand(MCOperand::createReg(getReg(Decoder, Mips::GPR64RegClassID,
-                                       Rt)));
+                                       Rs)));
   MI.addOperand(MCOperand::createImm(Imm));
 
   return MCDisassembler::Success;
@@ -620,12 +630,12 @@ static DecodeStatus DecodeDAHIDATIMMR6(MCInst &MI, InsnType insn, uint64_t Addre
 template <typename InsnType>
 static DecodeStatus DecodeDAHIDATI(MCInst &MI, InsnType insn, uint64_t Address,
                                const void *Decoder) {
-  InsnType Rt = fieldFromInstruction(insn, 21, 5);
+  InsnType Rs = fieldFromInstruction(insn, 21, 5);
   InsnType Imm = fieldFromInstruction(insn, 0, 16);
   MI.addOperand(MCOperand::createReg(getReg(Decoder, Mips::GPR64RegClassID,
-                                       Rt)));
+                                       Rs)));
   MI.addOperand(MCOperand::createReg(getReg(Decoder, Mips::GPR64RegClassID,
-                                       Rt)));
+                                       Rs)));
   MI.addOperand(MCOperand::createImm(Imm));
 
   return MCDisassembler::Success;

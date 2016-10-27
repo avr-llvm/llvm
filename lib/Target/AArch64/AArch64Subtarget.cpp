@@ -64,9 +64,10 @@ void AArch64Subtarget::initializeProperties() {
     MaxInterleaveFactor = 4;
     break;
   case ExynosM1:
+    MaxInterleaveFactor = 4;
+    MaxJumpTableSize = 8;
     PrefFunctionAlignment = 4;
     PrefLoopAlignment = 3;
-    MaxJumpTableSize = 12;
     break;
   case Kryo:
     MaxInterleaveFactor = 4;
@@ -105,9 +106,9 @@ const InstructionSelector *AArch64Subtarget::getInstructionSelector() const {
   return GISel->getInstructionSelector();
 }
 
-const MachineLegalizer *AArch64Subtarget::getMachineLegalizer() const {
+const LegalizerInfo *AArch64Subtarget::getLegalizerInfo() const {
   assert(GISel && "Access to GlobalISel APIs not set");
-  return GISel->getMachineLegalizer();
+  return GISel->getLegalizerInfo();
 }
 
 const RegisterBankInfo *AArch64Subtarget::getRegBankInfo() const {

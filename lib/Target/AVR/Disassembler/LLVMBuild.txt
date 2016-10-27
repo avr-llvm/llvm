@@ -21,4 +21,3 @@ name = AVRDisassembler
 parent = AVR
 required_libraries = MCDisassembler AVRInfo Support
 add_to_library_groups = AVR
-

@@ -27,6 +27,55 @@
 #include "AMDGPUGenRegisterInfo.inc"
 #undef GET_REGINFO_ENUM
 
+#define GET_INSTRINFO_NAMED_OPS
+#define GET_INSTRINFO_ENUM
+#include "AMDGPUGenInstrInfo.inc"
+#undef GET_INSTRINFO_NAMED_OPS
+#undef GET_INSTRINFO_ENUM
+
+namespace {
+
+/// \returns Bit mask for given bit \p Shift and bit \p Width.
+unsigned getBitMask(unsigned Shift, unsigned Width) {
+  return ((1 << Width) - 1) << Shift;
+}
+
+/// \brief Packs \p Src into \p Dst for given bit \p Shift and bit \p Width.
+///
+/// \returns Packed \p Dst.
+unsigned packBits(unsigned Src, unsigned Dst, unsigned Shift, unsigned Width) {
+  Dst &= ~(1 << Shift) & ~getBitMask(Shift, Width);
+  Dst |= (Src << Shift) & getBitMask(Shift, Width);
+  return Dst;
+}
+
+/// \brief Unpacks bits from \p Src for given bit \p Shift and bit \p Width.
+///
+/// \returns Unpacked bits.
+unsigned unpackBits(unsigned Src, unsigned Shift, unsigned Width) {
+  return (Src & getBitMask(Shift, Width)) >> Shift;
+}
+
+/// \returns Vmcnt bit shift.
+unsigned getVmcntBitShift() { return 0; }
+
+/// \returns Vmcnt bit width.
+unsigned getVmcntBitWidth() { return 4; }
+
+/// \returns Expcnt bit shift.
+unsigned getExpcntBitShift() { return 4; }
+
+/// \returns Expcnt bit width.
+unsigned getExpcntBitWidth() { return 3; }
+
+/// \returns Lgkmcnt bit shift.
+unsigned getLgkmcntBitShift() { return 8; }
+
+/// \returns Lgkmcnt bit width.
+unsigned getLgkmcntBitWidth() { return 4; }
+
+} // anonymous namespace
+
 namespace llvm {
 namespace AMDGPU {
 
@@ -38,14 +87,26 @@ IsaVersion getIsaVersion(const FeatureBitset &Features) {
   if (Features.test(FeatureISAVersion7_0_1))
     return {7, 0, 1};
 
+  if (Features.test(FeatureISAVersion7_0_2))
+    return {7, 0, 2};
+
   if (Features.test(FeatureISAVersion8_0_0))
     return {8, 0, 0};
 
   if (Features.test(FeatureISAVersion8_0_1))
     return {8, 0, 1};
 
+  if (Features.test(FeatureISAVersion8_0_2))
+    return {8, 0, 2};
+
   if (Features.test(FeatureISAVersion8_0_3))
     return {8, 0, 3};
+
+  if (Features.test(FeatureISAVersion8_0_4))
+    return {8, 0, 4};
+
+  if (Features.test(FeatureISAVersion8_1_0))
+    return {8, 1, 0};
 
   return {0, 0, 0};
 }
@@ -112,6 +173,10 @@ bool isReadOnlySegment(const GlobalValue *GV) {
   return GV->getType()->getAddressSpace() == AMDGPUAS::CONSTANT_ADDRESS;
 }
 
+bool shouldEmitConstantsToTextSection(const Triple &TT) {
+  return TT.getOS() != Triple::AMDHSA;
+}
+
 int getIntegerAttribute(const Function &F, StringRef Name, int Default) {
   Attribute A = F.getFnAttribute(Name);
   int Result = Default;
@@ -152,28 +217,63 @@ std::pair<int, int> getIntegerPairAttribute(const Function &F,
   return Ints;
 }
 
-unsigned getVmcntMask(IsaVersion Version) {
-  return 0xf;
+unsigned getWaitcntBitMask(IsaVersion Version) {
+  unsigned Vmcnt = getBitMask(getVmcntBitShift(), getVmcntBitWidth());
+  unsigned Expcnt = getBitMask(getExpcntBitShift(), getExpcntBitWidth());
+  unsigned Lgkmcnt = getBitMask(getLgkmcntBitShift(), getLgkmcntBitWidth());
+  return Vmcnt | Expcnt | Lgkmcnt;
 }
 
-unsigned getVmcntShift(IsaVersion Version) {
-  return 0;
+unsigned getVmcntBitMask(IsaVersion Version) {
+  return (1 << getVmcntBitWidth()) - 1;
 }
 
-unsigned getExpcntMask(IsaVersion Version) {
-  return 0x7;
+unsigned getExpcntBitMask(IsaVersion Version) {
+  return (1 << getExpcntBitWidth()) - 1;
 }
 
-unsigned getExpcntShift(IsaVersion Version) {
-  return 4;
+unsigned getLgkmcntBitMask(IsaVersion Version) {
+  return (1 << getLgkmcntBitWidth()) - 1;
 }
 
-unsigned getLgkmcntMask(IsaVersion Version) {
-  return 0xf;
+unsigned decodeVmcnt(IsaVersion Version, unsigned Waitcnt) {
+  return unpackBits(Waitcnt, getVmcntBitShift(), getVmcntBitWidth());
 }
 
-unsigned getLgkmcntShift(IsaVersion Version) {
-  return 8;
+unsigned decodeExpcnt(IsaVersion Version, unsigned Waitcnt) {
+  return unpackBits(Waitcnt, getExpcntBitShift(), getExpcntBitWidth());
+}
+
+unsigned decodeLgkmcnt(IsaVersion Version, unsigned Waitcnt) {
+  return unpackBits(Waitcnt, getLgkmcntBitShift(), getLgkmcntBitWidth());
+}
+
+void decodeWaitcnt(IsaVersion Version, unsigned Waitcnt,
+                   unsigned &Vmcnt, unsigned &Expcnt, unsigned &Lgkmcnt) {
+  Vmcnt = decodeVmcnt(Version, Waitcnt);
+  Expcnt = decodeExpcnt(Version, Waitcnt);
+  Lgkmcnt = decodeLgkmcnt(Version, Waitcnt);
+}
+
+unsigned encodeVmcnt(IsaVersion Version, unsigned Waitcnt, unsigned Vmcnt) {
+  return packBits(Vmcnt, Waitcnt, getVmcntBitShift(), getVmcntBitWidth());
+}
+
+unsigned encodeExpcnt(IsaVersion Version, unsigned Waitcnt, unsigned Expcnt) {
+  return packBits(Expcnt, Waitcnt, getExpcntBitShift(), getExpcntBitWidth());
+}
+
+unsigned encodeLgkmcnt(IsaVersion Version, unsigned Waitcnt, unsigned Lgkmcnt) {
+  return packBits(Lgkmcnt, Waitcnt, getLgkmcntBitShift(), getLgkmcntBitWidth());
+}
+
+unsigned encodeWaitcnt(IsaVersion Version,
+                       unsigned Vmcnt, unsigned Expcnt, unsigned Lgkmcnt) {
+  unsigned Waitcnt = getWaitcntBitMask(Version);;
+  Waitcnt = encodeVmcnt(Version, Waitcnt, Vmcnt);
+  Waitcnt = encodeExpcnt(Version, Waitcnt, Expcnt);
+  Waitcnt = encodeLgkmcnt(Version, Waitcnt, Lgkmcnt);
+  return Waitcnt;
 }
 
 unsigned getInitialPSInputAddr(const Function &F) {
@@ -250,11 +350,42 @@ bool isSISrcInlinableOperand(const MCInstrDesc &Desc, unsigned OpNo) {
          OpType == AMDGPU::OPERAND_REG_INLINE_C_FP;
 }
 
+// Avoid using MCRegisterClass::getSize, since that function will go away
+// (move from MC* level to Target* level). Return size in bits.
+unsigned getRegBitWidth(const MCRegisterClass &RC) {
+  switch (RC.getID()) {
+  case AMDGPU::SGPR_32RegClassID:
+  case AMDGPU::VGPR_32RegClassID:
+  case AMDGPU::VS_32RegClassID:
+  case AMDGPU::SReg_32RegClassID:
+  case AMDGPU::SReg_32_XM0RegClassID:
+    return 32;
+  case AMDGPU::SGPR_64RegClassID:
+  case AMDGPU::VS_64RegClassID:
+  case AMDGPU::SReg_64RegClassID:
+  case AMDGPU::VReg_64RegClassID:
+    return 64;
+  case AMDGPU::VReg_96RegClassID:
+    return 96;
+  case AMDGPU::SGPR_128RegClassID:
+  case AMDGPU::SReg_128RegClassID:
+  case AMDGPU::VReg_128RegClassID:
+    return 128;
+  case AMDGPU::SReg_256RegClassID:
+  case AMDGPU::VReg_256RegClassID:
+    return 256;
+  case AMDGPU::SReg_512RegClassID:
+  case AMDGPU::VReg_512RegClassID:
+    return 512;
+  default:
+    llvm_unreachable("Unexpected register class");
+  }
+}
+
 unsigned getRegOperandSize(const MCRegisterInfo *MRI, const MCInstrDesc &Desc,
                            unsigned OpNo) {
-  int RCID = Desc.OpInfo[OpNo].RegClass;
-  const MCRegisterClass &RC = MRI->getRegClass(RCID);
-  return RC.getSize();
+  unsigned RCID = Desc.OpInfo[OpNo].RegClass;
+  return getRegBitWidth(MRI->getRegClass(RCID)) / 8;
 }
 
 bool isInlinableLiteral64(int64_t Literal, bool IsVI) {

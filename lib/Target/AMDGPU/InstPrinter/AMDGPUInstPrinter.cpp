@@ -34,6 +34,7 @@ void AMDGPUInstPrinter::printInst(const MCInst *MI, raw_ostream &OS,
 }
 
 void AMDGPUInstPrinter::printU4ImmOperand(const MCInst *MI, unsigned OpNo,
+                                          const MCSubtargetInfo &STI,
                                           raw_ostream &O) {
   O << formatHex(MI->getOperand(OpNo).getImm() & 0xf);
 }
@@ -402,10 +403,10 @@ void AMDGPUInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
     const MCInstrDesc &Desc = MII.get(MI->getOpcode());
     int RCID = Desc.OpInfo[OpNo].RegClass;
     if (RCID != -1) {
-      const MCRegisterClass &ImmRC = MRI.getRegClass(RCID);
-      if (ImmRC.getSize() == 4)
+      unsigned RCBits = AMDGPU::getRegBitWidth(MRI.getRegClass(RCID));
+      if (RCBits == 32)
         printImmediate32(Op.getImm(), O);
-      else if (ImmRC.getSize() == 8)
+      else if (RCBits == 64)
         printImmediate64(Op.getImm(), O);
       else
         llvm_unreachable("Invalid register class size");
@@ -423,11 +424,11 @@ void AMDGPUInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
       O << "0.0";
     else {
       const MCInstrDesc &Desc = MII.get(MI->getOpcode());
-      const MCRegisterClass &ImmRC = MRI.getRegClass(Desc.OpInfo[OpNo].RegClass);
-
-      if (ImmRC.getSize() == 4)
+      int RCID = Desc.OpInfo[OpNo].RegClass;
+      unsigned RCBits = AMDGPU::getRegBitWidth(MRI.getRegClass(RCID));
+      if (RCBits == 32)
         printImmediate32(FloatToBits(Op.getFPImm()), O);
-      else if (ImmRC.getSize() == 8)
+      else if (RCBits == 64)
         printImmediate64(DoubleToBits(Op.getFPImm()), O);
       else
         llvm_unreachable("Invalid register class size");
@@ -510,14 +511,14 @@ void AMDGPUInstPrinter::printRowMask(const MCInst *MI, unsigned OpNo,
                                      const MCSubtargetInfo &STI,
                                      raw_ostream &O) {
   O << " row_mask:";
-  printU4ImmOperand(MI, OpNo, O);
+  printU4ImmOperand(MI, OpNo, STI, O);
 }
 
 void AMDGPUInstPrinter::printBankMask(const MCInst *MI, unsigned OpNo,
                                       const MCSubtargetInfo &STI,
                                       raw_ostream &O) {
   O << " bank_mask:";
-  printU4ImmOperand(MI, OpNo, O);
+  printU4ImmOperand(MI, OpNo, STI, O);
 }
 
 void AMDGPUInstPrinter::printBoundCtrl(const MCInst *MI, unsigned OpNo,
@@ -531,15 +532,17 @@ void AMDGPUInstPrinter::printBoundCtrl(const MCInst *MI, unsigned OpNo,
 
 void AMDGPUInstPrinter::printSDWASel(const MCInst *MI, unsigned OpNo,
                                      raw_ostream &O) {
+  using namespace llvm::AMDGPU::SDWA;
+
   unsigned Imm = MI->getOperand(OpNo).getImm();
   switch (Imm) {
-  case 0: O << "BYTE_0"; break;
-  case 1: O << "BYTE_1"; break;
-  case 2: O << "BYTE_2"; break;
-  case 3: O << "BYTE_3"; break;
-  case 4: O << "WORD_0"; break;
-  case 5: O << "WORD_1"; break;
-  case 6: O << "DWORD"; break;
+  case SdwaSel::BYTE_0: O << "BYTE_0"; break;
+  case SdwaSel::BYTE_1: O << "BYTE_1"; break;
+  case SdwaSel::BYTE_2: O << "BYTE_2"; break;
+  case SdwaSel::BYTE_3: O << "BYTE_3"; break;
+  case SdwaSel::WORD_0: O << "WORD_0"; break;
+  case SdwaSel::WORD_1: O << "WORD_1"; break;
+  case SdwaSel::DWORD: O << "DWORD"; break;
   default: llvm_unreachable("Invalid SDWA data select operand");
   }
 }
@@ -568,12 +571,14 @@ void AMDGPUInstPrinter::printSDWASrc1Sel(const MCInst *MI, unsigned OpNo,
 void AMDGPUInstPrinter::printSDWADstUnused(const MCInst *MI, unsigned OpNo,
                                            const MCSubtargetInfo &STI,
                                            raw_ostream &O) {
+  using namespace llvm::AMDGPU::SDWA;
+
   O << "dst_unused:";
   unsigned Imm = MI->getOperand(OpNo).getImm();
   switch (Imm) {
-  case 0: O << "UNUSED_PAD"; break;
-  case 1: O << "UNUSED_SEXT"; break;
-  case 2: O << "UNUSED_PRESERVE"; break;
+  case DstUnused::UNUSED_PAD: O << "UNUSED_PAD"; break;
+  case DstUnused::UNUSED_SEXT: O << "UNUSED_SEXT"; break;
+  case DstUnused::UNUSED_PRESERVE: O << "UNUSED_PRESERVE"; break;
   default: llvm_unreachable("Invalid SDWA dest_unused operand");
   }
 }
@@ -592,6 +597,28 @@ void AMDGPUInstPrinter::printInterpSlot(const MCInst *MI, unsigned OpNo,
   } else {
     llvm_unreachable("Invalid interpolation parameter slot");
   }
+}
+
+void AMDGPUInstPrinter::printVGPRIndexMode(const MCInst *MI, unsigned OpNo,
+                                           const MCSubtargetInfo &STI,
+                                           raw_ostream &O) {
+  unsigned Val = MI->getOperand(OpNo).getImm();
+  if (Val == 0) {
+    O << " 0";
+    return;
+  }
+
+  if (Val & VGPRIndexMode::DST_ENABLE)
+    O << " dst";
+
+  if (Val & VGPRIndexMode::SRC0_ENABLE)
+    O << " src0";
+
+  if (Val & VGPRIndexMode::SRC1_ENABLE)
+    O << " src1";
+
+  if (Val & VGPRIndexMode::SRC2_ENABLE)
+    O << " src2";
 }
 
 void AMDGPUInstPrinter::printMemOperand(const MCInst *MI, unsigned OpNo,
@@ -870,25 +897,24 @@ void AMDGPUInstPrinter::printWaitFlag(const MCInst *MI, unsigned OpNo,
   IsaVersion IV = getIsaVersion(STI.getFeatureBits());
 
   unsigned SImm16 = MI->getOperand(OpNo).getImm();
-  unsigned Vmcnt = (SImm16 >> getVmcntShift(IV)) & getVmcntMask(IV);
-  unsigned Expcnt = (SImm16 >> getExpcntShift(IV)) & getExpcntMask(IV);
-  unsigned Lgkmcnt = (SImm16 >> getLgkmcntShift(IV)) & getLgkmcntMask(IV);
+  unsigned Vmcnt, Expcnt, Lgkmcnt;
+  decodeWaitcnt(IV, SImm16, Vmcnt, Expcnt, Lgkmcnt);
 
   bool NeedSpace = false;
 
-  if (Vmcnt != 0xF) {
+  if (Vmcnt != getVmcntBitMask(IV)) {
     O << "vmcnt(" << Vmcnt << ')';
     NeedSpace = true;
   }
 
-  if (Expcnt != 0x7) {
+  if (Expcnt != getExpcntBitMask(IV)) {
     if (NeedSpace)
       O << ' ';
     O << "expcnt(" << Expcnt << ')';
     NeedSpace = true;
   }
 
-  if (Lgkmcnt != 0xF) {
+  if (Lgkmcnt != getLgkmcntBitMask(IV)) {
     if (NeedSpace)
       O << ' ';
     O << "lgkmcnt(" << Lgkmcnt << ')';

@@ -58,7 +58,7 @@ static MCDisassembler *createAVRDisassembler(const Target &T,
 
 extern "C" void LLVMInitializeAVRDisassembler() {
   // Register the disassembler.
-  TargetRegistry::RegisterMCDisassembler(TheAVRTarget,
+  TargetRegistry::RegisterMCDisassembler(getTheAVRTarget(),
                                          createAVRDisassembler);
 }
 
@@ -81,14 +81,12 @@ static DecodeStatus DecodePTRREGSRegisterClass(MCInst &Inst, unsigned RegNo,
 
 static DecodeStatus readInstruction16(ArrayRef<uint8_t> Bytes, uint64_t Address,
                                       uint64_t &Size, uint32_t &Insn) {
-
   if (Bytes.size() < 2) {
     Size = 0;
     return MCDisassembler::Fail;
-  } else {
-    Size = 2;
   }
 
+  Size = 2;
   Insn = (Bytes[0] << 0) | (Bytes[1] << 8);
 
   return MCDisassembler::Success;
@@ -100,10 +98,9 @@ static DecodeStatus readInstruction32(ArrayRef<uint8_t> Bytes, uint64_t Address,
   if (Bytes.size() < 4) {
     Size = 0;
     return MCDisassembler::Fail;
-  } else {
-    Size = 4;
   }
 
+  Size = 4;
   Insn = (Bytes[0] << 0) | (Bytes[1] << 8) | (Bytes[2] << 16) | (Bytes[3] << 24);
 
   return MCDisassembler::Success;
@@ -134,7 +131,8 @@ DecodeStatus AVRDisassembler::getInstruction(MCInst &Instr, uint64_t &Size,
     if (Result == MCDisassembler::Fail) return MCDisassembler::Fail;
 
     // Try to auto-decode a 16-bit instruction.
-    Result = decodeInstruction(getDecoderTable(Size), Instr, Insn, Address, this, STI);
+    Result = decodeInstruction(getDecoderTable(Size), Instr,
+                               Insn, Address, this, STI);
 
     if (Result != MCDisassembler::Fail)
       return Result;
@@ -146,8 +144,8 @@ DecodeStatus AVRDisassembler::getInstruction(MCInst &Instr, uint64_t &Size,
 
     if (Result == MCDisassembler::Fail) return MCDisassembler::Fail;
 
-    Result =
-        decodeInstruction(getDecoderTable(Size), Instr, Insn, Address, this, STI);
+    Result = decodeInstruction(getDecoderTable(Size), Instr, Insn,
+                               Address, this, STI);
 
     if (Result != MCDisassembler::Fail) {
       return Result;

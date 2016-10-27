@@ -74,8 +74,6 @@ private:
 
   friend class SymbolTableListTraits<Function>;
 
-  void setParent(Module *parent);
-
   /// hasLazyArguments/CheckLazyArguments - The argument list of a function is
   /// built on demand, so that the list isn't allocated until the first client
   /// needs it.  The hasLazyArguments predicate returns true if the arg list
@@ -202,6 +200,12 @@ public:
   /// Entry count is the number of times the function was executed based on
   /// pgo data.
   Optional<uint64_t> getEntryCount() const;
+
+  /// Set the section prefix for this function.
+  void setSectionPrefix(StringRef Prefix);
+
+  /// Get the section prefix for this function.
+  Optional<StringRef> getSectionPrefix() const;
 
   /// @brief Return true if the function has the attribute.
   bool hasFnAttribute(Attribute::AttrKind Kind) const {

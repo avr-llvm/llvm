@@ -193,6 +193,7 @@ StringRef Triple::getOSTypeName(OSType Kind) {
   case TvOS: return "tvos";
   case WatchOS: return "watchos";
   case Mesa3D: return "mesa3d";
+  case Contiki: return "contiki";
   }
 
   llvm_unreachable("Invalid OSType");
@@ -465,6 +466,7 @@ static Triple::OSType parseOS(StringRef OSName) {
     .StartsWith("tvos", Triple::TvOS)
     .StartsWith("watchos", Triple::WatchOS)
     .StartsWith("mesa3d", Triple::Mesa3D)
+    .StartsWith("contiki", Triple::Contiki)
     .Default(Triple::UnknownOS);
 }
 
@@ -550,6 +552,8 @@ static Triple::SubArchType parseSubArch(StringRef SubArchName) {
     return Triple::ARMSubArch_v8_1a;
   case ARM::AK_ARMV8_2A:
     return Triple::ARMSubArch_v8_2a;
+  case ARM::AK_ARMV8R:
+    return Triple::ARMSubArch_v8r;
   case ARM::AK_ARMV8MBaseline:
     return Triple::ARMSubArch_v8m_baseline;
   case ARM::AK_ARMV8MMainline:

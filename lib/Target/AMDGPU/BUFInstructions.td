@@ -66,6 +66,7 @@ class MTBUF_Pseudo <string opName, dag outs, dag ins,
 
   let isPseudo = 1;
   let isCodeGenOnly = 1;
+  let Size = 8;
   let UseNamedOperandTable = 1;
 
   string Mnemonic = opName;
@@ -77,7 +78,6 @@ class MTBUF_Pseudo <string opName, dag outs, dag ins,
   let Uses = [EXEC];
 
   let hasSideEffects = 0;
-  let UseNamedOperandTable = 1;
   let SchedRW = [WriteVMEM];
 }
 
@@ -159,6 +159,7 @@ class MUBUF_Pseudo <string opName, dag outs, dag ins,
 
   let isPseudo = 1;
   let isCodeGenOnly = 1;
+  let Size = 8;
   let UseNamedOperandTable = 1;
 
   string Mnemonic = opName;
@@ -549,6 +550,9 @@ defm BUFFER_LOAD_DWORD : MUBUF_Pseudo_Loads <
 defm BUFFER_LOAD_DWORDX2 : MUBUF_Pseudo_Loads <
   "buffer_load_dwordx2", VReg_64, v2i32, mubuf_load
 >;
+defm BUFFER_LOAD_DWORDX3 : MUBUF_Pseudo_Loads <
+  "buffer_load_dwordx3", VReg_96, untyped, mubuf_load
+>;
 defm BUFFER_LOAD_DWORDX4 : MUBUF_Pseudo_Loads <
   "buffer_load_dwordx4", VReg_128, v4i32, mubuf_load
 >;
@@ -563,6 +567,9 @@ defm BUFFER_STORE_DWORD : MUBUF_Pseudo_Stores <
 >;
 defm BUFFER_STORE_DWORDX2 : MUBUF_Pseudo_Stores <
   "buffer_store_dwordx2", VReg_64, v2i32, global_store
+>;
+defm BUFFER_STORE_DWORDX3 : MUBUF_Pseudo_Stores <
+  "buffer_store_dwordx3", VReg_96, untyped, global_store
 >;
 defm BUFFER_STORE_DWORDX4 : MUBUF_Pseudo_Stores <
   "buffer_store_dwordx4", VReg_128, v4i32, global_store
@@ -697,12 +704,6 @@ def BUFFER_WBINVL1_VOL : MUBUF_Invalidate <"buffer_wbinvl1_vol",
 //===----------------------------------------------------------------------===//
 // MUBUF Patterns
 //===----------------------------------------------------------------------===//
-
-def mubuf_vaddr_offset : PatFrag<
-  (ops node:$ptr, node:$offset, node:$imm_offset),
-  (add (add node:$ptr, node:$offset), node:$imm_offset)
->;
-
 
 let Predicates = [isGCN] in {
 
@@ -1123,11 +1124,13 @@ defm BUFFER_LOAD_SSHORT         : MUBUF_Real_AllAddr_si <0x0b>;
 defm BUFFER_LOAD_DWORD          : MUBUF_Real_AllAddr_si <0x0c>;
 defm BUFFER_LOAD_DWORDX2        : MUBUF_Real_AllAddr_si <0x0d>;
 defm BUFFER_LOAD_DWORDX4        : MUBUF_Real_AllAddr_si <0x0e>;
+defm BUFFER_LOAD_DWORDX3        : MUBUF_Real_AllAddr_si <0x0f>;
 defm BUFFER_STORE_BYTE          : MUBUF_Real_AllAddr_si <0x18>;
 defm BUFFER_STORE_SHORT         : MUBUF_Real_AllAddr_si <0x1a>;
 defm BUFFER_STORE_DWORD         : MUBUF_Real_AllAddr_si <0x1c>;
 defm BUFFER_STORE_DWORDX2       : MUBUF_Real_AllAddr_si <0x1d>;
 defm BUFFER_STORE_DWORDX4       : MUBUF_Real_AllAddr_si <0x1e>;
+defm BUFFER_STORE_DWORDX3       : MUBUF_Real_AllAddr_si <0x1f>;
 
 defm BUFFER_ATOMIC_SWAP         : MUBUF_Real_Atomic_si <0x30>;
 defm BUFFER_ATOMIC_CMPSWAP      : MUBUF_Real_Atomic_si <0x31>;
@@ -1254,11 +1257,13 @@ defm BUFFER_LOAD_USHORT         : MUBUF_Real_AllAddr_vi <0x12>;
 defm BUFFER_LOAD_SSHORT         : MUBUF_Real_AllAddr_vi <0x13>;
 defm BUFFER_LOAD_DWORD          : MUBUF_Real_AllAddr_vi <0x14>;
 defm BUFFER_LOAD_DWORDX2        : MUBUF_Real_AllAddr_vi <0x15>;
+defm BUFFER_LOAD_DWORDX3        : MUBUF_Real_AllAddr_vi <0x16>;
 defm BUFFER_LOAD_DWORDX4        : MUBUF_Real_AllAddr_vi <0x17>;
 defm BUFFER_STORE_BYTE          : MUBUF_Real_AllAddr_vi <0x18>;
 defm BUFFER_STORE_SHORT         : MUBUF_Real_AllAddr_vi <0x1a>;
 defm BUFFER_STORE_DWORD         : MUBUF_Real_AllAddr_vi <0x1c>;
 defm BUFFER_STORE_DWORDX2       : MUBUF_Real_AllAddr_vi <0x1d>;
+defm BUFFER_STORE_DWORDX3       : MUBUF_Real_AllAddr_vi <0x1e>;
 defm BUFFER_STORE_DWORDX4       : MUBUF_Real_AllAddr_vi <0x1f>;
 
 defm BUFFER_ATOMIC_SWAP         : MUBUF_Real_Atomic_vi <0x40>;

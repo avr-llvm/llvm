@@ -102,8 +102,7 @@ cl::opt<ThinLTOModes> ThinLTOMode(
                    "(requires -thinlto-index)."),
         clEnumValN(THINOPT, "optimize", "Perform ThinLTO optimizations."),
         clEnumValN(THINCODEGEN, "codegen", "CodeGen (expected to match llc)"),
-        clEnumValN(THINALL, "run", "Perform ThinLTO end-to-end"),
-        clEnumValEnd));
+        clEnumValN(THINALL, "run", "Perform ThinLTO end-to-end")));
 
 static cl::opt<std::string>
     ThinLTOIndex("thinlto-index",
@@ -490,6 +489,8 @@ private:
     }
 
     auto CombinedIndex = ThinGenerator.linkCombinedIndex();
+    if (!CombinedIndex)
+      report_fatal_error("ThinLink didn't create an index");
     std::error_code EC;
     raw_fd_ostream OS(OutputFilename, EC, sys::fs::OpenFlags::F_None);
     error(EC, "error opening the file '" + OutputFilename + "'");

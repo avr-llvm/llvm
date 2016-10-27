@@ -930,46 +930,9 @@ SDValue SelectionDAGBuilder::getControlRoot() {
   return Root;
 }
 
-/// Copy swift error to the final virtual register at end of a basic block, as
-/// specified by SwiftErrorWorklist, if necessary.
-static void copySwiftErrorsToFinalVRegs(SelectionDAGBuilder &SDB) {
-  const TargetLowering &TLI = SDB.DAG.getTargetLoweringInfo();
-  if (!TLI.supportSwiftError())
-    return;
-
-  if (!SDB.FuncInfo.SwiftErrorWorklist.count(SDB.FuncInfo.MBB))
-    return;
-
-  // Go through entries in SwiftErrorWorklist, and create copy as necessary.
-  FunctionLoweringInfo::SwiftErrorVRegs &WorklistEntry =
-      SDB.FuncInfo.SwiftErrorWorklist[SDB.FuncInfo.MBB];
-  FunctionLoweringInfo::SwiftErrorVRegs &MapEntry =
-      SDB.FuncInfo.SwiftErrorMap[SDB.FuncInfo.MBB];
-  for (unsigned I = 0, E = WorklistEntry.size(); I < E; I++) {
-    unsigned WorkReg = WorklistEntry[I];
-
-    // Find the swifterror virtual register for the value in SwiftErrorMap.
-    unsigned MapReg = MapEntry[I];
-    assert(TargetRegisterInfo::isVirtualRegister(MapReg) &&
-           "Entries in SwiftErrorMap should be virtual registers");
-
-    if (WorkReg == MapReg)
-      continue;
-
-    // Create copy from SwiftErrorMap to SwiftWorklist.
-    auto &DL = SDB.DAG.getDataLayout();
-    SDValue CopyNode = SDB.DAG.getCopyToReg(
-        SDB.getRoot(), SDB.getCurSDLoc(), WorkReg,
-        SDB.DAG.getRegister(MapReg, EVT(TLI.getPointerTy(DL))));
-    MapEntry[I] = WorkReg;
-    SDB.DAG.setRoot(CopyNode);
-  }
-}
-
 void SelectionDAGBuilder::visit(const Instruction &I) {
   // Set up outgoing PHI node register values before emitting the terminator.
   if (isa<TerminatorInst>(&I)) {
-    copySwiftErrorsToFinalVRegs(*this);
     HandlePHINodesInSuccessorBlocks(I.getParent());
   }
 
@@ -1489,6 +1452,7 @@ void SelectionDAGBuilder::visitRet(const ReturnInst &I) {
   const Function *F = I.getParent()->getParent();
   if (TLI.supportSwiftError() &&
       F->getAttributes().hasAttrSomewhere(Attribute::SwiftError)) {
+    assert(FuncInfo.SwiftErrorArg && "Need a swift error argument");
     ISD::ArgFlagsTy Flags = ISD::ArgFlagsTy();
     Flags.setSwiftError();
     Outs.push_back(ISD::OutputArg(Flags, EVT(TLI.getPointerTy(DL)) /*vt*/,
@@ -1496,7 +1460,8 @@ void SelectionDAGBuilder::visitRet(const ReturnInst &I) {
                                   true /*isfixed*/, 1 /*origidx*/,
                                   0 /*partOffs*/));
     // Create SDNode for the swifterror virtual register.
-    OutVals.push_back(DAG.getRegister(FuncInfo.SwiftErrorMap[FuncInfo.MBB][0],
+    OutVals.push_back(DAG.getRegister(FuncInfo.getOrCreateSwiftErrorVReg(
+                                          FuncInfo.MBB, FuncInfo.SwiftErrorArg),
                                       EVT(TLI.getPointerTy(DL))));
   }
 
@@ -3590,7 +3555,7 @@ void SelectionDAGBuilder::visitStoreToSwiftError(const StoreInst &I) {
   SDValue CopyNode = DAG.getCopyToReg(getRoot(), getCurSDLoc(), VReg,
                                       SDValue(Src.getNode(), Src.getResNo()));
   DAG.setRoot(CopyNode);
-  FuncInfo.setSwiftErrorVReg(FuncInfo.MBB, I.getOperand(1), VReg);
+  FuncInfo.setCurrentSwiftErrorVReg(FuncInfo.MBB, I.getOperand(1), VReg);
 }
 
 void SelectionDAGBuilder::visitLoadFromSwiftError(const LoadInst &I) {
@@ -3618,9 +3583,9 @@ void SelectionDAGBuilder::visitLoadFromSwiftError(const LoadInst &I) {
          "expect a single EVT for swifterror");
 
   // Chain, DL, Reg, VT, Glue or Chain, DL, Reg, VT
-  SDValue L = DAG.getCopyFromReg(getRoot(), getCurSDLoc(),
-                                 FuncInfo.findSwiftErrorVReg(FuncInfo.MBB, SV),
-                                 ValueVTs[0]);
+  SDValue L = DAG.getCopyFromReg(
+      getRoot(), getCurSDLoc(),
+      FuncInfo.getOrCreateSwiftErrorVReg(FuncInfo.MBB, SV), ValueVTs[0]);
 
   setValue(&I, L);
 }
@@ -3856,7 +3821,7 @@ void SelectionDAGBuilder::visitMaskedLoad(const CallInst &I) {
                           Alignment, AAInfo, Ranges);
 
   SDValue Load = DAG.getMaskedLoad(VT, sdl, InChain, Ptr, Mask, Src0, VT, MMO,
-                                   ISD::NON_EXTLOAD);
+                                   ISD::NON_EXTLOAD, false);
   if (AddToChain) {
     SDValue OutChain = Load.getValue(1);
     DAG.setRoot(OutChain);
@@ -4008,13 +3973,13 @@ void SelectionDAGBuilder::visitAtomicLoad(const LoadInst &I) {
                            MachineMemOperand::MOLoad,
                            VT.getStoreSize(),
                            I.getAlignment() ? I.getAlignment() :
-                                              DAG.getEVTAlignment(VT));
+                                              DAG.getEVTAlignment(VT),
+                           AAMDNodes(), nullptr, Scope, Order);
 
   InChain = TLI.prepareVolatileOrAtomicLoad(InChain, dl, DAG);
   SDValue L =
       DAG.getAtomic(ISD::ATOMIC_LOAD, dl, VT, VT, InChain,
-                    getValue(I.getPointerOperand()), MMO,
-                    Order, Scope);
+                    getValue(I.getPointerOperand()), MMO);
 
   SDValue OutChain = L.getValue(1);
 
@@ -4804,6 +4769,10 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     setValue(&I, DAG.getNode(ISD::RETURNADDR, sdl,
                              TLI.getPointerTy(DAG.getDataLayout()),
                              getValue(I.getArgOperand(0))));
+    return nullptr;
+  case Intrinsic::addressofreturnaddress:
+    setValue(&I, DAG.getNode(ISD::ADDROFRETURNADDR, sdl,
+                             TLI.getPointerTy(DAG.getDataLayout())));
     return nullptr;
   case Intrinsic::frameaddress:
     setValue(&I, DAG.getNode(ISD::FRAMEADDR, sdl,
@@ -5815,9 +5784,9 @@ void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
       SwiftErrorVal = V;
       // We find the virtual register for the actual swifterror argument.
       // Instead of using the Value, we use the virtual register instead.
-      Entry.Node = DAG.getRegister(
-          FuncInfo.findSwiftErrorVReg(FuncInfo.MBB, V),
-          EVT(TLI.getPointerTy(DL)));
+      Entry.Node =
+          DAG.getRegister(FuncInfo.getOrCreateSwiftErrorVReg(FuncInfo.MBB, V),
+                          EVT(TLI.getPointerTy(DL)));
     }
 
     Args.push_back(Entry);
@@ -5862,7 +5831,7 @@ void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
     unsigned VReg = FuncInfo.MF->getRegInfo().createVirtualRegister(RC);
     SDValue CopyNode = CLI.DAG.getCopyToReg(Result.second, CLI.DL, VReg, Src);
     // We update the virtual register for the actual swifterror argument.
-    FuncInfo.setSwiftErrorVReg(FuncInfo.MBB, SwiftErrorVal, VReg);
+    FuncInfo.setCurrentSwiftErrorVReg(FuncInfo.MBB, SwiftErrorVal, VReg);
     DAG.setRoot(CopyNode);
   }
 }
@@ -8119,7 +8088,10 @@ void SelectionDAGISel::LowerArguments(const Function &F) {
 
     // If this argument is unused then remember its value. It is used to generate
     // debugging information.
-    if (I->use_empty() && NumValues) {
+    bool isSwiftErrorArg =
+        TLI->supportSwiftError() &&
+        F.getAttributes().hasAttribute(Idx, Attribute::SwiftError);
+    if (I->use_empty() && NumValues && !isSwiftErrorArg) {
       SDB->setUnusedArgValue(&*I, InVals[i]);
 
       // Also remember any frame index for use in FastISel.
@@ -8133,7 +8105,10 @@ void SelectionDAGISel::LowerArguments(const Function &F) {
       MVT PartVT = TLI->getRegisterType(*CurDAG->getContext(), VT);
       unsigned NumParts = TLI->getNumRegisters(*CurDAG->getContext(), VT);
 
-      if (!I->use_empty()) {
+      // Even an apparant 'unused' swifterror argument needs to be returned. So
+      // we do generate a copy for it that can be used on return from the
+      // function.
+      if (!I->use_empty() || isSwiftErrorArg) {
         Optional<ISD::NodeType> AssertOp;
         if (F.getAttributes().hasAttribute(Idx, Attribute::SExt))
           AssertOp = ISD::AssertSext;
@@ -8169,12 +8144,12 @@ void SelectionDAGISel::LowerArguments(const Function &F) {
         FuncInfo->setArgumentFrameIndex(&*I, FI->getIndex());
     }
 
-    // Update SwiftErrorMap.
-    if (Res.getOpcode() == ISD::CopyFromReg && TLI->supportSwiftError() &&
-        F.getAttributes().hasAttribute(Idx, Attribute::SwiftError)) {
+    // Update the SwiftErrorVRegDefMap.
+    if (Res.getOpcode() == ISD::CopyFromReg && isSwiftErrorArg) {
       unsigned Reg = cast<RegisterSDNode>(Res.getOperand(1))->getReg();
       if (TargetRegisterInfo::isVirtualRegister(Reg))
-        FuncInfo->SwiftErrorMap[FuncInfo->MBB][0] = Reg;
+        FuncInfo->setCurrentSwiftErrorVReg(FuncInfo->MBB,
+                                           FuncInfo->SwiftErrorArg, Reg);
     }
 
     // If this argument is live outside of the entry block, insert a copy from
@@ -8458,9 +8433,10 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
 
   const int64_t N = Clusters.size();
   const unsigned MinJumpTableEntries = TLI.getMinimumJumpTableEntries();
+  const unsigned SmallNumberOfEntries = MinJumpTableEntries / 2;
   const unsigned MaxJumpTableSize =
-    OptForSize ? UINT_MAX : TLI.getMaximumJumpTableSize() ?
-                            TLI.getMaximumJumpTableSize() : UINT_MAX;
+                   OptForSize || TLI.getMaximumJumpTableSize() == 0
+                   ? UINT_MAX : TLI.getMaximumJumpTableSize();
 
   if (N < 2 || N < MinJumpTableEntries)
     return;
@@ -8484,7 +8460,6 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
                            .getLimitedValue(UINT_MAX - 1) + 1;
   if (JumpTableSize <= MaxJumpTableSize &&
       isDense(Clusters, TotalCases, 0, N - 1, MinDensity)) {
-
     CaseCluster JTCluster;
     if (buildJumpTable(Clusters, 0, N - 1, SI, DefaultMBB, JTCluster)) {
       Clusters[0] = JTCluster;
@@ -8508,13 +8483,23 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
   SmallVector<unsigned, 8> MinPartitions(N);
   // LastElement[i] is the last element of the partition starting at i.
   SmallVector<unsigned, 8> LastElement(N);
-  // NumTables[i]: nbr of >= MinJumpTableSize partitions from Clusters[i..N-1].
-  SmallVector<unsigned, 8> NumTables(N);
+  // PartitionsScore[i] is used to break ties when choosing between two
+  // partitionings resulting in the same number of partitions.
+  SmallVector<unsigned, 8> PartitionsScore(N);
+  // For PartitionsScore, a small number of comparisons is considered as good as
+  // a jump table and a single comparison is considered better than a jump
+  // table.
+  enum PartitionScores : unsigned {
+    NoTable = 0,
+    Table = 1,
+    FewCases = 1,
+    SingleCase = 2
+  };
 
   // Base case: There is only one way to partition Clusters[N-1].
   MinPartitions[N - 1] = 1;
   LastElement[N - 1] = N - 1;
-  NumTables[N - 1] = 0;
+  PartitionsScore[N - 1] = PartitionScores::SingleCase;
 
   // Note: loop indexes are signed to avoid underflow.
   for (int64_t i = N - 2; i >= 0; i--) {
@@ -8522,7 +8507,7 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
     // Baseline: Put Clusters[i] into a partition on its own.
     MinPartitions[i] = MinPartitions[i + 1] + 1;
     LastElement[i] = i;
-    NumTables[i] = NumTables[i + 1];
+    PartitionsScore[i] = PartitionsScore[i + 1] + PartitionScores::SingleCase;
 
     // Search for a solution that results in fewer partitions.
     for (int64_t j = N - 1; j > i; j--) {
@@ -8533,16 +8518,23 @@ void SelectionDAGBuilder::findJumpTables(CaseClusterVector &Clusters,
       if (JumpTableSize <= MaxJumpTableSize &&
           isDense(Clusters, TotalCases, i, j, MinDensity)) {
         unsigned NumPartitions = 1 + (j == N - 1 ? 0 : MinPartitions[j + 1]);
-        bool IsTable = j - i + 1 >= MinJumpTableEntries;
-        unsigned Tables = IsTable + (j == N - 1 ? 0 : NumTables[j + 1]);
+        unsigned Score = j == N - 1 ? 0 : PartitionsScore[j + 1];
+        int64_t NumEntries = j - i + 1;
 
-        // If this j leads to fewer partitions, or same number of partitions
-        // with more lookup tables, it is a better partitioning.
+        if (NumEntries == 1)
+          Score += PartitionScores::SingleCase;
+        else if (NumEntries <= SmallNumberOfEntries)
+          Score += PartitionScores::FewCases;
+        else if (NumEntries >= MinJumpTableEntries)
+          Score += PartitionScores::Table;
+
+        // If this leads to fewer partitions, or to the same number of
+        // partitions with better score, it is a better partitioning.
         if (NumPartitions < MinPartitions[i] ||
-            (NumPartitions == MinPartitions[i] && Tables > NumTables[i])) {
+            (NumPartitions == MinPartitions[i] && Score > PartitionsScore[i])) {
           MinPartitions[i] = NumPartitions;
           LastElement[i] = j;
-          NumTables[i] = Tables;
+          PartitionsScore[i] = Score;
         }
       }
     }

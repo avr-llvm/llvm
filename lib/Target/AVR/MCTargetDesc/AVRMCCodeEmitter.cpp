@@ -157,7 +157,8 @@ unsigned AVRMCCodeEmitter::encodeMemri(const MCInst &MI, unsigned OpNo,
     OffsetBits = OffsetOp.getImm();
   } else if (OffsetOp.isExpr()) {
     OffsetBits = 0;
-    Fixups.push_back(MCFixup::create(0, OffsetOp.getExpr(), MCFixupKind(AVR::fixup_6), MI.getLoc()));
+    Fixups.push_back(MCFixup::create(0, OffsetOp.getExpr(),
+                     MCFixupKind(AVR::fixup_6), MI.getLoc()));
   } else {
     llvm_unreachable("invalid value for offset");
   }
@@ -188,12 +189,12 @@ unsigned AVRMCCodeEmitter::encodeImm(const MCInst &MI, unsigned OpNo,
       // instead create a fixup to the symbol named 'lo8(symbol)' which
       // is not correct.
       return getExprOpValue(MO.getExpr(), Fixups, STI);
-    } else {
-      MCFixupKind FixupKind = static_cast<MCFixupKind>(Fixup);
-      Fixups.push_back(MCFixup::create(0, MO.getExpr(), FixupKind, MI.getLoc()));
-
-      return 0;
     }
+
+    MCFixupKind FixupKind = static_cast<MCFixupKind>(Fixup);
+    Fixups.push_back(MCFixup::create(0, MO.getExpr(), FixupKind, MI.getLoc()));
+
+    return 0;
   }
 
   assert(MO.isImm());
@@ -249,16 +250,14 @@ unsigned AVRMCCodeEmitter::getMachineOpValue(const MCInst &MI,
                                              const MCOperand &MO,
                                              SmallVectorImpl<MCFixup> &Fixups,
                                              const MCSubtargetInfo &STI) const {
-  if (MO.isReg()) {
-    return Ctx.getRegisterInfo()->getEncodingValue(MO.getReg());
-  } else if (MO.isImm()) {
-    return static_cast<unsigned>(MO.getImm());
-  } else if (MO.isFPImm()) {
+  if (MO.isReg()) return Ctx.getRegisterInfo()->getEncodingValue(MO.getReg());
+  if (MO.isImm()) return static_cast<unsigned>(MO.getImm());
+
+  if (MO.isFPImm())
     return static_cast<unsigned>(APFloat(MO.getFPImm())
                                      .bitcastToAPInt()
                                      .getHiBits(32)
                                      .getLimitedValue());
-  }
 
   // MO must be an Expr.
   assert(MO.isExpr());

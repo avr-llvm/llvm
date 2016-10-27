@@ -51,10 +51,10 @@ EnableGlobalMerge("arm-global-merge", cl::Hidden,
 
 extern "C" void LLVMInitializeARMTarget() {
   // Register the target.
-  RegisterTargetMachine<ARMLETargetMachine> X(TheARMLETarget);
-  RegisterTargetMachine<ARMBETargetMachine> Y(TheARMBETarget);
-  RegisterTargetMachine<ThumbLETargetMachine> A(TheThumbLETarget);
-  RegisterTargetMachine<ThumbBETargetMachine> B(TheThumbBETarget);
+  RegisterTargetMachine<ARMLETargetMachine> X(getTheARMLETarget());
+  RegisterTargetMachine<ARMBETargetMachine> Y(getTheARMBETarget());
+  RegisterTargetMachine<ThumbLETargetMachine> A(getTheThumbLETarget());
+  RegisterTargetMachine<ThumbBETargetMachine> B(getTheThumbBETarget());
 
   PassRegistry &Registry = *PassRegistry::getPassRegistry();
   initializeARMLoadStoreOptPass(Registry);
@@ -443,8 +443,8 @@ void ARMPassConfig::addPreSched2() {
       return this->TM->getSubtarget<ARMSubtarget>(F).restrictIT();
     }));
 
-    addPass(createIfConverter([this](const Function &F) {
-      return !this->TM->getSubtarget<ARMSubtarget>(F).isThumb1Only();
+    addPass(createIfConverter([](const MachineFunction &MF) {
+      return !MF.getSubtarget<ARMSubtarget>().isThumb1Only();
     }));
   }
   addPass(createThumb2ITBlockPass());
@@ -454,8 +454,8 @@ void ARMPassConfig::addPreEmitPass() {
   addPass(createThumb2SizeReductionPass());
 
   // Constant island pass work on unbundled instructions.
-  addPass(createUnpackMachineBundles([this](const Function &F) {
-    return this->TM->getSubtarget<ARMSubtarget>(F).isThumb2();
+  addPass(createUnpackMachineBundles([](const MachineFunction &MF) {
+    return MF.getSubtarget<ARMSubtarget>().isThumb2();
   }));
 
   // Don't optimize barriers at -O0.

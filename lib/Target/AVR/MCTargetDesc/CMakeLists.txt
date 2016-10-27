@@ -1,6 +1,7 @@
 add_llvm_library(LLVMAVRDesc
   AVRAsmBackend.cpp
   AVRMCAsmInfo.cpp
+  AVRMCCodeEmitter.cpp
   AVRMCExpr.cpp
   AVRELFObjectWriter.cpp
   AVRELFStreamer.cpp

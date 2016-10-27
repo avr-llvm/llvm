@@ -678,7 +678,6 @@ class RegionInfoBase {
   friend class MachineRegionInfo;
   typedef DenseMap<BlockT *, BlockT *> BBtoBBMap;
   typedef DenseMap<BlockT *, RegionT *> BBtoRegionMap;
-  typedef SmallPtrSet<RegionT *, 4> RegionSet;
 
   RegionInfoBase();
   virtual ~RegionInfoBase();

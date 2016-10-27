@@ -791,6 +791,17 @@ let Uses = [RM] in {
                        "xxlxor $XT, $XT, $XT", IIC_VecGeneral,
                        [(set v4i32:$XT, (v4i32 immAllZerosV))]>;
 
+  let isCodeGenOnly = 1 in {
+    def XXLXORdpz : XX3Form_SetZero<60, 154,
+                         (outs vsfrc:$XT), (ins),
+                         "xxlxor $XT, $XT, $XT", IIC_VecGeneral,
+                         [(set f64:$XT, (fpimm0))]>;
+    def XXLXORspz : XX3Form_SetZero<60, 154,
+                         (outs vssrc:$XT), (ins),
+                         "xxlxor $XT, $XT, $XT", IIC_VecGeneral,
+                         [(set f32:$XT, (fpimm0))]>;
+  }
+
   // Permutation Instructions
   def XXMRGHW : XX3Form<60, 18,
                        (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
@@ -2180,9 +2191,9 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
 
   // Vector Insert Exponent DP/SP
   def XVIEXPDP : XX3_XT5_XA5_XB5<60, 248, "xviexpdp", vsrc, vsrc, vsrc,
-                                 IIC_VecFP, []>;
+    IIC_VecFP, [(set v2f64: $XT,(int_ppc_vsx_xviexpdp v2i64:$XA, v2i64:$XB))]>;
   def XVIEXPSP : XX3_XT5_XA5_XB5<60, 216, "xviexpsp", vsrc, vsrc, vsrc,
-                                 IIC_VecFP, []>;
+    IIC_VecFP, [(set v4f32: $XT,(int_ppc_vsx_xviexpsp v4i32:$XA, v4i32:$XB))]>;
 
   // Vector Extract Exponent/Significand DP/SP
   def XVXEXPDP : XX2_XT6_XO5_XB6<60,  0, 475, "xvxexpdp", vsrc, []>;

@@ -121,6 +121,11 @@ static cl::opt<bool>
                   cl::desc("Verify no dangling value in ScalarEvolution's "
                            "ExprValueMap (slow)"));
 
+static cl::opt<unsigned> MulOpsInlineThreshold(
+    "scev-mulops-inline-threshold", cl::Hidden,
+    cl::desc("Threshold for inlining multiplication operands into a SCEV"),
+    cl::init(1000));
+
 //===----------------------------------------------------------------------===//
 //                           SCEV class definitions
 //===----------------------------------------------------------------------===//
@@ -448,6 +453,61 @@ bool SCEVUnknown::isOffsetOf(Type *&CTy, Constant *&FieldNo) const {
 //                               SCEV Utilities
 //===----------------------------------------------------------------------===//
 
+static int CompareValueComplexity(const LoopInfo *const LI, Value *LV,
+                                  Value *RV, unsigned DepthLeft = 2) {
+  if (DepthLeft == 0)
+    return 0;
+
+  // Order pointer values after integer values. This helps SCEVExpander form
+  // GEPs.
+  bool LIsPointer = LV->getType()->isPointerTy(),
+       RIsPointer = RV->getType()->isPointerTy();
+  if (LIsPointer != RIsPointer)
+    return (int)LIsPointer - (int)RIsPointer;
+
+  // Compare getValueID values.
+  unsigned LID = LV->getValueID(), RID = RV->getValueID();
+  if (LID != RID)
+    return (int)LID - (int)RID;
+
+  // Sort arguments by their position.
+  if (const Argument *LA = dyn_cast<Argument>(LV)) {
+    const Argument *RA = cast<Argument>(RV);
+    unsigned LArgNo = LA->getArgNo(), RArgNo = RA->getArgNo();
+    return (int)LArgNo - (int)RArgNo;
+  }
+
+  // For instructions, compare their loop depth, and their operand count.  This
+  // is pretty loose.
+  if (const Instruction *LInst = dyn_cast<Instruction>(LV)) {
+    const Instruction *RInst = cast<Instruction>(RV);
+
+    // Compare loop depths.
+    const BasicBlock *LParent = LInst->getParent(),
+                     *RParent = RInst->getParent();
+    if (LParent != RParent) {
+      unsigned LDepth = LI->getLoopDepth(LParent),
+               RDepth = LI->getLoopDepth(RParent);
+      if (LDepth != RDepth)
+        return (int)LDepth - (int)RDepth;
+    }
+
+    // Compare the number of operands.
+    unsigned LNumOps = LInst->getNumOperands(),
+             RNumOps = RInst->getNumOperands();
+    if (LNumOps != RNumOps || LNumOps != 1)
+      return (int)LNumOps - (int)RNumOps;
+
+    // We only bother "recursing" if we have one operand to look at (so we don't
+    // really recurse as much as we iterate).  We can consider expanding this
+    // logic in the future.
+    return CompareValueComplexity(LI, LInst->getOperand(0),
+                                  RInst->getOperand(0), DepthLeft - 1);
+  }
+
+  return 0;
+}
+
 // Return negative, zero, or positive, if LHS is less than, equal to, or greater
 // than RHS, respectively. A three-way result allows recursive comparisons to be
 // more efficient.
@@ -470,51 +530,7 @@ static int CompareSCEVComplexity(const LoopInfo *const LI, const SCEV *LHS,
     const SCEVUnknown *LU = cast<SCEVUnknown>(LHS);
     const SCEVUnknown *RU = cast<SCEVUnknown>(RHS);
 
-    // Sort SCEVUnknown values with some loose heuristics. TODO: This is
-    // not as complete as it could be.
-    const Value *LV = LU->getValue(), *RV = RU->getValue();
-
-    // Order pointer values after integer values. This helps SCEVExpander
-    // form GEPs.
-    bool LIsPointer = LV->getType()->isPointerTy(),
-         RIsPointer = RV->getType()->isPointerTy();
-    if (LIsPointer != RIsPointer)
-      return (int)LIsPointer - (int)RIsPointer;
-
-    // Compare getValueID values.
-    unsigned LID = LV->getValueID(), RID = RV->getValueID();
-    if (LID != RID)
-      return (int)LID - (int)RID;
-
-    // Sort arguments by their position.
-    if (const Argument *LA = dyn_cast<Argument>(LV)) {
-      const Argument *RA = cast<Argument>(RV);
-      unsigned LArgNo = LA->getArgNo(), RArgNo = RA->getArgNo();
-      return (int)LArgNo - (int)RArgNo;
-    }
-
-    // For instructions, compare their loop depth, and their operand
-    // count.  This is pretty loose.
-    if (const Instruction *LInst = dyn_cast<Instruction>(LV)) {
-      const Instruction *RInst = cast<Instruction>(RV);
-
-      // Compare loop depths.
-      const BasicBlock *LParent = LInst->getParent(),
-                       *RParent = RInst->getParent();
-      if (LParent != RParent) {
-        unsigned LDepth = LI->getLoopDepth(LParent),
-                 RDepth = LI->getLoopDepth(RParent);
-        if (LDepth != RDepth)
-          return (int)LDepth - (int)RDepth;
-      }
-
-      // Compare the number of operands.
-      unsigned LNumOps = LInst->getNumOperands(),
-               RNumOps = RInst->getNumOperands();
-      return (int)LNumOps - (int)RNumOps;
-    }
-
-    return 0;
+    return CompareValueComplexity(LI, LU->getValue(), RU->getValue());
   }
 
   case scConstant: {
@@ -2505,6 +2521,8 @@ const SCEV *ScalarEvolution::getMulExpr(SmallVectorImpl<const SCEV *> &Ops,
   if (Idx < Ops.size()) {
     bool DeletedMul = false;
     while (const SCEVMulExpr *Mul = dyn_cast<SCEVMulExpr>(Ops[Idx])) {
+      if (Ops.size() > MulOpsInlineThreshold)
+        break;
       // If we have an mul, expand the mul operands onto the end of the operands
       // list.
       Ops.erase(Ops.begin()+Idx);
@@ -5292,6 +5310,20 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
 //                   Iteration Count Computation Code
 //
 
+static unsigned getConstantTripCount(const SCEVConstant *ExitCount) {
+  if (!ExitCount)
+    return 0;
+
+  ConstantInt *ExitConst = ExitCount->getValue();
+
+  // Guard against huge trip counts.
+  if (ExitConst->getValue().getActiveBits() > 32)
+    return 0;
+
+  // In case of integer overflow, this returns 0, which is correct.
+  return ((unsigned)ExitConst->getZExtValue()) + 1;
+}
+
 unsigned ScalarEvolution::getSmallConstantTripCount(Loop *L) {
   if (BasicBlock *ExitingBB = L->getExitingBlock())
     return getSmallConstantTripCount(L, ExitingBB);
@@ -5307,17 +5339,13 @@ unsigned ScalarEvolution::getSmallConstantTripCount(Loop *L,
          "Exiting block must actually branch out of the loop!");
   const SCEVConstant *ExitCount =
       dyn_cast<SCEVConstant>(getExitCount(L, ExitingBlock));
-  if (!ExitCount)
-    return 0;
+  return getConstantTripCount(ExitCount);
+}
 
-  ConstantInt *ExitConst = ExitCount->getValue();
-
-  // Guard against huge trip counts.
-  if (ExitConst->getValue().getActiveBits() > 32)
-    return 0;
-
-  // In case of integer overflow, this returns 0, which is correct.
-  return ((unsigned)ExitConst->getZExtValue()) + 1;
+unsigned ScalarEvolution::getSmallConstantMaxTripCount(Loop *L) {
+  const auto *MaxExitCount =
+      dyn_cast<SCEVConstant>(getMaxBackedgeTakenCount(L));
+  return getConstantTripCount(MaxExitCount);
 }
 
 unsigned ScalarEvolution::getSmallConstantTripMultiple(Loop *L) {
@@ -5394,6 +5422,10 @@ const SCEV *ScalarEvolution::getBackedgeTakenCount(const Loop *L) {
 /// known never to be less than the actual backedge taken count.
 const SCEV *ScalarEvolution::getMaxBackedgeTakenCount(const Loop *L) {
   return getBackedgeTakenInfo(L).getMax(this);
+}
+
+bool ScalarEvolution::isBackedgeTakenCountMaxOrZero(const Loop *L) {
+  return getBackedgeTakenInfo(L).isMaxOrZero(this);
 }
 
 /// Push PHI nodes in the header of the given loop onto the given Worklist.
@@ -5628,6 +5660,13 @@ ScalarEvolution::BackedgeTakenInfo::getMax(ScalarEvolution *SE) const {
   return getMax();
 }
 
+bool ScalarEvolution::BackedgeTakenInfo::isMaxOrZero(ScalarEvolution *SE) const {
+  auto PredicateNotAlwaysTrue = [](const ExitNotTakenInfo &ENT) {
+    return !ENT.hasAlwaysTruePredicate();
+  };
+  return MaxOrZero && !any_of(ExitNotTaken, PredicateNotAlwaysTrue);
+}
+
 bool ScalarEvolution::BackedgeTakenInfo::hasOperand(const SCEV *S,
                                                     ScalarEvolution *SE) const {
   if (getMax() && getMax() != SE->getCouldNotCompute() &&
@@ -5647,8 +5686,8 @@ bool ScalarEvolution::BackedgeTakenInfo::hasOperand(const SCEV *S,
 ScalarEvolution::BackedgeTakenInfo::BackedgeTakenInfo(
     SmallVectorImpl<ScalarEvolution::BackedgeTakenInfo::EdgeExitInfo>
         &&ExitCounts,
-    bool Complete, const SCEV *MaxCount)
-    : MaxAndComplete(MaxCount, Complete) {
+    bool Complete, const SCEV *MaxCount, bool MaxOrZero)
+    : MaxAndComplete(MaxCount, Complete), MaxOrZero(MaxOrZero) {
   typedef ScalarEvolution::BackedgeTakenInfo::EdgeExitInfo EdgeExitInfo;
   ExitNotTaken.reserve(ExitCounts.size());
   std::transform(
@@ -5686,6 +5725,7 @@ ScalarEvolution::computeBackedgeTakenCount(const Loop *L,
   BasicBlock *Latch = L->getLoopLatch(); // may be NULL.
   const SCEV *MustExitMaxBECount = nullptr;
   const SCEV *MayExitMaxBECount = nullptr;
+  bool MustExitMaxOrZero = false;
 
   // Compute the ExitLimit for each loop exit. Use this to populate ExitCounts
   // and compute maxBECount.
@@ -5718,9 +5758,10 @@ ScalarEvolution::computeBackedgeTakenCount(const Loop *L,
     // computable EL.MaxNotTaken.
     if (EL.MaxNotTaken != getCouldNotCompute() && Latch &&
         DT.dominates(ExitBB, Latch)) {
-      if (!MustExitMaxBECount)
+      if (!MustExitMaxBECount) {
         MustExitMaxBECount = EL.MaxNotTaken;
-      else {
+        MustExitMaxOrZero = EL.MaxOrZero;
+      } else {
         MustExitMaxBECount =
             getUMinFromMismatchedTypes(MustExitMaxBECount, EL.MaxNotTaken);
       }
@@ -5735,8 +5776,11 @@ ScalarEvolution::computeBackedgeTakenCount(const Loop *L,
   }
   const SCEV *MaxBECount = MustExitMaxBECount ? MustExitMaxBECount :
     (MayExitMaxBECount ? MayExitMaxBECount : getCouldNotCompute());
+  // The loop backedge will be taken the maximum or zero times if there's
+  // a single exit that must be taken the maximum or zero times.
+  bool MaxOrZero = (MustExitMaxOrZero && ExitingBlocks.size() == 1);
   return BackedgeTakenInfo(std::move(ExitCounts), CouldComputeBECount,
-                           MaxBECount);
+                           MaxBECount, MaxOrZero);
 }
 
 ScalarEvolution::ExitLimit
@@ -5873,7 +5917,8 @@ ScalarEvolution::computeExitLimitFromCond(const Loop *L,
           !isa<SCEVCouldNotCompute>(BECount))
         MaxBECount = BECount;
 
-      return ExitLimit(BECount, MaxBECount, {&EL0.Predicates, &EL1.Predicates});
+      return ExitLimit(BECount, MaxBECount, false,
+                       {&EL0.Predicates, &EL1.Predicates});
     }
     if (BO->getOpcode() == Instruction::Or) {
       // Recurse on the operands of the or.
@@ -5912,7 +5957,8 @@ ScalarEvolution::computeExitLimitFromCond(const Loop *L,
           BECount = EL0.ExactNotTaken;
       }
 
-      return ExitLimit(BECount, MaxBECount, {&EL0.Predicates, &EL1.Predicates});
+      return ExitLimit(BECount, MaxBECount, false,
+                       {&EL0.Predicates, &EL1.Predicates});
     }
   }
 
@@ -6297,7 +6343,7 @@ ScalarEvolution::ExitLimit ScalarEvolution::computeShiftCompareExitLimit(
     unsigned BitWidth = getTypeSizeInBits(RHS->getType());
     const SCEV *UpperBound =
         getConstant(getEffectiveSCEVType(RHS->getType()), BitWidth);
-    return ExitLimit(getCouldNotCompute(), UpperBound);
+    return ExitLimit(getCouldNotCompute(), UpperBound, false);
   }
 
   return getCouldNotCompute();
@@ -7093,7 +7139,8 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
         // should not accept a root of 2.
         const SCEV *Val = AddRec->evaluateAtIteration(R1, *this);
         if (Val->isZero())
-          return ExitLimit(R1, R1, Predicates); // We found a quadratic root!
+          // We found a quadratic root!
+          return ExitLimit(R1, R1, false, Predicates);
       }
     }
     return getCouldNotCompute();
@@ -7150,7 +7197,7 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
     else
       MaxBECount = getConstant(CountDown ? CR.getUnsignedMax()
                                          : -CR.getUnsignedMin());
-    return ExitLimit(Distance, MaxBECount, Predicates);
+    return ExitLimit(Distance, MaxBECount, false, Predicates);
   }
 
   // As a special case, handle the instance where Step is a positive power of
@@ -7205,7 +7252,7 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
 
       const SCEV *Limit =
           getZeroExtendExpr(getTruncateExpr(ModuloResult, NarrowTy), WideTy);
-      return ExitLimit(Limit, Limit, Predicates);
+      return ExitLimit(Limit, Limit, false, Predicates);
     }
   }
 
@@ -7218,14 +7265,14 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
       loopHasNoAbnormalExits(AddRec->getLoop())) {
     const SCEV *Exact =
         getUDivExpr(Distance, CountDown ? getNegativeSCEV(Step) : Step);
-    return ExitLimit(Exact, Exact, Predicates);
+    return ExitLimit(Exact, Exact, false, Predicates);
   }
 
   // Then, try to solve the above equation provided that Start is constant.
   if (const SCEVConstant *StartC = dyn_cast<SCEVConstant>(Start)) {
     const SCEV *E = SolveLinEquationWithOverflow(
         StepC->getValue()->getValue(), -StartC->getValue()->getValue(), *this);
-    return ExitLimit(E, E, Predicates);
+    return ExitLimit(E, E, false, Predicates);
   }
   return getCouldNotCompute();
 }
@@ -8645,48 +8692,75 @@ ScalarEvolution::howManyLessThans(const SCEV *LHS, const SCEV *RHS,
                                       : ICmpInst::ICMP_ULT;
   const SCEV *Start = IV->getStart();
   const SCEV *End = RHS;
-  if (!isLoopEntryGuardedByCond(L, Cond, getMinusSCEV(Start, Stride), RHS))
+  // If the backedge is taken at least once, then it will be taken
+  // (End-Start)/Stride times (rounded up to a multiple of Stride), where Start
+  // is the LHS value of the less-than comparison the first time it is evaluated
+  // and End is the RHS.
+  const SCEV *BECountIfBackedgeTaken =
+    computeBECount(getMinusSCEV(End, Start), Stride, false);
+  // If the loop entry is guarded by the result of the backedge test of the
+  // first loop iteration, then we know the backedge will be taken at least
+  // once and so the backedge taken count is as above. If not then we use the
+  // expression (max(End,Start)-Start)/Stride to describe the backedge count,
+  // as if the backedge is taken at least once max(End,Start) is End and so the
+  // result is as above, and if not max(End,Start) is Start so we get a backedge
+  // count of zero.
+  const SCEV *BECount;
+  if (isLoopEntryGuardedByCond(L, Cond, getMinusSCEV(Start, Stride), RHS))
+    BECount = BECountIfBackedgeTaken;
+  else {
     End = IsSigned ? getSMaxExpr(RHS, Start) : getUMaxExpr(RHS, Start);
+    BECount = computeBECount(getMinusSCEV(End, Start), Stride, false);
+  }
 
-  const SCEV *BECount = computeBECount(getMinusSCEV(End, Start), Stride, false);
+  const SCEV *MaxBECount;
+  bool MaxOrZero = false;
+  if (isa<SCEVConstant>(BECount))
+    MaxBECount = BECount;
+  else if (isa<SCEVConstant>(BECountIfBackedgeTaken)) {
+    // If we know exactly how many times the backedge will be taken if it's
+    // taken at least once, then the backedge count will either be that or
+    // zero.
+    MaxBECount = BECountIfBackedgeTaken;
+    MaxOrZero = true;
+  } else {
+    // Calculate the maximum backedge count based on the range of values
+    // permitted by Start, End, and Stride.
+    APInt MinStart = IsSigned ? getSignedRange(Start).getSignedMin()
+                              : getUnsignedRange(Start).getUnsignedMin();
 
-  APInt MinStart = IsSigned ? getSignedRange(Start).getSignedMin()
-                            : getUnsignedRange(Start).getUnsignedMin();
+    unsigned BitWidth = getTypeSizeInBits(LHS->getType());
 
-  unsigned BitWidth = getTypeSizeInBits(LHS->getType());
+    APInt StrideForMaxBECount;
 
-  APInt StrideForMaxBECount;
+    if (PositiveStride)
+      StrideForMaxBECount =
+        IsSigned ? getSignedRange(Stride).getSignedMin()
+                 : getUnsignedRange(Stride).getUnsignedMin();
+    else
+      // Using a stride of 1 is safe when computing max backedge taken count for
+      // a loop with unknown stride.
+      StrideForMaxBECount = APInt(BitWidth, 1, IsSigned);
 
-  if (PositiveStride)
-    StrideForMaxBECount = IsSigned ? getSignedRange(Stride).getSignedMin()
-                                   : getUnsignedRange(Stride).getUnsignedMin();
-  else
-    // Using a stride of 1 is safe when computing max backedge taken count for
-    // a loop with unknown stride.
-    StrideForMaxBECount = APInt(BitWidth, 1, IsSigned);
-
-  APInt Limit =
+    APInt Limit =
       IsSigned ? APInt::getSignedMaxValue(BitWidth) - (StrideForMaxBECount - 1)
                : APInt::getMaxValue(BitWidth) - (StrideForMaxBECount - 1);
 
-  // Although End can be a MAX expression we estimate MaxEnd considering only
-  // the case End = RHS. This is safe because in the other case (End - Start)
-  // is zero, leading to a zero maximum backedge taken count.
-  APInt MaxEnd =
-    IsSigned ? APIntOps::smin(getSignedRange(RHS).getSignedMax(), Limit)
-             : APIntOps::umin(getUnsignedRange(RHS).getUnsignedMax(), Limit);
+    // Although End can be a MAX expression we estimate MaxEnd considering only
+    // the case End = RHS. This is safe because in the other case (End - Start)
+    // is zero, leading to a zero maximum backedge taken count.
+    APInt MaxEnd =
+      IsSigned ? APIntOps::smin(getSignedRange(RHS).getSignedMax(), Limit)
+               : APIntOps::umin(getUnsignedRange(RHS).getUnsignedMax(), Limit);
 
-  const SCEV *MaxBECount;
-  if (isa<SCEVConstant>(BECount))
-    MaxBECount = BECount;
-  else
     MaxBECount = computeBECount(getConstant(MaxEnd - MinStart),
                                 getConstant(StrideForMaxBECount), false);
+  }
 
   if (isa<SCEVCouldNotCompute>(MaxBECount))
     MaxBECount = BECount;
 
-  return ExitLimit(BECount, MaxBECount, Predicates);
+  return ExitLimit(BECount, MaxBECount, MaxOrZero, Predicates);
 }
 
 ScalarEvolution::ExitLimit
@@ -8763,7 +8837,7 @@ ScalarEvolution::howManyGreaterThans(const SCEV *LHS, const SCEV *RHS,
   if (isa<SCEVCouldNotCompute>(MaxBECount))
     MaxBECount = BECount;
 
-  return ExitLimit(BECount, MaxBECount, Predicates);
+  return ExitLimit(BECount, MaxBECount, false, Predicates);
 }
 
 const SCEV *SCEVAddRecExpr::getNumIterationsInRange(const ConstantRange &Range,
@@ -8938,7 +9012,8 @@ struct SCEVCollectTerms {
       : Terms(T) {}
 
   bool follow(const SCEV *S) {
-    if (isa<SCEVUnknown>(S) || isa<SCEVMulExpr>(S)) {
+    if (isa<SCEVUnknown>(S) || isa<SCEVMulExpr>(S) ||
+        isa<SCEVSignExtendExpr>(S)) {
       if (!containsUndefs(S))
         Terms.push_back(S);
 
@@ -9544,6 +9619,8 @@ static void PrintLoopInfo(raw_ostream &OS, ScalarEvolution *SE,
 
   if (!isa<SCEVCouldNotCompute>(SE->getMaxBackedgeTakenCount(L))) {
     OS << "max backedge-taken count is " << *SE->getMaxBackedgeTakenCount(L);
+    if (SE->isBackedgeTakenCountMaxOrZero(L))
+      OS << ", actual taken count either this or zero.";
   } else {
     OS << "Unpredictable max backedge-taken count. ";
   }

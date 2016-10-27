@@ -92,7 +92,7 @@ cl::opt<ActionType> Action(
                    "REMOVED. Use -symbolize & coverage-report-server.py."),
         clEnumValN(SymbolizeAction, "symbolize",
                    "Produces a symbolized JSON report from binary report."),
-        clEnumValN(MergeAction, "merge", "Merges reports."), clEnumValEnd));
+        clEnumValN(MergeAction, "merge", "Merges reports.")));
 
 static cl::list<std::string>
     ClInputFiles(cl::Positional, cl::OneOrMore,
@@ -652,9 +652,11 @@ getCoveragePoints(const std::string &ObjectFile,
 static bool isCoveragePointSymbol(StringRef Name) {
   return Name == "__sanitizer_cov" || Name == "__sanitizer_cov_with_check" ||
          Name == "__sanitizer_cov_trace_func_enter" ||
+         Name == "__sanitizer_cov_trace_pc_guard" ||
          // Mac has '___' prefix
          Name == "___sanitizer_cov" || Name == "___sanitizer_cov_with_check" ||
-         Name == "___sanitizer_cov_trace_func_enter";
+         Name == "___sanitizer_cov_trace_func_enter" ||
+         Name == "___sanitizer_cov_trace_pc_guard";
 }
 
 // Locate __sanitizer_cov* function addresses inside the stubs table on MachO.

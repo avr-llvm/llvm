@@ -78,7 +78,7 @@ class GlobalsAAResult::FunctionInfo {
       return (AlignedMap *)P;
     }
     enum { NumLowBitsAvailable = 3 };
-    static_assert(AlignOf<AlignedMap>::Alignment >= (1 << NumLowBitsAvailable),
+    static_assert(alignof(AlignedMap) >= (1 << NumLowBitsAvailable),
                   "AlignedMap insufficiently aligned to have enough low bits.");
   };
 
@@ -367,7 +367,9 @@ bool GlobalsAAResult::AnalyzeUsesOfPointer(Value *V,
       if (!isa<ConstantPointerNull>(ICI->getOperand(1)))
         return true; // Allow comparison against null.
     } else if (Constant *C = dyn_cast<Constant>(I)) {
-      return C->isConstantUsed();
+      // Ignore constants which don't have any live uses.
+      if (isa<GlobalValue>(C) || C->isConstantUsed())
+        return true;
     } else {
       return true;
     }

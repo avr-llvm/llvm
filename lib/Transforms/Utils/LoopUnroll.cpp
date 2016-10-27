@@ -187,6 +187,11 @@ static bool needToInsertPhisForLCSSA(Loop *L, std::vector<BasicBlock *> Blocks,
 /// iterations via an early branch, but control may not exit the loop from the
 /// LatchBlock's terminator prior to TripCount iterations.
 ///
+/// PreserveCondBr indicates whether the conditional branch of the LatchBlock
+/// needs to be preserved.  It is needed when we use trip count upper bound to
+/// fully unroll the loop. If PreserveOnlyFirst is also set then only the first
+/// conditional branch needs to be preserved.
+///
 /// Similarly, TripMultiple divides the number of times that the LatchBlock may
 /// execute without exiting the loop.
 ///
@@ -203,6 +208,7 @@ static bool needToInsertPhisForLCSSA(Loop *L, std::vector<BasicBlock *> Blocks,
 /// DominatorTree if they are non-null.
 bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount, bool Force,
                       bool AllowRuntime, bool AllowExpensiveTripCount,
+                      bool PreserveCondBr, bool PreserveOnlyFirst,
                       unsigned TripMultiple, LoopInfo *LI, ScalarEvolution *SE,
                       DominatorTree *DT, AssumptionCache *AC,
                       OptimizationRemarkEmitter *ORE, bool PreserveLCSSA) {
@@ -539,12 +545,16 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount, bool Force,
     if (CompletelyUnroll) {
       if (j == 0)
         Dest = LoopExit;
-      NeedConditional = false;
-    }
-
-    // If we know the trip count or a multiple of it, we can safely use an
-    // unconditional branch for some iterations.
-    if (j != BreakoutTrip && (TripMultiple == 0 || j % TripMultiple != 0)) {
+      // If using trip count upper bound to completely unroll, we need to keep
+      // the conditional branch except the last one because the loop may exit
+      // after any iteration.
+      assert(NeedConditional &&
+             "NeedCondition cannot be modified by both complete "
+             "unrolling and runtime unrolling");
+      NeedConditional = (PreserveCondBr && j && !(PreserveOnlyFirst && i != 0));
+    } else if (j != BreakoutTrip && (TripMultiple == 0 || j % TripMultiple != 0)) {
+      // If we know the trip count or a multiple of it, we can safely use an
+      // unconditional branch for some iterations.
       NeedConditional = false;
     }
 

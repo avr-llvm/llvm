@@ -270,6 +270,7 @@ int RunOneTest(Fuzzer *F, const char *InputFilePath, size_t MaxLen) {
   if (MaxLen && MaxLen < U.size())
     U.resize(MaxLen);
   F->RunOne(U.data(), U.size());
+  F->TryDetectingAMemoryLeak(U.data(), U.size(), true);
   return 0;
 }
 
@@ -345,7 +346,7 @@ int MinimizeCrashInputInternalStep(Fuzzer *F, InputCorpus *Corpus) {
   Corpus->AddToCorpus(U, 0);
   F->SetMaxInputLen(U.size());
   F->SetMaxMutationLen(U.size() - 1);
-  F->Loop();
+  F->MinimizeCrashLoop(U);
   Printf("INFO: Done MinimizeCrashInputInternalStep, no crashes found\n");
   exit(0);
   return 0;
@@ -397,14 +398,16 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
   Options.UseIndirCalls = Flags.use_indir_calls;
   Options.UseMemcmp = Flags.use_memcmp;
   Options.UseMemmem = Flags.use_memmem;
+  Options.UseCmp = Flags.use_cmp;
   Options.UseValueProfile = Flags.use_value_profile;
   Options.Shrink = Flags.shrink;
   Options.ShuffleAtStartUp = Flags.shuffle;
   Options.PreferSmall = Flags.prefer_small;
-  Options.Reload = Flags.reload;
+  Options.ReloadIntervalSec = Flags.reload;
   Options.OnlyASCII = Flags.only_ascii;
   Options.OutputCSV = Flags.output_csv;
   Options.DetectLeaks = Flags.detect_leaks;
+  Options.TraceMalloc = Flags.trace_malloc;
   Options.RssLimitMb = Flags.rss_limit_mb;
   if (Flags.runs >= 0)
     Options.MaxNumberOfRuns = Flags.runs;
@@ -443,7 +446,7 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
 
   Random Rand(Seed);
   MutationDispatcher MD(Rand, Options);
-  InputCorpus Corpus;
+  InputCorpus Corpus(Options.OutputCorpus);
   Fuzzer F(Callback, Corpus, MD, Options);
 
   for (auto &U: Dictionary)
@@ -500,7 +503,8 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
   UnitVector InitialCorpus;
   for (auto &Inp : *Inputs) {
     Printf("Loading corpus dir: %s\n", Inp.c_str());
-    ReadDirToVectorOfUnits(Inp.c_str(), &InitialCorpus, nullptr, TemporaryMaxLen);
+    ReadDirToVectorOfUnits(Inp.c_str(), &InitialCorpus, nullptr,
+                           TemporaryMaxLen, /*ExitOnError=*/false);
   }
 
   if (Options.MaxLen == 0) {

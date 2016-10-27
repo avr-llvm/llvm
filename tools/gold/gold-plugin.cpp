@@ -118,8 +118,8 @@ namespace options {
   static unsigned OptLevel = 2;
   // Default parallelism of 0 used to indicate that user did not specify.
   // Actual parallelism default value depends on implementation.
-  // Currently only affects ThinLTO, where the default is the
-  // hardware_concurrency.
+  // Currently only affects ThinLTO, where the default is
+  // llvm::heavyweight_hardware_concurrency.
   static unsigned Parallelism = 0;
   // Default regular LTO codegen parallelism (number of partitions).
   static unsigned ParallelCodeGenParallelismLevel = 1;
@@ -526,9 +526,11 @@ static ld_plugin_status claim_file_hook(const ld_plugin_input_file *file,
 
     sym.size = 0;
     sym.comdat_key = nullptr;
-    const Comdat *C = check(Sym.getComdat());
-    if (C)
-      sym.comdat_key = strdup(C->getName().str().c_str());
+    int CI = check(Sym.getComdatIndex());
+    if (CI != -1) {
+      StringRef C = Obj->getComdatTable()[CI];
+      sym.comdat_key = strdup(C.str().c_str());
+    }
 
     sym.resolution = LDPR_UNKNOWN;
   }

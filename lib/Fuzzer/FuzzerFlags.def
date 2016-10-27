@@ -49,6 +49,7 @@ FUZZER_FLAG_INT(use_memmem, 1,
                 "Use hints from intercepting memmem, strstr, etc")
 FUZZER_FLAG_INT(use_value_profile, 0,
                 "Experimental. Use value profile to guide fuzzing.")
+FUZZER_FLAG_INT(use_cmp, 0, "Experimenta. Use CMP traces to guide mutations")
 FUZZER_FLAG_INT(shrink, 0, "Experimental. Try to shrink corpus elements.")
 FUZZER_FLAG_INT(jobs, 0, "Number of jobs to run. If jobs >= 1 we spawn"
                           " this number of jobs in separate worker processes"
@@ -57,8 +58,8 @@ FUZZER_FLAG_INT(workers, 0,
             "Number of simultaneous worker processes to run the jobs."
             " If zero, \"min(jobs,NumberOfCpuCores()/2)\" is used.")
 FUZZER_FLAG_INT(reload, 1,
-                "Reload the main corpus periodically to get new units"
-                " discovered by other processes.")
+                "Reload the main corpus every <N> seconds to get new units"
+                " discovered by other processes. If 0, disabled")
 FUZZER_FLAG_INT(report_slow_units, 10,
     "Report slowest units if they run for more than this number of seconds.")
 FUZZER_FLAG_INT(only_ascii, 0,
@@ -91,6 +92,8 @@ FUZZER_FLAG_INT(close_fd_mask, 0, "If 1, close stdout at startup; "
     "Be careful, this will also close e.g. asan's stderr/stdout.")
 FUZZER_FLAG_INT(detect_leaks, 1, "If 1, and if LeakSanitizer is enabled "
     "try to detect memory leaks during fuzzing (i.e. not only at shut down).")
+FUZZER_FLAG_INT(trace_malloc, 0, "If >= 1 will print all mallocs/frees. "
+    "If >= 2 will also print stack traces.")
 FUZZER_FLAG_INT(rss_limit_mb, 2048, "If non-zero, the fuzzer will exit upon"
     "reaching this limit of RSS memory usage.")
 FUZZER_FLAG_STRING(exit_on_src_pos, "Exit if a newly found PC originates"

@@ -118,6 +118,10 @@ DIE *DwarfCompileUnit::getOrCreateGlobalVariableDIE(
   else
     addGlobalName(GV->getName(), *VariableDIE, DeclContext);
 
+  if (uint32_t AlignInBytes = GV->getAlignInBytes())
+    addUInt(*VariableDIE, dwarf::DW_AT_alignment, dwarf::DW_FORM_udata,
+            AlignInBytes);
+
   // Add location.
   bool addToAccelTable = false;
 
@@ -419,7 +423,7 @@ DIE *DwarfCompileUnit::constructInlinedScopeDIE(LexicalScope *Scope) {
   addUInt(*ScopeDIE, dwarf::DW_AT_call_file, None,
           getOrCreateSourceID(IA->getFilename(), IA->getDirectory()));
   addUInt(*ScopeDIE, dwarf::DW_AT_call_line, None, IA->getLine());
-  if (IA->getDiscriminator())
+  if (IA->getDiscriminator() && DD->getDwarfVersion() >= 4)
     addUInt(*ScopeDIE, dwarf::DW_AT_GNU_discriminator, None,
             IA->getDiscriminator());
 
@@ -771,7 +775,13 @@ void DwarfCompileUnit::applyVariableAttributes(const DbgVariable &Var,
   StringRef Name = Var.getName();
   if (!Name.empty())
     addString(VariableDie, dwarf::DW_AT_name, Name);
-  addSourceLine(VariableDie, Var.getVariable());
+  const auto *DIVar = Var.getVariable();
+  if (DIVar)
+    if (uint32_t AlignInBytes = DIVar->getAlignInBytes())
+      addUInt(VariableDie, dwarf::DW_AT_alignment, dwarf::DW_FORM_udata,
+              AlignInBytes);
+
+  addSourceLine(VariableDie, DIVar);
   addType(VariableDie, Var.getType());
   if (Var.isArtificial())
     addFlag(VariableDie, dwarf::DW_AT_artificial);

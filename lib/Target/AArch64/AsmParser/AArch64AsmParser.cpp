@@ -119,9 +119,11 @@ public:
 #define GET_OPERAND_DIAGNOSTIC_TYPES
 #include "AArch64GenAsmMatcher.inc"
   };
+  bool IsILP32;
   AArch64AsmParser(const MCSubtargetInfo &STI, MCAsmParser &Parser,
                    const MCInstrInfo &MII, const MCTargetOptions &Options)
     : MCTargetAsmParser(Options, STI) {
+    IsILP32 = Options.getABIName() == "ilp32";
     MCAsmParserExtension::Initialize(Parser);
     MCStreamer &S = getParser().getStreamer();
     if (S.getTargetStreamer() == nullptr)
@@ -729,9 +731,13 @@ public:
           || ELFRefKind == AArch64MCExpr::VK_TLSDESC_LO12;
     }
 
-    // Otherwise it should be a real immediate in range:
-    const MCConstantExpr *CE = cast<MCConstantExpr>(Expr);
-    return CE->getValue() >= 0 && CE->getValue() <= 0xfff;
+    // If it's a constant, it should be a real immediate in range:
+    if (auto *CE = dyn_cast<MCConstantExpr>(Expr))
+      return CE->getValue() >= 0 && CE->getValue() <= 0xfff;
+
+    // If it's an expression, we hope for the best and let the fixup/relocation
+    // code deal with it.
+    return true;
   }
   bool isAddSubImmNeg() const {
     if (!isShiftedImm() && !isImm())
@@ -3568,31 +3574,34 @@ bool AArch64AsmParser::validateInstruction(MCInst &Inst,
       AArch64MCExpr::VariantKind ELFRefKind;
       MCSymbolRefExpr::VariantKind DarwinRefKind;
       int64_t Addend;
-      if (!classifySymbolRef(Expr, ELFRefKind, DarwinRefKind, Addend)) {
-        return Error(Loc[2], "invalid immediate expression");
+      if (classifySymbolRef(Expr, ELFRefKind, DarwinRefKind, Addend)) {
+
+        // Only allow these with ADDXri.
+        if ((DarwinRefKind == MCSymbolRefExpr::VK_PAGEOFF ||
+             DarwinRefKind == MCSymbolRefExpr::VK_TLVPPAGEOFF) &&
+            Inst.getOpcode() == AArch64::ADDXri)
+          return false;
+
+        // Only allow these with ADDXri/ADDWri
+        if ((ELFRefKind == AArch64MCExpr::VK_LO12 ||
+             ELFRefKind == AArch64MCExpr::VK_DTPREL_HI12 ||
+             ELFRefKind == AArch64MCExpr::VK_DTPREL_LO12 ||
+             ELFRefKind == AArch64MCExpr::VK_DTPREL_LO12_NC ||
+             ELFRefKind == AArch64MCExpr::VK_TPREL_HI12 ||
+             ELFRefKind == AArch64MCExpr::VK_TPREL_LO12 ||
+             ELFRefKind == AArch64MCExpr::VK_TPREL_LO12_NC ||
+             ELFRefKind == AArch64MCExpr::VK_TLSDESC_LO12) &&
+            (Inst.getOpcode() == AArch64::ADDXri ||
+             Inst.getOpcode() == AArch64::ADDWri))
+          return false;
+
+        // Don't allow symbol refs in the immediate field otherwise
+        // Note: Loc.back() may be Loc[1] or Loc[2] depending on the number of
+        // operands of the original instruction (i.e. 'add w0, w1, borked' vs
+        // 'cmp w0, 'borked')
+        return Error(Loc.back(), "invalid immediate expression");
       }
-
-      // Only allow these with ADDXri.
-      if ((DarwinRefKind == MCSymbolRefExpr::VK_PAGEOFF ||
-          DarwinRefKind == MCSymbolRefExpr::VK_TLVPPAGEOFF) &&
-          Inst.getOpcode() == AArch64::ADDXri)
-        return false;
-
-      // Only allow these with ADDXri/ADDWri
-      if ((ELFRefKind == AArch64MCExpr::VK_LO12 ||
-          ELFRefKind == AArch64MCExpr::VK_DTPREL_HI12 ||
-          ELFRefKind == AArch64MCExpr::VK_DTPREL_LO12 ||
-          ELFRefKind == AArch64MCExpr::VK_DTPREL_LO12_NC ||
-          ELFRefKind == AArch64MCExpr::VK_TPREL_HI12 ||
-          ELFRefKind == AArch64MCExpr::VK_TPREL_LO12 ||
-          ELFRefKind == AArch64MCExpr::VK_TPREL_LO12_NC ||
-          ELFRefKind == AArch64MCExpr::VK_TLSDESC_LO12) &&
-          (Inst.getOpcode() == AArch64::ADDXri ||
-          Inst.getOpcode() == AArch64::ADDWri))
-        return false;
-
-      // Don't allow expressions in the immediate field otherwise
-      return Error(Loc[2], "invalid immediate expression");
+      // We don't validate more complex expressions here
     }
     return false;
   }
@@ -4217,7 +4226,7 @@ bool AArch64AsmParser::parseDirectiveArch(SMLoc L) {
   }
 
   // Get the architecture and extension features.
-  std::vector<const char *> AArch64Features;
+  std::vector<StringRef> AArch64Features;
   AArch64::getArchFeatures(ID, AArch64Features);
   AArch64::getExtensionFeatures(AArch64::getDefaultExtensions("generic", ID),
                                 AArch64Features);
@@ -4553,9 +4562,9 @@ AArch64AsmParser::classifySymbolRef(const MCExpr *Expr,
 
 /// Force static initialization.
 extern "C" void LLVMInitializeAArch64AsmParser() {
-  RegisterMCAsmParser<AArch64AsmParser> X(TheAArch64leTarget);
-  RegisterMCAsmParser<AArch64AsmParser> Y(TheAArch64beTarget);
-  RegisterMCAsmParser<AArch64AsmParser> Z(TheARM64Target);
+  RegisterMCAsmParser<AArch64AsmParser> X(getTheAArch64leTarget());
+  RegisterMCAsmParser<AArch64AsmParser> Y(getTheAArch64beTarget());
+  RegisterMCAsmParser<AArch64AsmParser> Z(getTheARM64Target());
 }
 
 #define GET_REGISTER_MATCHER
@@ -4683,7 +4692,7 @@ AArch64AsmParser::tryParseGPRSeqPair(OperandVector &Operands) {
              "consecutive same-size even/odd register pair");
     return MatchOperand_ParseFail;
   }
-  
+
   unsigned Pair = 0;
   if(isXReg) {
     Pair = RI->getMatchingSuperReg(FirstReg, AArch64::sube64,

@@ -12,10 +12,36 @@
 #ifndef LLVM_FUZZER_TRACE_PC
 #define LLVM_FUZZER_TRACE_PC
 
+#include <set>
+
 #include "FuzzerDefs.h"
 #include "FuzzerValueBitMap.h"
 
 namespace fuzzer {
+
+// TableOfRecentCompares (TORC) remembers the most recently performed
+// comparisons of type T.
+// We record the arguments of CMP instructions in this table unconditionally
+// because it seems cheaper this way than to compute some expensive
+// conditions inside __sanitizer_cov_trace_cmp*.
+// After the unit has been executed we may decide to use the contents of
+// this table to populate a Dictionary.
+template<class T, size_t kSizeT>
+struct TableOfRecentCompares {
+  static const size_t kSize = kSizeT;
+  struct Pair {
+    T A, B;
+  };
+  void Insert(size_t Idx, T Arg1, T Arg2) {
+    Idx = Idx % kSize;
+    Table[Idx].A = Arg1;
+    Table[Idx].B = Arg2;
+  }
+
+  Pair Get(size_t I) { return Table[I % kSize]; }
+
+  Pair Table[kSize];
+};
 
 class TracePC {
  public:
@@ -25,33 +51,23 @@ class TracePC {
   void HandleInit(uint32_t *start, uint32_t *stop);
   void HandleCallerCallee(uintptr_t Caller, uintptr_t Callee);
   void HandleValueProfile(size_t Value) { ValueProfileMap.AddValue(Value); }
-  size_t GetTotalPCCoverage() { return TotalPCCoverage; }
-  void ResetTotalPCCoverage() { TotalPCCoverage = 0; }
+  template <class T> void HandleCmp(void *PC, T Arg1, T Arg2);
+  size_t GetTotalPCCoverage();
   void SetUseCounters(bool UC) { UseCounters = UC; }
   void SetUseValueProfile(bool VP) { UseValueProfile = VP; }
+  void SetPrintNewPCs(bool P) { DoPrintNewPCs = P; }
   size_t FinalizeTrace(InputCorpus *C, size_t InputSize, bool Shrink);
   bool UpdateValueProfileMap(ValueBitMap *MaxValueProfileMap) {
     return UseValueProfile && MaxValueProfileMap->MergeFrom(ValueProfileMap);
-    }
-
-
-  size_t GetNewPCIDs(uintptr_t **NewPCIDsPtr) {
-    *NewPCIDsPtr = NewPCIDs;
-    return Min(kMaxNewPCIDs, NumNewPCIDs);
   }
 
-  uintptr_t GetPCbyPCID(uintptr_t PCID) { return PCs[PCID]; }
-
   void ResetMaps() {
-    NumNewPCIDs = 0;
     ValueProfileMap.Reset();
     memset(Counters, 0, sizeof(Counters));
   }
 
   void UpdateFeatureSet(size_t CurrentElementIdx, size_t CurrentElementSize);
   void PrintFeatureSet();
-
-  void ResetGuards();
 
   void PrintModuleInfo();
 
@@ -64,17 +80,21 @@ class TracePC {
 
   bool UsingTracePcGuard() const {return NumModules; }
 
+  static const size_t kTORCSize = 1 << 5;
+  TableOfRecentCompares<uint32_t, kTORCSize> TORC4;
+  TableOfRecentCompares<uint64_t, kTORCSize> TORC8;
+
+  void PrintNewPCs();
+  size_t GetNumPCs() const { return Min(kNumPCs, NumGuards + 1); }
+  uintptr_t GetPC(size_t Idx) {
+    assert(Idx < GetNumPCs());
+    return PCs[Idx];
+  }
+
 private:
   bool UseCounters = false;
   bool UseValueProfile = false;
-  size_t TotalPCCoverage = 0;
-
-  static const size_t kMaxNewPCIDs = 1024;
-  uintptr_t NewPCIDs[kMaxNewPCIDs];
-  size_t NumNewPCIDs = 0;
-  void AddNewPCID(uintptr_t PCID) {
-    NewPCIDs[(NumNewPCIDs++) % kMaxNewPCIDs] = PCID;
-  }
+  bool DoPrintNewPCs = false;
 
   struct Module {
     uint32_t *Start, *Stop;
@@ -87,8 +107,10 @@ private:
   static const size_t kNumCounters = 1 << 14;
   alignas(8) uint8_t Counters[kNumCounters];
 
-  static const size_t kNumPCs = 1 << 20;
+  static const size_t kNumPCs = 1 << 24;
   uintptr_t PCs[kNumPCs];
+
+  std::set<uintptr_t> *PrintedPCs;
 
   ValueBitMap ValueProfileMap;
 };

@@ -434,7 +434,7 @@ StringRef MDString::getString() const {
 // prepended to them.
 #define HANDLE_MDNODE_LEAF(CLASS)                                              \
   static_assert(                                                               \
-      llvm::AlignOf<uint64_t>::Alignment >= llvm::AlignOf<CLASS>::Alignment,   \
+      alignof(uint64_t) >= alignof(CLASS),                                     \
       "Alignment is insufficient after objects prepended to " #CLASS);
 #include "llvm/IR/Metadata.def"
 
@@ -442,7 +442,7 @@ void *MDNode::operator new(size_t Size, unsigned NumOps) {
   size_t OpSize = NumOps * sizeof(MDOperand);
   // uint64_t is the most aligned type we need support (ensured by static_assert
   // above)
-  OpSize = alignTo(OpSize, llvm::alignOf<uint64_t>());
+  OpSize = alignTo(OpSize, alignof(uint64_t));
   void *Ptr = reinterpret_cast<char *>(::operator new(OpSize + Size)) + OpSize;
   MDOperand *O = static_cast<MDOperand *>(Ptr);
   for (MDOperand *E = O - NumOps; O != E; --O)
@@ -453,7 +453,7 @@ void *MDNode::operator new(size_t Size, unsigned NumOps) {
 void MDNode::operator delete(void *Mem) {
   MDNode *N = static_cast<MDNode *>(Mem);
   size_t OpSize = N->NumOperands * sizeof(MDOperand);
-  OpSize = alignTo(OpSize, llvm::alignOf<uint64_t>());
+  OpSize = alignTo(OpSize, alignof(uint64_t));
 
   MDOperand *O = static_cast<MDOperand *>(Mem);
   for (MDOperand *E = O - N->NumOperands; O != E; --O)
@@ -1054,7 +1054,7 @@ void NamedMDNode::setOperand(unsigned I, MDNode *New) {
 
 void NamedMDNode::eraseFromParent() { getParent()->eraseNamedMetadata(this); }
 
-void NamedMDNode::dropAllReferences() { getNMDOps(Operands).clear(); }
+void NamedMDNode::clearOperands() { getNMDOps(Operands).clear(); }
 
 StringRef NamedMDNode::getName() const { return StringRef(Name); }
 
@@ -1298,7 +1298,8 @@ bool Instruction::extractProfTotalWeight(uint64_t &TotalVal) const {
   assert((getOpcode() == Instruction::Br ||
           getOpcode() == Instruction::Select ||
           getOpcode() == Instruction::Call ||
-          getOpcode() == Instruction::Invoke) &&
+          getOpcode() == Instruction::Invoke ||
+          getOpcode() == Instruction::Switch) &&
          "Looking for branch weights on something besides branch");
 
   TotalVal = 0;

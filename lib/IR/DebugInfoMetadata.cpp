@@ -84,8 +84,9 @@ StringRef DINode::getFlagString(DIFlags Flag) {
 
 DINode::DIFlags DINode::splitFlags(DIFlags Flags,
                                    SmallVectorImpl<DIFlags> &SplitFlags) {
-  // Accessibility and member pointer flags need to be specially handled, since
-  // they're packed together.
+  // Flags that are packed together need to be specially handled, so
+  // that, for example, we emit "DIFlagPublic" and not
+  // "DIFlagPrivate | DIFlagProtected".
   if (DIFlags A = Flags & FlagAccessibility) {
     if (A == FlagPrivate)
       SplitFlags.push_back(FlagPrivate);
@@ -103,6 +104,10 @@ DINode::DIFlags DINode::splitFlags(DIFlags Flags,
     else
       SplitFlags.push_back(FlagVirtualInheritance);
     Flags &= ~R;
+  }
+  if ((Flags & FlagIndirectVirtualBase) == FlagIndirectVirtualBase) {
+    Flags &= ~FlagIndirectVirtualBase;
+    SplitFlags.push_back(FlagIndirectVirtualBase);
   }
 
 #define HANDLE_DI_FLAG(ID, NAME)                                               \
@@ -227,7 +232,7 @@ DIEnumerator *DIEnumerator::getImpl(LLVMContext &Context, int64_t Value,
 
 DIBasicType *DIBasicType::getImpl(LLVMContext &Context, unsigned Tag,
                                   MDString *Name, uint64_t SizeInBits,
-                                  uint64_t AlignInBits, unsigned Encoding,
+                                  uint32_t AlignInBits, unsigned Encoding,
                                   StorageType Storage, bool ShouldCreate) {
   assert(isCanonical(Name) && "Expected canonical MDString");
   DEFINE_GETIMPL_LOOKUP(DIBasicType,
@@ -240,7 +245,7 @@ DIBasicType *DIBasicType::getImpl(LLVMContext &Context, unsigned Tag,
 DIDerivedType *DIDerivedType::getImpl(
     LLVMContext &Context, unsigned Tag, MDString *Name, Metadata *File,
     unsigned Line, Metadata *Scope, Metadata *BaseType, uint64_t SizeInBits,
-    uint64_t AlignInBits, uint64_t OffsetInBits, DIFlags Flags,
+    uint32_t AlignInBits, uint64_t OffsetInBits, DIFlags Flags,
     Metadata *ExtraData, StorageType Storage, bool ShouldCreate) {
   assert(isCanonical(Name) && "Expected canonical MDString");
   DEFINE_GETIMPL_LOOKUP(DIDerivedType,
@@ -255,7 +260,7 @@ DIDerivedType *DIDerivedType::getImpl(
 DICompositeType *DICompositeType::getImpl(
     LLVMContext &Context, unsigned Tag, MDString *Name, Metadata *File,
     unsigned Line, Metadata *Scope, Metadata *BaseType, uint64_t SizeInBits,
-    uint64_t AlignInBits, uint64_t OffsetInBits, DIFlags Flags,
+    uint32_t AlignInBits, uint64_t OffsetInBits, DIFlags Flags,
     Metadata *Elements, unsigned RuntimeLang, Metadata *VTableHolder,
     Metadata *TemplateParams, MDString *Identifier, StorageType Storage,
     bool ShouldCreate) {
@@ -276,7 +281,7 @@ DICompositeType *DICompositeType::getImpl(
 DICompositeType *DICompositeType::buildODRType(
     LLVMContext &Context, MDString &Identifier, unsigned Tag, MDString *Name,
     Metadata *File, unsigned Line, Metadata *Scope, Metadata *BaseType,
-    uint64_t SizeInBits, uint64_t AlignInBits, uint64_t OffsetInBits,
+    uint64_t SizeInBits, uint32_t AlignInBits, uint64_t OffsetInBits,
     DIFlags Flags, Metadata *Elements, unsigned RuntimeLang,
     Metadata *VTableHolder, Metadata *TemplateParams) {
   assert(!Identifier.getString().empty() && "Expected valid identifier");
@@ -310,7 +315,7 @@ DICompositeType *DICompositeType::buildODRType(
 DICompositeType *DICompositeType::getODRType(
     LLVMContext &Context, MDString &Identifier, unsigned Tag, MDString *Name,
     Metadata *File, unsigned Line, Metadata *Scope, Metadata *BaseType,
-    uint64_t SizeInBits, uint64_t AlignInBits, uint64_t OffsetInBits,
+    uint64_t SizeInBits, uint32_t AlignInBits, uint64_t OffsetInBits,
     DIFlags Flags, Metadata *Elements, unsigned RuntimeLang,
     Metadata *VTableHolder, Metadata *TemplateParams) {
   assert(!Identifier.getString().empty() && "Expected valid identifier");
@@ -510,16 +515,18 @@ DIGlobalVariable::getImpl(LLVMContext &Context, Metadata *Scope, MDString *Name,
                           Metadata *Type, bool IsLocalToUnit, bool IsDefinition,
                           Metadata *Variable,
                           Metadata *StaticDataMemberDeclaration,
+                          uint32_t AlignInBits,
                           StorageType Storage, bool ShouldCreate) {
   assert(isCanonical(Name) && "Expected canonical MDString");
   assert(isCanonical(LinkageName) && "Expected canonical MDString");
   DEFINE_GETIMPL_LOOKUP(DIGlobalVariable,
                         (Scope, Name, LinkageName, File, Line, Type,
                          IsLocalToUnit, IsDefinition, Variable,
-                         StaticDataMemberDeclaration));
+                         StaticDataMemberDeclaration, AlignInBits));
   Metadata *Ops[] = {Scope, Name,        File,     Type,
                      Name,  LinkageName, Variable, StaticDataMemberDeclaration};
-  DEFINE_GETIMPL_STORE(DIGlobalVariable, (Line, IsLocalToUnit, IsDefinition),
+  DEFINE_GETIMPL_STORE(DIGlobalVariable,
+                       (Line, IsLocalToUnit, IsDefinition, AlignInBits),
                        Ops);
 }
 
@@ -527,6 +534,7 @@ DILocalVariable *DILocalVariable::getImpl(LLVMContext &Context, Metadata *Scope,
                                           MDString *Name, Metadata *File,
                                           unsigned Line, Metadata *Type,
                                           unsigned Arg, DIFlags Flags,
+                                          uint32_t AlignInBits,
                                           StorageType Storage,
                                           bool ShouldCreate) {
   // 64K ought to be enough for any frontend.
@@ -535,9 +543,10 @@ DILocalVariable *DILocalVariable::getImpl(LLVMContext &Context, Metadata *Scope,
   assert(Scope && "Expected scope");
   assert(isCanonical(Name) && "Expected canonical MDString");
   DEFINE_GETIMPL_LOOKUP(DILocalVariable,
-                        (Scope, Name, File, Line, Type, Arg, Flags));
+                        (Scope, Name, File, Line, Type, Arg, Flags,
+                         AlignInBits));
   Metadata *Ops[] = {Scope, Name, File, Type};
-  DEFINE_GETIMPL_STORE(DILocalVariable, (Line, Arg, Flags), Ops);
+  DEFINE_GETIMPL_STORE(DILocalVariable, (Line, Arg, Flags, AlignInBits), Ops);
 }
 
 DIExpression *DIExpression::getImpl(LLVMContext &Context,

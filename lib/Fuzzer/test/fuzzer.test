@@ -47,7 +47,7 @@ RUN: not LLVMFuzzer-BufferOverflowOnInput 2>&1 | FileCheck %s --check-prefix=OOB
 OOB: AddressSanitizer: heap-buffer-overflow
 OOB: is located 0 bytes to the right of 3-byte region
 
-RUN: not LLVMFuzzer-InitializeTest 2>&1 | FileCheck %s
+RUN: not LLVMFuzzer-InitializeTest -use_value_profile=1 2>&1 | FileCheck %s
 
 RUN: not LLVMFuzzer-DSOTest 2>&1 | FileCheck %s --check-prefix=DSO
 DSO: INFO: Loaded 3 modules
@@ -57,3 +57,7 @@ RUN: LLVMFuzzer-SimpleTest-TracePC  -exit_on_src_pos=SimpleTest.cpp:17          
 RUN: LLVMFuzzer-ShrinkControlFlowTest-TracePC  -exit_on_src_pos=ShrinkControlFlowTest.cpp:23 2>&1 | FileCheck %s --check-prefix=EXIT_ON_SRC_POS
 EXIT_ON_SRC_POS: INFO: found line matching '{{.*}}', exiting.
 
+RUN: ASAN_OPTIONS=strict_string_checks=1 not LLVMFuzzer-StrncmpOOBTest -seed=1 -runs=1000000 2>&1 | FileCheck %s --check-prefix=STRNCMP
+STRNCMP: AddressSanitizer: heap-buffer-overflow
+STRNCMP-NOT: __sanitizer_weak_hook_strncmp
+STRNCMP: in LLVMFuzzerTestOneInput

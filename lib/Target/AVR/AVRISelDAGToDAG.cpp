@@ -38,7 +38,7 @@ public:
 
   bool SelectAddr(SDNode *Op, SDValue N, SDValue &Base, SDValue &Disp);
 
-  SDNode *selectIndexedLoad(SDNode *N);
+  bool selectIndexedLoad(SDNode *N);
   unsigned selectIndexedProgMemLoad(const LoadSDNode *LD, MVT VT);
 
   bool SelectInlineAsmMemoryOperand(const SDValue &Op, unsigned ConstraintCode,
@@ -49,10 +49,10 @@ public:
 
 private:
   void Select(SDNode *N) override;
-  SDNode *selectImpl(SDNode *N);
+  bool trySelect(SDNode *N);
 
-  template <unsigned NodeType> SDNode *select(SDNode *N);
-  SDNode *selectMultiplication(SDNode *N);
+  template <unsigned NodeType> bool select(SDNode *N);
+  bool selectMultiplication(SDNode *N);
 
   const AVRSubtarget *Subtarget;
 };
@@ -108,8 +108,7 @@ bool AVRDAGToDAGISel::SelectAddr(SDNode *Op, SDValue N, SDValue &Base,
     MVT VT = cast<MemSDNode>(Op)->getMemoryVT().getSimpleVT();
 
     // We only accept offsets that fit in 6 bits (unsigned).
-    if ((VT == MVT::i8 && isUInt<6>(RHSC)) ||
-        (VT == MVT::i16 && RHSC >= 0 && RHSC < 63)) {
+    if (isUInt<6>(RHSC) && (VT == MVT::i8 || VT == MVT::i16)) {
       Base = N.getOperand(0);
       Disp = CurDAG->getTargetConstant(RHSC, dl, MVT::i8);
 
@@ -120,7 +119,7 @@ bool AVRDAGToDAGISel::SelectAddr(SDNode *Op, SDValue N, SDValue &Base,
   return false;
 }
 
-SDNode *AVRDAGToDAGISel::selectIndexedLoad(SDNode *N) {
+bool AVRDAGToDAGISel::selectIndexedLoad(SDNode *N) {
   const LoadSDNode *LD = cast<LoadSDNode>(N);
   ISD::MemIndexedMode AM = LD->getAddressingMode();
   MVT VT = LD->getMemoryVT().getSimpleVT();
@@ -130,7 +129,7 @@ SDNode *AVRDAGToDAGISel::selectIndexedLoad(SDNode *N) {
   if ((LD->getExtensionType() != ISD::NON_EXTLOAD) ||
       (AM != ISD::POST_INC && AM != ISD::PRE_DEC)) {
 
-    return 0;
+    return false;
   }
 
   unsigned Opcode = 0;
@@ -140,7 +139,7 @@ SDNode *AVRDAGToDAGISel::selectIndexedLoad(SDNode *N) {
   switch (VT.SimpleTy) {
   case MVT::i8: {
     if ((!isPre && Offs != 1) || (isPre && Offs != -1)) {
-      return 0;
+      return false;
     }
 
     Opcode = (isPre) ? AVR::LDRdPtrPd : AVR::LDRdPtrPi;
@@ -148,18 +147,23 @@ SDNode *AVRDAGToDAGISel::selectIndexedLoad(SDNode *N) {
   }
   case MVT::i16: {
     if ((!isPre && Offs != 2) || (isPre && Offs != -2)) {
-      return 0;
+      return false;
     }
 
     Opcode = (isPre) ? AVR::LDWRdPtrPd : AVR::LDWRdPtrPi;
     break;
   }
   default:
-    return 0;
+    return false;
   }
 
-  return CurDAG->getMachineNode(Opcode, SDLoc(N), VT, PtrVT, MVT::Other,
-                                LD->getBasePtr(), LD->getChain());
+  SDNode *ResNode = CurDAG->getMachineNode(Opcode, SDLoc(N), VT,
+                                           PtrVT, MVT::Other,
+                                           LD->getBasePtr(), LD->getChain());
+  ReplaceUses(N, ResNode);
+  CurDAG->RemoveDeadNode(N);
+
+  return true;
 }
 
 unsigned AVRDAGToDAGISel::selectIndexedProgMemLoad(const LoadSDNode *LD,
@@ -302,7 +306,7 @@ bool AVRDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
   return false;
 }
 
-template <> SDNode *AVRDAGToDAGISel::select<ISD::FrameIndex>(SDNode *N) {
+template <> bool AVRDAGToDAGISel::select<ISD::FrameIndex>(SDNode *N) {
   auto DL = CurDAG->getDataLayout();
 
   // Convert the frameindex into a temp instruction that will hold the
@@ -311,12 +315,13 @@ template <> SDNode *AVRDAGToDAGISel::select<ISD::FrameIndex>(SDNode *N) {
   SDValue TFI =
     CurDAG->getTargetFrameIndex(FI, getTargetLowering()->getPointerTy(DL));
 
-  return CurDAG->SelectNodeTo(N, AVR::FRMIDX,
-                              getTargetLowering()->getPointerTy(DL), TFI,
-                              CurDAG->getTargetConstant(0, SDLoc(N), MVT::i16));
+  CurDAG->SelectNodeTo(N, AVR::FRMIDX,
+                       getTargetLowering()->getPointerTy(DL), TFI,
+                       CurDAG->getTargetConstant(0, SDLoc(N), MVT::i16));
+  return true;
 }
 
-template <> SDNode *AVRDAGToDAGISel::select<ISD::STORE>(SDNode *N) {
+template <> bool AVRDAGToDAGISel::select<ISD::STORE>(SDNode *N) {
   // Use the STD{W}SPQRr pseudo instruction when passing arguments through
   // the stack on function calls for further expansion during the PEI phase.
   const StoreSDNode *ST = cast<StoreSDNode>(N);
@@ -324,13 +329,13 @@ template <> SDNode *AVRDAGToDAGISel::select<ISD::STORE>(SDNode *N) {
 
   // Early exit when the base pointer is a frame index node or a constant.
   if (isa<FrameIndexSDNode>(BasePtr) || isa<ConstantSDNode>(BasePtr)) {
-    return nullptr;
+    return false;
   }
 
   const RegisterSDNode *RN = dyn_cast<RegisterSDNode>(BasePtr.getOperand(0));
   // Only stores where SP is the base pointer are valid.
   if (!RN || (RN->getReg() != AVR::SP)) {
-    return nullptr;
+    return false;
   }
 
   int CST = (int)cast<ConstantSDNode>(BasePtr.getOperand(1))->getZExtValue();
@@ -349,11 +354,12 @@ template <> SDNode *AVRDAGToDAGISel::select<ISD::STORE>(SDNode *N) {
   cast<MachineSDNode>(ResNode)->setMemRefs(MemOp, MemOp + 1);
 
   ReplaceUses(SDValue(N, 0), SDValue(ResNode, 0));
+  CurDAG->RemoveDeadNode(N);
 
-  return ResNode;
+  return true;
 }
 
-template <> SDNode *AVRDAGToDAGISel::select<ISD::LOAD>(SDNode *N) {
+template <> bool AVRDAGToDAGISel::select<ISD::LOAD>(SDNode *N) {
   const LoadSDNode *LD = cast<LoadSDNode>(N);
   if (!AVR::isProgramMemoryAccess(LD)) {
     // Check if the opcode can be converted into an indexed load.
@@ -404,11 +410,12 @@ template <> SDNode *AVRDAGToDAGISel::select<ISD::LOAD>(SDNode *N) {
 
   ReplaceUses(SDValue(N, 0), SDValue(ResNode, 0));
   ReplaceUses(SDValue(N, 1), SDValue(ResNode, 1));
+  CurDAG->RemoveDeadNode(N);
 
-  return ResNode;
+  return true;
 }
 
-template <> SDNode *AVRDAGToDAGISel::select<AVRISD::CALL>(SDNode *N) {
+template <> bool AVRDAGToDAGISel::select<AVRISD::CALL>(SDNode *N) {
   SDValue InFlag;
   SDValue Chain = N->getOperand(0);
   SDValue Callee = N->getOperand(1);
@@ -417,7 +424,7 @@ template <> SDNode *AVRDAGToDAGISel::select<AVRISD::CALL>(SDNode *N) {
   // Direct calls are autogenerated.
   unsigned Op = Callee.getOpcode();
   if (Op == ISD::TargetGlobalAddress || Op == ISD::TargetExternalSymbol) {
-    return nullptr;
+    return false;
   }
 
   // Skip the incoming flag if present
@@ -443,11 +450,12 @@ template <> SDNode *AVRDAGToDAGISel::select<AVRISD::CALL>(SDNode *N) {
 
   ReplaceUses(SDValue(N, 0), SDValue(ResNode, 0));
   ReplaceUses(SDValue(N, 1), SDValue(ResNode, 1));
+  CurDAG->RemoveDeadNode(N);
 
-  return ResNode;
+  return true;
 }
 
-template <> SDNode *AVRDAGToDAGISel::select<ISD::BRIND>(SDNode *N) {
+template <> bool AVRDAGToDAGISel::select<ISD::BRIND>(SDNode *N) {
   SDValue Chain = N->getOperand(0);
   SDValue JmpAddr = N->getOperand(1);
 
@@ -457,11 +465,12 @@ template <> SDNode *AVRDAGToDAGISel::select<ISD::BRIND>(SDNode *N) {
   SDNode *ResNode = CurDAG->getMachineNode(AVR::IJMP, DL, MVT::Other, Chain);
 
   ReplaceUses(SDValue(N, 0), SDValue(ResNode, 0));
+  CurDAG->RemoveDeadNode(N);
 
-  return ResNode;
+  return true;
 }
 
-SDNode *AVRDAGToDAGISel::selectMultiplication(llvm::SDNode *N) {
+bool AVRDAGToDAGISel::selectMultiplication(llvm::SDNode *N) {
   SDLoc DL(N);
   MVT Type = N->getSimpleValueType(0);
 
@@ -498,52 +507,37 @@ SDNode *AVRDAGToDAGISel::selectMultiplication(llvm::SDNode *N) {
     InGlue = CopyFromHi.getValue(2);
   }
 
+  CurDAG->RemoveDeadNode(N);
+
   // We need to clear R1. This is currently done (dirtily)
   // using a custom inserter.
 
-  return nullptr;
+  return true;
 }
 
 void AVRDAGToDAGISel::Select(SDNode *N) {
-  SDNode *New = selectImpl(N);
-
-  // TODO: Checking DELETED_NODE here is undefined behaviour, which will be
-  // fixed by migrating backends to implement the void Select interface
-  // instead or returning a node.
-  if (New == N || N->getOpcode() == ISD::DELETED_NODE) {
-    // If we ask to replace the node with itself or if we deleted the original
-    // node, just move on to the next one. This case will go away once
-    // everyone migrates to stop implementing selectImpl.
-    return;
-  }
-
-  if (New) {
-    // Replace the node with the returned node. Originally, Select would
-    // always return a node and the caller would replace it, but this doesn't
-    // work for more complicated selection schemes.
-    ReplaceUses(N, New);
-    CurDAG->RemoveDeadNode(N);
-  } else if (N->use_empty()) {
-    // Clean up dangling nodes if the target didn't bother. These are
-    // basically bugs in the targets, but we were lenient in the past and did
-    // this for them.
-    CurDAG->RemoveDeadNode(N);
-  }
-}
-
-SDNode *AVRDAGToDAGISel::selectImpl(SDNode *N) {
-  unsigned Opcode = N->getOpcode();
-  SDLoc DL(N);
-
-  DEBUG(dbgs() << "Selecting: "; N->dump(CurDAG); dbgs() << "\n");
+  // Dump information about the Node being selected
+  DEBUG(errs() << "Selecting: "; N->dump(CurDAG); errs() << "\n");
 
   // If we have a custom node, we already have selected!
   if (N->isMachineOpcode()) {
-    DEBUG(dbgs() << "== "; N->dump(CurDAG); dbgs() << "\n");
-    return 0;
+    DEBUG(errs() << "== "; N->dump(CurDAG); errs() << "\n");
+    N->setNodeId(-1);
+    return;
   }
 
-  SDNode *ResNode = nullptr;
+  // See if subclasses can handle this node.
+  if (trySelect(N))
+    return;
+
+  // Select the default instruction
+  SelectCode(N);
+}
+
+bool AVRDAGToDAGISel::trySelect(SDNode *N) {
+  unsigned Opcode = N->getOpcode();
+  SDLoc DL(N);
+
   switch (Opcode) {
   // Nodes we fully handle.
   case ISD::FrameIndex: return select<ISD::FrameIndex>(N);
@@ -552,25 +546,11 @@ SDNode *AVRDAGToDAGISel::selectImpl(SDNode *N) {
   case ISD::SMUL_LOHI:  return selectMultiplication(N);
 
   // Nodes we handle partially. Other cases are autogenerated
-  case ISD::STORE:
-    ResNode = select<ISD::STORE>(N);
-    break;
-  case ISD::LOAD:
-    ResNode = select<ISD::LOAD>(N);
-    break;
-  case AVRISD::CALL:
-    ResNode = select<AVRISD::CALL>(N);
-    break;
+  case ISD::STORE:   return select<ISD::STORE>(N);
+  case ISD::LOAD:    return select<ISD::LOAD>(N);
+  case AVRISD::CALL: return select<AVRISD::CALL>(N);
+  default:           return false;
   }
-
-  if (ResNode)
-    return ResNode;
-
-  ResNode = SelectCode(N);
-
-  DEBUG(dbgs() << "=> "; (ResNode ? ResNode : N)->dump(CurDAG);
-        dbgs() << "\n";);
-  return ResNode;
 }
 
 FunctionPass *createAVRISelDag(AVRTargetMachine &TM,

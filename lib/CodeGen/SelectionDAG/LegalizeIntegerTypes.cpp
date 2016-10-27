@@ -102,6 +102,11 @@ void DAGTypeLegalizer::PromoteIntegerResult(SDNode *N, unsigned ResNo) {
   case ISD::CONCAT_VECTORS:
                          Res = PromoteIntRes_CONCAT_VECTORS(N); break;
 
+  case ISD::ANY_EXTEND_VECTOR_INREG:
+  case ISD::SIGN_EXTEND_VECTOR_INREG:
+  case ISD::ZERO_EXTEND_VECTOR_INREG:
+                         Res = PromoteIntRes_EXTEND_VECTOR_INREG(N); break;
+
   case ISD::SIGN_EXTEND:
   case ISD::ZERO_EXTEND:
   case ISD::ANY_EXTEND:  Res = PromoteIntRes_INT_EXTEND(N); break;
@@ -183,8 +188,7 @@ SDValue DAGTypeLegalizer::PromoteIntRes_Atomic0(AtomicSDNode *N) {
   SDValue Res = DAG.getAtomic(N->getOpcode(), SDLoc(N),
                               N->getMemoryVT(), ResVT,
                               N->getChain(), N->getBasePtr(),
-                              N->getMemOperand(), N->getOrdering(),
-                              N->getSynchScope());
+                              N->getMemOperand());
   // Legalize the chain result - switch anything that used the old chain to
   // use the new one.
   ReplaceValueWith(SDValue(N, 1), Res.getValue(1));
@@ -196,8 +200,7 @@ SDValue DAGTypeLegalizer::PromoteIntRes_Atomic1(AtomicSDNode *N) {
   SDValue Res = DAG.getAtomic(N->getOpcode(), SDLoc(N),
                               N->getMemoryVT(),
                               N->getChain(), N->getBasePtr(),
-                              Op2, N->getMemOperand(), N->getOrdering(),
-                              N->getSynchScope());
+                              Op2, N->getMemOperand());
   // Legalize the chain result - switch anything that used the old chain to
   // use the new one.
   ReplaceValueWith(SDValue(N, 1), Res.getValue(1));
@@ -220,8 +223,7 @@ SDValue DAGTypeLegalizer::PromoteIntRes_AtomicCmpSwap(AtomicSDNode *N,
     SDValue Res = DAG.getAtomicCmpSwap(
         ISD::ATOMIC_CMP_SWAP_WITH_SUCCESS, SDLoc(N), N->getMemoryVT(), VTs,
         N->getChain(), N->getBasePtr(), N->getOperand(2), N->getOperand(3),
-        N->getMemOperand(), N->getSuccessOrdering(), N->getFailureOrdering(),
-        N->getSynchScope());
+        N->getMemOperand());
     ReplaceValueWith(SDValue(N, 0), Res.getValue(0));
     ReplaceValueWith(SDValue(N, 2), Res.getValue(2));
     return Res.getValue(1);
@@ -233,8 +235,7 @@ SDValue DAGTypeLegalizer::PromoteIntRes_AtomicCmpSwap(AtomicSDNode *N,
       DAG.getVTList(Op2.getValueType(), N->getValueType(1), MVT::Other);
   SDValue Res = DAG.getAtomicCmpSwap(
       N->getOpcode(), SDLoc(N), N->getMemoryVT(), VTs, N->getChain(),
-      N->getBasePtr(), Op2, Op3, N->getMemOperand(), N->getSuccessOrdering(),
-      N->getFailureOrdering(), N->getSynchScope());
+      N->getBasePtr(), Op2, Op3, N->getMemOperand());
   // Update the use to N with the newly created Res.
   for (unsigned i = 1, NumResults = N->getNumValues(); i < NumResults; ++i)
     ReplaceValueWith(SDValue(N, i), Res.getValue(i));
@@ -992,8 +993,7 @@ SDValue DAGTypeLegalizer::PromoteIntOp_ANY_EXTEND(SDNode *N) {
 SDValue DAGTypeLegalizer::PromoteIntOp_ATOMIC_STORE(AtomicSDNode *N) {
   SDValue Op2 = GetPromotedInteger(N->getOperand(2));
   return DAG.getAtomic(N->getOpcode(), SDLoc(N), N->getMemoryVT(),
-                       N->getChain(), N->getBasePtr(), Op2, N->getMemOperand(),
-                       N->getOrdering(), N->getSynchScope());
+                       N->getChain(), N->getBasePtr(), Op2, N->getMemOperand());
 }
 
 SDValue DAGTypeLegalizer::PromoteIntOp_BITCAST(SDNode *N) {
@@ -1324,6 +1324,7 @@ void DAGTypeLegalizer::ExpandIntegerResult(SDNode *N, unsigned ResNo) {
   case ISD::CTPOP:       ExpandIntRes_CTPOP(N, Lo, Hi); break;
   case ISD::CTTZ_ZERO_UNDEF:
   case ISD::CTTZ:        ExpandIntRes_CTTZ(N, Lo, Hi); break;
+  case ISD::FLT_ROUNDS_: ExpandIntRes_FLT_ROUNDS(N, Lo, Hi); break;
   case ISD::FP_TO_SINT:  ExpandIntRes_FP_TO_SINT(N, Lo, Hi); break;
   case ISD::FP_TO_UINT:  ExpandIntRes_FP_TO_UINT(N, Lo, Hi); break;
   case ISD::LOAD:        ExpandIntRes_LOAD(cast<LoadSDNode>(N), Lo, Hi); break;
@@ -1362,8 +1363,7 @@ void DAGTypeLegalizer::ExpandIntegerResult(SDNode *N, unsigned ResNo) {
     SDValue Tmp = DAG.getAtomicCmpSwap(
         ISD::ATOMIC_CMP_SWAP, SDLoc(N), AN->getMemoryVT(), VTs,
         N->getOperand(0), N->getOperand(1), N->getOperand(2), N->getOperand(3),
-        AN->getMemOperand(), AN->getSuccessOrdering(), AN->getFailureOrdering(),
-        AN->getSynchScope());
+        AN->getMemOperand());
 
     // Expanding to the strong ATOMIC_CMP_SWAP node means we can determine
     // success simply by comparing the loaded value against the ingoing
@@ -2010,6 +2010,19 @@ void DAGTypeLegalizer::ExpandIntRes_CTTZ(SDNode *N,
                                  DAG.getConstant(NVT.getSizeInBits(), dl,
                                                  NVT)));
   Hi = DAG.getConstant(0, dl, NVT);
+}
+
+void DAGTypeLegalizer::ExpandIntRes_FLT_ROUNDS(SDNode *N, SDValue &Lo,
+                                               SDValue &Hi) {
+  SDLoc dl(N);
+  EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), N->getValueType(0));
+  unsigned NBitWidth = NVT.getSizeInBits();
+
+  EVT ShiftAmtTy = TLI.getShiftAmountTy(NVT, DAG.getDataLayout());
+  Lo = DAG.getNode(ISD::FLT_ROUNDS_, dl, NVT);
+  // The high part is the sign of Lo, as -1 is a valid value for FLT_ROUNDS
+  Hi = DAG.getNode(ISD::SRA, dl, NVT, Lo,
+                   DAG.getConstant(NBitWidth - 1, dl, ShiftAmtTy));
 }
 
 void DAGTypeLegalizer::ExpandIntRes_FP_TO_SINT(SDNode *N, SDValue &Lo,
@@ -2714,10 +2727,7 @@ void DAGTypeLegalizer::ExpandIntRes_ATOMIC_LOAD(SDNode *N,
   SDValue Swap = DAG.getAtomicCmpSwap(
       ISD::ATOMIC_CMP_SWAP_WITH_SUCCESS, dl,
       cast<AtomicSDNode>(N)->getMemoryVT(), VTs, N->getOperand(0),
-      N->getOperand(1), Zero, Zero, cast<AtomicSDNode>(N)->getMemOperand(),
-      cast<AtomicSDNode>(N)->getOrdering(),
-      cast<AtomicSDNode>(N)->getOrdering(),
-      cast<AtomicSDNode>(N)->getSynchScope());
+      N->getOperand(1), Zero, Zero, cast<AtomicSDNode>(N)->getMemOperand());
 
   ReplaceValueWith(SDValue(N, 0), Swap.getValue(0));
   ReplaceValueWith(SDValue(N, 1), Swap.getValue(2));
@@ -3205,9 +3215,7 @@ SDValue DAGTypeLegalizer::ExpandIntOp_ATOMIC_STORE(SDNode *N) {
                                cast<AtomicSDNode>(N)->getMemoryVT(),
                                N->getOperand(0),
                                N->getOperand(1), N->getOperand(2),
-                               cast<AtomicSDNode>(N)->getMemOperand(),
-                               cast<AtomicSDNode>(N)->getOrdering(),
-                               cast<AtomicSDNode>(N)->getSynchScope());
+                               cast<AtomicSDNode>(N)->getMemOperand());
   return Swap.getValue(1);
 }
 
@@ -3332,6 +3340,41 @@ SDValue DAGTypeLegalizer::PromoteIntRes_CONCAT_VECTORS(SDNode *N) {
   }
 
   return DAG.getNode(ISD::BUILD_VECTOR, dl, NOutVT, Ops);
+}
+
+SDValue DAGTypeLegalizer::PromoteIntRes_EXTEND_VECTOR_INREG(SDNode *N) {
+  EVT VT = N->getValueType(0);
+  EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), VT);
+  assert(NVT.isVector() && "This type must be promoted to a vector type");
+
+  SDLoc dl(N);
+
+  // For operands whose TypeAction is to promote, extend the promoted node
+  // appropriately (ZERO_EXTEND or SIGN_EXTEND) from the original pre-promotion
+  // type, and then construct a new *_EXTEND_VECTOR_INREG node to the promote-to
+  // type..
+  if (getTypeAction(N->getOperand(0).getValueType())
+      == TargetLowering::TypePromoteInteger) {
+    SDValue Promoted;
+
+    switch(N->getOpcode()) {
+      case ISD::SIGN_EXTEND_VECTOR_INREG:
+        Promoted = SExtPromotedInteger(N->getOperand(0));
+        break;
+      case ISD::ZERO_EXTEND_VECTOR_INREG:
+        Promoted = ZExtPromotedInteger(N->getOperand(0));
+        break;
+      case ISD::ANY_EXTEND_VECTOR_INREG:
+        Promoted = GetPromotedInteger(N->getOperand(0));
+        break;
+      default:
+        llvm_unreachable("Node has unexpected Opcode");
+    }
+    return DAG.getNode(N->getOpcode(), dl, NVT, Promoted);
+  }
+
+  // Directly extend to the appropriate transform-to type.
+  return DAG.getNode(N->getOpcode(), dl, NVT, N->getOperand(0));
 }
 
 SDValue DAGTypeLegalizer::PromoteIntRes_INSERT_VECTOR_ELT(SDNode *N) {

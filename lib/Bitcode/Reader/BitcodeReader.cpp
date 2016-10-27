@@ -2497,7 +2497,9 @@ std::error_code BitcodeReader::parseMetadata(bool ModuleLevel) {
       Metadata *Scope = getDITypeRefOrNull(Record[5]);
       Metadata *BaseType = getDITypeRefOrNull(Record[6]);
       uint64_t SizeInBits = Record[7];
-      uint64_t AlignInBits = Record[8];
+      if (Record[8] > (uint64_t)std::numeric_limits<uint32_t>::max())
+        return error("Alignment value is too large");
+      uint32_t AlignInBits = Record[8];
       uint64_t OffsetInBits = Record[9];
       DINode::DIFlags Flags = static_cast<DINode::DIFlags>(Record[10]);
       Metadata *Elements = getMDOrNull(Record[11]);
@@ -2732,7 +2734,7 @@ std::error_code BitcodeReader::parseMetadata(bool ModuleLevel) {
       break;
     }
     case bitc::METADATA_GLOBAL_VAR: {
-      if (Record.size() != 11)
+      if (Record.size() < 11 || Record.size() > 12)
         return error("Invalid record");
 
       IsDistinct = Record[0];
@@ -2740,6 +2742,12 @@ std::error_code BitcodeReader::parseMetadata(bool ModuleLevel) {
       // Upgrade old metadata, which stored a global variable reference or a
       // ConstantInt here.
       Metadata *Expr = getMDOrNull(Record[9]);
+      uint32_t AlignInBits = 0;
+      if (Record.size() > 11) {
+        if (Record[11] > (uint64_t)std::numeric_limits<uint32_t>::max())
+          return error("Alignment value is too large");
+        AlignInBits = Record[11];
+      }
       GlobalVariable *Attach = nullptr;
       if (auto *CMD = dyn_cast_or_null<ConstantAsMetadata>(Expr)) {
         if (auto *GV = dyn_cast<GlobalVariable>(CMD->getValue())) {
@@ -2759,7 +2767,7 @@ std::error_code BitcodeReader::parseMetadata(bool ModuleLevel) {
           (Context, getMDOrNull(Record[1]), getMDString(Record[2]),
            getMDString(Record[3]), getMDOrNull(Record[4]), Record[5],
            getDITypeRefOrNull(Record[6]), Record[7], Record[8], Expr,
-           getMDOrNull(Record[10])));
+           getMDOrNull(Record[10]), AlignInBits));
       MetadataList.assignValue(DGV, NextMetadataNo++);
 
       if (Attach)
@@ -2772,18 +2780,27 @@ std::error_code BitcodeReader::parseMetadata(bool ModuleLevel) {
       if (Record.size() < 8 || Record.size() > 10)
         return error("Invalid record");
 
+      IsDistinct = Record[0] & 1;
+      bool HasAlignment = Record[0] & 2;
       // 2nd field used to be an artificial tag, either DW_TAG_auto_variable or
-      // DW_TAG_arg_variable.
-      IsDistinct = Record[0];
-      bool HasTag = Record.size() > 8;
+      // DW_TAG_arg_variable, if we have alignment flag encoded it means, that
+      // this is newer version of record which doesn't have artifical tag.
+      bool HasTag = !HasAlignment && Record.size() > 8;
       DINode::DIFlags Flags = static_cast<DINode::DIFlags>(Record[7 + HasTag]);
+      uint32_t AlignInBits = 0;
+      if (HasAlignment) {
+        if (Record[8 + HasTag] >
+            (uint64_t)std::numeric_limits<uint32_t>::max())
+          return error("Alignment value is too large");
+        AlignInBits = Record[8 + HasTag];
+      }
       MetadataList.assignValue(
           GET_OR_DISTINCT(DILocalVariable,
                           (Context, getMDOrNull(Record[1 + HasTag]),
                            getMDString(Record[2 + HasTag]),
                            getMDOrNull(Record[3 + HasTag]), Record[4 + HasTag],
                            getDITypeRefOrNull(Record[5 + HasTag]),
-                           Record[6 + HasTag], Flags)),
+                           Record[6 + HasTag], Flags, AlignInBits)),
           NextMetadataNo++);
       break;
     }
@@ -6147,8 +6164,8 @@ std::error_code ModuleSummaryIndexBitcodeReader::parseModule() {
           if (!TheIndex)
             break;
           if (TheIndex->modulePaths().empty())
-            // Does not have any summary emitted.
-            break;
+            // We always seed the index with the module.
+            TheIndex->addModulePath(Buffer->getBufferIdentifier(), 0);
           if (TheIndex->modulePaths().size() != 1)
             return error("Don't expect multiple modules defined?");
           auto &Hash = TheIndex->modulePaths().begin()->second.second;
@@ -6579,7 +6596,7 @@ namespace {
 // will be removed once this transition is complete. Clients should prefer to
 // deal with the Error value directly, rather than converting to error_code.
 class BitcodeErrorCategoryType : public std::error_category {
-  const char *name() const LLVM_NOEXCEPT override {
+  const char *name() const noexcept override {
     return "llvm.bitcode";
   }
   std::string message(int IE) const override {

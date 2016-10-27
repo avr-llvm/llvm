@@ -435,9 +435,8 @@ define <4 x double> @shuffle_v4f64_0415(<4 x double> %a, <4 x double> %b) {
 ;
 ; AVX512VL-LABEL: shuffle_v4f64_0415:
 ; AVX512VL:       # BB#0:
-; AVX512VL-NEXT:    vpermpd {{.*#+}} ymm1 = ymm1[0,0,2,1]
-; AVX512VL-NEXT:    vpermpd {{.*#+}} ymm0 = ymm0[0,1,1,3]
-; AVX512VL-NEXT:    vblendpd {{.*#+}} ymm0 = ymm0[0],ymm1[1],ymm0[2],ymm1[3]
+; AVX512VL-NEXT:    vmovapd {{.*#+}} ymm2 = [0,4,1,5]
+; AVX512VL-NEXT:    vpermt2pd %ymm1, %ymm2, %ymm0
 ; AVX512VL-NEXT:    retq
   %shuffle = shufflevector <4 x double> %a, <4 x double> %b, <4 x i32> <i32 0, i32 4, i32 1, i32 5>
   ret <4 x double> %shuffle
@@ -1318,7 +1317,7 @@ define <4 x i64> @splat128_mem_v4i64_from_v2i64(<2 x i64>* %ptr) {
 ;
 ; AVX512VL-LABEL: splat128_mem_v4i64_from_v2i64:
 ; AVX512VL:       # BB#0:
-; AVX512VL-NEXT:    vbroadcasti32x4 (%rdi), %ymm0
+; AVX512VL-NEXT:    vbroadcasti32x4 {{.*#+}} ymm0 = mem[0,1,2,3,0,1,2,3]
 ; AVX512VL-NEXT:    retq
   %v = load <2 x i64>, <2 x i64>* %ptr
   %shuffle = shufflevector <2 x i64> %v, <2 x i64> undef, <4 x i32> <i32 0, i32 1, i32 0, i32 1>
@@ -1338,7 +1337,7 @@ define <4 x double> @splat128_mem_v4f64_from_v2f64(<2 x double>* %ptr) {
 ;
 ; AVX512VL-LABEL: splat128_mem_v4f64_from_v2f64:
 ; AVX512VL:       # BB#0:
-; AVX512VL-NEXT:    vbroadcastf32x4 (%rdi), %ymm0
+; AVX512VL-NEXT:    vbroadcastf32x4 {{.*#+}} ymm0 = mem[0,1,2,3,0,1,2,3]
 ; AVX512VL-NEXT:    retq
   %v = load <2 x double>, <2 x double>* %ptr
   %shuffle = shufflevector <2 x double> %v, <2 x double> undef, <4 x i32> <i32 0, i32 1, i32 0, i32 1>

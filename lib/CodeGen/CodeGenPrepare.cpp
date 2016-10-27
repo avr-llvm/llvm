@@ -19,6 +19,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
@@ -119,6 +120,10 @@ static cl::opt<bool> DisablePreheaderProtect(
     "disable-preheader-prot", cl::Hidden, cl::init(false),
     cl::desc("Disable protection against removing loop preheaders"));
 
+static cl::opt<bool> ProfileGuidedSectionPrefix(
+    "profile-guided-section-prefix", cl::Hidden, cl::init(true),
+    cl::desc("Use profile info to add section prefix for hot/cold functions"));
+
 namespace {
 typedef SmallPtrSet<Instruction *, 16> SetOfInstrs;
 typedef PointerIntPair<Type *, 1, bool> TypeIsSExt;
@@ -168,6 +173,7 @@ class TypePromotionTransaction;
 
     void getAnalysisUsage(AnalysisUsage &AU) const override {
       // FIXME: When we can selectively preserve passes, preserve the domtree.
+      AU.addRequired<ProfileSummaryInfoWrapperPass>();
       AU.addRequired<TargetLibraryInfoWrapperPass>();
       AU.addRequired<TargetTransformInfoWrapperPass>();
       AU.addRequired<LoopInfoWrapperPass>();
@@ -205,8 +211,11 @@ class TypePromotionTransaction;
 }
 
 char CodeGenPrepare::ID = 0;
-INITIALIZE_TM_PASS(CodeGenPrepare, "codegenprepare",
-                   "Optimize for code generation", false, false)
+INITIALIZE_TM_PASS_BEGIN(CodeGenPrepare, "codegenprepare",
+                         "Optimize for code generation", false, false)
+INITIALIZE_PASS_DEPENDENCY(ProfileSummaryInfoWrapperPass)
+INITIALIZE_TM_PASS_END(CodeGenPrepare, "codegenprepare",
+                       "Optimize for code generation", false, false)
 
 FunctionPass *llvm::createCodeGenPreparePass(const TargetMachine *TM) {
   return new CodeGenPrepare(TM);
@@ -230,6 +239,15 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
   TTI = &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
   LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   OptSize = F.optForSize();
+
+  if (ProfileGuidedSectionPrefix) {
+    ProfileSummaryInfo *PSI =
+        getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI();
+    if (PSI->isFunctionEntryHot(&F))
+      F.setSectionPrefix(".hot");
+    else if (PSI->isFunctionEntryCold(&F))
+      F.setSectionPrefix(".cold");
+  }
 
   /// This optimization identifies DIV instructions that can be
   /// profitably bypassed and carried out with a shorter, faster divide.
@@ -926,6 +944,8 @@ static bool SinkCmpExpression(CmpInst *CI, const TargetLowering *TLI) {
       InsertedCmp =
           CmpInst::Create(CI->getOpcode(), CI->getPredicate(),
                           CI->getOperand(0), CI->getOperand(1), "", &*InsertPt);
+      // Propagate the debug info.
+      InsertedCmp->setDebugLoc(CI->getDebugLoc());
     }
 
     // Replace a use of the cmp with a use of the new cmp.
@@ -4268,6 +4288,14 @@ bool CodeGenPrepare::moveExtToFormExtLoad(Instruction *&I) {
   TPT.commit();
   I->removeFromParent();
   I->insertAfter(LI);
+  // CGP does not check if the zext would be speculatively executed when moved
+  // to the same basic block as the load. Preserving its original location would
+  // pessimize the debugging experience, as well as negatively impact the 
+  // quality of sample pgo. We don't want to use "line 0" as that has a
+  // size cost in the line-table section and logically the zext can be seen as
+  // part of the load. Therefore we conservatively reuse the same debug location
+  // for the load and the zext.
+  I->setDebugLoc(LI->getDebugLoc());
   ++NumExtsMoved;
   return true;
 }

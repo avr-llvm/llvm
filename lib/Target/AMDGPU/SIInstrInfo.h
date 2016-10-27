@@ -98,7 +98,18 @@ public:
 
   enum TargetOperandFlags {
     MO_NONE = 0,
-    MO_GOTPCREL = 1
+    // MO_GOTPCREL -> symbol@GOTPCREL -> R_AMDGPU_GOTPCREL.
+    MO_GOTPCREL = 1,
+    // MO_GOTPCREL32_LO -> symbol@gotpcrel32@lo -> R_AMDGPU_GOTPCREL32_LO.
+    MO_GOTPCREL32 = 2,
+    MO_GOTPCREL32_LO = 2,
+    // MO_GOTPCREL32_HI -> symbol@gotpcrel32@hi -> R_AMDGPU_GOTPCREL32_HI.
+    MO_GOTPCREL32_HI = 3,
+    // MO_REL32_LO -> symbol@rel32@lo -> R_AMDGPU_REL32_LO.
+    MO_REL32 = 4,
+    MO_REL32_LO = 4,
+    // MO_REL32_HI -> symbol@rel32@hi -> R_AMDGPU_REL32_HI.
+    MO_REL32_HI = 5
   };
 
   explicit SIInstrInfo(const SISubtarget &);
@@ -157,6 +168,24 @@ public:
 
   bool findCommutedOpIndices(MachineInstr &MI, unsigned &SrcOpIdx1,
                              unsigned &SrcOpIdx2) const override;
+
+  bool isBranchOffsetInRange(unsigned BranchOpc,
+                             int64_t BrOffset) const override;
+
+  MachineBasicBlock *getBranchDestBlock(const MachineInstr &MI) const override;
+
+  unsigned insertIndirectBranch(MachineBasicBlock &MBB,
+                                MachineBasicBlock &NewDestBB,
+                                const DebugLoc &DL,
+                                int64_t BrOffset,
+                                RegScavenger *RS = nullptr) const override;
+
+  bool analyzeBranchImpl(MachineBasicBlock &MBB,
+                         MachineBasicBlock::iterator I,
+                         MachineBasicBlock *&TBB,
+                         MachineBasicBlock *&FBB,
+                         SmallVectorImpl<MachineOperand> &Cond,
+                         bool AllowModify) const;
 
   bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                      MachineBasicBlock *&FBB,
@@ -618,6 +647,12 @@ namespace AMDGPU {
   const uint64_t RSRC_ELEMENT_SIZE_SHIFT = (32 + 19);
   const uint64_t RSRC_INDEX_STRIDE_SHIFT = (32 + 21);
   const uint64_t RSRC_TID_ENABLE = UINT64_C(1) << (32 + 23);
+
+  // For MachineOperands.
+  enum TargetFlags {
+    TF_LONG_BRANCH_FORWARD = 1 << 0,
+    TF_LONG_BRANCH_BACKWARD = 1 << 1
+  };
 } // End namespace AMDGPU
 
 namespace SI {

@@ -99,6 +99,7 @@ public:
     ARMSubArch_v8_2a,
     ARMSubArch_v8_1a,
     ARMSubArch_v8,
+    ARMSubArch_v8r,
     ARMSubArch_v8m_baseline,
     ARMSubArch_v8m_mainline,
     ARMSubArch_v7,
@@ -169,7 +170,8 @@ public:
     TvOS,       // Apple tvOS
     WatchOS,    // Apple watchOS
     Mesa3D,
-    LastOSType = Mesa3D
+    Contiki,
+    LastOSType = Contiki
   };
   enum EnvironmentType {
     UnknownEnvironment,
@@ -486,6 +488,10 @@ public:
     return Env == Triple::GNU || Env == Triple::GNUABI64 ||
            Env == Triple::GNUEABI || Env == Triple::GNUEABIHF ||
            Env == Triple::GNUX32;
+  }
+
+  bool isOSContiki() const {
+    return getOS() == Triple::Contiki;
   }
 
   /// Checks if the environment could be MSVC.

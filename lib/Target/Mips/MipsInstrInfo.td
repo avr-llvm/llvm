@@ -157,6 +157,8 @@ def HasMips3_32r2 :   Predicate<"Subtarget->hasMips3_32r2()">,
                       AssemblerPredicate<"FeatureMips3_32r2">;
 def HasMips3     :    Predicate<"Subtarget->hasMips3()">,
                       AssemblerPredicate<"FeatureMips3">;
+def NotMips3     :    Predicate<"!Subtarget->hasMips3()">,
+                      AssemblerPredicate<"!FeatureMips3">;
 def HasMips4_32  :    Predicate<"Subtarget->hasMips4_32()">,
                       AssemblerPredicate<"FeatureMips4_32">;
 def NotMips4_32  :    Predicate<"!Subtarget->hasMips4_32()">,
@@ -242,6 +244,9 @@ class PTR_64 { list<Predicate> PTRPredicates = [IsPTR64bit]; }
 //        subtractive predicate will hopefully keep us under the 32 predicate
 //        limit long enough to develop an alternative way to handle P1||P2
 //        predicates.
+class ISA_MIPS1_NOT_MIPS3 {
+  list<Predicate> InsnPredicates = [NotMips3];
+}
 class ISA_MIPS1_NOT_4_32 {
   list<Predicate> InsnPredicates = [NotMips4_32];
 }
@@ -530,6 +535,14 @@ def UImm16RelaxedAsmOperandClass
   let PredicateMethod = "isAnyImm<16>";
   let DiagnosticType = "UImm16_Relaxed";
 }
+// Similar to the relaxed classes which take an SImm and render it as
+// an UImm, this takes a UImm and renders it as an SImm.
+def UImm16AltRelaxedAsmOperandClass
+    : SImmAsmOperandClass<16, [UImm16RelaxedAsmOperandClass]> {
+  let Name = "UImm16_AltRelaxed";
+  let PredicateMethod = "isUImm<16>";
+  let DiagnosticType = "UImm16_AltRelaxed";
+}
 // FIXME: One of these should probably have UImm16AsmOperandClass as the
 //        superclass instead of UImm16RelaxedasmOPerandClass.
 def UImm16AsmOperandClass
@@ -810,6 +823,11 @@ def uimm16_64_relaxed : Operand<i64> {
       !cast<AsmOperandClass>("UImm16RelaxedAsmOperandClass");
 }
 
+def uimm16_altrelaxed : Operand<i32> {
+  let PrintMethod = "printUImm<16>";
+  let ParserMatchClass =
+      !cast<AsmOperandClass>("UImm16AltRelaxedAsmOperandClass");
+}
 // Like uimm5 but reports a less confusing error for 32-63 when
 // an instruction alias permits that.
 def uimm5_report_uimm6 : Operand<i32> {
@@ -1080,10 +1098,6 @@ def immSExt8  : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
 // Node immediate fits as 16-bit sign extended on target immediate.
 // e.g. addi, andi
 def immSExt16  : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
-
-// Node immediate fits as 15-bit sign extended on target immediate.
-// e.g. addi, andi
-def immSExt15  : PatLeaf<(imm), [{ return isInt<15>(N->getSExtValue()); }]>;
 
 // Node immediate fits as 7-bit zero extended on target immediate.
 def immZExt7 : PatLeaf<(imm), [{ return isUInt<7>(N->getZExtValue()); }]>;
@@ -1860,11 +1874,10 @@ let DecoderNamespace = "COP3_" in {
   def SDC3 : SW_FT3<"sdc3", COP3Opnd, II_SDC3, store>, LW_FM<0x3f>,
              ISA_MIPS2;
 }
-}
 
-def SYNC : MMRel, StdMMR6Rel, SYNC_FT<"sync">, SYNC_FM,
-           ISA_MIPS32;
-def SYNCI : MMRel, StdMMR6Rel, SYNCI_FT<"synci">, SYNCI_FM, ISA_MIPS32R2;
+  def SYNC : MMRel, StdMMR6Rel, SYNC_FT<"sync">, SYNC_FM, ISA_MIPS2;
+  def SYNCI : MMRel, StdMMR6Rel, SYNCI_FT<"synci">, SYNCI_FM, ISA_MIPS32R2;
+}
 
 let AdditionalPredicates = [NotInMicroMips] in {
   def TEQ : MMRel, TEQ_FT<"teq", GPR32Opnd, uimm10, II_TEQ>, TEQ_FM<0x34>, ISA_MIPS2;
@@ -2532,6 +2545,12 @@ def Ulhu : MipsAsmPseudoInst<(outs GPR32Opnd:$rt), (ins mem:$addr),
 def Ulw : MipsAsmPseudoInst<(outs GPR32Opnd:$rt), (ins mem:$addr),
                             "ulw\t$rt, $addr">; //, ISA_MIPS1_NOT_32R6_64R6;
 
+def LDMacro : MipsAsmPseudoInst<(outs GPR32Opnd:$rt),
+                                (ins mem_simm16:$addr), "ld $rt, $addr">,
+                                ISA_MIPS1_NOT_MIPS3;
+def SDMacro : MipsAsmPseudoInst<(outs GPR32Opnd:$rt),
+                                (ins mem_simm16:$addr), "sd $rt, $addr">,
+                                ISA_MIPS1_NOT_MIPS3;
 //===----------------------------------------------------------------------===//
 //  Arbitrary patterns that map to one or more instructions
 //===----------------------------------------------------------------------===//

@@ -330,10 +330,6 @@ bool Function::arg_empty() const {
   return getFunctionType()->getNumParams() == 0;
 }
 
-void Function::setParent(Module *parent) {
-  Parent = parent;
-}
-
 // dropAllReferences() - This function causes all the subinstructions to "let
 // go" of all references that they are maintaining.  This allows one to
 // 'delete' a whole class at a time, even though there may be circular
@@ -1272,5 +1268,22 @@ Optional<uint64_t> Function::getEntryCount() const {
           return None;
         return Count;
       }
+  return None;
+}
+
+void Function::setSectionPrefix(StringRef Prefix) {
+  MDBuilder MDB(getContext());
+  setMetadata(LLVMContext::MD_section_prefix,
+              MDB.createFunctionSectionPrefix(Prefix));
+}
+
+Optional<StringRef> Function::getSectionPrefix() const {
+  if (MDNode *MD = getMetadata(LLVMContext::MD_section_prefix)) {
+    assert(dyn_cast<MDString>(MD->getOperand(0))
+               ->getString()
+               .equals("function_section_prefix") &&
+           "Metadata not match");
+    return dyn_cast<MDString>(MD->getOperand(1))->getString();
+  }
   return None;
 }

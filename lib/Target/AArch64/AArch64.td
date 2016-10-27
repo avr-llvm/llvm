@@ -106,6 +106,10 @@ def FeatureDisableLatencySchedHeuristic : SubtargetFeature<
     "disable-latency-sched-heuristic", "DisableLatencySchedHeuristic", "true",
     "Disable latency scheduling heuristic">;
 
+def FeatureUseRSqrt : SubtargetFeature<
+    "use-reciprocal-square-root", "UseRSqrt", "true",
+    "Use the reciprocal square root approximation">;
+
 //===----------------------------------------------------------------------===//
 // Architectures.
 //
@@ -218,17 +222,29 @@ def ProcCyclone : SubtargetFeature<"cyclone", "ARMProcFamily", "Cyclone",
                                    ]>;
 
 def ProcExynosM1 : SubtargetFeature<"exynosm1", "ARMProcFamily", "ExynosM1",
-                                    "Samsung Exynos-M1 processors", [
-                                    FeatureAvoidQuadLdStPairs,
-                                    FeatureCRC,
-                                    FeatureCrypto,
-                                    FeatureCustomCheapAsMoveHandling,
-                                    FeatureFPARMv8,
-                                    FeatureNEON,
-                                    FeaturePerfMon,
-                                    FeaturePostRAScheduler,
-                                    FeatureZCZeroing
-                                    ]>;
+                                    "Samsung Exynos-M1 processors",
+                                    [FeatureAvoidQuadLdStPairs,
+                                     FeatureCRC,
+                                     FeatureCrypto,
+                                     FeatureCustomCheapAsMoveHandling,
+                                     FeatureFPARMv8,
+                                     FeatureNEON,
+                                     FeaturePerfMon,
+                                     FeaturePostRAScheduler,
+                                     FeatureUseRSqrt,
+                                     FeatureZCZeroing]>;
+
+def ProcExynosM2 : SubtargetFeature<"exynosm2", "ARMProcFamily", "ExynosM1",
+                                    "Samsung Exynos-M2 processors",
+                                    [FeatureAvoidQuadLdStPairs,
+                                     FeatureCRC,
+                                     FeatureCrypto,
+                                     FeatureCustomCheapAsMoveHandling,
+                                     FeatureFPARMv8,
+                                     FeatureNEON,
+                                     FeaturePerfMon,
+                                     FeaturePostRAScheduler,
+                                     FeatureZCZeroing]>;
 
 def ProcKryo    : SubtargetFeature<"kryo", "ARMProcFamily", "Kryo",
                                    "Qualcomm Kryo processors", [
@@ -272,7 +288,7 @@ def : ProcessorModel<"cortex-a72", CortexA57Model, [ProcA72]>;
 def : ProcessorModel<"cortex-a73", CortexA57Model, [ProcA73]>;
 def : ProcessorModel<"cyclone", CycloneModel, [ProcCyclone]>;
 def : ProcessorModel<"exynos-m1", ExynosM1Model, [ProcExynosM1]>;
-def : ProcessorModel<"exynos-m2", ExynosM1Model, [ProcExynosM1]>;
+def : ProcessorModel<"exynos-m2", ExynosM1Model, [ProcExynosM2]>;
 def : ProcessorModel<"kryo", KryoModel, [ProcKryo]>;
 def : ProcessorModel<"vulcan", VulcanModel, [ProcVulcan]>;
 

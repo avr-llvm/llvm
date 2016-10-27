@@ -168,31 +168,36 @@ bool IRTranslator::translateBr(const User &U) {
 bool IRTranslator::translateLoad(const User &U) {
   const LoadInst &LI = cast<LoadInst>(U);
 
-  if (!TPC->isGlobalISelAbortEnabled() && !LI.isSimple())
+  if (!TPC->isGlobalISelAbortEnabled() && LI.isAtomic())
     return false;
 
-  assert(LI.isSimple() && "only simple loads are supported at the moment");
+  assert(!LI.isAtomic() && "only non-atomic loads are supported at the moment");
+  auto Flags = LI.isVolatile() ? MachineMemOperand::MOVolatile
+                               : MachineMemOperand::MONone;
+  Flags |= MachineMemOperand::MOLoad;
 
   MachineFunction &MF = MIRBuilder.getMF();
   unsigned Res = getOrCreateVReg(LI);
   unsigned Addr = getOrCreateVReg(*LI.getPointerOperand());
   LLT VTy{*LI.getType(), *DL}, PTy{*LI.getPointerOperand()->getType(), *DL};
-
   MIRBuilder.buildLoad(
       Res, Addr,
-      *MF.getMachineMemOperand(
-          MachinePointerInfo(LI.getPointerOperand()), MachineMemOperand::MOLoad,
-          DL->getTypeStoreSize(LI.getType()), getMemOpAlignment(LI)));
+      *MF.getMachineMemOperand(MachinePointerInfo(LI.getPointerOperand()),
+                               Flags, DL->getTypeStoreSize(LI.getType()),
+                               getMemOpAlignment(LI)));
   return true;
 }
 
 bool IRTranslator::translateStore(const User &U) {
   const StoreInst &SI = cast<StoreInst>(U);
 
-  if (!TPC->isGlobalISelAbortEnabled() && !SI.isSimple())
+  if (!TPC->isGlobalISelAbortEnabled() && SI.isAtomic())
     return false;
 
-  assert(SI.isSimple() && "only simple loads are supported at the moment");
+  assert(!SI.isAtomic() && "only non-atomic stores supported at the moment");
+  auto Flags = SI.isVolatile() ? MachineMemOperand::MOVolatile
+                               : MachineMemOperand::MONone;
+  Flags |= MachineMemOperand::MOStore;
 
   MachineFunction &MF = MIRBuilder.getMF();
   unsigned Val = getOrCreateVReg(*SI.getValueOperand());
@@ -201,12 +206,10 @@ bool IRTranslator::translateStore(const User &U) {
       PTy{*SI.getPointerOperand()->getType(), *DL};
 
   MIRBuilder.buildStore(
-      Val, Addr,
-      *MF.getMachineMemOperand(
-          MachinePointerInfo(SI.getPointerOperand()),
-          MachineMemOperand::MOStore,
-          DL->getTypeStoreSize(SI.getValueOperand()->getType()),
-          getMemOpAlignment(SI)));
+      Val, Addr, *MF.getMachineMemOperand(
+                     MachinePointerInfo(SI.getPointerOperand()), Flags,
+                     DL->getTypeStoreSize(SI.getValueOperand()->getType()),
+                     getMemOpAlignment(SI)));
   return true;
 }
 
@@ -358,6 +361,26 @@ bool IRTranslator::translateGetElementPtr(const User &U) {
   return true;
 }
 
+bool IRTranslator::translateMemcpy(const CallInst &CI) {
+  LLT SizeTy{*CI.getArgOperand(2)->getType(), *DL};
+  if (cast<PointerType>(CI.getArgOperand(0)->getType())->getAddressSpace() !=
+          0 ||
+      cast<PointerType>(CI.getArgOperand(1)->getType())->getAddressSpace() !=
+          0 ||
+      SizeTy.getSizeInBits() != DL->getPointerSizeInBits(0))
+    return false;
+
+  SmallVector<CallLowering::ArgInfo, 8> Args;
+  for (int i = 0; i < 3; ++i) {
+    const auto &Arg = CI.getArgOperand(i);
+    Args.emplace_back(getOrCreateVReg(*Arg), Arg->getType());
+  }
+
+  MachineOperand Callee = MachineOperand::CreateES("memcpy");
+
+  return CLI->lowerCall(MIRBuilder, Callee,
+                        CallLowering::ArgInfo(0, CI.getType()), Args);
+}
 
 bool IRTranslator::translateKnownIntrinsic(const CallInst &CI,
                                            Intrinsic::ID ID) {
@@ -370,6 +393,15 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI,
   case Intrinsic::ssub_with_overflow: Op = TargetOpcode::G_SSUBO; break;
   case Intrinsic::umul_with_overflow: Op = TargetOpcode::G_UMULO; break;
   case Intrinsic::smul_with_overflow: Op = TargetOpcode::G_SMULO; break;
+  case Intrinsic::memcpy:
+    return translateMemcpy(CI);
+  case Intrinsic::objectsize: {
+    // If we don't know by now, we're never going to know.
+    const ConstantInt *Min = cast<ConstantInt>(CI.getArgOperand(1));
+
+    MIRBuilder.buildConstant(getOrCreateVReg(CI), Min->isZero() ? -1ULL : 0);
+    return true;
+  }
   }
 
   LLT Ty{*CI.getOperand(0)->getType(), *DL};

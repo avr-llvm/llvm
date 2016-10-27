@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/Host.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -19,9 +20,10 @@
 #include "llvm/Config/config.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
-#include <string.h>
 #include <assert.h>
+#include <string.h>
 
 // Include the platform-specific parts of this class.
 #ifdef LLVM_ON_UNIX
@@ -1187,6 +1189,79 @@ StringRef sys::getHostCPUName() {
 #else
 StringRef sys::getHostCPUName() { return "generic"; }
 #endif
+
+#if defined(__linux__) && defined(__x86_64__)
+// On Linux, the number of physical cores can be computed from /proc/cpuinfo,
+// using the number of unique physical/core id pairs. The following
+// implementation reads the /proc/cpuinfo format on an x86_64 system.
+static int computeHostNumPhysicalCores() {
+  // Read /proc/cpuinfo as a stream (until EOF reached). It cannot be
+  // mmapped because it appears to have 0 size.
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> Text =
+      llvm::MemoryBuffer::getFileAsStream("/proc/cpuinfo");
+  if (std::error_code EC = Text.getError()) {
+    llvm::errs() << "Can't read "
+                 << "/proc/cpuinfo: " << EC.message() << "\n";
+  }
+  SmallVector<StringRef, 8> strs;
+  (*Text)->getBuffer().split(strs, "\n", /*MaxSplit=*/-1,
+                             /*KeepEmpty=*/false);
+  int CurPhysicalId = -1;
+  int CurCoreId = -1;
+  SmallSet<std::pair<int, int>, 32> UniqueItems;
+  for (auto &Line : strs) {
+    Line = Line.trim();
+    if (!Line.startswith("physical id") && !Line.startswith("core id"))
+      continue;
+    std::pair<StringRef, StringRef> Data = Line.split(':');
+    auto Name = Data.first.trim();
+    auto Val = Data.second.trim();
+    if (Name == "physical id") {
+      assert(CurPhysicalId == -1 &&
+             "Expected a core id before seeing another physical id");
+      Val.getAsInteger(10, CurPhysicalId);
+    }
+    if (Name == "core id") {
+      assert(CurCoreId == -1 &&
+             "Expected a physical id before seeing another core id");
+      Val.getAsInteger(10, CurCoreId);
+    }
+    if (CurPhysicalId != -1 && CurCoreId != -1) {
+      UniqueItems.insert(std::make_pair(CurPhysicalId, CurCoreId));
+      CurPhysicalId = -1;
+      CurCoreId = -1;
+    }
+  }
+  return UniqueItems.size();
+}
+#elif defined(__APPLE__) && defined(__x86_64__)
+#include <sys/param.h>
+#include <sys/sysctl.h>
+
+// Gets the number of *physical cores* on the machine.
+static int computeHostNumPhysicalCores() {
+  uint32_t count;
+  size_t len = sizeof(count);
+  sysctlbyname("hw.physicalcpu", &count, &len, NULL, 0);
+  if (count < 1) {
+    int nm[2];
+    nm[0] = CTL_HW;
+    nm[1] = HW_AVAILCPU;
+    sysctl(nm, 2, &count, &len, NULL, 0);
+    if (count < 1)
+      return -1;
+  }
+  return count;
+}
+#else
+// On other systems, return -1 to indicate unknown.
+static int computeHostNumPhysicalCores() { return -1; }
+#endif
+
+int sys::getHostNumPhysicalCores() {
+  static int NumCores = computeHostNumPhysicalCores();
+  return NumCores;
+}
 
 #if defined(__i386__) || defined(_M_IX86) || \
     defined(__x86_64__) || defined(_M_X64)

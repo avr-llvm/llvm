@@ -443,6 +443,31 @@ public:
                                 const MachineInstr &MI1,
                                 const MachineRegisterInfo *MRI = nullptr) const;
 
+  /// \returns true if a branch from an instruction with opcode \p BranchOpc
+  ///  bytes is capable of jumping to a position \p BrOffset bytes away.
+  virtual bool isBranchOffsetInRange(unsigned BranchOpc,
+                                     int64_t BrOffset) const {
+    llvm_unreachable("target did not implement");
+  }
+
+  /// \returns The block that branch instruction \p MI jumps to.
+  virtual MachineBasicBlock *getBranchDestBlock(const MachineInstr &MI) const {
+    llvm_unreachable("target did not implement");
+  }
+
+  /// Insert an unconditional indirect branch at the end of \p MBB to \p
+  /// NewDestBB.  \p BrOffset indicates the offset of \p NewDestBB relative to
+  /// the offset of the position to insert the new branch.
+  ///
+  /// \returns The number of bytes added to the block.
+  virtual unsigned insertIndirectBranch(MachineBasicBlock &MBB,
+                                        MachineBasicBlock &NewDestBB,
+                                        const DebugLoc &DL,
+                                        int64_t BrOffset = 0,
+                                        RegScavenger *RS = nullptr) const {
+    llvm_unreachable("target did not implement");
+  }
+
   /// Analyze the branching code at the end of MBB, returning
   /// true if it cannot be understood (e.g. it's a switch dispatch or isn't
   /// implemented for a target).  Upon success, this returns false and returns
@@ -585,40 +610,6 @@ public:
   /// an unconditional branch to NewDest. This is used by the tail merging pass.
   virtual void ReplaceTailWithBranchTo(MachineBasicBlock::iterator Tail,
                                        MachineBasicBlock *NewDest) const;
-
-  /// Get an instruction that performs an unconditional branch to the given
-  /// symbol.
-  virtual void
-  getUnconditionalBranch(MCInst &MI,
-                         const MCSymbolRefExpr *BranchTarget) const {
-    llvm_unreachable("Target didn't implement "
-                     "TargetInstrInfo::getUnconditionalBranch!");
-  }
-
-  /// Get a machine trap instruction.
-  virtual void getTrap(MCInst &MI) const {
-    llvm_unreachable("Target didn't implement TargetInstrInfo::getTrap!");
-  }
-
-  /// Get a number of bytes that suffices to hold
-  /// either the instruction returned by getUnconditionalBranch or the
-  /// instruction returned by getTrap. This only makes sense because
-  /// getUnconditionalBranch returns a single, specific instruction. This
-  /// information is needed by the jumptable construction code, since it must
-  /// decide how many bytes to use for a jumptable entry so it can generate the
-  /// right mask.
-  ///
-  /// Note that if the jumptable instruction requires alignment, then that
-  /// alignment should be factored into this required bound so that the
-  /// resulting bound gives the right alignment for the instruction.
-  virtual unsigned getJumpInstrTableEntryBound() const {
-    // This method gets called by LLVMTargetMachine always, so it can't fail
-    // just because there happens to be no implementation for this target.
-    // Any code that tries to use a jumptable annotation without defining
-    // getUnconditionalBranch on the appropriate Target will fail anyway, and
-    // the value returned here won't matter in that case.
-    return 0;
-  }
 
   /// Return true if it's legal to split the given basic
   /// block at the specified instruction (i.e. instruction would be the start
@@ -1267,22 +1258,6 @@ public:
                                 const MachineInstr &DefMI, unsigned DefIdx,
                                 const MachineInstr &UseMI,
                                 unsigned UseIdx) const;
-
-  /// Compute and return the latency of the given data dependent def and use
-  /// when the operand indices are already known. UseMI may be \c nullptr for
-  /// an unknown use.
-  ///
-  /// FindMin may be set to get the minimum vs. expected latency. Minimum
-  /// latency is used for scheduling groups, while expected latency is for
-  /// instruction cost and critical path.
-  ///
-  /// Depending on the subtarget's itinerary properties, this may or may not
-  /// need to call getOperandLatency(). For most subtargets, we don't need
-  /// DefIdx or UseIdx to compute min latency.
-  unsigned computeOperandLatency(const InstrItineraryData *ItinData,
-                                 const MachineInstr &DefMI, unsigned DefIdx,
-                                 const MachineInstr *UseMI,
-                                 unsigned UseIdx) const;
 
   /// Compute the instruction latency of a given instruction.
   /// If the instruction has higher cost when predicated, it's returned via

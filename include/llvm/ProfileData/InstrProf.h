@@ -55,6 +55,7 @@ inline StringRef getInstrProfNameSectionName(bool AddSegment) {
 /// data.
 inline StringRef getInstrProfDataSectionName(bool AddSegment) {
   return AddSegment ? "__DATA," INSTR_PROF_DATA_SECT_NAME_STR
+                      ",regular,live_support"
                     : INSTR_PROF_DATA_SECT_NAME_STR;
 }
 
@@ -291,7 +292,8 @@ enum class instrprof_error {
   counter_overflow,
   value_site_count_mismatch,
   compress_failed,
-  uncompress_failed
+  uncompress_failed,
+  empty_raw_profile
 };
 
 inline std::error_code make_error_code(instrprof_error E) {

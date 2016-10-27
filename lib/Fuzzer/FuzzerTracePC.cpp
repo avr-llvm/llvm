@@ -12,8 +12,14 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <map>
+#include <set>
+#include <sstream>
+
 #include "FuzzerCorpus.h"
 #include "FuzzerDefs.h"
+#include "FuzzerDictionary.h"
+#include "FuzzerExtFunctions.h"
 #include "FuzzerTracePC.h"
 #include "FuzzerValueBitMap.h"
 
@@ -24,24 +30,16 @@ TracePC TPC;
 void TracePC::HandleTrace(uint32_t *Guard, uintptr_t PC) {
   uint32_t Idx = *Guard;
   if (!Idx) return;
-  uint8_t *CounterPtr = &Counters[Idx % kNumCounters];
-  uint8_t Counter = *CounterPtr;
-  if (Counter == 0) {
-    if (!PCs[Idx]) {
-      AddNewPCID(Idx);
-      TotalPCCoverage++;
-      PCs[Idx] = PC;
-    }
-  }
-  if (UseCounters) {
-    if (Counter < 128)
-      *CounterPtr = Counter + 1;
-    else
-      *Guard = 0;
-  } else {
-    *CounterPtr = 1;
-    *Guard = 0;
-  }
+  PCs[Idx % kNumPCs] = PC;
+  Counters[Idx % kNumCounters]++;
+}
+
+size_t TracePC::GetTotalPCCoverage() {
+  size_t Res = 0;
+  for (size_t i = 1; i < GetNumPCs(); i++)
+    if (PCs[i])
+      Res++;
+  return Res;
 }
 
 void TracePC::HandleInit(uint32_t *Start, uint32_t *Stop) {
@@ -59,14 +57,6 @@ void TracePC::PrintModuleInfo() {
   for (size_t i = 0; i < NumModules; i++)
     Printf("[%p, %p), ", Modules[i].Start, Modules[i].Stop);
   Printf("\n");
-}
-
-void TracePC::ResetGuards() {
-  uint32_t N = 0;
-  for (size_t M = 0; M < NumModules; M++)
-    for (uint32_t *X = Modules[M].Start; X < Modules[M].Stop; X++)
-      *X = ++N;
-  assert(N == NumGuards);
 }
 
 size_t TracePC::FinalizeTrace(InputCorpus *C, size_t InputSize, bool Shrink) {
@@ -111,11 +101,110 @@ void TracePC::HandleCallerCallee(uintptr_t Caller, uintptr_t Callee) {
   HandleValueProfile(Idx);
 }
 
+static bool IsInterestingCoverageFile(std::string &File) {
+  if (File.find("compiler-rt/lib/") != std::string::npos)
+    return false; // sanitizer internal.
+  if (File.find("/usr/lib/") != std::string::npos)
+    return false;
+  if (File.find("/usr/include/") != std::string::npos)
+    return false;
+  if (File == "<null>")
+    return false;
+  return true;
+}
+
+void TracePC::PrintNewPCs() {
+  if (DoPrintNewPCs) {
+    if (!PrintedPCs)
+      PrintedPCs = new std::set<uintptr_t>;
+    for (size_t i = 1; i < GetNumPCs(); i++)
+      if (PCs[i] && PrintedPCs->insert(PCs[i]).second)
+        PrintPC("\tNEW_PC: %p %F %L\n", "\tNEW_PC: %p\n", PCs[i]);
+  }
+}
+
 void TracePC::PrintCoverage() {
+  if (!EF->__sanitizer_symbolize_pc) {
+    Printf("INFO: __sanitizer_symbolize_pc is not available,"
+           " not printing coverage\n");
+    return;
+  }
+  std::map<std::string, std::vector<uintptr_t>> CoveredPCsPerModule;
+  std::map<std::string, uintptr_t> ModuleOffsets;
+  std::set<std::string> CoveredFiles, CoveredFunctions, CoveredLines;
   Printf("COVERAGE:\n");
-  for (size_t i = 0; i < Min(NumGuards + 1, kNumPCs); i++) {
-    if (PCs[i])
-      PrintPC("COVERED: %p %F %L\n", "COVERED: %p\n", PCs[i]);
+  for (size_t i = 1; i < GetNumPCs(); i++) {
+    if (!PCs[i]) continue;
+    std::string FileStr = DescribePC("%s", PCs[i]);
+    if (!IsInterestingCoverageFile(FileStr)) continue;
+    std::string FixedPCStr = DescribePC("%p", PCs[i]);
+    std::string FunctionStr = DescribePC("%F", PCs[i]);
+    std::string LineStr = DescribePC("%l", PCs[i]);
+    // TODO(kcc): get the module using some other way since this
+    // does not work with ASAN_OPTIONS=strip_path_prefix=something.
+    std::string Module = DescribePC("%m", PCs[i]);
+    std::string OffsetStr = DescribePC("%o", PCs[i]);
+    uintptr_t FixedPC = std::stol(FixedPCStr, 0, 16);
+    uintptr_t PcOffset = std::stol(OffsetStr, 0, 16);
+    ModuleOffsets[Module] = FixedPC - PcOffset;
+    CoveredPCsPerModule[Module].push_back(PcOffset);
+    CoveredFunctions.insert(FunctionStr);
+    CoveredFiles.insert(FileStr);
+    if (!CoveredLines.insert(FileStr + ":" + LineStr).second)
+      continue;
+    Printf("COVERED: %s %s:%s\n", FunctionStr.c_str(),
+           FileStr.c_str(), LineStr.c_str());
+  }
+
+  for (auto &M : CoveredPCsPerModule) {
+    std::set<std::string> UncoveredFiles, UncoveredFunctions;
+    std::map<std::string, std::set<int> > UncoveredLines;  // Func+File => lines
+    auto &ModuleName = M.first;
+    auto &CoveredOffsets = M.second;
+    uintptr_t ModuleOffset = ModuleOffsets[ModuleName];
+    std::sort(CoveredOffsets.begin(), CoveredOffsets.end());
+    Printf("MODULE_WITH_COVERAGE: %s\n", ModuleName.c_str());
+    // sancov does not yet fully support DSOs.
+    // std::string Cmd = "sancov -print-coverage-pcs " + ModuleName;
+    std::string Cmd = "objdump -d " + ModuleName +
+        " | grep 'call.*__sanitizer_cov_trace_pc_guard' | awk -F: '{print $1}'";
+    std::string SanCovOutput;
+    if (!ExecuteCommandAndReadOutput(Cmd, &SanCovOutput)) {
+      Printf("INFO: Command failed: %s\n", Cmd.c_str());
+      continue;
+    }
+    std::istringstream ISS(SanCovOutput);
+    std::string S;
+    while (std::getline(ISS, S, '\n')) {
+      uintptr_t PcOffset = std::stol(S, 0, 16);
+      if (!std::binary_search(CoveredOffsets.begin(), CoveredOffsets.end(),
+                              PcOffset)) {
+        uintptr_t PC = ModuleOffset + PcOffset;
+        auto FileStr = DescribePC("%s", PC);
+        if (!IsInterestingCoverageFile(FileStr)) continue;
+        if (CoveredFiles.count(FileStr) == 0) {
+          UncoveredFiles.insert(FileStr);
+          continue;
+        }
+        auto FunctionStr = DescribePC("%F", PC);
+        if (CoveredFunctions.count(FunctionStr) == 0) {
+          UncoveredFunctions.insert(FunctionStr);
+          continue;
+        }
+        std::string LineStr = DescribePC("%l", PC);
+        uintptr_t Line = std::stoi(LineStr);
+        std::string FileLineStr = FileStr + ":" + LineStr;
+        if (CoveredLines.count(FileLineStr) == 0)
+          UncoveredLines[FunctionStr + " " + FileStr].insert(Line);
+      }
+    }
+    for (auto &FileLine: UncoveredLines)
+      for (int Line : FileLine.second)
+        Printf("UNCOVERED_LINE: %s:%d\n", FileLine.first.c_str(), Line);
+    for (auto &Func : UncoveredFunctions)
+      Printf("UNCOVERED_FUNC: %s\n", Func.c_str());
+    for (auto &File : UncoveredFiles)
+      Printf("UNCOVERED_FILE: %s\n", File.c_str());
   }
 }
 
@@ -163,23 +252,22 @@ void TracePC::AddValueForStrcmp(void *caller_pc, const char *s1, const char *s2,
   TPC.HandleValueProfile((PC & 4095) | (Idx << 12));
 }
 
+template <class T>
 ATTRIBUTE_TARGET_POPCNT
-static void AddValueForCmp(void *PCptr, uint64_t Arg1, uint64_t Arg2) {
-  uintptr_t PC = reinterpret_cast<uintptr_t>(PCptr);
-  uint64_t ArgDistance = __builtin_popcountl(Arg1 ^ Arg2) + 1; // [1,65]
-  uintptr_t Idx = ((PC & 4095) + 1) * ArgDistance;
-  TPC.HandleValueProfile(Idx);
+#ifdef __clang__  // g++ can't handle this __attribute__ here :(
+__attribute__((always_inline))
+#endif  // __clang__
+void TracePC::HandleCmp(void *PC, T Arg1, T Arg2) {
+  uintptr_t PCuint = reinterpret_cast<uintptr_t>(PC);
+  uint64_t ArgXor = Arg1 ^ Arg2;
+  uint64_t ArgDistance = __builtin_popcountl(ArgXor) + 1; // [1,65]
+  uintptr_t Idx = ((PCuint & 4095) + 1) * ArgDistance;
+  if (sizeof(T) == 4)
+      TORC4.Insert(ArgXor, Arg1, Arg2);
+  else if (sizeof(T) == 8)
+      TORC8.Insert(ArgXor, Arg1, Arg2);
+  HandleValueProfile(Idx);
 }
-
-static void AddValueForSingleVal(void *PCptr, uintptr_t Val) {
-  if (!Val) return;
-  uintptr_t PC = reinterpret_cast<uintptr_t>(PCptr);
-  uint64_t ArgDistance = __builtin_popcountl(Val) - 1; // [0,63]
-  uintptr_t Idx = (PC & 4095) | (ArgDistance << 12);
-  TPC.HandleValueProfile(Idx);
-}
-
-
 
 } // namespace fuzzer
 
@@ -201,46 +289,44 @@ void __sanitizer_cov_trace_pc_indir(uintptr_t Callee) {
   fuzzer::TPC.HandleCallerCallee(PC, Callee);
 }
 
-// TODO: this one will not be used with the newest clang. Remove it.
 __attribute__((visibility("default")))
-void __sanitizer_cov_trace_cmp(uint64_t SizeAndType, uint64_t Arg1,
-                               uint64_t Arg2) {
-  fuzzer::AddValueForCmp(__builtin_return_address(0), Arg1, Arg2);
-}
-
-__attribute__((visibility("default")))
-void __sanitizer_cov_trace_cmp8(uint64_t Arg1, int64_t Arg2) {
-  fuzzer::AddValueForCmp(__builtin_return_address(0), Arg1, Arg2);
+void __sanitizer_cov_trace_cmp8(uint64_t Arg1, uint64_t Arg2) {
+  fuzzer::TPC.HandleCmp(__builtin_return_address(0), Arg1, Arg2);
 }
 __attribute__((visibility("default")))
-void __sanitizer_cov_trace_cmp4(uint32_t Arg1, int32_t Arg2) {
-  fuzzer::AddValueForCmp(__builtin_return_address(0), Arg1, Arg2);
+void __sanitizer_cov_trace_cmp4(uint32_t Arg1, uint32_t Arg2) {
+  fuzzer::TPC.HandleCmp(__builtin_return_address(0), Arg1, Arg2);
 }
 __attribute__((visibility("default")))
-void __sanitizer_cov_trace_cmp2(uint16_t Arg1, int16_t Arg2) {
-  fuzzer::AddValueForCmp(__builtin_return_address(0), Arg1, Arg2);
+void __sanitizer_cov_trace_cmp2(uint16_t Arg1, uint16_t Arg2) {
+  fuzzer::TPC.HandleCmp(__builtin_return_address(0), Arg1, Arg2);
 }
 __attribute__((visibility("default")))
-void __sanitizer_cov_trace_cmp1(uint8_t Arg1, int8_t Arg2) {
-  fuzzer::AddValueForCmp(__builtin_return_address(0), Arg1, Arg2);
+void __sanitizer_cov_trace_cmp1(uint8_t Arg1, uint8_t Arg2) {
+  fuzzer::TPC.HandleCmp(__builtin_return_address(0), Arg1, Arg2);
 }
 
 __attribute__((visibility("default")))
 void __sanitizer_cov_trace_switch(uint64_t Val, uint64_t *Cases) {
-  // TODO(kcc): support value profile here.
+  uint64_t N = Cases[0];
+  uint64_t *Vals = Cases + 2;
+  char *PC = (char*)__builtin_return_address(0);
+  for (size_t i = 0; i < N; i++)
+    if (Val != Vals[i])
+      fuzzer::TPC.HandleCmp(PC + i, Val, Vals[i]);
 }
 
 __attribute__((visibility("default")))
 void __sanitizer_cov_trace_div4(uint32_t Val) {
-  fuzzer::AddValueForSingleVal(__builtin_return_address(0), Val);
+  fuzzer::TPC.HandleCmp(__builtin_return_address(0), Val, (uint32_t)0);
 }
 __attribute__((visibility("default")))
 void __sanitizer_cov_trace_div8(uint64_t Val) {
-  fuzzer::AddValueForSingleVal(__builtin_return_address(0), Val);
+  fuzzer::TPC.HandleCmp(__builtin_return_address(0), Val, (uint64_t)0);
 }
 __attribute__((visibility("default")))
 void __sanitizer_cov_trace_gep(uintptr_t Idx) {
-  fuzzer::AddValueForSingleVal(__builtin_return_address(0), Idx);
+  fuzzer::TPC.HandleCmp(__builtin_return_address(0), Idx, (uintptr_t)0);
 }
 
 }  // extern "C"
