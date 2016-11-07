@@ -391,6 +391,11 @@ void CodeViewDebug::endModule() {
   // Use the generic .debug$S section, and make a subsection for all the inlined
   // subprograms.
   switchToDebugSectionForSymbol(nullptr);
+
+  MCSymbol *CompilerInfo = beginCVSubsection(ModuleSubstreamKind::Symbols);
+  emitCompilerInformation();
+  endCVSubsection(CompilerInfo);
+
   emitInlineeLinesSubsection();
 
   // Emit per-function debug information.
@@ -1091,6 +1096,7 @@ TypeIndex CodeViewDebug::lowerType(const DIType *Ty, const DIType *ClassTy) {
     return lowerTypeMemberPointer(cast<DIDerivedType>(Ty));
   case dwarf::DW_TAG_const_type:
   case dwarf::DW_TAG_volatile_type:
+  // TODO: add support for DW_TAG_atomic_type here
     return lowerTypeModifier(cast<DIDerivedType>(Ty));
   case dwarf::DW_TAG_subroutine_type:
     if (ClassTy) {
@@ -1399,7 +1405,7 @@ TypeIndex CodeViewDebug::lowerTypeModifier(const DIDerivedType *Ty) {
   bool IsModifier = true;
   const DIType *BaseTy = Ty;
   while (IsModifier && BaseTy) {
-    // FIXME: Need to add DWARF tag for __unaligned.
+    // FIXME: Need to add DWARF tags for __unaligned and _Atomic
     switch (BaseTy->getTag()) {
     case dwarf::DW_TAG_const_type:
       Mods |= ModifierOptions::Const;
@@ -1689,9 +1695,9 @@ TypeIndex CodeViewDebug::lowerTypeClass(const DICompositeType *Ty) {
   ClassOptions CO =
       ClassOptions::ForwardReference | getCommonClassOptions(Ty);
   std::string FullName = getFullyQualifiedName(Ty);
-  TypeIndex FwdDeclTI = TypeTable.writeKnownType(ClassRecord(
-      Kind, 0, CO, HfaKind::None, WindowsRTClassKind::None, TypeIndex(),
-      TypeIndex(), TypeIndex(), 0, FullName, Ty->getIdentifier()));
+  TypeIndex FwdDeclTI = TypeTable.writeKnownType(
+      ClassRecord(Kind, 0, CO, TypeIndex(), TypeIndex(), TypeIndex(), 0,
+                  FullName, Ty->getIdentifier()));
   if (!Ty->isForwardDecl())
     DeferredCompleteTypes.push_back(Ty);
   return FwdDeclTI;
@@ -1715,9 +1721,9 @@ TypeIndex CodeViewDebug::lowerCompleteTypeClass(const DICompositeType *Ty) {
 
   uint64_t SizeInBytes = Ty->getSizeInBits() / 8;
 
-  TypeIndex ClassTI = TypeTable.writeKnownType(ClassRecord(
-      Kind, FieldCount, CO, HfaKind::None, WindowsRTClassKind::None, FieldTI,
-      TypeIndex(), VShapeTI, SizeInBytes, FullName, Ty->getIdentifier()));
+  TypeIndex ClassTI = TypeTable.writeKnownType(
+      ClassRecord(Kind, FieldCount, CO, FieldTI, TypeIndex(), VShapeTI,
+                  SizeInBytes, FullName, Ty->getIdentifier()));
 
   TypeTable.writeKnownType(UdtSourceLineRecord(
       ClassTI, TypeTable.writeKnownType(StringIdRecord(
@@ -1733,8 +1739,8 @@ TypeIndex CodeViewDebug::lowerTypeUnion(const DICompositeType *Ty) {
   ClassOptions CO =
       ClassOptions::ForwardReference | getCommonClassOptions(Ty);
   std::string FullName = getFullyQualifiedName(Ty);
-  TypeIndex FwdDeclTI = TypeTable.writeKnownType(UnionRecord(
-      0, CO, HfaKind::None, TypeIndex(), 0, FullName, Ty->getIdentifier()));
+  TypeIndex FwdDeclTI = TypeTable.writeKnownType(
+      UnionRecord(0, CO, TypeIndex(), 0, FullName, Ty->getIdentifier()));
   if (!Ty->isForwardDecl())
     DeferredCompleteTypes.push_back(Ty);
   return FwdDeclTI;
@@ -1754,9 +1760,8 @@ TypeIndex CodeViewDebug::lowerCompleteTypeUnion(const DICompositeType *Ty) {
   uint64_t SizeInBytes = Ty->getSizeInBits() / 8;
   std::string FullName = getFullyQualifiedName(Ty);
 
-  TypeIndex UnionTI = TypeTable.writeKnownType(
-      UnionRecord(FieldCount, CO, HfaKind::None, FieldTI, SizeInBytes, FullName,
-                  Ty->getIdentifier()));
+  TypeIndex UnionTI = TypeTable.writeKnownType(UnionRecord(
+      FieldCount, CO, FieldTI, SizeInBytes, FullName, Ty->getIdentifier()));
 
   TypeTable.writeKnownType(UdtSourceLineRecord(
       UnionTI, TypeTable.writeKnownType(StringIdRecord(
@@ -1857,11 +1862,10 @@ CodeViewDebug::lowerRecordFieldList(const DICompositeType *Ty) {
       if (Introduced)
         VFTableOffset = SP->getVirtualIndex() * getPointerSizeInBytes();
 
-      Methods.push_back(
-          OneMethodRecord(MethodType, translateMethodKindFlags(SP, Introduced),
-                          translateMethodOptionFlags(SP),
-                          translateAccessFlags(Ty->getTag(), SP->getFlags()),
-                          VFTableOffset, Name));
+      Methods.push_back(OneMethodRecord(
+          MethodType, translateAccessFlags(Ty->getTag(), SP->getFlags()),
+          translateMethodKindFlags(SP, Introduced),
+          translateMethodOptionFlags(SP), VFTableOffset, Name));
       MemberCount++;
     }
     assert(Methods.size() > 0 && "Empty methods map entry");
@@ -2132,8 +2136,6 @@ MCSymbol *CodeViewDebug::beginCVSubsection(ModuleSubstreamKind Kind) {
   OS.AddComment("Subsection size");
   OS.emitAbsoluteSymbolDiff(EndLabel, BeginLabel, 4);
   OS.EmitLabel(BeginLabel);
-  if (Kind == ModuleSubstreamKind::Symbols)
-    emitCompilerInformation();
   return EndLabel;
 }
 

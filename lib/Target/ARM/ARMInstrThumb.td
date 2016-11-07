@@ -1261,6 +1261,13 @@ def tUDF : TI<(outs), (ins imm0_255:$imm8), IIC_Br, "udf\t$imm8",
   let Inst{7-0} = imm8;
 }
 
+def t__brkdiv0 : TI<(outs), (ins), IIC_Br, "__brkdiv0",
+                    [(int_arm_undefined 249)]>, Encoding16,
+    Requires<[IsThumb, IsWindows]> {
+  let Inst = 0xdef9;
+  let isTerminator = 1;
+}
+
 // Zero-extend byte
 def tUXTB :                     // A8.6.262
   T1pIMiscEncode<{0,0,1,0,1,1,?}, (outs tGPR:$Rd), (ins tGPR:$Rm),
@@ -1307,6 +1314,18 @@ let hasSideEffects = 1 in
 def tLEApcrelJT : tPseudoInst<(outs tGPR:$Rd),
                               (ins i32imm:$label, pred:$p),
                               2, IIC_iALUi, []>, Sched<[WriteALU]>;
+
+// Thumb-1 doesn't have the TBB or TBH instructions, but we can synthesize them
+// and make use of the same compressed jump table format as Thumb-2.
+let Size = 2 in {
+def tTBB_JT : tPseudoInst<(outs),
+        (ins tGPR:$base, tGPR:$index, i32imm:$jt, i32imm:$pclbl), 0, IIC_Br, []>,
+        Sched<[WriteBr]>;
+
+def tTBH_JT : tPseudoInst<(outs),
+        (ins tGPR:$base, tGPR:$index, i32imm:$jt, i32imm:$pclbl), 0, IIC_Br, []>,
+        Sched<[WriteBr]>;
+}
 
 //===----------------------------------------------------------------------===//
 // TLS Instructions

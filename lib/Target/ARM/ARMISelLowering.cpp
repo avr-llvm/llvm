@@ -1017,6 +1017,10 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::UDIVREM, MVT::i32, Expand);
   }
 
+  if (Subtarget->isTargetWindows() && Subtarget->getTargetTriple().isOSMSVCRT())
+    for (auto &VT : {MVT::f32, MVT::f64})
+      setOperationAction(ISD::FPOWI, VT, Custom);
+
   setOperationAction(ISD::GlobalAddress, MVT::i32,   Custom);
   setOperationAction(ISD::ConstantPool,  MVT::i32,   Custom);
   setOperationAction(ISD::GlobalTLSAddress, MVT::i32, Custom);
@@ -1057,6 +1061,10 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   } else {
     // If there's anything we can use as a barrier, go through custom lowering
     // for ATOMIC_FENCE.
+    // If target has DMB in thumb, Fences can be inserted.
+    if (Subtarget->hasDataBarrier())
+      InsertFencesForAtomic = true;
+
     setOperationAction(ISD::ATOMIC_FENCE,   MVT::Other,
                        Subtarget->hasAnyDataBarrier() ? Custom : Expand);
 
@@ -1075,8 +1083,10 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::ATOMIC_LOAD_UMAX, MVT::i32, Expand);
     // Mark ATOMIC_LOAD and ATOMIC_STORE custom so we can handle the
     // Unordered/Monotonic case.
-    setOperationAction(ISD::ATOMIC_LOAD, MVT::i32, Custom);
-    setOperationAction(ISD::ATOMIC_STORE, MVT::i32, Custom);
+    if (!InsertFencesForAtomic) {
+      setOperationAction(ISD::ATOMIC_LOAD, MVT::i32, Custom);
+      setOperationAction(ISD::ATOMIC_STORE, MVT::i32, Custom);
+    }
   }
 
   setOperationAction(ISD::PREFETCH,         MVT::Other, Custom);
@@ -7519,6 +7529,58 @@ static void ReplaceCMP_SWAP_64Results(SDNode *N,
   Results.push_back(SDValue(CmpSwap, 2));
 }
 
+static SDValue LowerFPOWI(SDValue Op, const ARMSubtarget &Subtarget,
+                          SelectionDAG &DAG) {
+  const auto &TLI = DAG.getTargetLoweringInfo();
+
+  assert(Subtarget.getTargetTriple().isOSMSVCRT() &&
+         "Custom lowering is MSVCRT specific!");
+
+  SDLoc dl(Op);
+  SDValue Val = Op.getOperand(0);
+  MVT Ty = Val->getSimpleValueType(0);
+  SDValue Exponent = DAG.getNode(ISD::SINT_TO_FP, dl, Ty, Op.getOperand(1));
+  SDValue Callee = DAG.getExternalSymbol(Ty == MVT::f32 ? "powf" : "pow",
+                                         TLI.getPointerTy(DAG.getDataLayout()));
+
+  TargetLowering::ArgListTy Args;
+  TargetLowering::ArgListEntry Entry;
+
+  Entry.Node = Val;
+  Entry.Ty = Val.getValueType().getTypeForEVT(*DAG.getContext());
+  Entry.isZExt = true;
+  Args.push_back(Entry);
+
+  Entry.Node = Exponent;
+  Entry.Ty = Exponent.getValueType().getTypeForEVT(*DAG.getContext());
+  Entry.isZExt = true;
+  Args.push_back(Entry);
+
+  Type *LCRTy = Val.getValueType().getTypeForEVT(*DAG.getContext());
+
+  // In the in-chain to the call is the entry node  If we are emitting a
+  // tailcall, the chain will be mutated if the node has a non-entry input
+  // chain.
+  SDValue InChain = DAG.getEntryNode();
+  SDValue TCChain = InChain;
+
+  const auto *F = DAG.getMachineFunction().getFunction();
+  bool IsTC = TLI.isInTailCallPosition(DAG, Op.getNode(), TCChain) &&
+              F->getReturnType() == LCRTy;
+  if (IsTC)
+    InChain = TCChain;
+
+  TargetLowering::CallLoweringInfo CLI(DAG);
+  CLI.setDebugLoc(dl)
+      .setChain(InChain)
+      .setCallee(CallingConv::ARM_AAPCS_VFP, LCRTy, Callee, std::move(Args))
+      .setTailCall(IsTC);
+  std::pair<SDValue, SDValue> CI = TLI.LowerCallTo(CLI);
+
+  // Return the chain (the DAG root) if it is a tail call
+  return !CI.second.getNode() ? DAG.getRoot() : CI.first;
+}
+
 SDValue ARMTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
   switch (Op.getOpcode()) {
   default: llvm_unreachable("Don't know how to custom lower this!");
@@ -7605,6 +7667,7 @@ SDValue ARMTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
     llvm_unreachable("Don't know how to custom lower this!");
   case ISD::FP_ROUND: return LowerFP_ROUND(Op, DAG);
   case ISD::FP_EXTEND: return LowerFP_EXTEND(Op, DAG);
+  case ISD::FPOWI: return LowerFPOWI(Op, *Subtarget, DAG);
   case ARMISD::WIN__DBZCHK: return SDValue();
   }
 }
@@ -8593,17 +8656,20 @@ ARMTargetLowering::EmitLowered__dbzchk(MachineInstr &MI,
   ContBB->splice(ContBB->begin(), MBB,
                  std::next(MachineBasicBlock::iterator(MI)), MBB->end());
   ContBB->transferSuccessorsAndUpdatePHIs(MBB);
+  MBB->addSuccessor(ContBB);
 
   MachineBasicBlock *TrapBB = MF->CreateMachineBasicBlock();
+  BuildMI(TrapBB, DL, TII->get(ARM::t__brkdiv0));
   MF->push_back(TrapBB);
-  BuildMI(TrapBB, DL, TII->get(ARM::t2UDF)).addImm(249);
   MBB->addSuccessor(TrapBB);
 
-  BuildMI(*MBB, MI, DL, TII->get(ARM::tCBZ))
-      .addReg(MI.getOperand(0).getReg())
-      .addMBB(TrapBB);
-  AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(ARM::t2B)).addMBB(ContBB));
-  MBB->addSuccessor(ContBB);
+  AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(ARM::tCMPi8))
+                     .addReg(MI.getOperand(0).getReg())
+                     .addImm(0));
+  BuildMI(*MBB, MI, DL, TII->get(ARM::t2Bcc))
+      .addMBB(TrapBB)
+      .addImm(ARMCC::EQ)
+      .addReg(ARM::CPSR);
 
   MI.eraseFromParent();
   return ContBB;
@@ -9354,7 +9420,7 @@ static SDValue AddCombineTo64bitUMAAL(SDNode *AddcNode,
   // be combined into a UMLAL. The other pattern is AddcNode being combined
   // into an UMLAL and then using another addc is handled in ISelDAGToDAG.
 
-  if (!Subtarget->hasV6Ops() ||
+  if (!Subtarget->hasV6Ops() || !Subtarget->hasDSP() ||
       (Subtarget->isThumb() && !Subtarget->hasThumb2()))
     return AddCombineTo64bitMLAL(AddcNode, DCI, Subtarget);
 
@@ -12876,7 +12942,8 @@ ARMTargetLowering::shouldExpandAtomicLoadInIR(LoadInst *LI) const {
 TargetLowering::AtomicExpansionKind
 ARMTargetLowering::shouldExpandAtomicRMWInIR(AtomicRMWInst *AI) const {
   unsigned Size = AI->getType()->getPrimitiveSizeInBits();
-  return (Size <= (Subtarget->isMClass() ? 32U : 64U))
+  bool hasAtomicRMW = !Subtarget->isThumb() || Subtarget->hasV8MBaselineOps();
+  return (Size <= (Subtarget->isMClass() ? 32U : 64U) && hasAtomicRMW)
              ? AtomicExpansionKind::LLSC
              : AtomicExpansionKind::None;
 }
@@ -12888,7 +12955,9 @@ bool ARMTargetLowering::shouldExpandAtomicCmpXchgInIR(
   // on the stack and close enough to the spill slot, this can lead to a
   // situation where the monitor always gets cleared and the atomic operation
   // can never succeed. So at -O0 we need a late-expanded pseudo-inst instead.
-  return getTargetMachine().getOptLevel() != 0;
+  bool hasAtomicCmpXchg =
+      !Subtarget->isThumb() || Subtarget->hasV8MBaselineOps();
+  return getTargetMachine().getOptLevel() != 0 && hasAtomicCmpXchg;
 }
 
 bool ARMTargetLowering::shouldInsertFencesForAtomic(

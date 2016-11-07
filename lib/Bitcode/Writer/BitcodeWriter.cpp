@@ -990,7 +990,7 @@ static unsigned getEncodedLinkage(const GlobalValue &GV) {
 static uint64_t getEncodedGVSummaryFlags(GlobalValueSummary::GVFlags Flags) {
   uint64_t RawFlags = 0;
 
-  RawFlags |= Flags.HasSection; // bool
+  RawFlags |= Flags.NoRename; // bool
   RawFlags |= (Flags.IsNotViableToInline << 1);
   // Linkage don't need to be remapped at that time for the summary. Any future
   // change to the getEncodedLinkage() function will need to be taken into
@@ -1627,7 +1627,7 @@ void ModuleBitcodeWriter::writeDILexicalBlockFile(
 void ModuleBitcodeWriter::writeDINamespace(const DINamespace *N,
                                            SmallVectorImpl<uint64_t> &Record,
                                            unsigned Abbrev) {
-  Record.push_back(N->isDistinct());
+  Record.push_back(N->isDistinct() | N->getExportSymbols() << 1);
   Record.push_back(VE.getMetadataOrNullID(N->getScope()));
   Record.push_back(VE.getMetadataOrNullID(N->getFile()));
   Record.push_back(VE.getMetadataOrNullID(N->getRawName()));
@@ -3031,7 +3031,7 @@ void ModuleBitcodeWriter::writeBlockInfo() {
   // We only want to emit block info records for blocks that have multiple
   // instances: CONSTANTS_BLOCK, FUNCTION_BLOCK and VALUE_SYMTAB_BLOCK.
   // Other blocks can define their abbrevs inline.
-  Stream.EnterBlockInfoBlock(2);
+  Stream.EnterBlockInfoBlock();
 
   { // 8-bit fixed-width VST_CODE_ENTRY/VST_CODE_BBENTRY strings.
     BitCodeAbbrev *Abbv = new BitCodeAbbrev();
@@ -3331,9 +3331,9 @@ void ModuleBitcodeWriter::writeModuleLevelReferences(
   if (V.isDeclaration())
     return;
   NameVals.push_back(VE.getValueID(&V));
-  NameVals.push_back(getEncodedGVSummaryFlags(V));
   auto *Summary = Index->getGlobalValueSummary(V);
   GlobalVarSummary *VS = cast<GlobalVarSummary>(Summary);
+  NameVals.push_back(getEncodedGVSummaryFlags(VS->flags()));
 
   unsigned SizeBeforeRefs = NameVals.size();
   for (auto &RI : VS->refs())
@@ -3434,7 +3434,9 @@ void ModuleBitcodeWriter::writePerModuleGlobalValueSummary() {
     auto AliasId = VE.getValueID(&A);
     auto AliaseeId = VE.getValueID(Aliasee);
     NameVals.push_back(AliasId);
-    NameVals.push_back(getEncodedGVSummaryFlags(A));
+    auto *Summary = Index->getGlobalValueSummary(A);
+    AliasSummary *AS = cast<AliasSummary>(Summary);
+    NameVals.push_back(getEncodedGVSummaryFlags(AS->flags()));
     NameVals.push_back(AliaseeId);
     Stream.EmitRecord(bitc::FS_ALIAS, NameVals, FSAliasAbbrev);
     NameVals.clear();
@@ -3628,15 +3630,10 @@ void ModuleBitcodeWriter::writeModuleHash(size_t BlockStartPos) {
   SHA1 Hasher;
   Hasher.update(ArrayRef<uint8_t>((const uint8_t *)&(Buffer)[BlockStartPos],
                                   Buffer.size() - BlockStartPos));
-  auto Hash = Hasher.result();
-  SmallVector<uint64_t, 20> Vals;
-  auto LShift = [&](unsigned char Val, unsigned Amount)
-                    -> uint64_t { return ((uint64_t)Val) << Amount; };
+  StringRef Hash = Hasher.result();
+  uint32_t Vals[5];
   for (int Pos = 0; Pos < 20; Pos += 4) {
-    uint32_t SubHash = LShift(Hash[Pos + 0], 24);
-    SubHash |= LShift(Hash[Pos + 1], 16) | LShift(Hash[Pos + 2], 8) |
-               (unsigned)(unsigned char)Hash[Pos + 3];
-    Vals.push_back(SubHash);
+    Vals[Pos / 4] = support::endian::read32be(Hash.data() + Pos);
   }
 
   // Emit the finished record.

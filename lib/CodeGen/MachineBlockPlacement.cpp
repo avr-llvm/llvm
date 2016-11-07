@@ -282,6 +282,11 @@ class MachineBlockPlacement : public MachineFunctionPass {
   /// \brief A handle to the loop info.
   MachineLoopInfo *MLI;
 
+  /// \brief Preferred loop exit.
+  /// Member variable for convenience. It may be removed by duplication deep
+  /// in the call stack.
+  MachineBasicBlock *PreferredLoopExit;
+
   /// \brief A handle to the target's instruction info.
   const TargetInstrInfo *TII;
 
@@ -1474,9 +1479,8 @@ void MachineBlockPlacement::buildLoopChains(MachineLoop &L) {
   // If we selected just the header for the loop top, look for a potentially
   // profitable exit block in the event that rotating the loop can eliminate
   // branches by placing an exit edge at the bottom.
-  MachineBasicBlock *ExitingBB = nullptr;
   if (!RotateLoopWithProfile && LoopTop == L.getHeader())
-    ExitingBB = findBestLoopExit(L, LoopBlockSet);
+    PreferredLoopExit = findBestLoopExit(L, LoopBlockSet);
 
   BlockChain &LoopChain = *BlockToChain[LoopTop];
 
@@ -1495,7 +1499,7 @@ void MachineBlockPlacement::buildLoopChains(MachineLoop &L) {
   if (RotateLoopWithProfile)
     rotateLoopWithProfile(LoopChain, L, LoopBlockSet);
   else
-    rotateLoop(LoopChain, ExitingBB, LoopBlockSet);
+    rotateLoop(LoopChain, PreferredLoopExit, LoopBlockSet);
 
   DEBUG({
     // Crash at the end so we get all of the debugging output first.
@@ -1594,6 +1598,7 @@ void MachineBlockPlacement::buildCFGChains() {
   collectMustExecuteBBs();
 
   // Build any loop-based chains.
+  PreferredLoopExit = nullptr;
   for (MachineLoop *L : *MLI)
     buildLoopChains(*L);
 
@@ -1928,8 +1933,9 @@ bool MachineBlockPlacement::maybeTailDuplicateBlock(
 
         // Remove the block from loop info.
         MLI->removeBlock(RemBB);
+        if (RemBB == PreferredLoopExit)
+          PreferredLoopExit = nullptr;
 
-        // TailDuplicator handles removing it from loops.
         DEBUG(dbgs() << "TailDuplicator deleted block: "
               << getBlockName(RemBB) << "\n");
       };
@@ -1977,6 +1983,11 @@ bool MachineBlockPlacement::runOnMachineFunction(MachineFunction &MF) {
   TII = MF.getSubtarget().getInstrInfo();
   TLI = MF.getSubtarget().getTargetLowering();
   MDT = &getAnalysis<MachineDominatorTree>();
+
+  // Initialize PreferredLoopExit to nullptr here since it may never be set if
+  // there are no MachineLoops.
+  PreferredLoopExit = nullptr;
+
   if (TailDupPlacement) {
     unsigned TailDupSize = TailDuplicatePlacementThreshold;
     if (MF.getFunction()->optForSize())

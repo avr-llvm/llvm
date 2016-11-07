@@ -104,8 +104,8 @@ static PtrTy fromTargetAddress(JITTargetAddress Addr) {
   return reinterpret_cast<PtrTy>(static_cast<uintptr_t>(Addr));
 }
 
-int llvm::runOrcLazyJIT(std::vector<std::unique_ptr<Module>> Ms, int ArgC,
-                        char* ArgV[]) {
+int llvm::runOrcLazyJIT(std::vector<std::unique_ptr<Module>> Ms,
+                        const std::vector<std::string> &Args) {
   // Add the program's symbols into the JIT's search space.
   if (sys::DynamicLibrary::LoadLibraryPermanently(nullptr)) {
     errs() << "Error loading program symbols.\n";
@@ -151,8 +151,11 @@ int llvm::runOrcLazyJIT(std::vector<std::unique_ptr<Module>> Ms, int ArgC,
     return 1;
   }
 
-  typedef int (*MainFnPtr)(int, char*[]);
+  typedef int (*MainFnPtr)(int, const char*[]);
+  std::vector<const char *> ArgV;
+  for (auto &Arg : Args)
+    ArgV.push_back(Arg.c_str());
   auto Main = fromTargetAddress<MainFnPtr>(MainSym.getAddress());
-  return Main(ArgC, ArgV);
+  return Main(ArgV.size(), (const char**)ArgV.data());
 }
 

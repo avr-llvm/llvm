@@ -128,20 +128,25 @@ static void thinLTOResolveWeakForLinkerGUID(
     function_ref<void(StringRef, GlobalValue::GUID, GlobalValue::LinkageTypes)>
         recordNewLinkage) {
   for (auto &S : GVSummaryList) {
-    if (GlobalInvolvedWithAlias.count(S.get()))
-      continue;
     GlobalValue::LinkageTypes OriginalLinkage = S->linkage();
     if (!GlobalValue::isWeakForLinker(OriginalLinkage))
       continue;
     // We need to emit only one of these. The prevailing module will keep it,
     // but turned into a weak, while the others will drop it when possible.
+    // This is both a compile-time optimization and a correctness
+    // transformation. This is necessary for correctness when we have exported
+    // a reference - we need to convert the linkonce to weak to
+    // ensure a copy is kept to satisfy the exported reference.
+    // FIXME: We may want to split the compile time and correctness
+    // aspects into separate routines.
     if (isPrevailing(GUID, S.get())) {
       if (GlobalValue::isLinkOnceLinkage(OriginalLinkage))
         S->setLinkage(GlobalValue::getWeakLinkage(
             GlobalValue::isLinkOnceODRLinkage(OriginalLinkage)));
     }
-    // Alias can't be turned into available_externally.
+    // Alias and aliasee can't be turned into available_externally.
     else if (!isa<AliasSummary>(S.get()) &&
+             !GlobalInvolvedWithAlias.count(S.get()) &&
              (GlobalValue::isLinkOnceODRLinkage(OriginalLinkage) ||
               GlobalValue::isWeakODRLinkage(OriginalLinkage)))
       S->setLinkage(GlobalValue::AvailableExternallyLinkage);
@@ -765,36 +770,40 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
       ThinLTO.ModuleMap.size());
   StringMap<FunctionImporter::ExportSetTy> ExportLists(
       ThinLTO.ModuleMap.size());
-  ComputeCrossModuleImport(ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries,
-                           ImportLists, ExportLists);
-
-  std::set<GlobalValue::GUID> ExportedGUIDs;
-  for (auto &Res : GlobalResolutions) {
-    if (!Res.second.IRName.empty() &&
-        Res.second.Partition == GlobalResolution::External)
-      ExportedGUIDs.insert(GlobalValue::getGUID(Res.second.IRName));
-  }
-
-  auto isPrevailing = [&](GlobalValue::GUID GUID, const GlobalValueSummary *S) {
-    return ThinLTO.PrevailingModuleForGUID[GUID] == S->modulePath();
-  };
-  auto isExported = [&](StringRef ModuleIdentifier, GlobalValue::GUID GUID) {
-    const auto &ExportList = ExportLists.find(ModuleIdentifier);
-    return (ExportList != ExportLists.end() &&
-            ExportList->second.count(GUID)) ||
-           ExportedGUIDs.count(GUID);
-  };
-  thinLTOInternalizeAndPromoteInIndex(ThinLTO.CombinedIndex, isExported);
-
   StringMap<std::map<GlobalValue::GUID, GlobalValue::LinkageTypes>> ResolvedODR;
-  auto recordNewLinkage = [&](StringRef ModuleIdentifier,
-                              GlobalValue::GUID GUID,
-                              GlobalValue::LinkageTypes NewLinkage) {
-    ResolvedODR[ModuleIdentifier][GUID] = NewLinkage;
-  };
 
-  thinLTOResolveWeakForLinkerInIndex(ThinLTO.CombinedIndex, isPrevailing,
-                                     recordNewLinkage);
+  if (Conf.OptLevel > 0) {
+    ComputeCrossModuleImport(ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries,
+                             ImportLists, ExportLists);
+
+    std::set<GlobalValue::GUID> ExportedGUIDs;
+    for (auto &Res : GlobalResolutions) {
+      if (!Res.second.IRName.empty() &&
+          Res.second.Partition == GlobalResolution::External)
+        ExportedGUIDs.insert(GlobalValue::getGUID(Res.second.IRName));
+    }
+
+    auto isPrevailing = [&](GlobalValue::GUID GUID,
+                            const GlobalValueSummary *S) {
+      return ThinLTO.PrevailingModuleForGUID[GUID] == S->modulePath();
+    };
+    auto isExported = [&](StringRef ModuleIdentifier, GlobalValue::GUID GUID) {
+      const auto &ExportList = ExportLists.find(ModuleIdentifier);
+      return (ExportList != ExportLists.end() &&
+              ExportList->second.count(GUID)) ||
+             ExportedGUIDs.count(GUID);
+    };
+    thinLTOInternalizeAndPromoteInIndex(ThinLTO.CombinedIndex, isExported);
+
+    auto recordNewLinkage = [&](StringRef ModuleIdentifier,
+                                GlobalValue::GUID GUID,
+                                GlobalValue::LinkageTypes NewLinkage) {
+      ResolvedODR[ModuleIdentifier][GUID] = NewLinkage;
+    };
+
+    thinLTOResolveWeakForLinkerInIndex(ThinLTO.CombinedIndex, isPrevailing,
+                                       recordNewLinkage);
+  }
 
   std::unique_ptr<ThinBackendProc> BackendProc =
       ThinLTO.Backend(Conf, ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries,

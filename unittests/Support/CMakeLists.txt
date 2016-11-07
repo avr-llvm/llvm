@@ -29,6 +29,7 @@ add_llvm_unittest(SupportTests
   MathExtrasTest.cpp
   MemoryBufferTest.cpp
   MemoryTest.cpp
+  NativeFormatTests.cpp
   Path.cpp
   ProcessTest.cpp
   ProgramTest.cpp
@@ -37,7 +38,6 @@ add_llvm_unittest(SupportTests
   ScaledNumberTest.cpp
   SourceMgrTest.cpp
   SpecialCaseListTest.cpp
-  StreamingMemoryObjectTest.cpp
   StringPool.cpp
   SwapByteOrderTest.cpp
   TargetParserTest.cpp

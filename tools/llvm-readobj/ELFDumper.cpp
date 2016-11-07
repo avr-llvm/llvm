@@ -246,7 +246,7 @@ void ELFDumper<ELFT>::printSymbolsHelper(bool IsDynamic) const {
     if (!DotSymtabSec)
       return;
     StrTable = unwrapOrError(Obj->getStringTableForSymtab(*DotSymtabSec));
-    Syms = Obj->symbols(DotSymtabSec);
+    Syms = unwrapOrError(Obj->symbols(DotSymtabSec));
     SymtabName = unwrapOrError(Obj->getSectionName(DotSymtabSec));
     Entries = DotSymtabSec->getEntityCount();
   }
@@ -647,8 +647,8 @@ StringRef ELFDumper<ELFT>::getSymbolVersion(StringRef StrTab,
                        sizeof(Elf_Sym);
 
   // Get the corresponding version index entry
-  const Elf_Versym *vs =
-      Obj->template getEntry<Elf_Versym>(dot_gnu_version_sec, entry_index);
+  const Elf_Versym *vs = unwrapOrError(
+      Obj->template getEntry<Elf_Versym>(dot_gnu_version_sec, entry_index));
   size_t version_index = vs->vs_index & ELF::VERSYM_VERSION;
 
   // Special markers for unversioned symbols.
@@ -696,11 +696,11 @@ std::string ELFDumper<ELFT>::getFullSymbolName(const Elf_Sym *Symbol,
   return FullSymbolName;
 }
 
-template <typename ELFO>
+template <typename ELFT>
 static void
-getSectionNameIndex(const ELFO &Obj, const typename ELFO::Elf_Sym *Symbol,
-                    const typename ELFO::Elf_Sym *FirstSym,
-                    ArrayRef<typename ELFO::Elf_Word> ShndxTable,
+getSectionNameIndex(const ELFFile<ELFT> &Obj, const typename ELFT::Sym *Symbol,
+                    const typename ELFT::Sym *FirstSym,
+                    ArrayRef<typename ELFT::Word> ShndxTable,
                     StringRef &SectionName, unsigned &SectionIndex) {
   SectionIndex = Symbol->st_shndx;
   if (Symbol->isUndefined())
@@ -717,9 +717,9 @@ getSectionNameIndex(const ELFO &Obj, const typename ELFO::Elf_Sym *Symbol,
     SectionName = "Reserved";
   else {
     if (SectionIndex == SHN_XINDEX)
-      SectionIndex =
-          Obj.getExtendedSymbolTableIndex(Symbol, FirstSym, ShndxTable);
-    const typename ELFO::Elf_Shdr *Sec =
+      SectionIndex = unwrapOrError(object::getExtendedSymbolTableIndex<ELFT>(
+          Symbol, FirstSym, ShndxTable));
+    const typename ELFT::Shdr *Sec =
         unwrapOrError(Obj.getSection(SectionIndex));
     SectionName = unwrapOrError(Obj.getSectionName(Sec));
   }
@@ -728,7 +728,7 @@ getSectionNameIndex(const ELFO &Obj, const typename ELFO::Elf_Sym *Symbol,
 template <class ELFO>
 static const typename ELFO::Elf_Shdr *
 findNotEmptySectionByAddress(const ELFO *Obj, uint64_t Addr) {
-  for (const auto &Shdr : Obj->sections())
+  for (const auto &Shdr : unwrapOrError(Obj->sections()))
     if (Shdr.sh_addr == Addr && Shdr.sh_size > 0)
       return &Shdr;
   return nullptr;
@@ -737,7 +737,7 @@ findNotEmptySectionByAddress(const ELFO *Obj, uint64_t Addr) {
 template <class ELFO>
 static const typename ELFO::Elf_Shdr *findSectionByName(const ELFO &Obj,
                                                         StringRef Name) {
-  for (const auto &Shdr : Obj.sections()) {
+  for (const auto &Shdr : unwrapOrError(Obj.sections())) {
     if (Name == unwrapOrError(Obj.getSectionName(&Shdr)))
       return &Shdr;
   }
@@ -945,6 +945,7 @@ static const EnumEntry<unsigned> ElfMachineType[] = {
   ENUM_ENT(EM_78KOR,         "EM_78KOR"),
   ENUM_ENT(EM_56800EX,       "EM_56800EX"),
   ENUM_ENT(EM_AMDGPU,        "EM_AMDGPU"),
+  ENUM_ENT(EM_RISCV,         "RISC-V"),
   ENUM_ENT(EM_WEBASSEMBLY,   "EM_WEBASSEMBLY"),
   ENUM_ENT(EM_LANAI,         "EM_LANAI"),
   ENUM_ENT(EM_BPF,           "EM_BPF"),
@@ -1304,7 +1305,7 @@ ELFDumper<ELFT>::ELFDumper(const ELFFile<ELFT> *Obj, ScopedPrinter &Writer)
     : ObjDumper(Writer), Obj(Obj) {
 
   SmallVector<const Elf_Phdr *, 4> LoadSegments;
-  for (const Elf_Phdr &Phdr : Obj->program_headers()) {
+  for (const Elf_Phdr &Phdr : unwrapOrError(Obj->program_headers())) {
     if (Phdr.p_type == ELF::PT_DYNAMIC) {
       DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
       continue;
@@ -1314,7 +1315,7 @@ ELFDumper<ELFT>::ELFDumper(const ELFFile<ELFT> *Obj, ScopedPrinter &Writer)
     LoadSegments.push_back(&Phdr);
   }
 
-  for (const Elf_Shdr &Sec : Obj->sections()) {
+  for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
     switch (Sec.sh_type) {
     case ELF::SHT_SYMTAB:
       if (DotSymtabSec != nullptr)
@@ -1856,7 +1857,7 @@ template <> void ELFDumper<ELFType<support::little, false>>::printAttributes() {
   }
 
   DictScope BA(W, "BuildAttributes");
-  for (const ELFO::Elf_Shdr &Sec : Obj->sections()) {
+  for (const ELFO::Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
     if (Sec.sh_type != ELF::SHT_ARM_ATTRIBUTES)
       continue;
 
@@ -2066,16 +2067,18 @@ template <class ELFT> void MipsGOTParser<ELFT>::parsePLT() {
 
     switch (PLTRelShdr->sh_type) {
     case ELF::SHT_REL:
-      for (const Elf_Rel &Rel : Obj->rels(PLTRelShdr)) {
-        const Elf_Sym *Sym = Obj->getRelocationSymbol(&Rel, SymTable);
+      for (const Elf_Rel &Rel : unwrapOrError(Obj->rels(PLTRelShdr))) {
+        const Elf_Sym *Sym =
+            unwrapOrError(Obj->getRelocationSymbol(&Rel, SymTable));
         printPLTEntry(PLTShdr->sh_addr, PLTBegin, It, StrTable, Sym);
         if (++It == PLTEnd)
           break;
       }
       break;
     case ELF::SHT_RELA:
-      for (const Elf_Rela &Rel : Obj->relas(PLTRelShdr)) {
-        const Elf_Sym *Sym = Obj->getRelocationSymbol(&Rel, SymTable);
+      for (const Elf_Rela &Rel : unwrapOrError(Obj->relas(PLTRelShdr))) {
+        const Elf_Sym *Sym =
+            unwrapOrError(Obj->getRelocationSymbol(&Rel, SymTable));
         printPLTEntry(PLTShdr->sh_addr, PLTBegin, It, StrTable, Sym);
         if (++It == PLTEnd)
           break;
@@ -2335,7 +2338,7 @@ template <class ELFT> void ELFDumper<ELFT>::printMipsOptions() {
 
 template <class ELFT> void ELFDumper<ELFT>::printStackMap() const {
   const Elf_Shdr *StackMapSection = nullptr;
-  for (const auto &Sec : Obj->sections()) {
+  for (const auto &Sec : unwrapOrError(Obj->sections())) {
     StringRef Name = unwrapOrError(Obj->getSectionName(&Sec));
     if (Name == ".llvm_stackmaps") {
       StackMapSection = &Sec;
@@ -2388,8 +2391,7 @@ template <class ELFT> void GNUStyle<ELFT>::printFileHeaders(const ELFO *Obj) {
   OS << "\n";
   Str = printEnum(e->e_ident[ELF::EI_OSABI], makeArrayRef(ElfOSABI));
   printFields(OS, "OS/ABI:", Str);
-  Str = "0x" + to_hexString(e->e_version);
-  Str = to_hexString(e->e_ident[ELF::EI_ABIVERSION]);
+  Str = "0x" + to_hexString(e->e_ident[ELF::EI_ABIVERSION]);
   printFields(OS, "ABI Version:", Str);
   Str = printEnum(e->e_type, makeArrayRef(ElfObjectFileType));
   printFields(OS, "Type:", Str);
@@ -2422,13 +2424,13 @@ template <class ELFT> void GNUStyle<ELFT>::printFileHeaders(const ELFO *Obj) {
 template <class ELFT> void GNUStyle<ELFT>::printGroupSections(const ELFO *Obj) {
   uint32_t SectionIndex = 0;
   bool HasGroups = false;
-  for (const Elf_Shdr &Sec : Obj->sections()) {
+  for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
     if (Sec.sh_type == ELF::SHT_GROUP) {
       HasGroups = true;
       const Elf_Shdr *Symtab = unwrapOrError(Obj->getSection(Sec.sh_link));
       StringRef StrTable = unwrapOrError(Obj->getStringTableForSymtab(*Symtab));
       const Elf_Sym *Signature =
-          Obj->template getEntry<Elf_Sym>(Symtab, Sec.sh_info);
+          unwrapOrError(Obj->template getEntry<Elf_Sym>(Symtab, Sec.sh_info));
       ArrayRef<Elf_Word> Data = unwrapOrError(
           Obj->template getSectionContentsAsArray<Elf_Word>(&Sec));
       StringRef Name = unwrapOrError(Obj->getSectionName(&Sec));
@@ -2465,7 +2467,7 @@ void GNUStyle<ELFT>::printRelocation(const ELFO *Obj, const Elf_Shdr *SymTab,
   // fixed width.
   Field Fields[5] = {0, 10 + Bias, 19 + 2 * Bias, 42 + 2 * Bias, 53 + 2 * Bias};
   Obj->getRelocationTypeName(R.getType(Obj->isMips64EL()), RelocName);
-  Sym = Obj->getRelocationSymbol(&R, SymTab);
+  Sym = unwrapOrError(Obj->getRelocationSymbol(&R, SymTab));
   if (Sym && Sym->getType() == ELF::STT_SECTION) {
     const Elf_Shdr *Sec = unwrapOrError(
         Obj->getSection(Sym, SymTab, this->dumper()->getShndxTable()));
@@ -2516,7 +2518,7 @@ static inline void printRelocHeader(raw_ostream &OS, bool Is64, bool IsRela) {
 
 template <class ELFT> void GNUStyle<ELFT>::printRelocations(const ELFO *Obj) {
   bool HasRelocSections = false;
-  for (const Elf_Shdr &Sec : Obj->sections()) {
+  for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
     if (Sec.sh_type != ELF::SHT_REL && Sec.sh_type != ELF::SHT_RELA)
       continue;
     HasRelocSections = true;
@@ -2529,7 +2531,7 @@ template <class ELFT> void GNUStyle<ELFT>::printRelocations(const ELFO *Obj) {
     printRelocHeader(OS,  ELFT::Is64Bits, (Sec.sh_type == ELF::SHT_RELA));
     const Elf_Shdr *SymTab = unwrapOrError(Obj->getSection(Sec.sh_link));
     if (Sec.sh_type == ELF::SHT_REL) {
-      for (const auto &R : Obj->rels(&Sec)) {
+      for (const auto &R : unwrapOrError(Obj->rels(&Sec))) {
         Elf_Rela Rela;
         Rela.r_offset = R.r_offset;
         Rela.r_info = R.r_info;
@@ -2537,7 +2539,7 @@ template <class ELFT> void GNUStyle<ELFT>::printRelocations(const ELFO *Obj) {
         printRelocation(Obj, SymTab, Rela, false);
       }
     } else {
-      for (const auto &R : Obj->relas(&Sec))
+      for (const auto &R : unwrapOrError(Obj->relas(&Sec)))
         printRelocation(Obj, SymTab, R, true);
     }
   }
@@ -2662,7 +2664,7 @@ template <class ELFT> void GNUStyle<ELFT>::printSections(const ELFO *Obj) {
     printField(f);
   OS << "\n";
 
-  for (const Elf_Shdr &Sec : Obj->sections()) {
+  for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
     Number = to_string(SectionIndex);
     Fields[0].Str = Number;
     Fields[1].Str = unwrapOrError(Obj->getSectionName(&Sec));
@@ -2736,8 +2738,8 @@ std::string GNUStyle<ELFT>::getSymbolSectionNdx(const ELFO *Obj,
   case ELF::SHN_COMMON:
     return "COM";
   case ELF::SHN_XINDEX:
-    SectionIndex = Obj->getExtendedSymbolTableIndex(
-        Symbol, FirstSym, this->dumper()->getShndxTable());
+    SectionIndex = unwrapOrError(object::getExtendedSymbolTableIndex<ELFT>(
+        Symbol, FirstSym, this->dumper()->getShndxTable()));
   default:
     // Find if:
     // Processor specific
@@ -2910,7 +2912,7 @@ void GNUStyle<ELFT>::printProgramHeaders(const ELFO *Obj) {
   else
     OS << "  Type           Offset   VirtAddr   PhysAddr   FileSiz "
        << "MemSiz  Flg Align\n";
-  for (const auto &Phdr : Obj->program_headers()) {
+  for (const auto &Phdr : unwrapOrError(Obj->program_headers())) {
     Type = getElfPtType(Header->e_machine, Phdr.p_type);
     Offset = to_string(format_hex(Phdr.p_offset, 8));
     VMA = to_string(format_hex(Phdr.p_vaddr, Width));
@@ -2937,10 +2939,10 @@ void GNUStyle<ELFT>::printProgramHeaders(const ELFO *Obj) {
   }
   OS << "\n Section to Segment mapping:\n  Segment Sections...\n";
   int Phnum = 0;
-  for (const Elf_Phdr &Phdr : Obj->program_headers()) {
+  for (const Elf_Phdr &Phdr : unwrapOrError(Obj->program_headers())) {
     std::string Sections;
     OS << format("   %2.2d     ", Phnum++);
-    for (const Elf_Shdr &Sec : Obj->sections()) {
+    for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
       // Check if each section is in a segment and then print mapping.
       // readelf additionally makes sure it does not print zero sized sections
       // at end of segments and for PT_DYNAMIC both start and end of section
@@ -3268,11 +3270,11 @@ void GNUStyle<ELFT>::printNotes(const ELFFile<ELFT> *Obj) {
   };
 
   if (IsCore) {
-    for (const auto &P : Obj->program_headers())
+    for (const auto &P : unwrapOrError(Obj->program_headers()))
       if (P.p_type == PT_NOTE)
         process(P.p_offset, P.p_filesz);
   } else {
-    for (const auto &S : Obj->sections())
+    for (const auto &S : unwrapOrError(Obj->sections()))
       if (S.sh_type == SHT_NOTE)
         process(S.sh_offset, S.sh_size);
   }
@@ -3327,12 +3329,13 @@ void LLVMStyle<ELFT>::printGroupSections(const ELFO *Obj) {
   DictScope Lists(W, "Groups");
   uint32_t SectionIndex = 0;
   bool HasGroups = false;
-  for (const Elf_Shdr &Sec : Obj->sections()) {
+  for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
     if (Sec.sh_type == ELF::SHT_GROUP) {
       HasGroups = true;
       const Elf_Shdr *Symtab = unwrapOrError(Obj->getSection(Sec.sh_link));
       StringRef StrTable = unwrapOrError(Obj->getStringTableForSymtab(*Symtab));
-      const Elf_Sym *Sym = Obj->template getEntry<Elf_Sym>(Symtab, Sec.sh_info);
+      const Elf_Sym *Sym =
+          unwrapOrError(Obj->template getEntry<Elf_Sym>(Symtab, Sec.sh_info));
       auto Data = unwrapOrError(
           Obj->template getSectionContentsAsArray<Elf_Word>(&Sec));
       DictScope D(W, "Group");
@@ -3361,7 +3364,7 @@ template <class ELFT> void LLVMStyle<ELFT>::printRelocations(const ELFO *Obj) {
   ListScope D(W, "Relocations");
 
   int SectionNumber = -1;
-  for (const Elf_Shdr &Sec : Obj->sections()) {
+  for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
     ++SectionNumber;
 
     if (Sec.sh_type != ELF::SHT_REL && Sec.sh_type != ELF::SHT_RELA)
@@ -3385,7 +3388,7 @@ void LLVMStyle<ELFT>::printRelocations(const Elf_Shdr *Sec, const ELFO *Obj) {
 
   switch (Sec->sh_type) {
   case ELF::SHT_REL:
-    for (const Elf_Rel &R : Obj->rels(Sec)) {
+    for (const Elf_Rel &R : unwrapOrError(Obj->rels(Sec))) {
       Elf_Rela Rela;
       Rela.r_offset = R.r_offset;
       Rela.r_info = R.r_info;
@@ -3394,7 +3397,7 @@ void LLVMStyle<ELFT>::printRelocations(const Elf_Shdr *Sec, const ELFO *Obj) {
     }
     break;
   case ELF::SHT_RELA:
-    for (const Elf_Rela &R : Obj->relas(Sec))
+    for (const Elf_Rela &R : unwrapOrError(Obj->relas(Sec)))
       printRelocation(Obj, R, SymTab);
     break;
   }
@@ -3406,7 +3409,7 @@ void LLVMStyle<ELFT>::printRelocation(const ELFO *Obj, Elf_Rela Rel,
   SmallString<32> RelocName;
   Obj->getRelocationTypeName(Rel.getType(Obj->isMips64EL()), RelocName);
   StringRef TargetName;
-  const Elf_Sym *Sym = Obj->getRelocationSymbol(&Rel, SymTab);
+  const Elf_Sym *Sym = unwrapOrError(Obj->getRelocationSymbol(&Rel, SymTab));
   if (Sym && Sym->getType() == ELF::STT_SECTION) {
     const Elf_Shdr *Sec = unwrapOrError(
         Obj->getSection(Sym, SymTab, this->dumper()->getShndxTable()));
@@ -3435,7 +3438,7 @@ template <class ELFT> void LLVMStyle<ELFT>::printSections(const ELFO *Obj) {
   ListScope SectionsD(W, "Sections");
 
   int SectionIndex = -1;
-  for (const Elf_Shdr &Sec : Obj->sections()) {
+  for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
     ++SectionIndex;
 
     StringRef Name = unwrapOrError(Obj->getSectionName(&Sec));
@@ -3493,11 +3496,12 @@ template <class ELFT> void LLVMStyle<ELFT>::printSections(const ELFO *Obj) {
       const Elf_Shdr *Symtab = this->dumper()->getDotSymtabSec();
       StringRef StrTable = unwrapOrError(Obj->getStringTableForSymtab(*Symtab));
 
-      for (const Elf_Sym &Sym : Obj->symbols(Symtab)) {
+      for (const Elf_Sym &Sym : unwrapOrError(Obj->symbols(Symtab))) {
         const Elf_Shdr *SymSec = unwrapOrError(
             Obj->getSection(&Sym, Symtab, this->dumper()->getShndxTable()));
         if (SymSec == &Sec)
-          printSymbol(Obj, &Sym, Obj->symbols(Symtab).begin(), StrTable, false);
+          printSymbol(Obj, &Sym, unwrapOrError(Obj->symbols(Symtab)).begin(),
+                      StrTable, false);
       }
     }
 
@@ -3629,7 +3633,7 @@ template <class ELFT>
 void LLVMStyle<ELFT>::printProgramHeaders(const ELFO *Obj) {
   ListScope L(W, "ProgramHeaders");
 
-  for (const Elf_Phdr &Phdr : Obj->program_headers()) {
+  for (const Elf_Phdr &Phdr : unwrapOrError(Obj->program_headers())) {
     DictScope P(W, "ProgramHeader");
     W.printHex("Type",
                getElfSegmentType(Obj->getHeader()->e_machine, Phdr.p_type),

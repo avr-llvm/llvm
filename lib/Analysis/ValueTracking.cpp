@@ -3951,37 +3951,45 @@ static SelectPatternResult matchSelectPattern(CmpInst::Predicate Pred,
     }
   }
 
-  if (ConstantInt *C1 = dyn_cast<ConstantInt>(CmpRHS)) {
+  const APInt *C1;
+  if (match(CmpRHS, m_APInt(C1))) {
     if ((CmpLHS == TrueVal && match(FalseVal, m_Neg(m_Specific(CmpLHS)))) ||
         (CmpLHS == FalseVal && match(TrueVal, m_Neg(m_Specific(CmpLHS))))) {
 
       // ABS(X) ==> (X >s 0) ? X : -X and (X >s -1) ? X : -X
       // NABS(X) ==> (X >s 0) ? -X : X and (X >s -1) ? -X : X
-      if (Pred == ICmpInst::ICMP_SGT && (C1->isZero() || C1->isMinusOne())) {
+      if (Pred == ICmpInst::ICMP_SGT && (*C1 == 0 || C1->isAllOnesValue())) {
         return {(CmpLHS == TrueVal) ? SPF_ABS : SPF_NABS, SPNB_NA, false};
       }
 
       // ABS(X) ==> (X <s 0) ? -X : X and (X <s 1) ? -X : X
       // NABS(X) ==> (X <s 0) ? X : -X and (X <s 1) ? X : -X
-      if (Pred == ICmpInst::ICMP_SLT && (C1->isZero() || C1->isOne())) {
+      if (Pred == ICmpInst::ICMP_SLT && (*C1 == 0 || *C1 == 1)) {
         return {(CmpLHS == FalseVal) ? SPF_ABS : SPF_NABS, SPNB_NA, false};
       }
     }
 
-    // Y >s C ? ~Y : ~C == ~Y <s ~C ? ~Y : ~C = SMIN(~Y, ~C)
-    if (const auto *C2 = dyn_cast<ConstantInt>(FalseVal)) {
-      if (Pred == ICmpInst::ICMP_SGT && C1->getType() == C2->getType() &&
-          ~C1->getValue() == C2->getValue() &&
-          (match(TrueVal, m_Not(m_Specific(CmpLHS))) ||
-           match(CmpLHS, m_Not(m_Specific(TrueVal))))) {
-        LHS = TrueVal;
-        RHS = FalseVal;
-        return {SPF_SMIN, SPNB_NA, false};
-      }
+    // (X >s C) ? ~X : ~C ==> (~X <s ~C) ? ~X : ~C ==> SMIN(~X, ~C)
+    // (X <s C) ? ~X : ~C ==> (~X >s ~C) ? ~X : ~C ==> SMAX(~X, ~C)
+    const APInt *C2;
+    if (match(TrueVal, m_Not(m_Specific(CmpLHS))) &&
+        match(FalseVal, m_APInt(C2)) && ~(*C1) == *C2 &&
+        (Pred == CmpInst::ICMP_SGT || Pred == CmpInst::ICMP_SLT)) {
+      LHS = TrueVal;
+      RHS = FalseVal;
+      return {Pred == CmpInst::ICMP_SGT ? SPF_SMIN : SPF_SMAX, SPNB_NA, false};
+    }
+
+    // (X >s C) ? ~C : ~X ==> (~X <s ~C) ? ~C : ~X ==> SMAX(~C, ~X)
+    // (X <s C) ? ~C : ~X ==> (~X >s ~C) ? ~C : ~X ==> SMIN(~C, ~X)
+    if (match(FalseVal, m_Not(m_Specific(CmpLHS))) &&
+        match(TrueVal, m_APInt(C2)) && ~(*C1) == *C2 &&
+        (Pred == CmpInst::ICMP_SGT || Pred == CmpInst::ICMP_SLT)) {
+      LHS = TrueVal;
+      RHS = FalseVal;
+      return {Pred == CmpInst::ICMP_SGT ? SPF_SMAX : SPF_SMIN, SPNB_NA, false};
     }
   }
-
-  // TODO: (X > 4) ? X : 5   -->  (X >= 5) ? X : 5  -->  MAX(X, 5)
 
   return {SPF_UNKNOWN, SPNB_NA, false};
 }

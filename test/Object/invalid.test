@@ -1,6 +1,7 @@
 RUN: not llvm-dwarfdump %p/Inputs/invalid-bad-rel-type.elf 2>&1 | FileCheck %s
 RUN: not llvm-objdump -s %p/Inputs/invalid-strtab-type.elf 2>&1 | FileCheck %s
 RUN: not llvm-objdump -s %p/Inputs/invalid-strtab-size.elf 2>&1 | FileCheck %s
+RUN: not llvm-objdump -s %p/Inputs/invalid-strtab-zero-size.elf 2>&1 | FileCheck %s
 CHECK: Invalid data was encountered while parsing the file
 
 RUN: not llvm-objdump -s %p/Inputs/invalid-strtab-non-null.elf 2>&1 | FileCheck --check-prefix=NON-NULL %s
@@ -41,11 +42,10 @@ RUN: not llvm-readobj --dyn-symbols %p/Inputs/invalid-sh_entsize.elf 2>&1 | File
 INVALID-DYNSYM-SIZE: Invalid entity size
 
 RUN: not llvm-readobj -t %p/Inputs/invalid-section-index.elf 2>&1 | FileCheck --check-prefix=INVALID-SECTION-INDEX %s
-RUN: not llvm-readobj -t %p/Inputs/invalid-section-index2.elf 2>&1 | FileCheck --check-prefix=INVALID-SECTION-INDEX %s
 INVALID-SECTION-INDEX: Invalid section index
 
 RUN: not llvm-readobj -s %p/Inputs/invalid-section-size.elf 2>&1 | FileCheck --check-prefix=INVALID-SECTION-SIZE %s
-INVALID-SECTION-SIZE: Invalid section header entry size (e_shentsize) in ELF header
+INVALID-SECTION-SIZE: Invalid data was encountered while parsing the file
 
 
 RUN: not llvm-readobj -t %p/Inputs/invalid-symbol-table-size.elf 2>&1 | FileCheck --check-prefix=INVALID-SYMTAB-SIZE %s
@@ -56,11 +56,11 @@ RUN: not llvm-readobj -t %p/Inputs/invalid-xindex-size.elf 2>&1 | FileCheck --ch
 INVALID-XINDEX-SIZE: Invalid data was encountered while parsing the file.
 
 RUN: not llvm-readobj -t %p/Inputs/invalid-e_shnum.elf 2>&1 | FileCheck --check-prefix=INVALID-SH-NUM %s
-INVALID-SH-NUM: e_shnum should be zero if a file has no section header table
+INVALID-SH-NUM: Invalid data was encountered while parsing the file.
 
 RUN: not llvm-readobj -t %p/Inputs/invalid-ext-symtab-index.elf-x86-64 2>&1 | \
 RUN:   FileCheck --check-prefix=INVALID-EXT-SYMTAB-INDEX %s
-INVALID-EXT-SYMTAB-INDEX: Invalid symbol table index
+INVALID-EXT-SYMTAB-INDEX: Invalid data was encountered while parsing the file.
 
 RUN: not llvm-readobj -r %p/Inputs/invalid-relocation-sec-sh_offset.elf-i386 2>&1 | \
 RUN:   FileCheck --check-prefix=INVALID-RELOC-SH-OFFSET %s
@@ -71,3 +71,13 @@ INVALID-RELOC-SH-OFFSET: Invalid data was encountered while parsing the file
 RUN: not llvm-readobj -t %p/Inputs/invalid-sections-address-alignment.x86-64 2>&1 | \
 RUN:   FileCheck --check-prefix=INVALID-SEC-ADDRESS-ALIGNMENT %s
 INVALID-SEC-ADDRESS-ALIGNMENT: Invalid data was encountered while parsing the file
+
+RUN: not llvm-readobj -t %p/Inputs/invalid-section-size2.elf 2>&1 | \
+RUN:   FileCheck --check-prefix=INVALID-SECTION-SIZE2 %s
+INVALID-SECTION-SIZE2: Invalid data was encountered while parsing the file.
+
+RUN: not llvm-readobj -t %p/Inputs/invalid-sections-num.elf 2>&1 | FileCheck --check-prefix=INVALID-SECTION-NUM %s
+INVALID-SECTION-NUM: Invalid data was encountered while parsing the file.
+
+RUN: not llvm-readobj -r %p/Inputs/invalid-rel-sym.elf 2>&1 | FileCheck --check-prefix=INVALID-REL-SYM %s
+INVALID-REL-SYM: Invalid data was encountered while parsing the file.

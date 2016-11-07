@@ -360,6 +360,17 @@ let TargetPrefix = "ppc" in {  // All intrinsics start with "llvm.ppc.".
   def int_ppc_altivec_vcmpnezb_p : GCCBuiltin<"__builtin_altivec_vcmpnezb_p">,
               Intrinsic<[llvm_i32_ty],[llvm_i32_ty,llvm_v16i8_ty,llvm_v16i8_ty],
                         [IntrNoMem]>;
+  def int_ppc_altivec_vclzlsbb : GCCBuiltin<"__builtin_altivec_vclzlsbb">,
+              Intrinsic<[llvm_i32_ty],[llvm_v16i8_ty],[IntrNoMem]>;
+  def int_ppc_altivec_vctzlsbb : GCCBuiltin<"__builtin_altivec_vctzlsbb">,
+              Intrinsic<[llvm_i32_ty],[llvm_v16i8_ty],[IntrNoMem]>;
+  def int_ppc_altivec_vprtybw : GCCBuiltin<"__builtin_altivec_vprtybw">,
+              Intrinsic<[llvm_v4i32_ty],[llvm_v4i32_ty],[IntrNoMem]>;
+  def int_ppc_altivec_vprtybd : GCCBuiltin<"__builtin_altivec_vprtybd">,
+              Intrinsic<[llvm_v2i64_ty],[llvm_v2i64_ty],[IntrNoMem]>;
+  def int_ppc_altivec_vprtybq : GCCBuiltin<"__builtin_altivec_vprtybq">,
+              Intrinsic<[llvm_v1i128_ty],[llvm_v1i128_ty],[IntrNoMem]>;
+
 }
 
 // Vector average.
@@ -611,6 +622,8 @@ def int_ppc_altivec_vsl   : PowerPC_Vec_WWW_Intrinsic<"vsl">;
 def int_ppc_altivec_vslo  : PowerPC_Vec_WWW_Intrinsic<"vslo">;
 
 def int_ppc_altivec_vslb  : PowerPC_Vec_BBB_Intrinsic<"vslb">;
+def int_ppc_altivec_vslv  : PowerPC_Vec_BBB_Intrinsic<"vslv">;
+def int_ppc_altivec_vsrv  : PowerPC_Vec_BBB_Intrinsic<"vsrv">;
 def int_ppc_altivec_vslh  : PowerPC_Vec_HHH_Intrinsic<"vslh">;
 def int_ppc_altivec_vslw  : PowerPC_Vec_WWW_Intrinsic<"vslw">;
 
@@ -692,6 +705,11 @@ def int_ppc_altivec_crypto_vpmsumw :
             PowerPC_Vec_WWW_Intrinsic<"crypto_vpmsumw">;
 def int_ppc_altivec_crypto_vpmsumd :
             PowerPC_Vec_DDD_Intrinsic<"crypto_vpmsumd">;
+
+// Absolute Difference intrinsics
+def int_ppc_altivec_vabsdub : PowerPC_Vec_BBB_Intrinsic<"vabsdub">;
+def int_ppc_altivec_vabsduh : PowerPC_Vec_HHH_Intrinsic<"vabsduh">;
+def int_ppc_altivec_vabsduw : PowerPC_Vec_WWW_Intrinsic<"vabsduw">;
 
 //===----------------------------------------------------------------------===//
 // PowerPC VSX Intrinsic Definitions.

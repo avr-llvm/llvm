@@ -94,10 +94,8 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm)
   setOperationAction(ISD::SELECT, MVT::i16, Expand);
 
   setOperationAction(ISD::BSWAP, MVT::i16, Expand);
-  setOperationAction(ISD::BSWAP, MVT::i32, Expand);
-  setOperationAction(ISD::BSWAP, MVT::i64, Expand);
 
-  // add support for postincrement and predecrement load/stores.
+  // Add support for postincrement and predecrement load/stores.
   setIndexedLoadAction(ISD::POST_INC, MVT::i8, Legal);
   setIndexedLoadAction(ISD::POST_INC, MVT::i16, Legal);
   setIndexedLoadAction(ISD::PRE_DEC, MVT::i8, Legal);
@@ -107,7 +105,6 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm)
   setIndexedStoreAction(ISD::PRE_DEC, MVT::i8, Legal);
   setIndexedStoreAction(ISD::PRE_DEC, MVT::i16, Legal);
 
-  // :TODO: for now, we don't support jump tables
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
 
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
@@ -169,74 +166,61 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm)
     // improvements in how we treat 16-bit "registers" to be feasible.
   }
 
-  //  Runtime library functions
-  {
-    // Division rtlib functions (not supported)
-    {
-      setLibcallName(RTLIB::SDIV_I8, nullptr);
-      setLibcallName(RTLIB::SDIV_I16, nullptr);
-      setLibcallName(RTLIB::SDIV_I32, nullptr);
-      setLibcallName(RTLIB::SDIV_I64, nullptr);
-      setLibcallName(RTLIB::SDIV_I128, nullptr);
+  // Division rtlib functions (not supported)
+  setLibcallName(RTLIB::SDIV_I8, nullptr);
+  setLibcallName(RTLIB::SDIV_I16, nullptr);
+  setLibcallName(RTLIB::SDIV_I32, nullptr);
+  setLibcallName(RTLIB::SDIV_I64, nullptr);
+  setLibcallName(RTLIB::SDIV_I128, nullptr);
+  setLibcallName(RTLIB::UDIV_I8, nullptr);
+  setLibcallName(RTLIB::UDIV_I16, nullptr);
+  setLibcallName(RTLIB::UDIV_I32, nullptr);
+  setLibcallName(RTLIB::UDIV_I64, nullptr);
+  setLibcallName(RTLIB::UDIV_I128, nullptr);
 
-      setLibcallName(RTLIB::UDIV_I8, nullptr);
-      setLibcallName(RTLIB::UDIV_I16, nullptr);
-      setLibcallName(RTLIB::UDIV_I32, nullptr);
-      setLibcallName(RTLIB::UDIV_I64, nullptr);
-      setLibcallName(RTLIB::UDIV_I128, nullptr);
-    }
+  // Modulus rtlib functions (not supported)
+  setLibcallName(RTLIB::SREM_I8, nullptr);
+  setLibcallName(RTLIB::SREM_I16, nullptr);
+  setLibcallName(RTLIB::SREM_I32, nullptr);
+  setLibcallName(RTLIB::SREM_I64, nullptr);
+  setLibcallName(RTLIB::SREM_I128, nullptr);
+  setLibcallName(RTLIB::UREM_I8, nullptr);
+  setLibcallName(RTLIB::UREM_I16, nullptr);
+  setLibcallName(RTLIB::UREM_I32, nullptr);
+  setLibcallName(RTLIB::UREM_I64, nullptr);
+  setLibcallName(RTLIB::UREM_I128, nullptr);
 
-    // Modulus rtlib functions (not supported)
-    {
-      setLibcallName(RTLIB::SREM_I8, nullptr);
-      setLibcallName(RTLIB::SREM_I16, nullptr);
-      setLibcallName(RTLIB::SREM_I32, nullptr);
-      setLibcallName(RTLIB::SREM_I64, nullptr);
-      setLibcallName(RTLIB::SREM_I128, nullptr);
+  // Division and modulus rtlib functions
+  setLibcallName(RTLIB::SDIVREM_I8, "__divmodqi4");
+  setLibcallName(RTLIB::SDIVREM_I16, "__divmodhi4");
+  setLibcallName(RTLIB::SDIVREM_I32, "__divmodsi4");
+  setLibcallName(RTLIB::SDIVREM_I64, "__divmoddi4");
+  setLibcallName(RTLIB::SDIVREM_I128, "__divmodti4");
+  setLibcallName(RTLIB::UDIVREM_I8, "__udivmodqi4");
+  setLibcallName(RTLIB::UDIVREM_I16, "__udivmodhi4");
+  setLibcallName(RTLIB::UDIVREM_I32, "__udivmodsi4");
+  setLibcallName(RTLIB::UDIVREM_I64, "__udivmoddi4");
+  setLibcallName(RTLIB::UDIVREM_I128, "__udivmodti4");
 
-      setLibcallName(RTLIB::UREM_I8, nullptr);
-      setLibcallName(RTLIB::UREM_I16, nullptr);
-      setLibcallName(RTLIB::UREM_I32, nullptr);
-      setLibcallName(RTLIB::UREM_I64, nullptr);
-      setLibcallName(RTLIB::UREM_I128, nullptr);
-    }
+  // Several of the runtime library functions use a special calling conv
+  setLibcallCallingConv(RTLIB::SDIVREM_I8, CallingConv::AVR_BUILTIN);
+  setLibcallCallingConv(RTLIB::SDIVREM_I16, CallingConv::AVR_BUILTIN);
+  setLibcallCallingConv(RTLIB::UDIVREM_I8, CallingConv::AVR_BUILTIN);
+  setLibcallCallingConv(RTLIB::UDIVREM_I16, CallingConv::AVR_BUILTIN);
 
-    // Division and modulus rtlib functions
-    {
-      setLibcallName(RTLIB::SDIVREM_I8, "__divmodqi4");
-      setLibcallName(RTLIB::SDIVREM_I16, "__divmodhi4");
-      setLibcallName(RTLIB::SDIVREM_I32, "__divmodsi4");
-      setLibcallName(RTLIB::SDIVREM_I64, "__divmoddi4");
-      setLibcallName(RTLIB::SDIVREM_I128, "__divmodti4");
-
-      setLibcallName(RTLIB::UDIVREM_I8, "__udivmodqi4");
-      setLibcallName(RTLIB::UDIVREM_I16, "__udivmodhi4");
-      setLibcallName(RTLIB::UDIVREM_I32, "__udivmodsi4");
-      setLibcallName(RTLIB::UDIVREM_I64, "__udivmoddi4");
-      setLibcallName(RTLIB::UDIVREM_I128, "__udivmodti4");
-
-      // Several of the runtime library functions use a special calling conv
-      setLibcallCallingConv(RTLIB::SDIVREM_I8, CallingConv::AVR_BUILTIN);
-      setLibcallCallingConv(RTLIB::SDIVREM_I16, CallingConv::AVR_BUILTIN);
-      setLibcallCallingConv(RTLIB::UDIVREM_I8, CallingConv::AVR_BUILTIN);
-      setLibcallCallingConv(RTLIB::UDIVREM_I16, CallingConv::AVR_BUILTIN);
-    }
-
-    // Trigonometric rtlib functions
-    {
-      setLibcallName(RTLIB::SIN_F32, "sin");
-      setLibcallName(RTLIB::COS_F32, "cos");
-    }
-  }
+  // Trigonometric rtlib functions
+  setLibcallName(RTLIB::SIN_F32, "sin");
+  setLibcallName(RTLIB::COS_F32, "cos");
 
   setMinFunctionAlignment(1);
   setMinimumJumpTableEntries(INT_MAX);
 }
 
 const char *AVRTargetLowering::getTargetNodeName(unsigned Opcode) const {
-#define NODE(name)                                                             \
-  case AVRISD::name:                                                           \
+#define NODE(name)       \
+  case AVRISD::name:     \
     return #name
+
   switch (Opcode) {
   default:
     return nullptr;
@@ -790,6 +774,7 @@ bool AVRTargetLowering::getPreIndexedAddressParts(SDNode *N, SDValue &Base,
     int RHSC = RHS->getSExtValue();
     if (Op->getOpcode() == ISD::SUB)
       RHSC = -RHSC;
+
     if ((VT == MVT::i16 && RHSC != -2) || (VT == MVT::i8 && RHSC != -1)) {
       return false;
     }
@@ -854,12 +839,8 @@ bool AVRTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
   return false;
 }
 
-/// Return true if folding a constant offset
-/// with the given GlobalAddress is legal.  It is frequently not legal in
-/// PIC relocation models.
 bool AVRTargetLowering::isOffsetFoldingLegal(
     const GlobalAddressSDNode *GA) const {
-  //:TODO: consider folding other operators like or,and,xor,...
   return true;
 }
 
@@ -895,16 +876,18 @@ static void parseExternFuncCallArgs(const SmallVectorImpl<ISD::OutputArg> &In,
   }
 }
 
-static StringRef GetFunctionName(TargetLowering::CallLoweringInfo &CLI) {
+static StringRef getFunctionName(TargetLowering::CallLoweringInfo &CLI) {
   SDValue Callee = CLI.Callee;
 
   if (const ExternalSymbolSDNode *G = dyn_cast<ExternalSymbolSDNode>(Callee)) {
     return G->getSymbol();
-  } else if (const GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
-    return G->getGlobal()->getName();
-  } else {
-    llvm_unreachable("don't know how to get the name for this callee");
   }
+
+  if (const GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
+    return G->getGlobal()->getName();
+  }
+
+  llvm_unreachable("don't know how to get the name for this callee");
 }
 
 /// Analyze incoming and outgoing function arguments. We need custom C++ code
@@ -988,7 +971,7 @@ static void analyzeBuiltinArguments(TargetLowering::CallLoweringInfo &CLI,
                                     CallingConv::ID CallConv,
                                     SmallVectorImpl<CCValAssign> &ArgLocs,
                                     CCState &CCInfo, bool IsCall, bool IsVarArg) {
-  StringRef FuncName = GetFunctionName(CLI);
+  StringRef FuncName = getFunctionName(CLI);
 
   if (FuncName.startswith("__udivmod") || FuncName.startswith("__divmod")) {
     CCInfo.AnalyzeCallOperands(*Outs, ArgCC_AVR_BUILTIN_DIV);
@@ -1144,7 +1127,7 @@ SDValue AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // If the callee is a GlobalAddress/ExternalSymbol node (quite common, every
   // direct call is) turn it into a TargetGlobalAddress/TargetExternalSymbol
   // node so that legalize doesn't hack it.
-  const Function *F = 0;
+  const Function *F = nullptr;
   if (const GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
     const GlobalValue *GV = G->getGlobal();
 
@@ -1170,7 +1153,7 @@ SDValue AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   // First, walk the register assignments, inserting copies.
   unsigned AI, AE;
-  bool HasStkArgs = false;
+  bool HasStackArgs = false;
   for (AI = 0, AE = ArgLocs.size(); AI != AE; ++AI) {
     CCValAssign &VA = ArgLocs[AI];
     EVT RegVT = VA.getLocVT();
@@ -1199,7 +1182,7 @@ SDValue AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     // Stop when we encounter a stack argument, we need to process them
     // in reverse order in the loop below.
     if (VA.isMemLoc()) {
-      HasStkArgs = true;
+      HasStackArgs = true;
       break;
     }
 
@@ -1212,7 +1195,7 @@ SDValue AVRTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // chained stores, this ensures their order is not changed by the scheduler
   // and that the push instruction sequence generated is correct, otherwise they
   // can be freely intermixed.
-  if (HasStkArgs) {
+  if (HasStackArgs) {
     for (AE = AI, AI = ArgLocs.size(); AI != AE; --AI) {
       unsigned Loc = AI - 1;
       CCValAssign &VA = ArgLocs[Loc];
@@ -1339,6 +1322,7 @@ AVRTargetLowering::CanLowerReturn(CallingConv::ID CallConv,
 {
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, MF, RVLocs, Context);
+
   auto CCFunction = CCAssignFnForReturn(CallConv);
   return CCInfo.CheckReturn(Outs, CCFunction);
 }
@@ -1519,7 +1503,7 @@ MachineBasicBlock *AVRTargetLowering::insertShift(MachineInstr &MI,
   return RemBB;
 }
 
-inline bool isCopyMulResult(MachineBasicBlock::iterator const &I) {
+static bool isCopyMulResult(MachineBasicBlock::iterator const &I) {
   if (I->getOpcode() == AVR::COPY) {
     unsigned SrcReg = I->getOperand(1).getReg();
     return (SrcReg == AVR::R0 || SrcReg == AVR::R1);
@@ -1684,7 +1668,7 @@ AVRTargetLowering::getSingleConstraintMatchWeight(
   // If we don't have a value, we can't do a match,
   // but allow it at the lowest weight.
   // (this behaviour has been copied from the ARM backend)
-  if (CallOperandVal == NULL) {
+  if (!CallOperandVal) {
     return CW_Default;
   }
 
@@ -1815,11 +1799,11 @@ AVRTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
     case 'q': // Stack pointer register: SPH:SPL.
       return std::make_pair(0U, &AVR::GPRSPRegClass);
     case 'r': // Any register: r0..r31.
-      if (VT == MVT::i8) {
+      if (VT == MVT::i8)
         return std::make_pair(0U, &AVR::GPR8RegClass);
-      } else {
-        return std::make_pair(0U, &AVR::DREGSRegClass);
-      }
+
+      assert(VT == MVT::i16 && "inline asm constraint too large");
+      return std::make_pair(0U, &AVR::DREGSRegClass);
     case 't': // Temporary register: r0.
       return std::make_pair(unsigned(AVR::R0), &AVR::GPR8RegClass);
     case 'w': // Special upper register pairs: r24, r26, r28, r30.
@@ -1950,3 +1934,4 @@ void AVRTargetLowering::LowerAsmOperandForConstraint(SDValue Op,
 }
 
 } // end of namespace llvm
+

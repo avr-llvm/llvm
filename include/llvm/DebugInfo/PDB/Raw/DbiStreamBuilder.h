@@ -25,6 +25,9 @@ namespace llvm {
 namespace msf {
 class MSFBuilder;
 }
+namespace object {
+struct coff_section;
+}
 namespace pdb {
 class DbiStream;
 struct DbiStreamHeader;
@@ -44,6 +47,7 @@ public:
   void setPdbDllRbld(uint16_t R);
   void setFlags(uint16_t F);
   void setMachineType(PDB_Machine M);
+  void setSectionMap(ArrayRef<SecMapEntry> SecMap);
 
   // Add given bytes as a new stream.
   Error addDbgStream(pdb::DbgHeaderType Type, ArrayRef<uint8_t> Data);
@@ -55,10 +59,13 @@ public:
 
   Error finalizeMsfLayout();
 
-  Expected<std::unique_ptr<DbiStream>> build(PDBFile &File,
-                                             const msf::WritableStream &Buffer);
+  Expected<std::unique_ptr<DbiStream>> build(PDBFile &File);
   Error commit(const msf::MSFLayout &Layout,
                const msf::WritableStream &Buffer);
+
+  // A helper function to create a Section Map from a COFF section header.
+  static std::vector<SecMapEntry>
+  createSectionMap(ArrayRef<llvm::object::coff_section> SecHdrs);
 
 private:
   struct DebugStream {
@@ -68,8 +75,10 @@ private:
 
   Error finalize();
   uint32_t calculateModiSubstreamSize() const;
+  uint32_t calculateSectionMapStreamSize() const;
   uint32_t calculateFileInfoSubstreamSize() const;
   uint32_t calculateNamesBufferSize() const;
+  uint32_t calculateDbgStreamsSize() const;
 
   Error generateModiSubstream();
   Error generateFileInfoSubstream();
@@ -101,6 +110,7 @@ private:
   msf::WritableStreamRef NamesBuffer;
   msf::MutableByteStream ModInfoBuffer;
   msf::MutableByteStream FileInfoBuffer;
+  ArrayRef<SecMapEntry> SectionMap;
   llvm::SmallVector<DebugStream, (int)DbgHeaderType::Max> DbgStreams;
 };
 }
