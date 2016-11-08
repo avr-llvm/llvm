@@ -7,10 +7,10 @@ foo:
 
   ld r10, X
   ld r17, X
-  
+
   ld r30, Y
   ld r19, Y
-  
+
   ld r10, Z
   ld r2,  Z
 
@@ -18,10 +18,10 @@ foo:
 
   ld r10, X+
   ld r17, X+
-  
+
   ld r30, Y+
   ld r19, Y+
-  
+
   ld r10, Z+
   ld r2,  Z+
 
@@ -29,10 +29,10 @@ foo:
 
   ld r10, -X
   ld r17, -X
-  
+
   ld r30, -Y
   ld r19, -Y
-  
+
   ld r10, -Z
   ld r2,  -Z
 
@@ -71,5 +71,3 @@ foo:
 
 ; CHECK: ld r10, -Z                 ; encoding: [0xa2,0x90]
 ; CHECK: ld r2,  -Z                 ; encoding: [0x22,0x90]
-
-

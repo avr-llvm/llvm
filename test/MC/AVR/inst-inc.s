@@ -3,7 +3,7 @@
 
 foo:
 
-  inc r12 
+  inc r12
   inc r29
   inc r6
   inc r20

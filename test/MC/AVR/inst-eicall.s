@@ -3,6 +3,6 @@
 
 foo:
 
-  eicall 
+  eicall
 
 ; CHECK: eicall                  ; encoding: [0x19,0x95]

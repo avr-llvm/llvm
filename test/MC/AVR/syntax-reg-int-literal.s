@@ -1,10 +1,8 @@
 ; RUN: llvm-mc -triple avr -show-encoding < %s | FileCheck %s
 
 foo:
-
-    
   add 0,   15
-  add 15,  r0 
+  add 15,  r0
   add 16,  31
   add r16, r31
   add 31,  r16

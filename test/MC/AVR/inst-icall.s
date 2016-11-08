@@ -3,6 +3,6 @@
 
 foo:
 
-  icall 
+  icall
 
 ; CHECK: icall                  ; encoding: [0x09,0x95]

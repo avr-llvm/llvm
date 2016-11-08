@@ -2,15 +2,14 @@
 
 
 foo:
-
   ; Normal
 
   st X,  r10
   st X,  r17
-  
+
   st Y,  r30
   st Y,  r19
-  
+
   st Z,  r10
   st Z,  r2
 
@@ -18,10 +17,10 @@ foo:
 
   st X+,  r10
   st X+,  r17
-  
+
   st Y+,  r30
   st Y+,  r19
-  
+
   st Z+,  r10
   st Z+,  r2
 
@@ -29,14 +28,13 @@ foo:
 
   st -X,  r10
   st -X,  r17
-  
+
   st -Y,  r30
   st -Y,  r19
-  
+
   st -Z,  r10
   st -Z,  r2
 
- 
 ; Normal
 
 ; CHECK: st X,   r10                  ; encoding: [0xac,0x92]

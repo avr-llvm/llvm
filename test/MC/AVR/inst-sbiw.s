@@ -5,10 +5,10 @@ foo:
 
   sbiw r26, 54
   sbiw X,   63
-  
+
   sbiw 28,  52
   sbiw r28, 0
-  
+
   sbiw r30, 63
   sbiw Z,   47
 
@@ -31,4 +31,3 @@ foo:
 
 ; CHECK: sbiw    r24, SYMBOL-1         ; encoding: [0b00AAAAAA,0x97]
                                        ;   fixup A - offset: 0, value: SYMBOL-1, kind: fixup_6_adiw
-

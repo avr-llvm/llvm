@@ -9,7 +9,7 @@ foo:
   andi r27, 92
 
   andi r20, BAR
-  
+
 ; CHECK: andi r16, 255                 ; encoding: [0x0f,0x7f]
 ; CHECK: andi r29, 190                 ; encoding: [0xde,0x7b]
 ; CHECK: andi r22, 172                 ; encoding: [0x6c,0x7a]
@@ -17,4 +17,3 @@ foo:
 
 ; CHECK: andi r20, BAR                 ; encoding: [0x40'A',0x70]
 ; CHECK:                               ;   fixup A - offset: 0, value: BAR, kind: fixup_ldi
-

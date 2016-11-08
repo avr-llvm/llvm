@@ -3,7 +3,7 @@
 
 foo:
 
-  com r30 
+  com r30
   com r17
   com r4
   com r0

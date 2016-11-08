@@ -3,7 +3,7 @@
 
 foo:
 
-  sbic 4,  3 
+  sbic 4,  3
   sbic 6,  2
   sbic 16, 5
   sbic 0,  0
@@ -17,4 +17,3 @@ foo:
 
 ; CHECK: sbic foo+1, 1               ; encoding: [0bAAAAA001,0x99]
 ; CHECK:                             ;   fixup A - offset: 0, value: foo+1, kind: fixup_port5
-

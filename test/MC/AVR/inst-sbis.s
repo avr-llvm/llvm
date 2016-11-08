@@ -2,8 +2,7 @@
 
 
 foo:
-
-  sbis 4,  3 
+  sbis 4,  3
   sbis 6,  2
   sbis 16, 5
   sbis 0,  0
@@ -17,4 +16,3 @@ foo:
 
 ; CHECK: sbis FOO+4, 7               ; encoding: [0bAAAAA111,0x9b]
 ; CHECK:                             ;   fixup A - offset: 0, value: FOO+4, kind: fixup_port5
-

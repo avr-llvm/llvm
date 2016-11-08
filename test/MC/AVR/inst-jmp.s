@@ -3,7 +3,7 @@
 
 foo:
 
-  jmp   200 
+  jmp   200
   jmp  -12
   jmp   80
   jmp   0
@@ -17,4 +17,3 @@ foo:
 
 ; CHECK: jmp foo+1                 ; encoding: [0x0c'A',0x94'A',0b00AAAAAA,0x00]
 ; CHECK:                           ;   fixup A - offset: 0, value: foo+1, kind: fixup_call
-

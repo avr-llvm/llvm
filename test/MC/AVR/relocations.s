@@ -32,10 +32,10 @@ ldi r24, lo8(bar+3)
 ; CHECK-NEXT: R_AVR_HI8_LDI abc
 ldi r30, hi8(abc)
 
-; CHECK-NEXT: R_AVR_LO8_LDI_NEG abc 
+; CHECK-NEXT: R_AVR_LO8_LDI_NEG abc
 ldi r16, -lo8(abc)
 
-; CHECK-NEXT: R_AVR_HI8_LDI_NEG abc 
+; CHECK-NEXT: R_AVR_HI8_LDI_NEG abc
 ldi r16, -hi8(abc)
 
 ; CHECK-NEXT: R_AVR_HH8_LDI foo
@@ -73,4 +73,3 @@ ldi r25, -pm_hi8(foo)
 
 ; CHECK-NEXT: R_AVR_HH8_LDI_PM_NEG
 ldi r25, -pm_hh8(foo)
-

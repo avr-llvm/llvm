@@ -3,6 +3,6 @@
 
 foo:
 
-  ijmp 
+  ijmp
 
 ; CHECK: ijmp                  ; encoding: [0x09,0x94]

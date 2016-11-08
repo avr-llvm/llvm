@@ -3,7 +3,7 @@
 
 foo:
 
-  call  4096 
+  call  4096
   call  -124
   call   -12
   call   0

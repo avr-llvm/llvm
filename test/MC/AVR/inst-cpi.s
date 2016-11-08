@@ -9,7 +9,7 @@ foo:
   cpi r27, 92
 
   cpi r21, ear
-  
+
 ; CHECK: cpi r16, 241                  ; encoding: [0x01,0x3f]
 ; CHECK: cpi r29, 190                  ; encoding: [0xde,0x3b]
 ; CHECK: cpi r22, 172                  ; encoding: [0x6c,0x3a]

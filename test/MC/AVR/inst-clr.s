@@ -3,7 +3,7 @@
 
 foo:
 
-  clr r2 
+  clr r2
   clr r12
   clr r5
   clr r0

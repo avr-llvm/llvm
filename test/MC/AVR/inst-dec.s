@@ -3,7 +3,7 @@
 
 foo:
 
-  dec r26 
+  dec r26
   dec r3
   dec r24
   dec r20

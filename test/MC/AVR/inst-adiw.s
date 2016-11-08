@@ -5,10 +5,10 @@ foo:
 
   adiw r26,  12
   adiw r26,  63
-  
+
   adiw r28,  17
   adiw r28,  0
-  
+
   adiw r30,  63
   adiw r30,  3
 
@@ -25,4 +25,3 @@ foo:
 
 ; CHECK: adiw r24, SYMBOL            ; encoding: [0b00AAAAAA,0x96]
                                      ;   fixup A - offset: 0, value: SYMBOL, kind: fixup_6_adiw
-

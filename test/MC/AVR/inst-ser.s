@@ -2,8 +2,7 @@
 
 
 foo:
-
-  ser r16 
+  ser r16
   ser r31
   ser r27
   ser r31

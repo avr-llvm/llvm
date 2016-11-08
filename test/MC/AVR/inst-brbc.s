@@ -10,4 +10,3 @@ foo:
 ; CHECK:                            ; fixup A - offset: 0, value: .Ltmp0+8, kind: fixup_7_pcrel
 ; CHECK: brcc .Ltmp1-16             ; encoding: [0bAAAAA000,0b111101AA]
 ; CHECK:                            ; fixup A - offset: 0, value: .Ltmp1-16, kind: fixup_7_pcrel
-
