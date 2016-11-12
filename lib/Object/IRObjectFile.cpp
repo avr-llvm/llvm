@@ -14,7 +14,7 @@
 #include "llvm/Object/IRObjectFile.h"
 #include "RecordStreamer.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/GVMaterializer.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Mangler.h"
@@ -317,11 +317,8 @@ llvm::object::IRObjectFile::create(MemoryBufferRef Object,
   if (!BCOrErr)
     return BCOrErr.getError();
 
-  std::unique_ptr<MemoryBuffer> Buff =
-      MemoryBuffer::getMemBuffer(BCOrErr.get(), false);
-
   ErrorOr<std::unique_ptr<Module>> MOrErr =
-      getLazyBitcodeModule(std::move(Buff), Context,
+      getLazyBitcodeModule(*BCOrErr, Context,
                            /*ShouldLazyLoadMetadata*/ true);
   if (std::error_code EC = MOrErr.getError())
     return EC;

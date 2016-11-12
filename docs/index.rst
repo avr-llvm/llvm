@@ -273,6 +273,8 @@ For API clients and LLVM developers.
    MIRLangRef
    Coroutines
    GlobalISel
+   XRay
+   PDB/index
 
 :doc:`WritingAnLLVMPass`
    Information on how to write LLVM transformations and analyses.
@@ -393,6 +395,12 @@ For API clients and LLVM developers.
 
 :doc:`GlobalISel`
   This describes the prototype instruction selection replacement, GlobalISel.
+
+:doc:`XRay`
+  High-level documentation of how to use XRay in LLVM.
+
+:doc:`The Microsoft PDB File Format <PDB/index>`
+  A detailed description of the Microsoft PDB (Program Database) file format.
 
 Development Process Documentation
 =================================

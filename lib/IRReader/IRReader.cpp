@@ -11,7 +11,7 @@
 #include "llvm-c/Core.h"
 #include "llvm-c/IRReader.h"
 #include "llvm/AsmParser/Parser.h"
-#include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -34,7 +34,7 @@ getLazyIRModule(std::unique_ptr<MemoryBuffer> Buffer, SMDiagnostic &Err,
                 LLVMContext &Context, bool ShouldLazyLoadMetadata) {
   if (isBitcode((const unsigned char *)Buffer->getBufferStart(),
                 (const unsigned char *)Buffer->getBufferEnd())) {
-    ErrorOr<std::unique_ptr<Module>> ModuleOrErr = getLazyBitcodeModule(
+    ErrorOr<std::unique_ptr<Module>> ModuleOrErr = getOwningLazyBitcodeModule(
         std::move(Buffer), Context, ShouldLazyLoadMetadata);
     if (std::error_code EC = ModuleOrErr.getError()) {
       Err = SMDiagnostic(Buffer->getBufferIdentifier(), SourceMgr::DK_Error,
