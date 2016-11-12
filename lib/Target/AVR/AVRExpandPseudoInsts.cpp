@@ -13,16 +13,15 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AVR.h"
+#include "AVRInstrInfo.h"
+#include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
+
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-
-#include "AVR.h"
-#include "AVRInstrInfo.h"
-#include "AVRTargetMachine.h"
-
-#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 namespace llvm {
 
@@ -31,14 +30,6 @@ namespace llvm {
 class AVRExpandPseudo : public MachineFunctionPass {
 public:
   static char ID;
-
-  const AVRRegisterInfo *TRI;
-  const TargetInstrInfo *TII;
-
-  /// The register to be used for temporary storage.
-  const unsigned SCRATCH_REGISTER = AVR::R0;
-  /// The IO address of the status register.
-  const unsigned SREG_ADDR = 0x3f;
 
   AVRExpandPseudo() : MachineFunctionPass(ID) {}
 
@@ -49,9 +40,16 @@ public:
   }
 
 private:
-  // LLRTs: line length reduction typedefs
   typedef MachineBasicBlock Block;
   typedef Block::iterator BlockIt;
+
+  const AVRRegisterInfo *TRI;
+  const TargetInstrInfo *TII;
+
+  /// The register to be used for temporary storage.
+  const unsigned SCRATCH_REGISTER = AVR::R0;
+  /// The IO address of the status register.
+  const unsigned SREG_ADDR = 0x3f;
 
   bool expandMBB(Block &MBB);
   bool expandMI(Block &MBB, BlockIt MBBI);
@@ -99,9 +97,10 @@ bool AVRExpandPseudo::expandMBB(MachineBasicBlock &MBB) {
 
 bool AVRExpandPseudo::runOnMachineFunction(MachineFunction &MF) {
   bool Modified = false;
-  const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
-  TRI = static_cast<const AVRRegisterInfo*>(TM.getSubtargetImpl()->getRegisterInfo());
-  TII = TM.getSubtargetImpl()->getInstrInfo();
+
+  const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
+  TRI = STI.getRegisterInfo();
+  TII = STI.getInstrInfo();
 
   for(Block &MBB : MF) {
     bool ContinueExpanding = true;
