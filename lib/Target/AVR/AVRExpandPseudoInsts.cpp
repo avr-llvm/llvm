@@ -88,8 +88,6 @@ private:
 
 char AVRExpandPseudo::ID = 0;
 
-} // end of anonymous namespace
-
 bool AVRExpandPseudo::expandMBB(MachineBasicBlock &MBB) {
   bool Modified = false;
 
@@ -1405,6 +1403,8 @@ bool AVRExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
 #undef EXPAND
   return false;
 }
+
+} // end of anonymous namespace
 
 namespace llvm {
 
