@@ -40,7 +40,6 @@ public:
   }
 
 private:
-  // LLRTs: line length reduction typedefs
   typedef MachineBasicBlock Block;
   typedef Block::iterator BlockIt;
 
@@ -51,7 +50,6 @@ private:
   const unsigned SCRATCH_REGISTER = AVR::R0;
   /// The IO address of the status register.
   const unsigned SREG_ADDR = 0x3f;
-
 
   bool expandMBB(Block &MBB);
   bool expandMI(Block &MBB, BlockIt MBBI);
