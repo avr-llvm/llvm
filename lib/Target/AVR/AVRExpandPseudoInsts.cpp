@@ -23,7 +23,9 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 
-namespace llvm {
+using namespace llvm;
+
+namespace {
 
 /// Expands "placeholder" instructions marked as pseudo into
 /// actual AVR instructions.
@@ -81,6 +83,8 @@ private:
 };
 
 char AVRExpandPseudo::ID = 0;
+
+} // end of anonymous namespace
 
 bool AVRExpandPseudo::expandMBB(MachineBasicBlock &MBB) {
   bool Modified = false;
@@ -1569,6 +1573,8 @@ bool AVRExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
 #undef EXPAND
   return false;
 }
+
+namespace llvm {
 
 FunctionPass *createAVRExpandPseudoPass() { return new AVRExpandPseudo(); }
 
