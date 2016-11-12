@@ -97,9 +97,10 @@ bool AVRExpandPseudo::expandMBB(MachineBasicBlock &MBB) {
 
 bool AVRExpandPseudo::runOnMachineFunction(MachineFunction &MF) {
   bool Modified = false;
-  const AVRTargetMachine &TM = (const AVRTargetMachine &)MF.getTarget();
-  TRI = static_cast<const AVRRegisterInfo*>(TM.getSubtargetImpl()->getRegisterInfo());
-  TII = TM.getSubtargetImpl()->getInstrInfo();
+
+  const AVRSubtarget &STI = MF.getSubtarget<AVRSubtarget>();
+  TRI = STI.getRegisterInfo();
+  TII = STI.getInstrInfo();
 
   for(Block &MBB : MF) {
     bool ContinueExpanding = true;
