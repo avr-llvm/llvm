@@ -13,16 +13,15 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AVR.h"
+#include "AVRInstrInfo.h"
+#include "AVRTargetMachine.h"
+#include "MCTargetDesc/AVRMCTargetDesc.h"
+
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-
-#include "AVR.h"
-#include "AVRInstrInfo.h"
-#include "AVRTargetMachine.h"
-
-#include "MCTargetDesc/AVRMCTargetDesc.h"
 
 namespace llvm {
 
