@@ -32,14 +32,6 @@ class AVRExpandPseudo : public MachineFunctionPass {
 public:
   static char ID;
 
-  const AVRRegisterInfo *TRI;
-  const TargetInstrInfo *TII;
-
-  /// The register to be used for temporary storage.
-  const unsigned SCRATCH_REGISTER = AVR::R0;
-  /// The IO address of the status register.
-  const unsigned SREG_ADDR = 0x3f;
-
   AVRExpandPseudo() : MachineFunctionPass(ID) {}
 
   bool runOnMachineFunction(MachineFunction &MF) override;
@@ -52,6 +44,15 @@ private:
   // LLRTs: line length reduction typedefs
   typedef MachineBasicBlock Block;
   typedef Block::iterator BlockIt;
+
+  const AVRRegisterInfo *TRI;
+  const TargetInstrInfo *TII;
+
+  /// The register to be used for temporary storage.
+  const unsigned SCRATCH_REGISTER = AVR::R0;
+  /// The IO address of the status register.
+  const unsigned SREG_ADDR = 0x3f;
+
 
   bool expandMBB(Block &MBB);
   bool expandMI(Block &MBB, BlockIt MBBI);
