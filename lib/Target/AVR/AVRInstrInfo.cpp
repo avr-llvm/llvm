@@ -494,5 +494,68 @@ unsigned AVRInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   }
 }
 
+MachineBasicBlock *
+AVRInstrInfo::getBranchDestBlock(const MachineInstr &MI) const {
+  switch (MI.getOpcode()) {
+  default:
+    llvm_unreachable("unexpected opcode!");
+  case AVR::JMPk:
+  case AVR::CALLk:
+  case AVR::RCALLk:
+  case AVR::RJMPk:
+  case AVR::BREQk:
+  case AVR::BRNEk:
+  case AVR::BRSHk:
+  case AVR::BRLOk:
+  case AVR::BRMIk:
+  case AVR::BRPLk:
+  case AVR::BRGEk:
+  case AVR::BRLTk:
+    return MI.getOperand(0).getMBB();
+  case AVR::SBRCRrB:
+  case AVR::SBRSRrB:
+  case AVR::SBICAb:
+  case AVR::SBISAb:
+  case AVR::BRBSsk:
+  case AVR::BRBCsk:
+    return MI.getOperand(1).getMBB();
+  }
+}
+
+static unsigned getBranchDisplacementBits(unsigned Opc) {
+  switch (Opc) {
+  default:
+    llvm_unreachable("unexpected opcode!");
+  case AVR::JMPk:
+  case AVR::CALLk:
+    return 16;
+  case AVR::RCALLk:
+  case AVR::RJMPk:
+    return 13;
+  case AVR::BRBSsk:
+  case AVR::BRBCsk:
+  case AVR::BREQk:
+  case AVR::BRNEk:
+  case AVR::BRSHk:
+  case AVR::BRLOk:
+  case AVR::BRMIk:
+  case AVR::BRPLk:
+  case AVR::BRGEk:
+  case AVR::BRLTk:
+    return 7;
+  case AVR::SBRCRrB:
+  case AVR::SBRSRrB:
+  case AVR::SBICAb:
+  case AVR::SBISAb:
+    return  5;
+  }
+}
+
+bool AVRInstrInfo::isBranchOffsetInRange(unsigned BranchOp,
+                                         int64_t BrOffset) const {
+  unsigned Bits = getBranchDisplacementBits(BranchOp);
+  return isIntN(Bits, BrOffset / 4);
+}
+
 } // end of namespace llvm
 
