@@ -137,6 +137,17 @@ def S_ANDN2_B64_term : PseudoInstSI<(outs SReg_64:$dst),
   let isTerminator = 1;
 }
 
+def WAVE_BARRIER : SPseudoInstSI<(outs), (ins),
+  [(int_amdgcn_wave_barrier)]> {
+  let SchedRW = [];
+  let hasNoSchedulingInfo = 1;
+  let hasSideEffects = 1;
+  let mayLoad = 1;
+  let mayStore = 1;
+  let isBarrier = 1;
+  let isConvergent = 1;
+}
+
 // SI pseudo instructions. These are used by the CFG structurizer pass
 // and should be lowered to ISA instructions prior to codegen.
 
@@ -413,27 +424,78 @@ def : Pat <
 
 } // End Predicates = [UnsafeFPMath]
 
+def : Pat <
+  (f32 (fpextend f16:$src)),
+  (V_CVT_F32_F16_e32 $src)
+>;
+
+def : Pat <
+  (f64 (fpextend f16:$src)),
+  (V_CVT_F64_F32_e32 (V_CVT_F32_F16_e32 $src))
+>;
+
+def : Pat <
+  (f16 (fpround f32:$src)),
+  (V_CVT_F16_F32_e32 $src)
+>;
+
+def : Pat <
+  (f16 (fpround f64:$src)),
+  (V_CVT_F16_F32_e32 (V_CVT_F32_F64_e32 $src))
+>;
+
+def : Pat <
+  (i32 (fp_to_sint f16:$src)),
+  (V_CVT_I32_F32_e32 (V_CVT_F32_F16_e32 $src))
+>;
+
+def : Pat <
+  (i32 (fp_to_uint f16:$src)),
+  (V_CVT_U32_F32_e32 (V_CVT_F32_F16_e32 $src))
+>;
+
+def : Pat <
+  (f16 (sint_to_fp i32:$src)),
+  (V_CVT_F16_F32_e32 (V_CVT_F32_I32_e32 $src))
+>;
+
+def : Pat <
+  (f16 (uint_to_fp i32:$src)),
+  (V_CVT_F16_F32_e32 (V_CVT_F32_U32_e32 $src))
+>;
+
 //===----------------------------------------------------------------------===//
 // VOP2 Patterns
 //===----------------------------------------------------------------------===//
 
+multiclass FMADPat <ValueType vt, Instruction inst> {
+  def : Pat <
+    (vt (fmad (VOP3NoMods0 vt:$src0, i32:$src0_modifiers, i1:$clamp, i32:$omod),
+              (VOP3NoMods  vt:$src1, i32:$src1_modifiers),
+              (VOP3NoMods  vt:$src2, i32:$src2_modifiers))),
+    (inst $src0_modifiers, $src0, $src1_modifiers, $src1,
+          $src2_modifiers, $src2, $clamp, $omod)
+  >;
+}
+
+defm : FMADPat <f16, V_MAC_F16_e64>;
+defm : FMADPat <f32, V_MAC_F32_e64>;
+
+multiclass SelectPat <ValueType vt, Instruction inst> {
+  def : Pat <
+    (vt (select i1:$src0, vt:$src1, vt:$src2)),
+    (inst $src2, $src1, $src0)
+  >;
+}
+
+defm : SelectPat <i16, V_CNDMASK_B32_e64>;
+defm : SelectPat <i32, V_CNDMASK_B32_e64>;
+defm : SelectPat <f16, V_CNDMASK_B32_e64>;
+defm : SelectPat <f32, V_CNDMASK_B32_e64>;
+
 def : Pat <
   (i32 (add (i32 (ctpop i32:$popcnt)), i32:$val)),
   (V_BCNT_U32_B32_e64 $popcnt, $val)
->;
-
-def : Pat <
-  (i32 (select i1:$src0, i32:$src1, i32:$src2)),
-  (V_CNDMASK_B32_e64 $src2, $src1, $src0)
->;
-
-// Pattern for V_MAC_F32
-def : Pat <
-  (fmad  (VOP3NoMods0 f32:$src0, i32:$src0_modifiers, i1:$clamp, i32:$omod),
-         (VOP3NoMods f32:$src1, i32:$src1_modifiers),
-         (VOP3NoMods f32:$src2, i32:$src2_modifiers)),
-  (V_MAC_F32_e64 $src0_modifiers, $src0, $src1_modifiers, $src1,
-                 $src2_modifiers, $src2, $clamp, $omod)
 >;
 
 /********** ============================================ **********/
@@ -506,6 +568,12 @@ foreach Index = 0-15 in {
 
 // FIXME: Why do only some of these type combinations for SReg and
 // VReg?
+// 16-bit bitcast
+def : BitConvert <i16, f16, VGPR_32>;
+def : BitConvert <f16, i16, VGPR_32>;
+def : BitConvert <i16, f16, SReg_32>;
+def : BitConvert <f16, i16, SReg_32>;
+
 // 32-bit bitcast
 def : BitConvert <i32, f32, VGPR_32>;
 def : BitConvert <f32, i32, VGPR_32>;
@@ -608,6 +676,21 @@ def : Pat <
     (V_XOR_B32_e32 (i32 (EXTRACT_SUBREG f64:$src, sub1)),
                    (i32 (V_MOV_B32_e32 (i32 0x80000000)))),
     sub1)
+>;
+
+def : Pat <
+  (fneg f16:$src),
+  (V_XOR_B32_e32 $src, (V_MOV_B32_e32 (i32 0x00008000)))
+>;
+
+def : Pat <
+  (fabs f16:$src),
+  (V_AND_B32_e64 $src, (V_MOV_B32_e32 (i32 0x00007fff)))
+>;
+
+def : Pat <
+  (fneg (fabs f16:$src)),
+  (S_OR_B32 $src, (S_MOV_B32 (i32 0x00008000))) // Set sign bit
 >;
 
 /********** ================== **********/
@@ -907,11 +990,6 @@ def : Pat <
   (V_BFI_B32 (S_MOV_B32 (i32 0x00ff00ff)),
              (V_ALIGNBIT_B32 $a, $a, (i32 24)),
              (V_ALIGNBIT_B32 $a, $a, (i32 8)))
->;
-
-def : Pat <
-  (f32 (select i1:$src2, f32:$src1, f32:$src0)),
-  (V_CNDMASK_B32_e64 $src0, $src1, $src2)
 >;
 
 multiclass BFMPatterns <ValueType vt, InstSI BFM, InstSI MOV> {

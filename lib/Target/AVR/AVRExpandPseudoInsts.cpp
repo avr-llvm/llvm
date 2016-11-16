@@ -88,6 +88,8 @@ private:
 
 char AVRExpandPseudo::ID = 0;
 
+} // end of anonymous namespace
+
 bool AVRExpandPseudo::expandMBB(MachineBasicBlock &MBB) {
   bool Modified = false;
 
@@ -108,7 +110,7 @@ bool AVRExpandPseudo::runOnMachineFunction(MachineFunction &MF) {
   TRI = STI.getRegisterInfo();
   TII = STI.getInstrInfo();
 
-  for(Block &MBB : MF) {
+  for (Block &MBB : MF) {
     bool ContinueExpanding = true;
     unsigned ExpandCount = 0;
 
@@ -121,7 +123,7 @@ bool AVRExpandPseudo::runOnMachineFunction(MachineFunction &MF) {
       ExpandCount++;
 
       ContinueExpanding = BlockModified;
-    } while(ContinueExpanding);
+    } while (ContinueExpanding);
   }
 
   return Modified;
@@ -150,7 +152,8 @@ expandArith(unsigned OpLo, unsigned OpHi, Block &MBB, BlockIt MBBI) {
     .addReg(DstHiReg, getKillRegState(DstIsKill))
     .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
+  if (ImpIsDead)
+    MIBHI->getOperand(3).setIsDead();
 
   // SREG is always implicitly killed
   MIBHI->getOperand(4).setIsKill();
@@ -185,7 +188,8 @@ expandLogic(unsigned Op, Block &MBB, BlockIt MBBI) {
     .addReg(DstHiReg, getKillRegState(DstIsKill))
     .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
+  if (ImpIsDead)
+    MIBHI->getOperand(3).setIsDead();
 
   MI.eraseFromParent();
   return true;
@@ -217,7 +221,8 @@ expandLogicImm(unsigned Op, Block &MBB, BlockIt MBBI) {
     .addReg(DstHiReg, getKillRegState(SrcIsKill))
     .addImm(Hi8);
 
-  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
+  if (ImpIsDead)
+    MIBHI->getOperand(3).setIsDead();
 
   MI.eraseFromParent();
   return true;
@@ -241,20 +246,18 @@ bool AVRExpandPseudo::expand<AVR::SUBWRdRr>(Block &MBB, BlockIt MBBI) {
 template <>
 bool AVRExpandPseudo::expand<AVR::SUBIWRdK>(Block &MBB, BlockIt MBBI) {
   MachineInstr &MI = *MBBI;
-  unsigned OpLo, OpHi, DstLoReg, DstHiReg;
+  unsigned DstLoReg, DstHiReg;
   unsigned DstReg = MI.getOperand(0).getReg();
   bool DstIsDead = MI.getOperand(0).isDead();
   bool SrcIsKill = MI.getOperand(1).isKill();
   bool ImpIsDead = MI.getOperand(3).isDead();
-  OpLo = AVR::SUBIRdK;
-  OpHi = AVR::SBCIRdK;
   TRI->splitReg(DstReg, DstLoReg, DstHiReg);
 
-  auto MIBLO = buildMI(MBB, MBBI, OpLo)
+  auto MIBLO = buildMI(MBB, MBBI, AVR::SUBIRdK)
     .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
     .addReg(DstLoReg, getKillRegState(SrcIsKill));
 
-  auto MIBHI = buildMI(MBB, MBBI, OpHi)
+  auto MIBHI = buildMI(MBB, MBBI, AVR::SBCIRdK)
     .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
     .addReg(DstHiReg, getKillRegState(SrcIsKill));
 
@@ -277,7 +280,8 @@ bool AVRExpandPseudo::expand<AVR::SUBIWRdK>(Block &MBB, BlockIt MBBI) {
     llvm_unreachable("Unknown operand type!");
   }
 
-  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
+  if (ImpIsDead)
+    MIBHI->getOperand(3).setIsDead();
 
   // SREG is always implicitly killed
   MIBHI->getOperand(4).setIsKill();
@@ -319,7 +323,8 @@ bool AVRExpandPseudo::expand<AVR::SBCIWRdK>(Block &MBB, BlockIt MBBI) {
     .addReg(DstHiReg, getKillRegState(SrcIsKill))
     .addImm(Hi8);
 
-  if (ImpIsDead) { MIBHI->getOperand(3).setIsDead(); }
+  if (ImpIsDead)
+    MIBHI->getOperand(3).setIsDead();
 
   // SREG is always implicitly killed
   MIBHI->getOperand(4).setIsKill();
@@ -376,7 +381,8 @@ bool AVRExpandPseudo::expand<AVR::COMWRd>(Block &MBB, BlockIt MBBI) {
     .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
     .addReg(DstHiReg, getKillRegState(DstIsKill));
 
-  if (ImpIsDead) { MIBHI->getOperand(2).setIsDead(); }
+  if (ImpIsDead)
+    MIBHI->getOperand(2).setIsDead();
 
   MI.eraseFromParent();
   return true;
@@ -405,7 +411,8 @@ bool AVRExpandPseudo::expand<AVR::CPWRdRr>(Block &MBB, BlockIt MBBI) {
     .addReg(DstHiReg, getKillRegState(DstIsKill))
     .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  if (ImpIsDead) { MIBHI->getOperand(2).setIsDead(); }
+  if (ImpIsDead)
+    MIBHI->getOperand(2).setIsDead();
 
   // SREG is always implicitly killed
   MIBHI->getOperand(3).setIsKill();
@@ -439,7 +446,8 @@ bool AVRExpandPseudo::expand<AVR::CPCWRdRr>(Block &MBB, BlockIt MBBI) {
     .addReg(DstHiReg, getKillRegState(DstIsKill))
     .addReg(SrcHiReg, getKillRegState(SrcIsKill));
 
-  if (ImpIsDead) { MIBHI->getOperand(2).setIsDead(); }
+  if (ImpIsDead)
+    MIBHI->getOperand(2).setIsDead();
 
   // SREG is always implicitly killed
   MIBHI->getOperand(3).setIsKill();
@@ -691,18 +699,24 @@ bool AVRExpandPseudo::expandAtomic(Block &MBB, BlockIt MBBI, Func f) {
 }
 
 template<typename Func>
-bool AVRExpandPseudo::expandAtomicBinaryOp(unsigned Opcode, Block &MBB, BlockIt MBBI, Func f) {
+bool AVRExpandPseudo::expandAtomicBinaryOp(unsigned Opcode,
+                                           Block &MBB,
+                                           BlockIt MBBI,
+                                           Func f) {
   return expandAtomic(MBB, MBBI, [&](MachineInstr &MI) {
       auto Op1 = MI.getOperand(0);
       auto Op2 = MI.getOperand(1);
 
-      MachineInstr &NewInst = *buildMI(MBB, MBBI, Opcode).addOperand(Op1).addOperand(Op2).getInstr();
-
+      MachineInstr &NewInst = *buildMI(MBB, MBBI, Opcode)
+        .addOperand(Op1).addOperand(Op2)
+        .getInstr();
       f(NewInst);
   });
 }
 
-bool AVRExpandPseudo::expandAtomicBinaryOp(unsigned Opcode, Block &MBB, BlockIt MBBI) {
+bool AVRExpandPseudo::expandAtomicBinaryOp(unsigned Opcode,
+                                           Block &MBB,
+                                           BlockIt MBBI) {
   return expandAtomicBinaryOp(Opcode, MBB, MBBI, [](MachineInstr &MI) {});
 }
 
@@ -710,7 +724,6 @@ bool AVRExpandPseudo::expandAtomicArithmeticOp(unsigned Width,
                                                unsigned ArithOpcode,
                                                Block &MBB,
                                                BlockIt MBBI) {
-
   return expandAtomic(MBB, MBBI, [&](MachineInstr &MI) {
       auto Op1 = MI.getOperand(0);
       auto Op2 = MI.getOperand(1);
@@ -722,7 +735,9 @@ bool AVRExpandPseudo::expandAtomicArithmeticOp(unsigned Width,
       buildMI(MBB, MBBI, LoadOpcode).addOperand(Op1).addOperand(Op2);
 
       // Create the arithmetic op
-      buildMI(MBB, MBBI, ArithOpcode).addOperand(Op1).addOperand(Op1).addOperand(Op2);
+      buildMI(MBB, MBBI, ArithOpcode)
+        .addOperand(Op1).addOperand(Op1)
+        .addOperand(Op2);
 
       // Create the store
       buildMI(MBB, MBBI, StoreOpcode).addOperand(Op2).addOperand(Op1);
@@ -1101,7 +1116,8 @@ bool AVRExpandPseudo::expand<AVR::LSLWRd>(Block &MBB, BlockIt MBBI) {
     .addReg(DstHiReg, RegState::Define | getDeadRegState(DstIsDead))
     .addReg(DstHiReg, getKillRegState(DstIsKill));
 
-  if (ImpIsDead) { MIBHI->getOperand(2).setIsDead(); }
+  if (ImpIsDead)
+    MIBHI->getOperand(2).setIsDead();
 
   // SREG is always implicitly killed
   MIBHI->getOperand(3).setIsKill();
@@ -1131,7 +1147,8 @@ bool AVRExpandPseudo::expand<AVR::LSRWRd>(Block &MBB, BlockIt MBBI) {
     .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
     .addReg(DstLoReg, getKillRegState(DstIsKill));
 
-  if (ImpIsDead) { MIBLO->getOperand(2).setIsDead(); }
+  if (ImpIsDead)
+    MIBLO->getOperand(2).setIsDead();
 
   // SREG is always implicitly killed
   MIBLO->getOperand(3).setIsKill();
@@ -1142,13 +1159,13 @@ bool AVRExpandPseudo::expand<AVR::LSRWRd>(Block &MBB, BlockIt MBBI) {
 
 template <>
 bool AVRExpandPseudo::expand<AVR::RORWRd>(Block &MBB, BlockIt MBBI) {
-  assert(0 && "RORW unimplemented");
+  llvm_unreachable("RORW unimplemented");
   return false;
 }
 
 template <>
 bool AVRExpandPseudo::expand<AVR::ROLWRd>(Block &MBB, BlockIt MBBI) {
-  assert(0 && "ROLW unimplemented");
+  llvm_unreachable("ROLW unimplemented");
   return false;
 }
 
@@ -1173,7 +1190,8 @@ bool AVRExpandPseudo::expand<AVR::ASRWRd>(Block &MBB, BlockIt MBBI) {
     .addReg(DstLoReg, RegState::Define | getDeadRegState(DstIsDead))
     .addReg(DstLoReg, getKillRegState(DstIsKill));
 
-  if (ImpIsDead) { MIBLO->getOperand(2).setIsDead(); }
+  if (ImpIsDead)
+    MIBLO->getOperand(2).setIsDead();
 
   // SREG is always implicitly killed
   MIBLO->getOperand(3).setIsKill();
@@ -1230,7 +1248,8 @@ template <> bool AVRExpandPseudo::expand<AVR::SEXT>(Block &MBB, BlockIt MBBI) {
     .addReg(DstHiReg, RegState::Kill)
     .addReg(DstHiReg, RegState::Kill);
 
-  if (ImpIsDead) { SBC->getOperand(3).setIsDead(); }
+  if (ImpIsDead)
+    SBC->getOperand(3).setIsDead();
 
   // SREG is always implicitly killed
   SBC->getOperand(4).setIsKill();
@@ -1268,7 +1287,8 @@ template <> bool AVRExpandPseudo::expand<AVR::ZEXT>(Block &MBB, BlockIt MBBI) {
     .addReg(DstHiReg, RegState::Kill)
     .addReg(DstHiReg, RegState::Kill);
 
-  if (ImpIsDead) { EOR->getOperand(3).setIsDead(); }
+  if (ImpIsDead)
+    EOR->getOperand(3).setIsDead();
 
   MI.eraseFromParent();
   return true;
@@ -1403,8 +1423,6 @@ bool AVRExpandPseudo::expandMI(Block &MBB, BlockIt MBBI) {
 #undef EXPAND
   return false;
 }
-
-} // end of anonymous namespace
 
 namespace llvm {
 

@@ -247,7 +247,7 @@ AArch64TargetMachine::getSubtargetImpl(const Function &F) const {
     I = llvm::make_unique<AArch64Subtarget>(TargetTriple, CPU, FS, *this,
                                             isLittle);
 #ifndef LLVM_BUILD_GLOBAL_ISEL
-   GISelAccessor *GISel = new GISelAccessor();
+    GISelAccessor *GISel = new GISelAccessor();
 #else
     AArch64GISelActualAccessor *GISel =
         new AArch64GISelActualAccessor();
@@ -434,6 +434,10 @@ bool AArch64PassConfig::addILPOpts() {
 }
 
 void AArch64PassConfig::addPreRegAlloc() {
+  // Change dead register definitions to refer to the zero register.
+  if (TM->getOptLevel() != CodeGenOpt::None && EnableDeadRegisterElimination)
+    addPass(createAArch64DeadRegisterDefinitions());
+
   // Use AdvSIMD scalar instructions whenever profitable.
   if (TM->getOptLevel() != CodeGenOpt::None && EnableAdvSIMDScalar) {
     addPass(createAArch64AdvSIMDScalar());
@@ -448,9 +452,6 @@ void AArch64PassConfig::addPostRegAlloc() {
   if (TM->getOptLevel() != CodeGenOpt::None && EnableRedundantCopyElimination)
     addPass(createAArch64RedundantCopyEliminationPass());
 
-  // Change dead register definitions to refer to the zero register.
-  if (TM->getOptLevel() != CodeGenOpt::None && EnableDeadRegisterElimination)
-    addPass(createAArch64DeadRegisterDefinitions());
   if (TM->getOptLevel() != CodeGenOpt::None && usingDefaultRegAlloc())
     // Improve performance for some FP/SIMD code for A57.
     addPass(createAArch64A57FPLoadBalancing());
