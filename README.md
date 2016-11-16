@@ -2,6 +2,9 @@
 
 [![Build Status](https://travis-ci.org/avr-llvm/llvm.svg?branch=avr-support)](https://travis-ci.org/avr-llvm/llvm)
 
+*NOTE: The AVR backend has now been completely upstreamed into LLVM trunk. Development will no longer
+occur on this repository.*
+
 See the [Wiki](https://github.com/avr-llvm/llvm/wiki/Getting%20Started) for more information.
 
 An LLVM backend for the Atmel [AVR](http://en.wikipedia.org/wiki/Atmel_AVR) microprocessor architecture.
