@@ -87,6 +87,7 @@ def imm0_63_neg : PatLeaf<(imm),
 }], imm16_neg_XFORM>;
 
 def uimm6 : PatLeaf<(imm), [{ return isUInt<6>(N->getZExtValue()); }]>;
+def uimm7 : PatLeaf<(imm), [{ return isUInt<7>(N->getZExtValue()); }]>;
 
 def ioaddr_XFORM : SDNodeXForm<imm,
 [{
@@ -1135,6 +1136,19 @@ isReMaterializable = 1 in
                 Requires<[HasSRAM]>;
 }
 
+// Indirect load from data space to register.
+// FIXME:
+// - make this a physical instruction (not a pseudo)
+// - map r0..r15 onto r16..r31 so that the numbers match up.
+// - do weird MSB inversion as specified in datsheet
+// encoding:
+def LDS16KRr : FIO16<0,
+                     (outs),
+                     (ins uimm7:$k, GPR8hi:$rd),
+                     "sts\t$k, $rd",
+                     [store i8:$rd, imm:$k]>,
+               Requires<[HasTinyEncoding]>;
+
 // Indirect loads.
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
@@ -1274,6 +1288,19 @@ def STSKRr : F32DM<0b1,
                    "sts\t$k, $rd",
                    [(store i8:$rd, imm:$k)]>,
              Requires<[HasSRAM]>;
+
+// Indirect store from register to data space.
+// FIXME:
+// - make this a physical instruction (not a pseudo)
+// - map r0..r15 onto r16..r31 so that the numbers match up.
+// - do weird MSB inversion as specified in datsheet
+// encoding:
+def STS16KRr : FIO16<1,
+                     (outs),
+                     (ins uimm7:$k, GPR8hi:$rd),
+                     "sts\t$k, $rd",
+                     [store i8:$rd, imm:$k]>,
+               Requires<[HasTinyEncoding]>;
 
 // STSW K+1:K, Rr+1:Rr
 //

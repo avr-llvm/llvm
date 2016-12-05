@@ -130,6 +130,13 @@ def GPR8lo : RegisterClass<"AVR", [i8], 8,
     add R15, R14, R13, R12, R11, R10, R9, R8, R7, R6, R5, R4, R3, R2, R0, R1
   )>;
 
+// Upper registers r0..r15
+def GPR8hi : RegisterClass<"AVR", [i8], 8,
+  (
+    add R16, R17, R18, R19, R20, R21, R22, R23,
+        R24, R25, R26, R27, R28, R29, R30, R31
+  )>;
+
 // 8-bit register class for instructions which take immediates.
 def LD8 : RegisterClass<"AVR", [i8], 8,
   (
