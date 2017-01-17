@@ -212,6 +212,9 @@ AVRTargetLowering::AVRTargetLowering(AVRTargetMachine &tm)
   setLibcallName(RTLIB::SIN_F32, "sin");
   setLibcallName(RTLIB::COS_F32, "cos");
 
+  // Custom names for libgcc/compiler_rt functions
+  setLibcallName(RTLIB::UDIV_I8,  "__divmodhi4");
+
   setMinFunctionAlignment(1);
   setMinimumJumpTableEntries(INT_MAX);
 }
